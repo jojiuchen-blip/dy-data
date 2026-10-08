@@ -120,8 +120,11 @@ def _first_time(payload: Mapping[str, Any] | None, *keys: str) -> datetime | Non
                 continue
         raw = str(value).strip().replace("Z", "+00:00")
         try:
+            if raw.isdigit():
+                numeric = int(raw)
+                return datetime.fromtimestamp(numeric / 1000 if numeric > 10_000_000_000 else numeric, tz=timezone.utc)
             return _aware(datetime.fromisoformat(raw))
-        except ValueError:
+        except (OverflowError, OSError, ValueError):
             continue
     return None
 

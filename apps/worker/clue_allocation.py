@@ -18,6 +18,11 @@ from sqlalchemy import and_, delete, exists, func, insert, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from apps.api.dy_api.clue_followup_metrics import (
+    FOLLOW_UP_METRIC_VERSION, TerminalEvidence, bulk_evaluate_clue_followup_metrics,
+    load_terminal_evidence,
+)
+
 from apps.api.dy_api.models import (
     ClueAllocationRuleVersion,
     ClueAssignmentRound,
@@ -39,6 +44,7 @@ from apps.api.dy_api.models import (
     RawDouyinClue,
     RawDouyinOrder,
     RawDouyinOrderCoupon,
+    RawDouyinVerifyRecord,
     SettlementOrderDetail,
     SettlementProjectionActive,
     SettlementProjectionGeneration,
@@ -122,16 +128,6 @@ class StoreMetrics:
     conversion_denominator: int = 0
     follow_24h_numerator: int = 0
     follow_24h_denominator: int = 0
-
-    def add(self, *, converted: bool, followed_within_24h: bool, has_full_follow_up_opportunity: bool) -> None:
-        self.conversion_denominator += 1
-        if converted:
-            self.conversion_numerator += 1
-        if has_full_follow_up_opportunity:
-            self.follow_24h_denominator += 1
-        if has_full_follow_up_opportunity and followed_within_24h:
-            self.follow_24h_numerator += 1
-
 
 @dataclass(frozen=True)
 class StoreScoreConfig:
@@ -229,7 +225,8 @@ def materialize_clue_master_leads(
     with session.no_autoflush:
         raw_orders = _raw_orders_by_id(session, selected_order_ids)
         coupon_statuses_by_order = _coupon_statuses_by_order(session, selected_order_ids)
-        verified_at_by_order = _verified_at_by_order(session, selected_order_ids)
+        verified_at_by_order = _verified_at_by_order(session, selected_order_ids, now=now)
+        terminal_by_order = load_terminal_evidence(session, selected_order_ids, observed_through=now, include_raw_clues=False)
         if incremental:
             mappings_by_poi, stores_by_id = _bounded_location_context(
                 session,
@@ -535,6 +532,17 @@ def materialize_clue_master_leads(
                     if locked_round is not None:
                         locked_rounds_by_id[locked_round.assignment_round_id] = locked_round
         observed_at = _observed_at(raw_clue, now)
+        # Source freshness and order lifecycle are independent clocks.
+        resolution = _resolve_status(
+            raw_clue, raw_orders.get(order_id or ""),
+            verified_at_by_order.get(order_id or ""), now,
+            coupon_statuses_by_order.get(order_id or "", ()),
+        )
+        terminal = terminal_by_order.get(order_id or "")
+        resolution = _resolution_with_terminal_evidence(resolution, terminal)
+        status_observed_at = _status_observed_at(raw_clue, raw_orders.get(order_id or ""), now)
+        if terminal is not None and terminal.is_terminal and terminal.observed_at is not None:
+            status_observed_at = max(status_observed_at, _aware(terminal.observed_at))
         if (
             incremental
             and existing is not None
@@ -555,26 +563,22 @@ def materialize_clue_master_leads(
                 history_by_key=identifier_history_by_key,
                 current_by_source_type=current_identifier_history_by_source_type,
             )
+            if order_id and _apply_independent_status_evidence(
+                session, existing, resolution, status_observed_at, now,
+                current_rounds_by_id=current_rounds_by_id,
+                known_event_ids=status_event_ids,
+            ):
+                materialized_lead_keys.add(existing.lead_key)
+                if existing.lifecycle_status in {"closed_verified", "closed_refunded", "closed_order"}:
+                    closed_lead_keys.add(existing.lead_key)
             continue
         is_new_master = existing is None
-        resolution = _resolve_status(
-            raw_clue,
-            raw_orders.get(order_id or ""),
-            verified_at_by_order.get(order_id or ""),
-            now,
-            coupon_statuses_by_order.get(order_id or "", ()),
-        )
         anchor = _resolve_anchor(raw_clue, mappings_by_poi, stores_by_id)
         is_isolated_source = order_id is None
         lifecycle_status = (
             "isolated" if is_isolated_source else _lifecycle_status(resolution.normalized_status)
         )
 
-        status_observed_at = _status_observed_at(
-            raw_clue,
-            raw_orders.get(order_id or ""),
-            now,
-        )
         if existing is None:
             lead_key = _lead_key(source_identity_key)
             existing = ClueMasterLead(
@@ -924,7 +928,7 @@ def refresh_unknown_clue_master_statuses(
             }
             raw_orders = _raw_orders_by_id(session, order_ids)
             coupon_statuses_by_order = _coupon_statuses_by_order(session, order_ids)
-            verified_at_by_order = _verified_at_by_order(session, order_ids)
+            verified_at_by_order = _verified_at_by_order(session, order_ids, now=now)
             event_ids = set(
                 session.scalars(
                     select(ClueOrderStatusEvent.event_id).where(
@@ -2024,6 +2028,7 @@ def _score_sparse_contract(
 ) -> dict[str, object]:
     return {
         "protocol": SCORE_SPARSE_PROTOCOL,
+        "follow_up_metric_version": FOLLOW_UP_METRIC_VERSION,
         "projection": "settlement",
         "operation": "build_score_sparse_overlay",
         "generation_id": generation_id,
@@ -2140,6 +2145,7 @@ def _score_sparse_run_payload(
 ) -> dict[str, object]:
     return {
         "protocol": SCORE_SPARSE_PROTOCOL,
+        "follow_up_metric_version": FOLLOW_UP_METRIC_VERSION,
         "mode": "projection_sparse",
         "generation_id": generation.generation_id,
         "parent_generation_id": base_generation_id,
@@ -2192,6 +2198,7 @@ def _score_sparse_materialize_run(
         "lookback_days": score_config.lookback_days,
         "min_samples": score_config.min_samples,
         "execution_mode": "formal",
+        "follow_up_metric_version": FOLLOW_UP_METRIC_VERSION,
         "conversion_weight": str(score_config.conversion_weight),
         "follow_24h_weight": str(score_config.follow_weight),
         "store_weight": str(score_config.store_weight),
@@ -2765,7 +2772,7 @@ def refresh_store_score_snapshots(
     triggered_by: str | None = None,
     _scheduled_lock_acquired: bool = False,
 ) -> dict[str, object]:
-    """Create an immutable score run for eligible stores using only formal, mature rounds.
+    """Create an immutable score run for eligible stores using formal rounds with metric-specific observation windows.
 
     A version-bound run takes every scoring setting from that immutable rule
     version. The unbound configuration remains only for legacy/manual callers;
@@ -2800,6 +2807,7 @@ def refresh_store_score_snapshots(
         "lookback_days": score_config.lookback_days,
         "min_samples": score_config.min_samples,
         "execution_mode": "formal",
+        "follow_up_metric_version": FOLLOW_UP_METRIC_VERSION,
         "conversion_weight": str(score_config.conversion_weight),
         "follow_24h_weight": str(score_config.follow_weight),
         "store_weight": str(score_config.store_weight),
@@ -2988,7 +2996,7 @@ def _score_rule_version_ids_for_refresh(session: Session) -> list[str]:
 
 def _scheduled_score_refresh_key(snapshot_date: date, rule_version_id: str | None) -> str:
     target = rule_version_id or "legacy"
-    return f"scheduled-{snapshot_date.isoformat()}-{target}"
+    return f"scheduled-{snapshot_date.isoformat()}-{target}-{FOLLOW_UP_METRIC_VERSION}"
 
 
 def _master_order_is_compatible(master: ClueMasterLead, order_id: str | None) -> bool:
@@ -3232,6 +3240,107 @@ def _upsert_source_record_link(
     return link
 
 
+def _resolution_with_terminal_evidence(
+    resolution: StatusResolution, terminal: TerminalEvidence | None,
+) -> StatusResolution:
+    if terminal is None or not terminal.is_terminal:
+        return resolution
+    return StatusResolution(raw_status=resolution.raw_status, normalized_status=terminal.kind,
+        status_source=terminal.source or "order", closed_at=terminal.terminal_at or resolution.closed_at)
+
+
+def refresh_terminal_evidence_for_locked_lead(
+    session: Session, lead: ClueMasterLead, *, now: datetime,
+    terminal: TerminalEvidence | None = None,
+) -> bool:
+    """Fence operations against terminal raw evidence even before projection catches up.
+
+    Caller holds the master lock. Keep lock order master -> round -> center.
+    No source records, assignment identities or follow-up history are rewritten.
+    """
+    if not lead.order_id:
+        return False
+    if terminal is None:
+        terminal = load_terminal_evidence(session, {lead.order_id}, observed_through=now).get(lead.order_id)
+    if terminal is None or not terminal.is_terminal:
+        return False
+    round_id = lead.current_assignment_round_id
+    if not round_id:
+        round_id = session.scalar(select(ClueCenterOrder.current_assignment_round_id).where(
+            ClueCenterOrder.order_id == lead.order_id))
+    round_row = lock_clue_assignment_round_for_update(session, round_id) if round_id else None
+    center = lock_clue_center_order_for_update(session, lead.order_id)
+    owned_round = (round_row is not None and round_row.lead_key == lead.lead_key
+        and round_row.order_id == lead.order_id)
+    rounds = {round_row.assignment_round_id: round_row} if owned_round else {}
+    resolution = StatusResolution(raw_status=lead.raw_order_status, normalized_status=terminal.kind,
+        status_source=terminal.source or "order", closed_at=terminal.terminal_at or lead.closed_at or now)
+    # An active projection may carry a later order fetch clock than definitive
+    # coupon/refund evidence. Preserve the effective clock while reconciling
+    # terminal state; a newer active fetch must not keep the order actionable.
+    observed_at = max(filter(None, (_aware(terminal.observed_at),
+        _aware(lead.order_status_observed_at))), default=now)
+    if _apply_independent_status_evidence(session, lead, resolution, observed_at, now, current_rounds_by_id=rounds):
+        close_current_headquarters_pool_entry(session, lead.lead_key,
+            closed_at=lead.closed_at or now, close_reason=lead.closed_reason or "order_closed")
+        _close_current_assignment(session, lead.order_id, lead.lifecycle_status, lead.closed_at or now,
+            current_assignment_round_id=lead.current_assignment_round_id,
+            current_rounds_by_id=rounds, center_orders_by_id={lead.order_id: center} if center else {})
+        session.flush()
+    return True
+
+
+def _apply_independent_status_evidence(
+    session: Session,
+    lead: ClueMasterLead,
+    resolution: StatusResolution,
+    observed_at: datetime,
+    now: datetime,
+    *,
+    current_rounds_by_id: dict[str, ClueAssignmentRound] | None = None,
+    known_event_ids: set[str] | None = None,
+) -> bool:
+    """Refresh order state without overwriting stale clue identity/location."""
+    if not _accepts_status_evidence(lead, incoming_status=resolution.normalized_status, observed_at=observed_at):
+        return False
+    before = _master_state_signature(lead)
+    status_changed = (lead.raw_order_status, lead.normalized_order_status, lead.status_source) != (
+        resolution.raw_status, resolution.normalized_status, resolution.status_source,
+    )
+    lifecycle = _lifecycle_status(resolution.normalized_status)
+    terminal = lifecycle in {"closed_verified", "closed_refunded", "closed_order"}
+    lead.raw_order_status = resolution.raw_status
+    lead.normalized_order_status = resolution.normalized_status
+    lead.status_source = resolution.status_source
+    lead.order_status_observed_at = observed_at
+    lead.lifecycle_status = lifecycle
+    if terminal:
+        lead.pool_location = "closed"
+        lead.allocation_state = "closed"
+        lead.closed_at = resolution.closed_at
+        lead.closed_reason = _closed_reason(resolution.normalized_status)
+        lead.ended_without_assignment = lead.current_assignment_round_id is None and lead.allocation_cycle_id is None
+    elif lifecycle == "status_review":
+        lead.pool_location, lead.allocation_state = "status_review", "status_review"
+    elif status_changed:
+        current_round = _active_self_owned_current_round(session, lead, current_rounds_by_id=current_rounds_by_id)
+        if current_round is not None:
+            lead.pool_location, lead.allocation_state = "store_follow_up_pool", "assigned"
+        elif lead.pool_location == "headquarters_pool" or lead.anchor_unavailable_reason:
+            lead.pool_location, lead.allocation_state = "headquarters_pool", "headquarters"
+        else:
+            lead.pool_location, lead.allocation_state = None, "pending_allocation"
+    changed = before != _master_state_signature(lead)
+    if changed:
+        lead.state_version = max(lead.state_version or 1, 1) + 1
+        lead.updated_at = now
+    if status_changed:
+        _record_status_event(session, lead_key=lead.lead_key, order_id=lead.order_id,
+            resolution=resolution, observed_at=observed_at, created_at=now, known_event_ids=known_event_ids)
+    # Reconcile old terminal masters whose projections still have active rounds.
+    return changed or terminal
+
+
 def _accepts_status_evidence(
     lead: ClueMasterLead,
     *,
@@ -3262,6 +3371,7 @@ def _master_state_signature(lead: ClueMasterLead) -> tuple[object, ...]:
         lead.allocation_cycle_id,
         lead.ended_without_assignment,
         lead.closed_reason,
+        _aware(lead.closed_at),
         lead.is_complete_pool,
         lead.anchor_poi_id,
         lead.anchor_store_id,
@@ -3606,7 +3716,7 @@ def _coupon_statuses_by_order(
     return values
 
 
-def _verified_at_by_order(session: Session, order_ids: set[str]) -> dict[str, datetime]:
+def _verified_at_by_order(session: Session, order_ids: set[str], *, now: datetime | None = None) -> dict[str, datetime]:
     if not order_ids:
         return {}
     values: dict[str, datetime] = {}
@@ -3619,6 +3729,16 @@ def _verified_at_by_order(session: Session, order_ids: set[str]) -> dict[str, da
             .where(SettlementOrderDetail.order_id.in_(order_id_batch))
             .where(SettlementOrderDetail.is_verified.is_(True))
             .where(SettlementOrderDetail.verify_time.is_not(None))
+            .where(~exists(select(RawDouyinVerifyRecord.verify_id).where(
+                RawDouyinVerifyRecord.cancel_time.is_not(None),
+                RawDouyinVerifyRecord.cancel_time <= (now or utcnow()),
+                or_(RawDouyinVerifyRecord.source_observed_at.is_(None),
+                    RawDouyinVerifyRecord.source_observed_at <= (now or utcnow())),
+                or_(RawDouyinVerifyRecord.verify_id == SettlementOrderDetail.verify_id,
+                    and_(SettlementOrderDetail.verify_id.is_(None),
+                        RawDouyinVerifyRecord.coupon_id == SettlementOrderDetail.coupon_id,
+                        RawDouyinVerifyRecord.cancel_time >= SettlementOrderDetail.verify_time)),
+            )))
             .group_by(SettlementOrderDetail.order_id)
         ).all()
         for order_id, verify_time in rows:
@@ -4532,62 +4652,48 @@ def _formal_store_metrics(
     window_start: datetime,
     window_end: datetime,
 ) -> dict[str, StoreMetrics]:
+    """Keep conversion maturity samples; count follow-up from assignment time."""
     store_ids = {store.store_id for store in stores}
-    rows = session.scalars(
-        select(ClueAssignmentRound)
-        .where(ClueAssignmentRound.execution_mode == "formal")
-        .where(ClueAssignmentRound.matured_at.is_not(None))
-        .where(ClueAssignmentRound.matured_at >= window_start)
-        .where(ClueAssignmentRound.matured_at <= window_end)
-        .where(ClueAssignmentRound.assigned_store_id.in_(store_ids))
-    ).all()
+    rows = session.scalars(select(ClueAssignmentRound).where(
+        ClueAssignmentRound.execution_mode == "formal",
+        ClueAssignmentRound.assigned_store_id.in_(store_ids),
+        or_(
+            and_(ClueAssignmentRound.matured_at >= window_start, ClueAssignmentRound.matured_at <= window_end),
+            and_(ClueAssignmentRound.assigned_at >= window_start, ClueAssignmentRound.assigned_at <= window_end),
+        ),
+    )).all()
     metrics_by_store: dict[str, StoreMetrics] = defaultdict(StoreMetrics)
     if not rows:
         return metrics_by_store
-    round_ids = {row.assignment_round_id for row in rows}
     order_ids = {row.order_id for row in rows}
-    follow_rows = session.scalars(
-        select(ClueFollowUpRecord).where(ClueFollowUpRecord.assignment_round_id.in_(round_ids))
-    ).all()
-    follows_by_round: dict[str, list[ClueFollowUpRecord]] = defaultdict(list)
-    for row in follow_rows:
-        follows_by_round[row.assignment_round_id].append(row)
-    verify_rows = session.execute(
-        select(SettlementOrderDetail.order_id, SettlementOrderDetail.verify_time)
-        .where(SettlementOrderDetail.order_id.in_(order_ids))
-        .where(SettlementOrderDetail.is_verified.is_(True))
-    ).all()
+    follow_metrics = bulk_evaluate_clue_followup_metrics(
+        session, order_ids, round_rows=rows, observed_through=window_end,
+    )
     verifies_by_order: dict[str, list[datetime | None]] = defaultdict(list)
-    for order_id, verify_time in verify_rows:
+    for order_id, verify_time in session.execute(select(
+        SettlementOrderDetail.order_id, SettlementOrderDetail.verify_time,
+    ).where(SettlementOrderDetail.order_id.in_(order_ids), SettlementOrderDetail.is_verified.is_(True))).all():
         verifies_by_order[order_id].append(_aware(verify_time))
     all_formal_rounds_by_order: dict[str, list[ClueAssignmentRound]] = defaultdict(list)
-    for formal_round in session.scalars(
-        select(ClueAssignmentRound)
-        .where(ClueAssignmentRound.execution_mode == "formal")
-        .where(ClueAssignmentRound.order_id.in_(order_ids))
-    ).all():
-        all_formal_rounds_by_order[formal_round.order_id].append(formal_round)
-
-    for round_row in rows:
-        assigned_at = _aware(round_row.assigned_at)
-        if not round_row.assigned_store_id or assigned_at is None:
+    for row in session.scalars(select(ClueAssignmentRound).where(
+        ClueAssignmentRound.execution_mode == "formal", ClueAssignmentRound.order_id.in_(order_ids),
+    )).all():
+        all_formal_rounds_by_order[row.order_id].append(row)
+    for row in rows:
+        assigned_at = _aware(row.assigned_at)
+        if not row.assigned_store_id or assigned_at is None:
             continue
-        followed = _has_follow_within_24_hours(follows_by_round.get(round_row.assignment_round_id, []), assigned_at)
-        converted = _has_verification_attributed_to_round(
-            round_row,
-            verifies_by_order.get(round_row.order_id, []),
-            all_formal_rounds_by_order.get(round_row.order_id, []),
-        )
-        has_full_follow_up_opportunity = not _completed_within_24_hours(
-            round_row,
-            verifies_by_order.get(round_row.order_id, []),
-            assigned_at,
-        )
-        metrics_by_store[round_row.assigned_store_id].add(
-            converted=converted,
-            followed_within_24h=followed,
-            has_full_follow_up_opportunity=has_full_follow_up_opportunity,
-        )
+        own = metrics_by_store[row.assigned_store_id]
+        matured_at = _aware(row.matured_at)
+        if matured_at is not None and window_start <= matured_at <= window_end:
+            own.conversion_denominator += 1
+            if _has_verification_attributed_to_round(row, verifies_by_order.get(row.order_id, []),
+                    all_formal_rounds_by_order.get(row.order_id, [])):
+                own.conversion_numerator += 1
+        if window_start <= assigned_at <= window_end:
+            metric = follow_metrics[row.assignment_round_id]
+            own.follow_24h_numerator += metric.numerator
+            own.follow_24h_denominator += metric.denominator
     return metrics_by_store
 
 
@@ -4606,22 +4712,6 @@ def _aggregate_city_metrics(
         target.follow_24h_numerator += metric.follow_24h_numerator
         target.follow_24h_denominator += metric.follow_24h_denominator
     return result
-
-
-def _completed_within_24_hours(
-    round_row: ClueAssignmentRound,
-    verification_times: list[datetime | None],
-    assigned_at: datetime,
-) -> bool:
-    cutoff = assigned_at + timedelta(hours=24)
-    for candidate in [round_row.verified_at, *verification_times]:
-        completed_at = _aware(candidate)
-        if completed_at is not None and assigned_at <= completed_at <= cutoff:
-            return True
-    if round_row.terminal_reason in {"order_verified", "order_refunded"}:
-        completed_at = _aware(round_row.matured_at)
-        return completed_at is not None and assigned_at <= completed_at <= cutoff
-    return False
 
 
 def _sum_metrics(metrics: object) -> StoreMetrics:
@@ -4651,17 +4741,6 @@ def _resolved_rate(
         if denominator >= min_samples:
             return (Decimal(numerator) / Decimal(denominator)).quantize(Decimal("0.000001")), source
     return Decimal("0"), "cold_start_empty"
-
-
-def _has_follow_within_24_hours(records: list[ClueFollowUpRecord], assigned_at: datetime | None) -> bool:
-    assigned_at = _aware(assigned_at)
-    if assigned_at is None:
-        return False
-    deadline = assigned_at + timedelta(hours=24)
-    return any(
-        (created_at := _aware(record.created_at)) is not None and assigned_at <= created_at <= deadline
-        for record in records
-    )
 
 
 def _has_verification_attributed_to_round(

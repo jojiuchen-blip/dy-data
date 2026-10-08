@@ -293,6 +293,8 @@ def calculate_snapshot(
     for row in selected:
         at, version = utc(row.assigned_at), versions.get(_lead(row))
         metric = follow_metrics[row.assignment_round_id]
+        if metric.reason_code == "terminal_time_unknown":
+            quality["terminal_time_unknown"] += 1
         evidence = list(metric.follow_record_ids)
         add("follow_24h", row.assignment_round_id, row.assigned_store_id, version, at,
             metric.numerator, metric.denominator, {"order_id": row.order_id, "lead_key": _lead(row),

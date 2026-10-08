@@ -182,7 +182,7 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
         <>
           <section className="metric-grid metric-grid--three">
             <MetricCard label="抖音订单量" value={formatInteger(totals?.orderCount ?? 0)} meta={`店均 ${displayAverage(totals?.orderAverage)} · ${sourceLabel}`} description={`门店及所属职人的全渠道${productLabel}订单，按订单 ID 去重；订单量和店均统一按统计开始日组织归属，适用门店名单保持原有精诚养车名单口径，含零销量门店。`} />
-            <MetricCard label="线索24小时有效跟进率" value={displayRate(totals?.follow24hRate)} meta={<><div>有效 {formatInteger(totals?.followNumerator ?? 0)} / 分配 {formatInteger(totals?.followDenominator ?? 0)}</div><small title="正式分配后截至数据更新时间已有有效跟进的轮次占比，不限制在24小时内；每轮只计一次，仅供辅助判断。">跟进率 {displayRate(totals?.followRate)}</small></>} description={`${productLabel}对应的正式分配线索，在分配后 24 小时内完成真实联系并在系统回填。`} />
+            <MetricCard label="线索24小时有效跟进率" value={displayRate(totals?.follow24hRate)} meta={<><div>有效 {formatInteger(totals?.followNumerator ?? 0)} / 分配 {formatInteger(totals?.followDenominator ?? 0)}</div><small title="正式分配后截至数据更新时间已有有效跟进的轮次占比，不限制在24小时内；每轮只计一次，仅供辅助判断。">跟进率 {displayRate(totals?.followRate)}</small></>} description={`${productLabel}对应的正式分配线索，从分配给门店时起算，未满 24 小时也计入；24 小时内核销视为有效跟进，退款前未跟进的早期退款轮次不计入。`} />
             <MetricCard label="抖音订单核销率" value={displayRate(totals?.verificationRate)} meta={`核销 ${formatInteger(totals?.verificationNumerator ?? 0)} / 关联 ${formatInteger(totals?.verificationDenominator ?? 0)}`} description={`正式分配给本店的${productLabel}线索关联订单中，在本店成功核销的比例；上级组织汇总各店分子和分母。`} />
           </section>
           <section className="content-section">

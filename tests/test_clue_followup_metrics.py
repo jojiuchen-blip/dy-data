@@ -513,3 +513,14 @@ def test_same_coupon_settlement_verification_matches_cancellation_by_id_then_tim
         assert {item.verify_id for item in full.verifications} == {expected_id}
     else:
         assert full.verifications == ()
+
+
+@pytest.mark.parametrize("scale", [1, 1000])
+def test_refund_certificate_numeric_string_preserves_business_time(db_session, scale):
+    refunded_at = AT + timedelta(hours=4)
+    db_session.add(RawDouyinOrder(order_id="O", order_status="1", source_observed_at=CUTOFF,
+        raw_payload={"certificate": [{"item_status": 301, "refund_time": str(int(refunded_at.timestamp() * scale))}]}))
+    db_session.commit()
+    terminal = load_terminal_evidence(db_session, {"O"}, observed_through=CUTOFF)["O"]
+    assert terminal.kind == "refunded"
+    assert terminal.terminal_at == refunded_at

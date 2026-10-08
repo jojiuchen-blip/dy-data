@@ -216,6 +216,7 @@ def test_missing_center_repair_does_not_use_an_older_terminal_snapshot(db_sessio
     factory = setup(db_session)
     lead = _lead("old-snapshot", order_id="order-old-snapshot")
     lead.last_seen_at = NOW
+    lead.order_status_observed_at = NOW
     lead.last_observation_key = "newer-observation"
     db_session.add_all(
         [
@@ -229,7 +230,8 @@ def test_missing_center_repair_does_not_use_an_older_terminal_snapshot(db_sessio
                 observation_key="older-observation",
                 raw_payload={},
             ),
-            RawDouyinOrder(order_id=lead.order_id, order_status="300", raw_payload={}),
+            RawDouyinOrder(order_id=lead.order_id, order_status="300", raw_payload={},
+                source_observed_at=NOW - timedelta(days=1), updated_at=NOW - timedelta(days=1)),
         ]
     )
     db_session.commit()

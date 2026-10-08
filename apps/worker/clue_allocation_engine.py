@@ -9,6 +9,7 @@ from typing import Any, Mapping
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from apps.api.dy_api.clue_followup_metrics import TerminalEvidence, load_terminal_evidence
 
 from apps.api.dy_api.models import (
     ClueAllocationDecision,
@@ -29,6 +30,7 @@ from apps.worker.clue_allocation import (
     lock_clue_master_for_update,
     lock_clue_masters_for_update,
     normalize_city_code,
+    refresh_terminal_evidence_for_locked_lead,
 )
 from apps.worker.clue_headquarters_pool import (
     close_current_headquarters_pool_entry,
@@ -63,6 +65,7 @@ class AllocationResult:
 
 @dataclass
 class _AllocationBatchContext:
+    terminal_by_order: dict[str, TerminalEvidence] = field(default_factory=dict)
     stores: list[DimStore] | None = None
     stores_by_id: dict[str, DimStore] = field(default_factory=dict)
     stores_by_city: dict[str, list[DimStore]] = field(default_factory=dict)
@@ -104,6 +107,10 @@ def allocate_lead(
     if lead is None:
         raise ValueError("clue master lead was not found")
     refresh_dirty_rounds_for_locked_leads(session, (lead.lead_key,))
+    terminal = _batch_context.terminal_by_order.get(lead.order_id) if _batch_context is not None else None
+    if refresh_terminal_evidence_for_locked_lead(session, lead, now=executed_at, terminal=terminal):
+        return AllocationResult(lead_key=lead.lead_key, status="skipped", reason="order_already_terminal",
+            selected_store_id=None, assignment_round_id=None)
     if lead.lifecycle_status != "active" or lead.normalized_order_status != "active":
         return AllocationResult(
             lead_key=lead.lead_key,
@@ -527,6 +534,10 @@ def allocate_leads(
     )
     if missing is not None:
         raise ValueError("clue master lead was not found")
+    batch_context.terminal_by_order = load_terminal_evidence(
+        session, {lead.order_id for lead in locked_masters.values() if lead.order_id},
+        observed_through=_aware(now or utcnow()),
+    )
     results: dict[int, AllocationResult] = {}
     for index, _lead_key in sorted(indexed_keys, key=lambda pair: normalized_keys[pair[0]]):
         results[index] = allocate_lead(

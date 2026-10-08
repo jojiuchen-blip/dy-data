@@ -1,3 +1,16 @@
+# 当前发布：线索终态与24小时规则（2026-10-08）
+
+- 当前正式计划：[线索终态与跟进规则](delivery-plans/main-delivery-plan-clue-terminal-followup.md)。
+- 当前 Task：T0.1，进行中（代码完成，用户已授权合并main、推送、部署）。
+- 补齐隔离PostgreSQL行锁验证，现有发布流水线全仓回归通过后部署并进行线上验收。
+
+# 当前增量：线索终态与24小时跟进规则（2026-10-08）
+
+- 用户要求两项一起开发完成；沿用跳过 Linear 授权。
+- 当前阶段 S4；[主计划](delivery-plans/main-delivery-plan-clue-terminal-followup.md)、[T0.1](delivery-plans/sub-delivery-plan-clue-terminal-followup-T0.1.md)。
+- 已实现终态独立刷新、跟进/分配入口保护、默认预演的历史修复工具，以及排行榜/门店评分共享的分配起算规则；T0.1 开发完成。最终专项254通过，全量3313通过/178跳过/2失败，失败修正后复验2通过；构建通过。[验收记录](../devlog/20261008_clue_terminal_followup.md)。
+- 本轮仅开发与测试；未部署、未执行生产历史修复。发布时须重建新版本排行榜/评分快照。
+
 # 当前增量：DYDATA-101 激活前指南提醒（2026-09-29）
 
 - 用户已验收并授权发布；[主计划](delivery-plans/main-delivery-plan-activation-guide-reminder.md)，T0.1已完成。

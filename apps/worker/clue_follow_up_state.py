@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from apps.api.dy_api.clue_followup_metrics import load_terminal_evidence
 
 from apps.api.dy_api.models import ClueAssignmentRound, ClueCenterOrder, ClueFollowUpRecord, ClueMasterLead
 from src.dy_data.clue_access import can_access_clue_store
@@ -55,6 +56,10 @@ def apply_follow_up_action(
     if not _actor_can_operate_round(round_row, actor):
         return FollowUpStateResult("forbidden")
     executed_at = _aware(now)
+    from apps.worker.clue_allocation import refresh_terminal_evidence_for_locked_lead
+
+    if refresh_terminal_evidence_for_locked_lead(session, lead, now=executed_at):
+        return FollowUpStateResult("conflict")
     if lead.normalized_order_status in TERMINAL_ORDER_STATUSES:
         if not _is_current_self_owned_round(lead, round_row):
             return FollowUpStateResult("conflict")
@@ -92,16 +97,25 @@ def process_due_transitions(session: Session, *, now: datetime | None = None) ->
 
     processed_at = _aware(now)
     stats = {"sla_expired": 0, "protection_expired": 0, "terminal_closed": 0}
-    round_ids = session.scalars(
-        select(ClueAssignmentRound.assignment_round_id)
+    round_refs = session.execute(
+        select(ClueAssignmentRound.assignment_round_id, ClueAssignmentRound.order_id)
         .where(ClueAssignmentRound.execution_mode == BUSINESS_EXECUTION_MODE)
         .where(ClueAssignmentRound.round_status.in_(ACTIVE_ROUND_STATUSES))
         .order_by(ClueAssignmentRound.lead_key, ClueAssignmentRound.assignment_round_id)
         .execution_options(autoflush=False)
     ).all()
-    for round_id in round_ids:
+    terminal_by_order = load_terminal_evidence(
+        session, {order_id for _, order_id in round_refs}, observed_through=processed_at,
+    )
+    from apps.worker.clue_allocation import refresh_terminal_evidence_for_locked_lead
+
+    for round_id, _ in round_refs:
         round_row, lead = _locked_round_state(session, round_id)
         if round_row is None or lead is None or not _is_current_self_owned_round(lead, round_row):
+            continue
+        if refresh_terminal_evidence_for_locked_lead(session, lead, now=processed_at,
+                terminal=terminal_by_order.get(round_row.order_id)):
+            stats["terminal_closed"] += 1
             continue
         if lead.normalized_order_status in TERMINAL_ORDER_STATUSES:
             _close_for_terminal_order(lead, round_row, processed_at, session)
@@ -403,13 +417,14 @@ def _close_for_terminal_order(
     round_row.terminal_reason = (
         "order_verified" if verified else "order_refunded" if refunded else "order_closed"
     )
-    round_row.matured_at = now
+    closed_at = _aware(lead.closed_at) if lead.closed_at is not None else now
+    round_row.matured_at = closed_at
     round_row.updated_at = now
     lead.lifecycle_status = "closed_verified" if verified else "closed_refunded" if refunded else "closed_order"
     lead.pool_location = "closed"
     lead.allocation_state = "closed"
     lead.current_assignment_round_id = None
-    lead.closed_at = now
+    lead.closed_at = closed_at
     lead.closed_reason = round_row.terminal_reason
     lead.updated_at = now
     center = _locked_center(session, round_row.order_id)

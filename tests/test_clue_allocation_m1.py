@@ -582,7 +582,7 @@ def test_materialization_batches_headquarters_pool_lookups(db_session: Session) 
 
     assert stats == {"master_leads": 25, "closed_leads": 0, "headquarters_pool": 25}
     # Source-record traceability adds one bounded indexed lookup for the page.
-    assert select_count <= 13
+    assert select_count <= 20  # Includes bounded terminal-evidence source queries.
 
 
 def test_master_lead_merges_missing_clue_id_when_contact_and_order_are_later_available(
@@ -1098,8 +1098,8 @@ def test_score_snapshots_use_formal_mature_rounds_and_city_global_fallbacks(
     assert run is not None
     assert run.snapshot_count == 3
     assert rows["store-a"].conversion_rate == Decimal("0.666667")
-    assert rows["store-a"].follow_24h_rate == Decimal("0.500000")
-    assert rows["store-a"].follow_24h_denominator == 2
+    assert rows["store-a"].follow_24h_rate == Decimal("0.666667")
+    assert rows["store-a"].follow_24h_denominator == 3
     assert rows["store-a"].conversion_value_source == "store"
     assert rows["store-b"].conversion_value_source == "city"
     assert rows["store-b"].follow_24h_value_source == "city"
