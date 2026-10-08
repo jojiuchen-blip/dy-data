@@ -456,3 +456,60 @@ def test_coupon_only_verified_evidence_is_terminal_without_business_time(db_sess
         assert evidence.terminal_at is None
         assert evidence.observed_at == AT + timedelta(hours=2)
         assert evidence.source == "coupon"
+
+
+@pytest.mark.parametrize(
+    ("settlement_verify_id", "settlement_verify_at", "expected_terminal"),
+    [
+        ("VERIFY-NEW", AT + timedelta(hours=3), True),
+        (None, AT + timedelta(hours=3), True),
+        (None, AT + timedelta(hours=1), False),
+    ],
+)
+def test_same_coupon_settlement_verification_matches_cancellation_by_id_then_time(
+    db_session,
+    settlement_verify_id: str | None,
+    settlement_verify_at: datetime,
+    expected_terminal: bool,
+) -> None:
+    db_session.add_all(
+        [
+            RawDouyinOrderCoupon(
+                coupon_id="C-REUSED",
+                order_id="O",
+                raw_order_id=1,
+                coupon_status="unused",
+                coupon_status_normalized="available",
+                source_observed_at=AT,
+            ),
+            RawDouyinVerifyRecord(
+                verify_id="VERIFY-OLD",
+                coupon_id="C-REUSED",
+                verify_status="success",
+                verify_time=AT + timedelta(hours=1),
+                cancel_time=AT + timedelta(hours=2),
+                source_observed_at=AT + timedelta(hours=2),
+            ),
+            SettlementOrderDetail(
+                coupon_id="C-REUSED",
+                order_id="O",
+                product_type="maintenance",
+                verify_id=settlement_verify_id,
+                is_verified=True,
+                verify_time=settlement_verify_at,
+                updated_at=settlement_verify_at,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    full = load_clue_followup_evidence(db_session, {"O"}, observed_through=CUTOFF)["O"]
+    terminal_only = load_terminal_evidence(db_session, {"O"}, observed_through=CUTOFF)["O"]
+    assert (full.terminal.kind == "verified") is expected_terminal
+    assert (terminal_only.kind == "verified") is expected_terminal
+    if expected_terminal:
+        expected_id = settlement_verify_id or "C-REUSED"
+        assert full.terminal.evidence_ids == (expected_id,)
+        assert {item.verify_id for item in full.verifications} == {expected_id}
+    else:
+        assert full.verifications == ()

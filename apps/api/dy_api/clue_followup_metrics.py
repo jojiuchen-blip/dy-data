@@ -513,6 +513,32 @@ def _is_full_completed_refund(row: Any) -> bool:
     return refund_type in FULL_REFUND_TYPES or refund_type is None
 
 
+def _settlement_verification_is_canceled(
+    row: Any,
+    *,
+    verified_at: datetime,
+    canceled_verify_ids: set[str],
+    canceled_coupon_cancel_times: Mapping[str, Sequence[datetime]],
+) -> bool:
+    """Match cancellation evidence to one settlement verification.
+
+    A populated settlement ``verify_id`` is authoritative: only a canceled
+    raw verification with that same ID suppresses the row.  Older datasets
+    can omit the ID, so those rows fall back to the coupon bridge, but only
+    when the observed cancellation is at or after this verification time.
+    This preserves a later valid verification on a reused coupon.
+    """
+
+    verify_id = _text(getattr(row, "verify_id", None))
+    if verify_id is not None:
+        return verify_id in canceled_verify_ids
+    coupon_id = _text(getattr(row, "coupon_id", None))
+    return coupon_id is not None and any(
+        cancel_at >= verified_at
+        for cancel_at in canceled_coupon_cancel_times.get(coupon_id, ())
+    )
+
+
 def _terminal_from_rows(
     order_id: str,
     *,
@@ -739,6 +765,7 @@ def load_clue_followup_evidence(
     verifications_by_order: defaultdict[str, list[VerificationEvidence]] = defaultdict(list)
     canceled_verify_ids: set[str] = set()
     canceled_coupon_ids: set[str] = set()
+    canceled_coupon_cancel_times: defaultdict[str, list[datetime]] = defaultdict(list)
     canceled_order_ids: set[str] = set()
 
     for batch in _batch(requested):
@@ -813,7 +840,9 @@ def load_clue_followup_evidence(
                 canceled_order_ids.add(str(order_id))
                 canceled_verify_ids.add(str(row.verify_id))
                 if row.coupon_id:
-                    canceled_coupon_ids.add(str(row.coupon_id))
+                    coupon_id = str(row.coupon_id)
+                    canceled_coupon_ids.add(coupon_id)
+                    canceled_coupon_cancel_times[coupon_id].append(cancel_at)
                 continue
             if _normal_status(row.verify_status) not in VERIFY_SUCCESS_STATUSES:
                 continue
@@ -839,9 +868,12 @@ def load_clue_followup_evidence(
             verify_at = _aware(row.verify_time)
             if verify_at is None or verify_at > cutoff:
                 continue
-            if (
-                row.verify_id is not None and str(row.verify_id) in canceled_verify_ids
-            ) or str(row.coupon_id) in canceled_coupon_ids:
+            if _settlement_verification_is_canceled(
+                row,
+                verified_at=verify_at,
+                canceled_verify_ids=canceled_verify_ids,
+                canceled_coupon_cancel_times=canceled_coupon_cancel_times,
+            ):
                 continue
             observed_at = _aware(row.updated_at) or verify_at
             if observed_at > cutoff:
@@ -945,6 +977,7 @@ def load_terminal_evidence(
     round_verified_by_order: defaultdict[str, list[AssignmentRoundEvidence]] = defaultdict(list)
     canceled_verify_ids: set[str] = set()
     canceled_coupon_ids: set[str] = set()
+    canceled_coupon_cancel_times: defaultdict[str, list[datetime]] = defaultdict(list)
     canceled_order_ids: set[str] = set()
 
     for batch in _batch(requested):
@@ -997,7 +1030,9 @@ def load_terminal_evidence(
                 canceled_order_ids.add(str(order_id))
                 canceled_verify_ids.add(str(row.verify_id))
                 if row.coupon_id:
-                    canceled_coupon_ids.add(str(row.coupon_id))
+                    coupon_id = str(row.coupon_id)
+                    canceled_coupon_ids.add(coupon_id)
+                    canceled_coupon_cancel_times[coupon_id].append(cancel_at)
                 continue
             if _normal_status(row.verify_status) not in VERIFY_SUCCESS_STATUSES:
                 continue
@@ -1022,9 +1057,12 @@ def load_terminal_evidence(
             verify_at = _aware(row.verify_time)
             if verify_at is None or verify_at > cutoff:
                 continue
-            if (
-                row.verify_id is not None and str(row.verify_id) in canceled_verify_ids
-            ) or str(row.coupon_id) in canceled_coupon_ids:
+            if _settlement_verification_is_canceled(
+                row,
+                verified_at=verify_at,
+                canceled_verify_ids=canceled_verify_ids,
+                canceled_coupon_cancel_times=canceled_coupon_cancel_times,
+            ):
                 continue
             observed_at = _aware(row.updated_at) or verify_at
             if observed_at > cutoff:
