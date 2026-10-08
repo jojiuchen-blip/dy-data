@@ -17,6 +17,7 @@ from apps.api.dy_api.models import (
     ClueAssignmentRound,
     ClueFollowUpRecord,
     DimSkuProductRule,
+    RawDouyinClue,
     RawDouyinOrder,
     RawDouyinOrderCoupon,
     RawDouyinRefundRecord,
@@ -268,3 +269,53 @@ def test_completed_full_refund_record_is_terminal_without_coupon_projection(db_s
     terminal = load_terminal_evidence(db_session, {"O"}, observed_through=CUTOFF)["O"]
     assert terminal.kind == "refunded"
     assert terminal.terminal_at == AT + timedelta(hours=4)
+
+
+def test_order_projection_precedes_stale_raw_clue_status(db_session) -> None:
+    db_session.add_all(
+        [
+            RawDouyinOrder(
+                order_id="O",
+                order_status="201",
+                source_observed_at=AT + timedelta(hours=1),
+                updated_at=AT + timedelta(hours=1),
+                raw_payload={"order_status": "201"},
+            ),
+            RawDouyinClue(
+                clue_row_key="STALE-CLOSED",
+                order_id="O",
+                order_status="101",
+                source_observed_at=AT + timedelta(hours=1),
+                updated_at=AT + timedelta(hours=1),
+                raw_payload={"order_status": "101"},
+            ),
+        ]
+    )
+    db_session.commit()
+
+    terminal = load_terminal_evidence(db_session, {"O"}, observed_through=CUTOFF)["O"]
+    assert terminal.kind is None
+    assert load_terminal_evidence(
+        db_session, {"O"}, observed_through=CUTOFF, include_raw_clues=False
+    )["O"].kind is None
+
+
+def test_verified_order_projection_is_terminal_without_business_timestamp(db_session) -> None:
+    db_session.add(
+        RawDouyinOrder(
+            order_id="O",
+            order_status="1",
+            source_observed_at=AT + timedelta(hours=1),
+            updated_at=AT + timedelta(hours=1),
+            raw_payload={
+                "order_status": 1,
+                "certificate": [{"item_status": 401, "refund_time": 0}],
+            },
+        )
+    )
+    db_session.commit()
+
+    terminal = load_terminal_evidence(db_session, {"O"}, observed_through=CUTOFF)["O"]
+    assert terminal.kind == "verified"
+    assert terminal.terminal_at is None
+    assert terminal.is_terminal is True

@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 from apps.api.dy_api.models import (
     ClueAssignmentRound,
     ClueFollowUpRecord,
+    DouyinRefundEvent,
     RawDouyinClue,
     RawDouyinOrder,
     RawDouyinOrderCoupon,
@@ -536,27 +537,33 @@ def _terminal_from_rows(
     raw_order_status = getattr(visible_raw_order, "order_status", None) if visible_raw_order is not None else None
     raw_payload = getattr(visible_raw_order, "raw_payload", None) if visible_raw_order is not None else None
     normalized_order = getattr(visible_raw_order, "order_status_normalized", None) if visible_raw_order is not None else None
-    status_candidates: list[tuple[str, str]] = []
-    if raw_order_status or normalized_order:
-        status_candidates.append((str(raw_order_status or normalized_order), "raw_order"))
-    for clue in raw_clues:
-        clue_status = getattr(clue, "order_status", None)
-        if clue_status:
-            status_candidates.append((str(clue_status), "raw_clue"))
-    resolved_statuses = [
-        (resolve_clue_order_status(
-            status,
-            raw_payload if source == "raw_order" else getattr(next((row for row in raw_clues if getattr(row, "order_status", None) == status), None), "raw_payload", None),
-            normalized_order_status=normalized_order if source == "raw_order" else None,
+    # The current order projection is authoritative whenever it carries a
+    # status.  Raw clue rows can be stale (for example a historical "closed"
+    # row beside a current waiting-use order) and are only a fallback when the
+    # order projection has no status at all.
+    order_status = str(raw_order_status or normalized_order) if (raw_order_status or normalized_order) else None
+    if order_status:
+        resolved = resolve_clue_order_status(
+            order_status,
+            raw_payload,
+            normalized_order_status=normalized_order,
             coupon_statuses=coupon_statuses,
-        ), source)
-        for status, source in status_candidates
-    ]
-    resolved = next((status for status, _source in resolved_statuses if status == "refunded"), None)
-    if resolved is None:
-        resolved = next((status for status, _source in resolved_statuses if status == "closed"), None)
-    if resolved is None:
-        resolved = next((status for status, _source in resolved_statuses if status == "verified"), None)
+        )
+    else:
+        clue_resolved_statuses: list[str] = []
+        for clue in raw_clues:
+            clue_status = getattr(clue, "order_status", None)
+            if not clue_status:
+                continue
+            clue_resolved_statuses.append(resolve_clue_order_status(
+                str(clue_status),
+                getattr(clue, "raw_payload", None),
+                coupon_statuses=coupon_statuses,
+            ))
+        resolved = next(
+            (status for status in ("refunded", "closed", "verified") if status in clue_resolved_statuses),
+            clue_resolved_statuses[0] if clue_resolved_statuses else None,
+        )
 
     all_coupons_refunded = bool(coupon_statuses) and all(status == "refunded" for status in coupon_statuses)
     all_coupons_closed = bool(coupon_statuses) and all(status == "closed" for status in coupon_statuses)
@@ -621,6 +628,25 @@ def _terminal_from_rows(
         )
         return TerminalEvidence("closed", terminal_at or observed_at, observed_at or terminal_at, "status", ())
 
+    if resolved == "verified":
+        # A completed/verified order projection is terminal even when the
+        # source omitted a usable business timestamp.  Do not fabricate one;
+        # lifecycle callers can still fence on the observed_at value.
+        verified_at = _first_time(
+            raw_payload,
+            "verified_at",
+            "verify_time",
+            "used_at",
+            "completed_at",
+            "finish_time",
+        )
+        observed_at = _max_time(
+            _status_observed_at(visible_raw_order) if visible_raw_order is not None else None,
+            *(_status_observed_at(row) for row in raw_clues),
+            *coupon_observed,
+        )
+        return TerminalEvidence("verified", verified_at, observed_at or verified_at, "order", ())
+
     return TerminalEvidence(None, None, None)
 
 
@@ -634,6 +660,7 @@ def load_clue_followup_evidence(
     order_ids: Iterable[str],
     *,
     observed_through: datetime | None = None,
+    include_raw_clues: bool = True,
 ) -> dict[str, ClueFollowUpEvidence]:
     """Load rounds, follows, verification and terminal evidence in batches.
 
@@ -693,10 +720,11 @@ def load_clue_followup_evidence(
         ).mappings().all()
         for row in order_rows:
             raw_orders[str(row["order_id"])] = SimpleNamespace(**row)
-        for row in session.scalars(select(RawDouyinClue).where(RawDouyinClue.order_id.in_(batch))).all():
-            observed = _status_observed_at(row)
-            if observed is None or observed <= cutoff:
-                raw_clues_by_order[str(row.order_id)].append(row)
+        if include_raw_clues:
+            for row in session.scalars(select(RawDouyinClue).where(RawDouyinClue.order_id.in_(batch))).all():
+                observed = _status_observed_at(row)
+                if observed is None or observed <= cutoff:
+                    raw_clues_by_order[str(row.order_id)].append(row)
         for row in session.scalars(select(RawDouyinOrderCoupon).where(RawDouyinOrderCoupon.order_id.in_(batch))).all():
             observed = _status_observed_at(row)
             if observed is None or observed <= cutoff:
@@ -706,18 +734,10 @@ def load_clue_followup_evidence(
             if observed is None or observed <= cutoff:
                 refunds_by_order[str(row.order_id)].append(row)
 
-        # DouyinRefundEvent is an optional projection in older SQLite fixtures;
-        # importing it lazily keeps this evidence reader usable against those
-        # schemas while production has the table.
-        try:
-            from apps.api.dy_api.models import DouyinRefundEvent
-
-            for row in session.scalars(select(DouyinRefundEvent).where(DouyinRefundEvent.order_id.in_(batch))).all():
-                observed = _status_observed_at(row)
-                if observed is None or observed <= cutoff:
-                    refund_events_by_order[str(row.order_id)].append(row)
-        except Exception:  # pragma: no cover - only legacy schemas omit this table
-            pass
+        for row in session.scalars(select(DouyinRefundEvent).where(DouyinRefundEvent.order_id.in_(batch))).all():
+            observed = _status_observed_at(row)
+            if observed is None or observed <= cutoff:
+                refund_events_by_order[str(row.order_id)].append(row)
 
         raw_verify_rows = session.execute(
             select(RawDouyinOrderCoupon.order_id, RawDouyinVerifyRecord)
@@ -837,6 +857,7 @@ def load_terminal_evidence(
     order_ids: Iterable[str],
     *,
     observed_through: datetime | None = None,
+    include_raw_clues: bool = True,
 ) -> dict[str, TerminalEvidence]:
     """Load only terminal evidence for lifecycle/API/repair callers.
 
@@ -874,10 +895,11 @@ def load_terminal_evidence(
         for row in order_rows:
             raw_orders[str(row["order_id"])] = SimpleNamespace(**row)
 
-        for row in session.scalars(select(RawDouyinClue).where(RawDouyinClue.order_id.in_(batch))).all():
-            observed = _status_observed_at(row)
-            if observed is None or observed <= cutoff:
-                raw_clues_by_order[str(row.order_id)].append(row)
+        if include_raw_clues:
+            for row in session.scalars(select(RawDouyinClue).where(RawDouyinClue.order_id.in_(batch))).all():
+                observed = _status_observed_at(row)
+                if observed is None or observed <= cutoff:
+                    raw_clues_by_order[str(row.order_id)].append(row)
         for row in session.scalars(select(RawDouyinOrderCoupon).where(RawDouyinOrderCoupon.order_id.in_(batch))).all():
             observed = _status_observed_at(row)
             if observed is None or observed <= cutoff:
@@ -887,15 +909,10 @@ def load_terminal_evidence(
             if observed is None or observed <= cutoff:
                 refunds_by_order[str(row.order_id)].append(row)
 
-        try:
-            from apps.api.dy_api.models import DouyinRefundEvent
-
-            for row in session.scalars(select(DouyinRefundEvent).where(DouyinRefundEvent.order_id.in_(batch))).all():
-                observed = _status_observed_at(row)
-                if observed is None or observed <= cutoff:
-                    refund_events_by_order[str(row.order_id)].append(row)
-        except Exception:  # pragma: no cover - legacy schemas may omit this table
-            pass
+        for row in session.scalars(select(DouyinRefundEvent).where(DouyinRefundEvent.order_id.in_(batch))).all():
+            observed = _status_observed_at(row)
+            if observed is None or observed <= cutoff:
+                refund_events_by_order[str(row.order_id)].append(row)
 
         raw_verify_rows = session.execute(
             select(RawDouyinOrderCoupon.order_id, RawDouyinVerifyRecord)
