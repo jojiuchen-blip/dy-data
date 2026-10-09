@@ -22,8 +22,25 @@
 
 ## 交付状态与边界
 
-本地实现与验收完成，准备提交分支 `codex/ranking-follow-metrics-correction`。GitHub PR、CI、合并结果待补充。未执行生产部署、迁移或全量历史状态回填。
+本地实现与验收完成，分支 `codex/ranking-follow-metrics-correction` 已推送并经 [PR #45](https://github.com/jojiuchen-blip/dy-data/pull/45) 合并 main，合并提交 `ddb3bab8ba7485af9e702881bab7e6008ba465b2`。
+[合并前 CI](https://github.com/jojiuchen-blip/dy-data/actions/runs/37866909328) 及 [主分支 CI](https://github.com/jojiuchen-blip/dy-data/actions/runs/37869238798) 均通过。云端完整回归 3372 passed、178 skipped。
+
+## 服务器部署（2026-10-09）
+
+用户明确授权服务器部署，触发 [腾讯云发布](https://github.com/jojiuchen-blip/dy-data/actions/runs/37870328159)，固定业务版本为 `ddb3bab8ba7485af9e702881bab7e6008ba465b2`。
+发布 Verify 已全部通过：完整回归 3372 passed、178 skipped；真实 PostgreSQL 及线索并发门禁、前端和四个镜像均通过。
+首次 Deploy 在数据库备份期间 SSH Broken pipe（255），未到迁移。恢复工作流提交 `b8869c3b` 增加保活连接，校验原 Verify 成功、固定业务 SHA、服务器脚本散列，并拒绝并发原部署；没有跳过备份、迁移或健康门禁。
+[恢复部署](https://github.com/jojiuchen-blip/dy-data/actions/runs/37873921163) 成功，2026-10-09 10:26:53（北京时间）记录 deployment complete，业务版本 `ddb3bab8ba7485af9e702881bab7e6008ba465b2`。
+环境备份 `pre-production-cutover-20261009T021821Z.env`，数据库备份 `pre-migrate-20261009T021824Z.dump`（均位于服务器 `/opt/dy-dashboard/logs/backups/`）。迁移 `20260916_0060 -> 20261008_0061` 成功；API、浏览器、ops-agent、PostgreSQL 健康，worker 调度进程与队列/数据库 smoke、代理及公网入口检查通过。
+生产只读回查 2026-09-07 至 2026-10-08：前端新动作率文案、两店历史名称、三种跟进指标各自分子/分母/百分比一致；集团、中心、大区、区域接口 200，汇总与抽样行独立指标校验通过。此回查不代表逐条业务事实全量审计；未执行全量历史状态回填。
+服务器日志 `/opt/dy-dashboard/logs/release-resume-ddb3bab8-20261009T021821Z.log`。当前源码采用固定归档部署；以 last-deploy.json 和实际接口为版本证据，不以服务器旧 Git HEAD 代替。
 
 ## 复盘
 
 统计口径不同的指标应分别携带分子、分母，不能以分母相等作为数据完整性条件。已有回归覆盖；仅记录，不新增全局规则。
+
+## 看板悬停说明精简（2026-10-09）
+
+【用户确认】看板移除问号，以指标名称悬停查看两三行计算说明；辅助指标更名“跟进动作衡量指标”。卡片、排名表、导出同步命名，数值和业务计算不变。仅看板启用无图标模式，保留键盘聚焦、触屏点击及 Escape 关闭。无 foundation 漂移。
+
+本地专项92项通过，前端及组件目录构建通过；最终桌面悬停/移动点击与部署配置34项通过，diff和治理检查通过。腾讯部署SSH新增保活，保留所有验证与备份门禁。云端CI和上线结果待补充。

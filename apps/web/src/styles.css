@@ -8086,6 +8086,20 @@ a.metric-card:hover,
   content: none;
 }
 
+.tooltip-trigger--label {
+  display: inline;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  white-space: normal;
+}
+
 .tooltip-trigger--interactive:focus-visible {
   outline: 2px solid var(--brand-deep-orange);
   outline-offset: 2px;

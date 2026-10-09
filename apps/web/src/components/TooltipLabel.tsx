@@ -4,9 +4,10 @@ interface TooltipLabelProps {
   label: ReactNode;
   description?: string;
   interactive?: boolean;
+  hideIcon?: boolean;
 }
 
-export function TooltipLabel({ label, description, interactive = false }: TooltipLabelProps) {
+export function TooltipLabel({ label, description, interactive = false, hideIcon = false }: TooltipLabelProps) {
   const tooltipId = useId();
   const tooltipRef = useRef<HTMLSpanElement>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -31,21 +32,21 @@ export function TooltipLabel({ label, description, interactive = false }: Toolti
 
   return (
     <span className="tooltip-label">
-      <span>{label}</span>
+      {!(description && interactive && hideIcon) && <span>{label}</span>}
       {description && interactive ? (
         <>
           <button
             type="button"
             aria-label={`${typeof label === "string" ? label : "指标"}口径说明`}
             aria-describedby={tooltipId}
-            className="tooltip-trigger tooltip-trigger--interactive"
+            className={`tooltip-trigger tooltip-trigger--interactive${hideIcon ? " tooltip-trigger--label" : ""}`}
             onMouseEnter={(event) => showTooltip(event.currentTarget)}
             onMouseLeave={(event) => scheduleHide(event.currentTarget)}
             onFocus={(event) => showTooltip(event.currentTarget)}
             onBlur={() => tooltipRef.current?.hidePopover()}
             onClick={(event) => { event.stopPropagation(); showTooltip(event.currentTarget); }}
           >
-            ?
+            {hideIcon ? label : "?"}
           </button>
           <span id={tooltipId} ref={tooltipRef} role="tooltip" popover="auto" className="metric-tooltip-popover"
             onMouseEnter={() => clearTimeout(hideTimer.current)} onMouseLeave={() => scheduleHide()}>

@@ -158,13 +158,15 @@ def test_ranking_live_api_independent_follow_rates_and_empty_filter(
         expect(row).to_contain_text("33.33%（1/3）")
         expect(row).to_contain_text("100%（2/2）")
         expect(row).to_contain_text("25%（1/4）")
-        help_button = row.get_by_role("button", name="跟进动作率口径说明", exact=True)
+        help_button = row.get_by_role("button", name="跟进动作衡量指标口径说明", exact=True)
+        expect(help_button).to_have_text("跟进动作衡量指标")
+        expect(page.locator(".tooltip-trigger").filter(has_text="?")).to_have_count(0)
         if width == 390:
             help_button.tap()
         else:
-            help_button.focus()
+            help_button.hover()
         tooltip = page.locator('[role="tooltip"]:popover-open')
-        expect(tooltip).to_contain_text("系统自动核销不算人工动作")
+        expect(tooltip).to_contain_text("自动核销不算人工动作")
         page.keyboard.press("Escape")
         expect(tooltip).to_have_count(0)
         page.screenshot(path=str(tmp_path / f"ranking-live-{width}.png"), full_page=True)

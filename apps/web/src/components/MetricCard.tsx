@@ -9,6 +9,7 @@ interface MetricCardProps {
   href?: string;
   loading?: boolean;
   interactiveTooltip?: boolean;
+  hideTooltipIcon?: boolean;
 }
 
 export function MetricCard({
@@ -19,11 +20,12 @@ export function MetricCard({
   href,
   loading = false,
   interactiveTooltip = false,
+  hideTooltipIcon = false,
 }: MetricCardProps) {
   const content = (
     <>
       <div className="metric-card__label">
-        <TooltipLabel label={label} description={description} interactive={interactiveTooltip} />
+        <TooltipLabel label={label} description={description} interactive={interactiveTooltip} hideIcon={hideTooltipIcon} />
       </div>
       {loading ? (
         <>
