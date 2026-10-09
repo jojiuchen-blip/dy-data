@@ -354,6 +354,8 @@ def backfill_lifecycle_metadata(
         .order_by(runs.c.created_at.asc(), runs.c.run_id.asc())
         .limit(limit)
     )
+    if session.bind.dialect.name == "postgresql":
+        query = query.with_for_update(read=True, key_share=True, of=runs)
     rows = session.execute(query).mappings().all()
     if not rows:
         return 0
@@ -378,8 +380,20 @@ def backfill_lifecycle_metadata(
                 "metadata_json": {"backfilled": True},
             }
         )
-    session.execute(snapshot_lifecycle.insert(), payload)
-    return len(payload)
+    # Another reader/export may create the same sidecar after our SELECT.
+    # Never overwrite its access, pin or source fingerprint on that race.
+    if session.bind.dialect.name == "postgresql":
+        statement = postgres_insert(snapshot_lifecycle).on_conflict_do_nothing(
+            index_elements=[snapshot_lifecycle.c.run_id],
+        )
+    elif session.bind.dialect.name == "sqlite":
+        statement = sqlite_insert(snapshot_lifecycle).on_conflict_do_nothing(
+            index_elements=[snapshot_lifecycle.c.run_id],
+        )
+    else:
+        statement = snapshot_lifecycle.insert()
+    result = session.execute(statement, payload)
+    return max(result.rowcount, 0)
 
 
 def register_snapshot(

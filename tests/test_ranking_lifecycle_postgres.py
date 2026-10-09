@@ -10,14 +10,14 @@ from uuid import uuid4
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from sqlalchemy import create_engine, func, select, text
+from sqlalchemy import create_engine, event, func, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.ranking_schema_v1 import metadata, runs
 from apps.api.dy_api.ranking_lifecycle_schema import SOURCE_TABLES, snapshot_lifecycle
 from apps.api.dy_api.ranking_lifecycle import (
-    archive_snapshot, cleanup_snapshots, hold_snapshot_read, record_snapshot_access,
+    archive_snapshot, backfill_lifecycle_metadata, cleanup_snapshots, hold_snapshot_read, record_snapshot_access,
     register_snapshot, reusable_business_snapshot, source_fingerprint,
 )
 
@@ -136,3 +136,33 @@ def test_concurrent_first_export_access_is_durable_and_preserves_pin(pg):
         assert row["pin_reason"] == "confirmed milestone"
         assert row["last_accessed_at"] >= now
         assert row["source_fingerprint"] is None
+
+
+def test_concurrent_legacy_backfills_do_not_fail_or_overwrite(pg):
+    engine, _ = pg
+    now = datetime.now(timezone.utc)
+    with Session(engine) as session:
+        add_run(session, "rollout-window", now)
+        session.commit()
+    barrier = Barrier(2)
+    def before_insert(conn, cursor, statement, parameters, context, executemany):
+        if statement.startswith("INSERT INTO ranking_snapshot_lifecycle"):
+            barrier.wait(timeout=20)
+    event.listen(engine, "before_cursor_execute", before_insert)
+    def backfill(_):
+        with Session(engine) as session:
+            inserted = backfill_lifecycle_metadata(session)
+            session.commit()
+            return inserted
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            assert sorted(pool.map(backfill, range(2))) == [0, 1]
+    finally:
+        event.remove(engine, "before_cursor_execute", before_insert)
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(snapshot_lifecycle)) == 1
+        archive_snapshot(session, "rollout-window", reason="confirmed rollout checkpoint")
+        session.commit()
+        assert backfill_lifecycle_metadata(session) == 0
+        row = session.execute(select(snapshot_lifecycle)).mappings().one()
+        assert row["pin_reason"] == "confirmed rollout checkpoint"
