@@ -333,6 +333,9 @@ def backfill_lifecycle_metadata(
     ensure_lifecycle_schema(session)
     conditions = [
         runs.c.status == "success",
+        # Historical/custom modes are outside this policy. Leave their facts
+        # untouched instead of coercing them into a managed business version.
+        runs.c.data_mode.in_(("business", "synthetic")),
         snapshot_lifecycle.c.run_id.is_(None),
     ]
     if run_id is not None:

@@ -24,7 +24,8 @@ def test_migration_pins_existing_successes_but_not_future_runs():
                     eligibility_version="test", metric_version="legacy", data_mode="business",
                     status=status, quality_json={}, created_at=old)
     with engine.begin() as connection:
-        connection.execute(runs.insert(), [row("historical"), row("incomplete", "building")])
+        connection.execute(runs.insert(), [row("historical"), row("incomplete", "building"),
+                                          {**row("unmanaged-legacy"), "data_mode": "production"}])
     path = Path(__file__).resolve().parents[1] / "alembic/versions/20261009_0062_ranking_lifecycle.py"
     spec = importlib.util.spec_from_file_location("rollout_migration", path)
     migration = importlib.util.module_from_spec(spec)
@@ -41,5 +42,5 @@ def test_migration_pins_existing_successes_but_not_future_runs():
         assert protected[0]["pinned_by"] == "migration:20261009_0062"
         result = cleanup_snapshots(session, dry_run=False, now=now)
         assert [r["run_id"] for r in result["planned"]] == ["after-rollout"]
-        assert set(session.scalars(select(runs.c.run_id))) == {"historical", "incomplete"}
+        assert set(session.scalars(select(runs.c.run_id))) == {"historical", "incomplete", "unmanaged-legacy"}
     engine.dispose()

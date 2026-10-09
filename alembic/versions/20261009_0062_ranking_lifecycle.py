@@ -152,7 +152,8 @@ def upgrade() -> None:
                    created_at, created_at, CURRENT_TIMESTAMP,
                    'Historical snapshot before lifecycle rollout; review before unarchiving',
                    'migration:20261009_0062'
-            FROM ranking_snapshot_runs WHERE status = 'success'
+            FROM ranking_snapshot_runs
+            WHERE status = 'success' AND data_mode IN ('business', 'synthetic')
         """))
     op.create_table(
         "ranking_source_change_counters",
