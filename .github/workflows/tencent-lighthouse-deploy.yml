@@ -84,9 +84,10 @@ jobs:
       - name: Verify clue state transitions on PostgreSQL
         env:
           DYDATA_CLUE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_clue_test
+          DYDATA_RANKING_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_clue_test
         run: |
           python -c 'import psycopg; conn = psycopg.connect("host=127.0.0.1 port=5432 dbname=dydata_release user=postgres password=postgres", autocommit=True); conn.execute("CREATE DATABASE dydata_clue_test"); conn.close()'
-          python -m pytest -q tests/test_clue_follow_up_postgres.py tests/test_formal_allocation_runtime_postgres.py
+          python -m pytest -q tests/test_clue_follow_up_postgres.py tests/test_formal_allocation_runtime_postgres.py tests/test_ranking_lifecycle_postgres.py
 
       - name: Install frontend dependencies
         working-directory: apps/web

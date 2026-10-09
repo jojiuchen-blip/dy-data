@@ -23,13 +23,14 @@ from apps.api.dy_api.ranking_schema_v1 import (
 )
 from apps.api.dy_api.ranking_identity import OrderAttributionIndex
 from apps.api.dy_api.clue_product_scope import PRODUCT_SCOPE_LABELS, scope_predicate, validate_product_scope
-from apps.api.dy_api.clue_followup_metrics import (
-    CLUE_FOLLOWUP_METRIC_DEFINITIONS,
-    FOLLOW_UP_METRIC_VERSION,
-    bulk_evaluate_clue_followup_metrics,
+from apps.api.dy_api.ranking_legacy_followup import (
+    LEGACY_DEFINITIONS as CLUE_FOLLOWUP_METRIC_DEFINITIONS,
+    LEGACY_RANKING_VERSION,
+    bulk_evaluate_legacy_ranking_followup as bulk_evaluate_clue_followup_metrics,
 )
 
-METRIC_VERSION = "douyin-ranking-self-store-v6-period-start-sales-org-" + FOLLOW_UP_METRIC_VERSION
+METRIC_VERSION = "douyin-ranking-self-store-v7-period-start-sales-org-" + LEGACY_RANKING_VERSION
+
 
 
 def metric_version(product_scope: str) -> str:

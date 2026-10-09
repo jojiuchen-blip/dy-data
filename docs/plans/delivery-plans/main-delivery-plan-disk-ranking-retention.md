@@ -26,7 +26,7 @@
 Entry Criteria：用户明确授权开发。Exit Criteria：清理完成且刷新、保留、备份规则通过验证。
 | Task | 子开发计划 | 状态 |
 |---|---|---|
-| T0.1 | [T0.1](sub-delivery-plan-disk-ranking-retention-T0.1.md) | 已完成 |
+| T0.1 | [T0.1](sub-delivery-plan-disk-ranking-retention-T0.1.md) | 进行中 |
 ## 4. 任务看板
 [任务看板](task-kanban-disk-ranking-retention.md)
 ## 5. 发布闸门

@@ -21,9 +21,12 @@ from apps.api.dy_api.models import (
 )
 from apps.api.dy_api.clue_followup_metrics import (
     AssignmentRoundEvidence,
-    CLUE_FOLLOWUP_METRIC_DEFINITIONS,
-    evaluate_clue_followup_round,
     load_clue_followup_evidence,
+)
+
+from apps.api.dy_api.ranking_legacy_followup import (
+    LEGACY_DEFINITIONS as CLUE_FOLLOWUP_METRIC_DEFINITIONS,
+    evaluate_legacy_ranking_round as evaluate_clue_followup_round,
 )
 
 
@@ -310,7 +313,6 @@ def _load_clue_metrics(
         follow_metrics[row.assignment_round_id] = evaluate_clue_followup_round(
             round_value,
             follow_ups=(round_evidence.follow_ups_for(row.assignment_round_id) if round_evidence else ()),
-            terminal=(round_evidence.terminal if round_evidence else None),
             observed_through=observed_at,
         )
     poi_to_store = {

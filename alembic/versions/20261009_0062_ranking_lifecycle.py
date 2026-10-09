@@ -140,6 +140,20 @@ def upgrade() -> None:
         "ranking_snapshot_lifecycle",
         ["last_accessed_at", "pinned_at"],
     )
+    # The first rollout must not classify historical business checkpoints as
+    # disposable cache. Protect existing successful runs for explicit review;
+    # newly calculated runs use the ordinary retention policy.
+    if sa.inspect(op.get_bind()).has_table("ranking_snapshot_runs"):
+        op.execute(sa.text("""
+            INSERT INTO ranking_snapshot_lifecycle
+                (run_id, period_start, period_end, metric_version, data_mode,
+                 created_at, last_accessed_at, pinned_at, pin_reason, pinned_by)
+            SELECT run_id, period_start, period_end, metric_version, data_mode,
+                   created_at, created_at, CURRENT_TIMESTAMP,
+                   'Historical snapshot before lifecycle rollout; review before unarchiving',
+                   'migration:20261009_0062'
+            FROM ranking_snapshot_runs WHERE status = 'success'
+        """))
     op.create_table(
         "ranking_source_change_counters",
         sa.Column("source_name", sa.Text(), primary_key=True),
