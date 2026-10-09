@@ -9,6 +9,12 @@ HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080}"
 START_WORKER="${TENCENT_START_WORKER:-false}"
 LOG_DIR="${LOG_DIR:-/opt/dy-dashboard/logs}"
 BACKUP_DIR="${BACKUP_DIR:-$LOG_DIR/backups}"
+BACKUP_RETENTION_SCRIPT="${BACKUP_RETENTION_SCRIPT:-$APP_DIR/scripts/backup_retention.py}"
+BACKUP_PG_RESTORE_BIN="${BACKUP_PG_RESTORE_BIN:-}"
+BACKUP_MIN_FREE_BYTES="${BACKUP_MIN_FREE_BYTES:-10737418240}"
+BACKUP_MIN_FREE_PERCENT="${BACKUP_MIN_FREE_PERCENT:-15}"
+BACKUP_SIZE_SAFETY_PERCENT="${BACKUP_SIZE_SAFETY_PERCENT:-150}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 SKIP_GIT_SYNC="${SKIP_GIT_SYNC:-false}"
 APT_MIRROR="${APT_MIRROR:-http://mirrors.tencentyun.com}"
 DY_WEB_BASE_URL="${DY_WEB_BASE_URL:-}"
@@ -126,16 +132,191 @@ validate_compose_config() {
   rm -f "$config_file"
 }
 
-backup_database() {
+backup_validator_command() {
+  printf 'sudo APT_MIRROR=%q DY_WEB_BASE_URL=%q docker compose --env-file %q -f %q exec -T postgres pg_restore' \
+    "$APT_MIRROR" "$DY_WEB_BASE_URL" "$ENV_FILE" "$COMPOSE_FILE"
+}
+
+check_backup_validator() {
+  if [ -n "$BACKUP_PG_RESTORE_BIN" ]; then
+    if ! command -v "$BACKUP_PG_RESTORE_BIN" >/dev/null 2>&1; then
+      log "database backup validator is unavailable: $BACKUP_PG_RESTORE_BIN"
+      return 1
+    fi
+    if ! "$BACKUP_PG_RESTORE_BIN" --version >/dev/null; then
+      log "database backup validator preflight failed: $BACKUP_PG_RESTORE_BIN"
+      return 1
+    fi
+    log "database backup validator=explicit path=$BACKUP_PG_RESTORE_BIN"
+    return 0
+  fi
+
+  if ! compose exec -T postgres pg_restore --version >/dev/null; then
+    log "database backup validator preflight failed inside compose postgres service"
+    return 1
+  fi
+  log "database backup validator=compose service=postgres"
+}
+
+validate_backup_path() {
+  local backup_file="$1"
+  if [ -n "$BACKUP_PG_RESTORE_BIN" ]; then
+    "$BACKUP_PG_RESTORE_BIN" --list "$backup_file" >/dev/null
+    return
+  fi
+  compose exec -T postgres pg_restore --list - < "$backup_file" >/dev/null
+}
+
+latest_ordinary_backup_path() {
+  local candidate
+  local candidate_name
+  local latest_path=""
+  local latest_name=""
+  for candidate in "$BACKUP_DIR"/pre-migrate-*.dump; do
+    [ -e "$candidate" ] || continue
+    [ -L "$candidate" ] && continue
+    candidate_name="${candidate##*/}"
+    if [[ "$candidate_name" =~ ^pre-migrate-[0-9]{8}T[0-9]{6}Z\.dump$ ]] \
+      && { [ -z "$latest_name" ] || [[ "$candidate_name" > "$latest_name" ]]; }; then
+      latest_path="$candidate"
+      latest_name="$candidate_name"
+    fi
+  done
+  printf '%s' "$latest_path"
+}
+
+file_size_bytes() {
+  stat -c '%s' -- "$1" 2>/dev/null || stat -f '%z' -- "$1" 2>/dev/null
+}
+
+check_backup_capacity() {
+  local total_kib
+  local used_kib
+  local available_kib
+  local available_bytes
+  local available_percent
+  local latest_backup
+  local latest_backup_size=0
+  local estimated_backup_bytes
+  local required_free_bytes
+
+  mkdir -p "$BACKUP_DIR"
+
+  case "$BACKUP_MIN_FREE_BYTES" in
+    ''|*[!0-9]*)
+      log "invalid BACKUP_MIN_FREE_BYTES=$BACKUP_MIN_FREE_BYTES"
+      return 1
+      ;;
+  esac
+  case "$BACKUP_MIN_FREE_PERCENT" in
+    ''|*[!0-9]*)
+      log "invalid BACKUP_MIN_FREE_PERCENT=$BACKUP_MIN_FREE_PERCENT"
+      return 1
+      ;;
+  esac
+  case "$BACKUP_SIZE_SAFETY_PERCENT" in
+    ''|*[!0-9]*)
+      log "invalid BACKUP_SIZE_SAFETY_PERCENT=$BACKUP_SIZE_SAFETY_PERCENT"
+      return 1
+      ;;
+  esac
+
+  read -r total_kib used_kib available_kib < <(
+    df -Pk "$BACKUP_DIR" | awk 'NR == 2 { print $2, $3, $4 }'
+  )
+  case "${total_kib:-}:${used_kib:-}:${available_kib:-}" in
+    ''|*[^0-9:]*|*:*:*:*)
+      log "unable to read filesystem capacity for backup directory=$BACKUP_DIR"
+      return 1
+      ;;
+  esac
+  if [ "${total_kib:-0}" -le 0 ]; then
+    log "filesystem capacity is invalid for backup directory=$BACKUP_DIR"
+    return 1
+  fi
+  available_bytes=$((available_kib * 1024))
+  available_percent=$((available_kib * 100 / total_kib))
+  latest_backup="$(latest_ordinary_backup_path)"
+  if [ -n "$latest_backup" ]; then
+    if ! validate_backup_path "$latest_backup"; then
+      log "backup capacity gate blocked: latest ordinary backup failed validation path=$latest_backup"
+      return 1
+    fi
+    latest_backup_size="$(file_size_bytes "$latest_backup")"
+    case "$latest_backup_size" in
+      ''|*[!0-9]*)
+        log "backup capacity gate blocked: unable to read latest backup size path=$latest_backup"
+        return 1
+        ;;
+    esac
+  fi
+  estimated_backup_bytes=$((latest_backup_size * BACKUP_SIZE_SAFETY_PERCENT / 100))
+  required_free_bytes=$((BACKUP_MIN_FREE_BYTES + estimated_backup_bytes))
+  log "backup capacity available_bytes=$available_bytes available_percent=$available_percent estimated_next_backup_bytes=$estimated_backup_bytes required_free_bytes=$required_free_bytes"
+  if [ "$available_bytes" -lt "$required_free_bytes" ]; then
+    log "backup capacity gate blocked: available bytes below reserve plus estimated next backup"
+    return 1
+  fi
+  if [ "$available_percent" -lt "$BACKUP_MIN_FREE_PERCENT" ]; then
+    log "backup capacity gate blocked: available percent below BACKUP_MIN_FREE_PERCENT"
+    return 1
+  fi
+}
+
+backup_database() (
+  local backup_stamp
+  local backup_file
+  local partial_file
+  umask 077
   backup_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
   backup_file="$BACKUP_DIR/pre-migrate-$backup_stamp.dump"
+  partial_file="$backup_file.partial"
   mkdir -p "$BACKUP_DIR"
-  compose exec -T postgres sh -c \
+  if [ -e "$partial_file" ] || [ -e "$backup_file" ]; then
+    log "refusing to overwrite existing backup path=$backup_file"
+    return 1
+  fi
+  if ! compose exec -T postgres sh -c \
     'pg_dump --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --format=custom' \
-    > "$backup_file"
+    > "$partial_file"; then
+    rm -f -- "$partial_file"
+    return 1
+  fi
+  if ! test -s "$partial_file"; then
+    rm -f -- "$partial_file"
+    log "database backup is empty path=$partial_file"
+    return 1
+  fi
+  if ! validate_backup_path "$partial_file"; then
+    rm -f -- "$partial_file"
+    log "database backup validation failed path=$partial_file"
+    return 1
+  fi
+  mv -- "$partial_file" "$backup_file"
   test -s "$backup_file"
   chmod 600 "$backup_file"
   log "database backup complete path=$backup_file"
+)
+
+run_backup_retention() {
+  local retention_report
+  local validator_args=()
+  retention_report="$BACKUP_DIR/backup-retention-$(date -u +%Y%m%dT%H%M%SZ).json"
+  if [ ! -f "$BACKUP_RETENTION_SCRIPT" ]; then
+    log "backup retention script is missing: $BACKUP_RETENTION_SCRIPT"
+    return 1
+  fi
+  if [ -n "$BACKUP_PG_RESTORE_BIN" ]; then
+    validator_args=(--pg-restore "$BACKUP_PG_RESTORE_BIN")
+  else
+    validator_args=(--validator-command "$(backup_validator_command)")
+  fi
+  "$PYTHON_BIN" "$BACKUP_RETENTION_SCRIPT" \
+    --backup-dir "$BACKUP_DIR" \
+    --apply \
+    "${validator_args[@]}" \
+    --report-file "$retention_report"
+  log "database backup retention complete report=$retention_report"
 }
 
 wait_for_healthy_service() {
@@ -223,7 +404,10 @@ log "checking production migration lineage"
 check_production_migration_lineage
 
 log "backing up postgres before migrations"
+check_backup_validator
+check_backup_capacity
 backup_database
+run_backup_retention
 
 log "running migrations"
 compose run --rm migrate

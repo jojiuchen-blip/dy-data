@@ -11,6 +11,7 @@
 - `docs-and-plans.md`：Linear、执行驾驶舱、项目画像和文档权威同步。
 - `devlog.md`：`docs/devlog/` 的可提交开发日志和 `/logs/` 的运行日志边界。
 - `account-access-control.md`：三类账号、页面权限、门店范围、门店激活兼容和权限变更记录。
+- `storage-management.md`：通用磁盘阈值、整库备份保留、异地副本和安全清理边界。
 
 ## 使用方式
 
