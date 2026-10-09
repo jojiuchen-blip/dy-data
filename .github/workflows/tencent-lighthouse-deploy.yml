@@ -29,6 +29,7 @@ jobs:
           c() { sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml "$@"; }
           date -u
           df -h /
+          sudo docker system df -v | head -140
           c ps
-          c exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select pg_is_in_recovery(); select state,count(*) from pg_stat_activity group by 1;"' </dev/null
+          sudo find /opt/dy-dashboard/logs/backups -maxdepth 1 -type f -name '*.dump' -printf '%s %f\n' | sort -n | tail -8
           REMOTE
