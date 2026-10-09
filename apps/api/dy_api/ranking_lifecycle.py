@@ -37,7 +37,6 @@ from apps.api.dy_api.ranking_schema_v1 import runs, samples, snapshots
 # transaction advisory lock. A separate retention lock would allow a cleanup
 # to race a newly published configuration or snapshot.
 SNAPSHOT_RETENTION_LOCK = RANKING_WRITE_LOCK
-SNAPSHOT_REUSE_MAX_AGE = timedelta(minutes=5)
 SNAPSHOT_MIN_DELETE_AGE = timedelta(hours=1)
 SNAPSHOT_IDLE_RANGE_AGE = timedelta(days=30)
 DEFAULT_RETENTION_LIMIT = 50
@@ -104,7 +103,7 @@ def _postgres_trigger_name(table_name: str) -> str:
 def _install_sqlite_tracking(session: Session, table_names: Iterable[str]) -> None:
     """Install real INSERT/UPDATE/DELETE counters for lightweight SQLite use.
 
-    Production PostgreSQL installs equivalent statement-safe row triggers in
+    Production PostgreSQL installs equivalent statement-level triggers in
     migration 0062.  SQLite cannot create a statement trigger, so one row
     trigger per operation is the exact fallback used by tests and local tools.
     """
@@ -581,8 +580,8 @@ def _next_refresh_at(
     Source counters cover writes. This companion boundary covers timestamps
     already present in the database whose meaning changes when ``observed_through``
     crosses them: sales, assignments, follows, verification and terminal/refund
-    events. IDs come from this run's evidence, so unrelated future rows do not
-    force every range to recompute.
+    events. Evidence IDs bound most probes; sales and assignments also probe
+    the selected period for future rows not yet present in this run.
     """
 
     order_ids: set[str] = set()
@@ -771,6 +770,11 @@ def reusable_business_snapshot(
         .order_by(runs.c.created_at.desc(), runs.c.run_id.desc())
         .limit(1)
     )
+    if session.bind.dialect.name == "postgresql":
+        # Hold the parent before touching access metadata. Otherwise an idle
+        # cleanup could delete the selected run while the touch waits, and a
+        # cache hit would return a run_id that no longer exists.
+        query = query.with_for_update(read=True, key_share=True, of=runs)
     row = session.execute(query).mappings().first()
     if not row:
         return None

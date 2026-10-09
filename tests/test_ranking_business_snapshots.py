@@ -58,6 +58,37 @@ def test_source_update_and_delete_invalidate_business_batch(business_db):
     assert deleted != updated
 
 
+@pytest.mark.parametrize("kind", ["sale", "assignment"])
+def test_future_row_not_yet_in_samples_expires_cache(business_db, kind):
+    from apps.api.dy_api.models import RawDouyinOrder, ClueAssignmentRound
+    from apps.api.dy_api.ranking_schema_v1 import samples
+    now = END - timedelta(hours=12)
+    boundary = now + timedelta(hours=1)
+    original = business_db.scalar(select(RawDouyinOrder).where(RawDouyinOrder.order_id == "O1"))
+    if kind == "sale":
+        business_db.add(RawDouyinOrder(
+            order_id="future-order", sku_id=original.sku_id, sale_time=boundary,
+            owner_account_id=original.owner_account_id,
+        ))
+        key, metric = "future-order", "order_count"
+    else:
+        business_db.add(ClueAssignmentRound(
+            assignment_round_id="future-round", order_id="O1", lead_key="future-lead",
+            assigned_store_id="A", assigned_at=boundary, execution_mode="formal", round_status="active",
+        ))
+        key, metric = "future-round", "follow_24h"
+    business_db.commit()
+    first = ensure(business_db, now=now)
+    def count(run_id):
+        return business_db.scalar(select(func.count()).select_from(samples).where(
+            samples.c.run_id == run_id, samples.c.metric_key == metric, samples.c.sample_key == key))
+    assert count(first) == 0
+    assert ensure(business_db, now=now + timedelta(minutes=30)) == first
+    second = ensure(business_db, now=boundary + timedelta(seconds=1))
+    assert second != first
+    assert count(second) == 1
+
+
 def test_existing_future_follow_time_expires_cache_without_a_write(business_db):
     from apps.api.dy_api.models import ClueFollowUpRecord
     from apps.api.dy_api.ranking_lifecycle import ensure_lifecycle_schema

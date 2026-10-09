@@ -1,8 +1,8 @@
 """Preview/apply bounded ranking snapshot retention actions.
 
 The command is intentionally dry-run by default.  It never truncates ranking
-tables and deletes at most the requested number of complete snapshot runs in
-one transaction.
+tables and deletes at most the requested number of complete snapshot runs,
+with one complete run per transaction.
 """
 
 from __future__ import annotations

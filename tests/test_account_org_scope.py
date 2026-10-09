@@ -82,6 +82,11 @@ def test_ranking_and_export_ignore_scope_and_a03_deny_but_require_login(client, 
     db_session.commit()
     seen = []
     monkeypatch.setattr(dashboard, 'ensure_business_snapshot', lambda *a, **kw: 'snapshot')
+    # This test isolates authorization from persistence; lifecycle behavior
+    # is verified against real snapshot rows in the ranking tests.
+    monkeypatch.setattr(dashboard, 'hold_snapshot_read', lambda *a, **kw: {'run_id': 'snapshot'})
+    monkeypatch.setattr(dashboard, 'resolve_static_snapshot', lambda *a, **kw: 'snapshot')
+    monkeypatch.setattr(dashboard, 'record_snapshot_access', lambda *a, **kw: None)
     def report(*args, **kwargs):
         seen.append(kwargs['scope_store_ids'])
         return {'rows': [{'name': 'Other Store'}]}

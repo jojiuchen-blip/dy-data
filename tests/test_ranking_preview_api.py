@@ -117,6 +117,42 @@ def test_snapshot_read_never_creates_another_batch(preview_client, db_session):
 EXPORT = "/api/v1/dashboard/douyin-ranking/export"
 
 
+def test_business_export_never_recalculates_even_after_source_changes(preview_client, db_session, monkeypatch):
+    from dy_api.routes import dashboard
+    from apps.api.dy_api.models import RawDouyinOrder
+    from apps.api.dy_api.ranking_schema_v1 import samples, snapshots
+    from apps.api.dy_api.ranking_lifecycle_schema import snapshot_lifecycle
+
+    login(preview_client)
+    preview_client.app.state.ranking_snapshot_preview = False
+    db_session.execute(runs.update().where(runs.c.run_id == "baseline").values(data_mode="business"))
+    order = db_session.scalar(select(RawDouyinOrder).where(RawDouyinOrder.order_id == "O1"))
+    order.owner_account_name = "changed after static publication"
+    db_session.commit()
+    before = [db_session.scalar(select(func.count()).select_from(table)) for table in (runs, samples, snapshots)]
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("export must not calculate a snapshot")
+    monkeypatch.setattr(dashboard, "ensure_business_snapshot", forbidden)
+    response = preview_client.get(EXPORT, params=PARAMS)
+    assert response.status_code == 200
+    assert response.content.startswith(b"PK")
+    assert before == [db_session.scalar(select(func.count()).select_from(table)) for table in (runs, samples, snapshots)]
+    assert db_session.scalar(select(snapshot_lifecycle.c.last_accessed_at).where(snapshot_lifecycle.c.run_id == "baseline")) is not None
+
+
+def test_business_export_missing_static_version_does_not_calculate(preview_client, db_session, monkeypatch):
+    from dy_api.routes import dashboard
+    login(preview_client)
+    preview_client.app.state.ranking_snapshot_preview = False
+    def forbidden(*args, **kwargs):
+        pytest.fail("missing static version must not trigger calculation")
+    monkeypatch.setattr(dashboard, "ensure_business_snapshot", forbidden)
+    response = preview_client.get(EXPORT, params=PARAMS)
+    assert response.status_code == 422
+    assert db_session.scalar(select(func.count()).select_from(runs)) == 1
+
+
 def workbook(response):
     from io import BytesIO
     from openpyxl import load_workbook
