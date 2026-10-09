@@ -529,18 +529,21 @@ def test_refund_certificate_numeric_string_preserves_business_time(db_session, s
 @pytest.mark.parametrize(
     "kind,terminal_hour,follow_hour,expected_24h,expected_any,expected_action",
     [
+        ("refunded", 24, None, (0, 0), (0, 0), (0, 1)),
+        ("refunded", 24.001, None, (0, 1), (0, 1), (0, 1)),
+        ("closed", 24.001, 24, (1, 1), (1, 1), (1, 1)),
         (None, None, None, (0, 1), (0, 1), (0, 1)),
         (None, None, 25, (0, 1), (1, 1), (1, 1)),
         ("verified", 4, None, (1, 1), (1, 1), (0, 1)),
         ("verified", 30, None, (0, 1), (1, 1), (0, 1)),
         ("verified", 30, 31, (0, 1), (1, 1), (1, 1)),
         ("refunded", 4, None, (0, 0), (0, 0), (0, 1)),
-        ("refunded", 30, None, (0, 1), (0, 0), (0, 1)),
-        ("closed", 30, None, (0, 1), (0, 0), (0, 1)),
+        ("refunded", 30, None, (0, 1), (0, 1), (0, 1)),
+        ("closed", 30, None, (0, 1), (0, 1), (0, 1)),
         ("refunded", 30, 25, (0, 1), (1, 1), (1, 1)),
         ("closed", 30, 25, (0, 1), (1, 1), (1, 1)),
         ("refunded", 4, 5, (0, 0), (0, 0), (1, 1)),
-        ("refunded", 30, 30, (0, 1), (0, 0), (1, 1)),
+        ("refunded", 30, 30, (0, 1), (0, 1), (1, 1)),
         ("refunded", -1, 1, (0, 0), (0, 0), (1, 1)),
         ("verified", None, 1, (0, 0), (0, 0), (1, 1)),
     ],
@@ -559,6 +562,8 @@ def test_three_follow_metrics_have_independent_business_rules(
     assert (metric.follow_any_numerator, metric.follow_any_denominator) == expected_any
     assert (metric.follow_action_numerator, metric.follow_action_denominator) == expected_action
     assert metric.as_dict()["follow_action_denominator"] == expected_action[1]
+    assert metric.follow_any_denominator == metric.denominator
+    assert metric.numerator <= metric.follow_any_numerator <= metric.denominator
 
 
 @pytest.mark.parametrize("invalid", ["store", "round", "order", "deleted", "before", "future"])

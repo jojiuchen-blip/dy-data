@@ -411,7 +411,7 @@ def test_period_query_keeps_old_assigned_order_without_loading_all_sales(preview
 
 
 @pytest.mark.parametrize("level", ["store", "area", "district", "service_center", "group"])
-def test_three_follow_denominators_are_independent_in_snapshot_and_live(preview, level):
+def test_business_follow_denominator_is_shared_in_snapshot_and_live(preview, level):
     from apps.api.dy_api.models import ClueFollowUpRecord, RawDouyinRefundRecord
     from apps.worker.ranking_preview_fixture import AT, START, END
 
@@ -432,9 +432,13 @@ def test_three_follow_denominators_are_independent_in_snapshot_and_live(preview,
         created_at=AT + timedelta(hours=5), follow_result="lost"))
     preview.commit()
     calculate(preview)
-    totals = report(preview, level=level)["totals"]
+    result = report(preview, level=level)
+    totals = result["totals"]
+    for item in [totals, *result["rows"]]:
+        assert item["follow_any_denominator"] == item["follow_denominator"]
+        assert item["follow_numerator"] <= item["follow_any_numerator"] <= item["follow_denominator"]
     assert (totals["follow_numerator"], totals["follow_denominator"], totals["follow_24h_rate"]) == (3, 10, .3)
-    assert (totals["follow_any_numerator"], totals["follow_any_denominator"], totals["follow_rate"]) == (4, 4, 1)
+    assert (totals["follow_any_numerator"], totals["follow_any_denominator"], totals["follow_rate"]) == (4, 10, .4)
     assert (totals["follow_action_numerator"], totals["follow_action_denominator"], totals["follow_action_rate"]) == (5, 11, .454545)
     live = build_douyin_ranking_report(preview, period_start=START, period_end=END, level=level)["totals"]
     for key in ["follow_numerator", "follow_denominator", "follow_24h_rate", "follow_any_numerator",

@@ -199,9 +199,9 @@ def test_shared_metric_ranking_ties_nulls_and_auxiliary_values():
     assert "rank" not in rows[0]
 
 
-def test_api_and_export_preserve_three_different_denominators(preview_client, db_session):
+def test_api_and_export_share_business_denominator_keep_action_independent(preview_client, db_session):
     from apps.api.dy_api.ranking_schema_v1 import snapshots
-    for metric, numerator, denominator in [("follow_24h", 1, 3), ("follow_any", 2, 2), ("follow_action", 3, 4)]:
+    for metric, numerator, denominator in [("follow_24h", 1, 3), ("follow_any", 2, 3), ("follow_action", 3, 4)]:
         db_session.execute(snapshots.update().where(snapshots.c.run_id == "baseline",
             snapshots.c.store_id == "A", snapshots.c.metric_key == metric).values(
                 numerator=numerator, denominator=denominator))
@@ -212,11 +212,11 @@ def test_api_and_export_preserve_three_different_denominators(preview_client, db
     data = response.json()["data"]
     for row in [data["totals"], data["rows"][0]]:
         assert (row["followNumerator"], row["followDenominator"], row["follow24hRate"]) == (1, 3, .333333)
-        assert (row["followAnyNumerator"], row["followAnyDenominator"], row["followRate"]) == (2, 2, 1)
+        assert (row["followAnyNumerator"], row["followAnyDenominator"], row["followRate"]) == (2, 3, .666667)
         assert (row["followActionNumerator"], row["followActionDenominator"], row["followActionRate"]) == (3, 4, .75)
     book = workbook(preview_client.get(EXPORT, params={**PARAMS, "storeId": "A", "levels": "store", "metrics": "follow_24h_rate"}))
     rows = list(book.active.iter_rows(values_only=True))
     headers = next(row for row in rows if row[0] == "排名")
     exported = dict(zip(headers, next(row for row in rows if isinstance(row[0], int))))
-    assert (exported["24小时有效跟进分母"], exported["跟进率分母"], exported["正式分配轮次"]) == (3, 2, 4)
-    assert (exported["24小时有效跟进率"], exported["跟进率"], exported["跟进动作衡量指标"]) == (.333333, 1, .75)
+    assert (exported["24小时有效跟进分母"], exported["跟进率分母"], exported["正式分配轮次"]) == (3, 3, 4)
+    assert (exported["24小时有效跟进率"], exported["跟进率"], exported["跟进动作衡量指标"]) == (.333333, .666667, .75)

@@ -147,16 +147,18 @@ def test_ranking_live_api_independent_follow_rates_and_empty_filter(
         for metrics in (data["totals"], data["rows"][0]):
             assert (metrics["followNumerator"], metrics["followDenominator"]) == (1, 3)
             assert metrics["follow24hRate"] == pytest.approx(1 / 3, abs=1e-6)
-            assert (metrics["followAnyNumerator"], metrics["followAnyDenominator"], metrics["followRate"]) == (2, 2, 1)
+            assert (metrics["followAnyNumerator"], metrics["followAnyDenominator"], metrics["followRate"]) == (2, 3, pytest.approx(2 / 3, abs=1e-6))
+            assert metrics["followAnyDenominator"] == metrics["followDenominator"]
+            assert metrics["followRate"] >= metrics["follow24hRate"]
             assert (metrics["followActionNumerator"], metrics["followActionDenominator"], metrics["followActionRate"]) == (1, 4, .25)
         card = page.locator(".metric-card").filter(has_text="线索24小时有效跟进率")
         expect(card).to_contain_text("33.33%")
         expect(card).to_contain_text("有效 1 / 分配 3")
-        expect(card).to_contain_text("100%（2/2）")
+        expect(card).to_contain_text("66.67%（2/3）")
         expect(card).to_contain_text("25%（1/4）")
         row = page.locator("tbody tr").first if width == 1440 else page.locator(".data-table-mobile-card").first
         expect(row).to_contain_text("33.33%（1/3）")
-        expect(row).to_contain_text("100%（2/2）")
+        expect(row).to_contain_text("66.67%（2/3）")
         expect(row).to_contain_text("25%（1/4）")
         help_button = row.get_by_role("button", name="跟进动作衡量指标口径说明", exact=True)
         expect(help_button).to_have_text("跟进动作衡量指标")

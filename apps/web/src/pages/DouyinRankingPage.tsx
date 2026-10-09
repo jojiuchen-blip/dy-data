@@ -43,7 +43,7 @@ function displayAverage(value: number | null | undefined) {
 }
 
 const FOLLOW_24H_DESCRIPTION = "24小时内人工跟进或成功核销轮次 ÷ 有效分配轮次。未满24小时也计入；退款/关闭按有效规则剔除。";
-const FOLLOW_DESCRIPTION = "人工跟进或成功核销轮次 ÷ 有效分配轮次，不限24小时。退款/关闭按有效规则剔除。";
+const FOLLOW_DESCRIPTION = "人工跟进或成功核销轮次 ÷ 24小时跟进率的同一分母，仅取消分子的24小时时限。";
 const FOLLOW_ACTION_DESCRIPTION = "有人工跟进记录的轮次 ÷ 全部正式分配轮次，不限24小时。未接通、战败也算；自动核销不算人工动作。";
 
 function displayCount(value: number | null | undefined) {
