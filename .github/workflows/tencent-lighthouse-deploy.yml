@@ -21,7 +21,7 @@ jobs:
           chmod 600 ~/.ssh/tencent_lighthouse
           printf '%s\n' "$TENCENT_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-      - name: Release rebuildable caches and verify database
+      - name: Verify restored services
         run: |
           ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" -o BatchMode=yes -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=5 "$TENCENT_SSH_USER@$TENCENT_HOST" 'bash -s' <<'REMOTE'
           set -eu
@@ -29,14 +29,6 @@ jobs:
           c() { sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml "$@"; }
           date -u
           df -h /
-          sudo docker builder prune --all --force
-          sudo docker image prune --force
-          df -h /
-          sudo du -x -h --max-depth=2 /opt/dy-dashboard/logs 2>/dev/null | sort -h | tail -15
-          for attempt in $(seq 1 12); do
-            if c exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "select 1,pg_is_in_recovery();"'; then break; fi
-            sleep 5
-          done
           c ps
-          c logs --since 2m --tail 60 postgres 2>&1 | python3 -c 'import sys,re; print("\n".join(x for x in sys.stdin.read().splitlines() if re.search(r"PANIC|FATAL|ERROR|LOG:.*(recovery|checkpoint|ready)|space",x)))'
+          c exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select pg_is_in_recovery(); select state,count(*) from pg_stat_activity group by 1;"' </dev/null
           REMOTE
