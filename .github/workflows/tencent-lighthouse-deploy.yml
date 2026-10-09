@@ -30,6 +30,7 @@ jobs:
           date -u
           df -h /
           if pgrep -f '[b]ash deploy/tencent/deploy.sh' >/dev/null; then echo 'Deployment script running'; else echo 'Deployment script not running'; fi
+          if pgrep -f '[p]g_dump' >/dev/null; then echo 'Database backup process running'; else echo 'No database backup process running'; fi
           c ps
           sudo cat /opt/dy-dashboard/logs/last-deploy.json
           REMOTE
