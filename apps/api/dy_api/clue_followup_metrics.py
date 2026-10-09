@@ -41,7 +41,7 @@ from apps.api.dy_api.models import (
 from apps.worker.order_status import normalize_coupon_status, resolve_clue_order_status
 
 
-FOLLOW_UP_METRIC_VERSION = "clue-followup-v4-independent-action"
+FOLLOW_UP_METRIC_VERSION = "clue-followup-v5-common-business-denominator"
 FOLLOW_UP_WINDOW = timedelta(hours=24)
 EVIDENCE_QUERY_BATCH_SIZE = 500
 
@@ -60,9 +60,9 @@ CLUE_FOLLOWUP_METRIC_DEFINITIONS: dict[str, str] = {
         "已确认终止但缺少业务终止时间因证据不足暂按0/0排除，待补齐后重算"
     ),
     "follow_any_rate": (
-        "与24小时有效跟进率采用相同规则但不限制24小时：正式分配后核销计1/1；"
-        "退款或关闭前有同轮次同门店未删除人工跟进计1/1，否则0/0；"
-        "未终止轮次分母1，有有效人工跟进分子1；分配前终止或终止时间未知按0/0排除；遵守观测截止时间"
+        "分母与24小时有效跟进率完全一致，仅分子的24小时限制不同；"
+        "纳入分母的轮次，正式分配后核销或终止前同轮次同门店未删除人工跟进计分子1；"
+        "超过24小时退款或关闭且未有效跟进仍计0/1；遵守观测截止时间"
     ),
     "follow_action_rate": (
         "全部正式分配轮次为分母；分配后至观测截止时间存在同轮次同门店未删除人工跟进即计分子1，"
@@ -462,13 +462,6 @@ def evaluate_clue_followup_round(
     valid_window = [item.follow_up_record_id for item in valid_actions
                     if (terminal_at is None or _aware(item.created_at) < terminal_at)
                     and _aware(item.created_at) <= deadline]
-    if terminal_kind == "verified":
-        any_numerator, any_denominator = 1, 1
-    elif visible_terminal.is_terminal:
-        any_numerator = any_denominator = int(bool(valid_any))
-    else:
-        any_numerator, any_denominator = int(bool(valid_any)), 1
-
     terminal_within_window = terminal_at is not None and terminal_at <= deadline
     under_observation = terminal_at is None and cutoff < deadline
     if terminal_within_window:
@@ -481,6 +474,11 @@ def evaluate_clue_followup_round(
     else:
         numerator, denominator = int(bool(valid_window)), 1
         reason = "terminal_after_24h" if terminal_at is not None else "active_under_observation" if under_observation else "active_matured"
+
+    # Both business rates use exactly the same eligible rounds. Only the
+    # numerator's 24-hour deadline differs; action metrics remain independent.
+    any_denominator = denominator
+    any_numerator = int(bool(denominator) and (terminal_kind == "verified" or bool(valid_any)))
 
     return FollowUpMetric(
         assignment_round_id=assignment_round_id,
