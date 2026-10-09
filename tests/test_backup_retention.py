@@ -404,6 +404,36 @@ def test_report_target_cannot_overwrite_backup_pin_or_alias(tmp_path: Path) -> N
     assert backup.read_bytes().startswith(b"PGDMP")
 
 
+def test_report_target_rejects_existing_json_and_pin_hardlink_alias(tmp_path: Path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-report-targets"
+    outside.mkdir()
+    existing_json = outside / "config.json"
+    existing_json.write_text('{"setting": true}', encoding="utf-8")
+
+    with pytest.raises(RetentionError, match="new or an existing"):
+        _write_report(
+            existing_json,
+            {"mode": "dry-run", "root": str(tmp_path), "scanned": [], "would_delete": []},
+            backup_root=tmp_path,
+            pin_file=None,
+        )
+
+    pin_file = outside / "pins.json"
+    pin_file.write_text("pre-migrate-20261007T000000Z.dump\n", encoding="utf-8")
+    pin_alias = outside / "pin-report.json"
+    try:
+        pin_alias.hardlink_to(pin_file)
+    except (OSError, NotImplementedError):
+        pytest.skip("hard links are unavailable on this platform")
+    with pytest.raises(RetentionError, match="aliases the pin"):
+        _write_report(
+            pin_alias,
+            {"mode": "dry-run", "root": str(tmp_path), "scanned": [], "would_delete": []},
+            backup_root=tmp_path,
+            pin_file=pin_file,
+        )
+
+
 def test_report_is_exclusive_private_and_can_be_refreshed(tmp_path: Path) -> None:
     report = tmp_path / "backup-retention-report.json"
     _write_report(report, {"mode": "apply", "root": str(tmp_path), "scanned": [], "would_delete": [], "phase": "planned"}, backup_root=tmp_path, pin_file=None)
@@ -470,6 +500,48 @@ def test_apply_rejects_report_target_before_deleting(tmp_path: Path) -> None:
 
     assert result == 1
     assert sorted(path.name for path in tmp_path.glob("*.dump")) == before
+
+
+def test_apply_without_report_file_writes_unique_default_evidence(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for stamp in ("20261007T000000Z", "20261008T000000Z", "20261009T000000Z"):
+        _write_dump(tmp_path, stamp)
+    validator = tmp_path / "validator.py"
+    validator.write_text(
+        "import sys\n"
+        "if sys.argv[1:] not in (['--list', '-'], ['--list']):\n"
+        "    raise SystemExit(3)\n"
+        "raise SystemExit(0 if sys.stdin.buffer.read(5) == b'PGDMP' else 4)\n",
+        encoding="utf-8",
+    )
+
+    result = main(
+        [
+            "--backup-dir",
+            str(tmp_path),
+            "--apply",
+            "--latest",
+            "1",
+            "--daily-days",
+            "0",
+            "--weekly-weeks",
+            "0",
+            "--validator-command",
+            shlex.join([sys.executable, str(validator)]),
+        ]
+    )
+
+    assert result == 0
+    output = json.loads(capsys.readouterr().out)
+    report = Path(output["report_file"])
+    assert report.parent == tmp_path.resolve()
+    assert report.name.startswith("backup-retention-")
+    assert report.suffix == ".json"
+    persisted = json.loads(report.read_text(encoding="utf-8"))
+    assert persisted["phase"] == "complete"
+    assert persisted["deleted"] == output["deleted"]
+    assert not list(tmp_path.glob(".backup-retention-*.partial"))
 
 
 def test_symlink_candidate_is_invalid_and_never_deleted(tmp_path: Path) -> None:

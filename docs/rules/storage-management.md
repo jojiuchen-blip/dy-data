@@ -23,6 +23,9 @@ python scripts/backup_retention.py --backup-dir /path/to/backups --apply \
   --report-file /path/to/backups/backup-retention-report.json
 ```
 
+`--apply` 未指定 `--report-file` 时，工具会在备份目录生成唯一的
+`backup-retention-UTC-UUID.json` 报告；删除前一定先写入计划阶段，完成或失败后再更新同一份报告。
+
 工具只管理精确匹配 `pre-migrate-YYYYMMDDTHHMMSSZ.dump` 的普通 PostgreSQL custom-format 备份。环境备份、迁移基线、专项命名、`.partial` 文件、报告和其他文件都不会被自动删除。需要长期保留的普通备份可以在 pin 清单中写入文件名，或创建同名 `.pin` / `.pinned` 标记文件；专项备份本身不进入普通候选集合。
 
 默认保留集合为：

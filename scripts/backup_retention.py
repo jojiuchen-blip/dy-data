@@ -593,8 +593,16 @@ def _validate_report_target(
         raise RetentionError(f"report path must use the .json suffix: {report}")
     root = _resolve_root(backup_root)
     report_key = _path_key(report)
-    if pin_file is not None and report_key == _path_key(pin_file):
-        raise RetentionError(f"report path must not overwrite the pin file: {report}")
+    if pin_file is not None:
+        pin_path = Path(pin_file)
+        if report_key == _path_key(pin_path):
+            raise RetentionError(f"report path must not overwrite the pin file: {report}")
+        if report.exists() and pin_path.exists():
+            try:
+                if os.path.samestat(report.lstat(), pin_path.lstat()):
+                    raise RetentionError(f"report path aliases the pin file: {report}")
+            except FileNotFoundError:
+                pass
     for entry in root.iterdir():
         if report_key == _path_key(entry):
             if _looks_like_retention_report(report):
@@ -606,6 +614,10 @@ def _validate_report_target(
                     raise RetentionError(f"report path aliases a backup artifact: {report}")
             except FileNotFoundError:
                 pass
+    if report.exists() and report.is_file() and not _looks_like_retention_report(report):
+        raise RetentionError(
+            f"report path must be new or an existing backup-retention report: {report}"
+        )
     if report.is_symlink():
         raise RetentionError(f"report path must not be a symlink: {report}")
     if report.exists() and report.is_dir():
@@ -613,6 +625,11 @@ def _validate_report_target(
     if report.parent.exists() and report.parent.is_symlink():
         raise RetentionError(f"report parent must not be a symlink: {report.parent}")
     return report
+
+
+def _default_report_path(root: Path) -> Path:
+    timestamp = datetime.now(timezone.utc).strftime(TIMESTAMP_FORMAT)
+    return root / f"backup-retention-{timestamp}-{uuid.uuid4().hex}.json"
 
 
 def _write_report(
@@ -702,26 +719,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             weekly_weeks=args.weekly_weeks,
         )
         if args.apply:
-            report_path = args.report_file
-            if report_path:
-                planned_payload = plan.report(apply=True, phase="planned")
-                planned_payload["report_file"] = str(report_path)
+            report_path = args.report_file or _default_report_path(plan.root)
+            planned_payload = plan.report(apply=True, phase="planned")
+            planned_payload["report_file"] = str(report_path)
+            _write_report(
+                report_path,
+                planned_payload,
+                backup_root=args.backup_dir,
+                pin_file=args.pin_file,
+            )
+            if plan.blocked:
+                payload = plan.report(apply=True, phase="blocked")
+                payload["report_file"] = str(report_path)
                 _write_report(
                     report_path,
-                    planned_payload,
+                    payload,
                     backup_root=args.backup_dir,
                     pin_file=args.pin_file,
                 )
-            if plan.blocked:
-                payload = plan.report(apply=True, phase="blocked")
-                if report_path:
-                    payload["report_file"] = str(report_path)
-                    _write_report(
-                        report_path,
-                        payload,
-                        backup_root=args.backup_dir,
-                        pin_file=args.pin_file,
-                    )
                 print(json.dumps(payload, ensure_ascii=False))
                 return 2
             try:
@@ -735,14 +750,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 payload = plan.report(apply=True, phase="blocked")
                 payload["blocked"] = True
                 payload["blocked_reasons"] = [*plan.blocked_reasons, str(exc)]
-                if report_path:
-                    payload["report_file"] = str(report_path)
-                    _write_report(
-                        report_path,
-                        payload,
-                        backup_root=args.backup_dir,
-                        pin_file=args.pin_file,
-                    )
+                payload["report_file"] = str(report_path)
+                _write_report(
+                    report_path,
+                    payload,
+                    backup_root=args.backup_dir,
+                    pin_file=args.pin_file,
+                )
                 print(json.dumps(payload, ensure_ascii=False))
                 return 2
             except RetentionApplyError as exc:
@@ -754,18 +768,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 payload["blocked"] = True
                 payload["blocked_reasons"] = [*plan.blocked_reasons, str(exc)]
-                if report_path:
-                    payload["report_file"] = str(report_path)
-                    _write_report(
-                        report_path,
-                        payload,
-                        backup_root=args.backup_dir,
-                        pin_file=args.pin_file,
-                    )
-                print(json.dumps(payload, ensure_ascii=False))
-                return 2
-            payload = plan.report(apply=True, phase="complete", deleted=deleted, skipped=skipped)
-            if report_path:
                 payload["report_file"] = str(report_path)
                 _write_report(
                     report_path,
@@ -773,6 +775,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                     backup_root=args.backup_dir,
                     pin_file=args.pin_file,
                 )
+                print(json.dumps(payload, ensure_ascii=False))
+                return 2
+            payload = plan.report(apply=True, phase="complete", deleted=deleted, skipped=skipped)
+            payload["report_file"] = str(report_path)
+            _write_report(
+                report_path,
+                payload,
+                backup_root=args.backup_dir,
+                pin_file=args.pin_file,
+            )
         else:
             payload = plan.report(apply=False)
             if args.report_file:
