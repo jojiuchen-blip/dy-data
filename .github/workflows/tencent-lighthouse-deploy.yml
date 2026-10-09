@@ -28,10 +28,8 @@ jobs:
           cd /opt/dy-dashboard/repo
           c() { sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml "$@"; }
           date -u
-          df -h / /opt
-          free -m
-          c ps
-          sudo docker stats --no-stream --format '{{.Name}} {{.CPUPerc}} {{.MemUsage}} {{.PIDs}}'
-          c logs --since 40m --tail 1500 api 2>&1 | python3 -c 'import sys,re; lines=sys.stdin.read().splitlines(); safe=[re.sub(r"https?://\S+|postgresql[^ ]*", "[redacted-url]",x) for x in lines if re.search(r"Error:|Exception:|TimeoutError|FATAL:|File .*, line|auth/login|connection pool|remaining connection|too many clients|could not|Traceback",x) and not re.search(r"parameters:|password|token|secret",x,re.I)]; print("\n".join(safe[-100:]))'
-          c exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select state,wait_event_type,wait_event,count(*) from pg_stat_activity group by 1,2,3 order by 4 desc; show max_connections; select count(*) as locks from pg_locks where not granted;"'
+          df -h /
+          sudo docker system df
+          sudo du -x -h --max-depth=1 /var/lib/docker /opt/dy-dashboard /var/log 2>/dev/null | sort -h
+          c logs --since 30m --tail 150 postgres 2>&1 | python3 -c 'import sys,re; print("\n".join(x for x in sys.stdin.read().splitlines() if re.search(r"PANIC|FATAL|ERROR|LOG:.*(redo|recovery|checkpoint|ready|shut)|space|disk",x)))'
           REMOTE
