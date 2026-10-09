@@ -14,8 +14,13 @@ LEVEL_LABELS = {"group": "集团", "service_center": "中心", "district": "大�
 METRIC_LABELS = {"order_average": "抖音店均订单量排行", "follow_24h_rate": "24小时有效跟进率排行", "verification_rate": "订单核销率排行"}
 METRIC_COLUMNS = {
     "order_average": [("order_average", "店均订单量", "0.00"), ("order_count", "抖音订单量（辅助）", "0"), ("store_count", "适用门店数", "0")],
-    "follow_24h_rate": [("follow_24h_rate", "24小时有效跟进率", "0.00%"), ("follow_rate", "不限24小时跟进率（辅助）", "0.00%"),
-        ("follow_numerator", "24小时有效跟进轮次", "0"), ("follow_denominator", "正式分配轮次", "0"), ("follow_any_numerator", "不限24小时跟进轮次", "0")],
+    "follow_24h_rate": [
+        ("follow_24h_rate", "24小时有效跟进率", "0.00%"),
+        ("follow_numerator", "24小时有效跟进轮次", "0"), ("follow_denominator", "24小时有效跟进分母", "0"),
+        ("follow_rate", "跟进率", "0.00%"),
+        ("follow_any_numerator", "跟进率分子", "0"), ("follow_any_denominator", "跟进率分母", "0"),
+        ("follow_action_rate", "跟进动作率", "0.00%"),
+        ("follow_action_numerator", "人工跟进轮次", "0"), ("follow_action_denominator", "正式分配轮次", "0")],
     "verification_rate": [("verification_rate", "订单核销率", "0.00%"), ("verification_numerator", "本店成功核销订单数", "0"), ("verification_denominator", "正式分配关联订单数", "0")],
 }
 

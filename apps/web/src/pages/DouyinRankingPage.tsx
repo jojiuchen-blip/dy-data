@@ -6,6 +6,7 @@ import { fetchDouyinRanking } from "../api/client";
 import { DataTable, type Column } from "../components/DataTable";
 import { FilterBar, FilterField } from "../components/Filters";
 import { FieldInput, SelectField } from "../components/FormControls";
+import { TooltipLabel } from "../components/TooltipLabel";
 import { MetricCard } from "../components/MetricCard";
 import { TablePagination } from "../components/TablePagination";
 import { ResourceNotice, ResourcePanel, resourceSourceLabel } from "../components/ResourceState";
@@ -39,6 +40,21 @@ function displayRate(value: number | null | undefined) {
 
 function displayAverage(value: number | null | undefined) {
   return value === null || value === undefined ? "暂无数据" : value.toFixed(2);
+}
+
+const FOLLOW_24H_DESCRIPTION = "分子：正式分配后 24 小时内有有效人工跟进或成功核销的轮次。分母：有效正式分配轮次，未满 24 小时也计入；24 小时内退款或关闭且此前未有效跟进的轮次剔除，24 小时后退款或关闭仍保留分母。分配前已终态或终态时间无法确认的轮次不计入。按分配轮次去重；上级组织汇总分子、分母后计算，不平均门店百分比。";
+const FOLLOW_DESCRIPTION = "不限制 24 小时，统计截至数据更新时间的业务有效跟进。核销：分配后任何时间成功核销均计为 1/1，无需人工记录。退款或关闭：终态前有有效人工跟进计为 1/1，否则分子、分母均不计入。未终态：计入分母，有有效人工跟进才计入分子。分配前已终态或终态时间无法确认的轮次剔除；每轮只计一次。分母可能与 24 小时跟进率及跟进动作率不同。";
+const FOLLOW_ACTION_DESCRIPTION = "查看门店是否实际做过人工跟进，不设 24 小时限制。分母：统计范围内的全部正式分配轮次。分子：分配后至数据更新时间，同门店、同分配轮次内至少有一条未删除的人工跟进记录，包含未接通和战败，也包含订单核销、退款或关闭之后的人工跟进。每轮只计一次；系统自动核销不算人工动作。与业务有效跟进率独立计算，分母不同属于正常情况。";
+
+function displayCount(value: number | null | undefined) {
+  return value === null || value === undefined ? "—" : formatInteger(value);
+}
+
+function AuxiliaryFollowRates({ metrics }: { metrics: Pick<DouyinRankingRow, "followRate" | "followAnyNumerator" | "followAnyDenominator" | "followActionRate" | "followActionNumerator" | "followActionDenominator"> | undefined }) {
+  return <span className="ranking-follow-auxiliary">
+    <small><TooltipLabel label="跟进率" description={FOLLOW_DESCRIPTION} interactive /> {displayRate(metrics?.followRate)}（{displayCount(metrics?.followAnyNumerator)}/{displayCount(metrics?.followAnyDenominator)}）</small>
+    <small><TooltipLabel label="跟进动作率" description={FOLLOW_ACTION_DESCRIPTION} interactive /> {displayRate(metrics?.followActionRate)}（{displayCount(metrics?.followActionNumerator)}/{displayCount(metrics?.followActionDenominator)}）</small>
+  </span>;
 }
 
 function drilldownHref(
@@ -133,6 +149,10 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
   const totals = ranking?.totals;
   const sourceLabel = ranking?.dataMode === "synthetic" ? "虚拟测试快照" : resourceSourceLabel(rankingResource.data, rankingResource.loading);
 
+  const orderDescription = `统计所选日期内，门店及所属职人的全渠道${productLabel}订单，按订单 ID 去重；统一按统计开始日的组织归属汇总。`;
+  const averageDescription = "店均订单量 = 抖音订单量 ÷ 适用门店数。适用门店沿用精诚养车名单口径，包含零销量门店；组织归属按统计开始日确定，无适用门店时显示暂无数据。";
+  const verificationDescription = `分子：正式分配给本店的${productLabel}线索关联订单中，在本店成功核销的订单数。分母：该范围内的关联订单数。按订单去重，上级组织汇总各店分子、分母后计算，不平均门店百分比；无关联订单时显示暂无样本。`;
+  const metricTitle = (label: string, description: string) => <TooltipLabel label={label} description={description} interactive />;
   const columns: Column<DouyinRankingRow>[] = [
     { key: "rank", title: "排名", align: "center", render: (row) => <span className="rank-badge">{row.rank ?? "—"}</span> },
     {
@@ -144,11 +164,11 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
         return href ? <a href={href}>{row.name}</a> : row.name;
       },
     },
-    { key: "storeCount", title: "适用门店数", align: "right", render: (row) => formatInteger(row.storeCount) },
-    { key: "orderCount", title: "抖音订单量", align: "right", render: (row) => formatInteger(row.orderCount) },
-    { key: "orderAverage", title: "店均订单量", align: "right", render: (row) => displayAverage(row.orderAverage) },
-    { key: "follow24hRate", title: "24小时有效跟进率", align: "right", render: (row) => <><div>{displayRate(row.follow24hRate)}（{formatInteger(row.followNumerator)}/{formatInteger(row.followDenominator)}）</div><small title="正式分配后截至数据更新时间已有有效跟进的轮次占比，不限制在24小时内；每轮只计一次，仅供辅助判断。">跟进率 {displayRate(row.followRate)}</small></> },
-    { key: "verificationRate", title: "订单核销率", align: "right", render: (row) => `${displayRate(row.verificationRate)}（${formatInteger(row.verificationNumerator)}/${formatInteger(row.verificationDenominator)}）` },
+    { key: "storeCount", title: metricTitle("适用门店数", averageDescription), align: "right", render: (row) => formatInteger(row.storeCount) },
+    { key: "orderCount", title: metricTitle("抖音订单量", orderDescription), align: "right", render: (row) => formatInteger(row.orderCount) },
+    { key: "orderAverage", title: metricTitle("店均订单量", averageDescription), align: "right", render: (row) => displayAverage(row.orderAverage) },
+    { key: "follow24hRate", title: metricTitle("24小时有效跟进率", FOLLOW_24H_DESCRIPTION), align: "right", render: (row) => <><span className="ranking-follow-main">{displayRate(row.follow24hRate)}（{formatInteger(row.followNumerator)}/{formatInteger(row.followDenominator)}）</span><AuxiliaryFollowRates metrics={row} /></> },
+    { key: "verificationRate", title: metricTitle("订单核销率", verificationDescription), align: "right", render: (row) => `${displayRate(row.verificationRate)}（${formatInteger(row.verificationNumerator)}/${formatInteger(row.verificationDenominator)}）` },
   ];
 
   return (
@@ -181,9 +201,9 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
       {!ranking && rankingResource.loading ? <ResourcePanel>正在加载打榜指标…</ResourcePanel> : !ranking ? <ResourcePanel tone="error">打榜看板暂不可用。</ResourcePanel> : (
         <>
           <section className="metric-grid metric-grid--three">
-            <MetricCard label="抖音订单量" value={formatInteger(totals?.orderCount ?? 0)} meta={`店均 ${displayAverage(totals?.orderAverage)} · ${sourceLabel}`} description={`门店及所属职人的全渠道${productLabel}订单，按订单 ID 去重；订单量和店均统一按统计开始日组织归属，适用门店名单保持原有精诚养车名单口径，含零销量门店。`} />
-            <MetricCard label="线索24小时有效跟进率" value={displayRate(totals?.follow24hRate)} meta={<><div>有效 {formatInteger(totals?.followNumerator ?? 0)} / 分配 {formatInteger(totals?.followDenominator ?? 0)}</div><small title="正式分配后截至数据更新时间已有有效跟进的轮次占比，不限制在24小时内；每轮只计一次，仅供辅助判断。">跟进率 {displayRate(totals?.followRate)}</small></>} description={`${productLabel}对应的正式分配线索，从分配给门店时起算，未满 24 小时也计入；24 小时内核销视为有效跟进，退款前未跟进的早期退款轮次不计入。`} />
-            <MetricCard label="抖音订单核销率" value={displayRate(totals?.verificationRate)} meta={`核销 ${formatInteger(totals?.verificationNumerator ?? 0)} / 关联 ${formatInteger(totals?.verificationDenominator ?? 0)}`} description={`正式分配给本店的${productLabel}线索关联订单中，在本店成功核销的比例；上级组织汇总各店分子和分母。`} />
+            <MetricCard interactiveTooltip label="抖音订单量" value={formatInteger(totals?.orderCount ?? 0)} meta={<><TooltipLabel label="店均订单量" description={averageDescription} interactive /> {displayAverage(totals?.orderAverage)} · {sourceLabel}</>} description={orderDescription} />
+            <MetricCard interactiveTooltip label="线索24小时有效跟进率" value={displayRate(totals?.follow24hRate)} meta={<><div>有效 {formatInteger(totals?.followNumerator ?? 0)} / 分配 {formatInteger(totals?.followDenominator ?? 0)}</div><AuxiliaryFollowRates metrics={totals} /></>} description={`${productLabel}对应的正式分配线索。${FOLLOW_24H_DESCRIPTION}`} />
+            <MetricCard interactiveTooltip label="抖音订单核销率" value={displayRate(totals?.verificationRate)} meta={`核销 ${formatInteger(totals?.verificationNumerator ?? 0)} / 关联 ${formatInteger(totals?.verificationDenominator ?? 0)}`} description={verificationDescription} />
           </section>
           <section className="content-section">
             <div className="section-title">

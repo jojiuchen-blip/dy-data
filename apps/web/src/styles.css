@@ -8075,3 +8075,48 @@ a.metric-card:hover,
     grid-template-columns: 1fr;
   }
 }
+
+/* Ranking metric help uses the top layer so table overflow cannot clip it. */
+.tooltip-trigger--interactive {
+  padding: 0;
+  font-family: inherit;
+}
+
+.tooltip-trigger--interactive::after {
+  content: none;
+}
+
+.tooltip-trigger--interactive:focus-visible {
+  outline: 2px solid var(--brand-deep-orange);
+  outline-offset: 2px;
+}
+
+.metric-tooltip-popover {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: min(320px, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--ink-deep);
+  color: var(--surface-cream);
+  font-size: var(--font-size-caption);
+  font-weight: 500;
+  line-height: 1.55;
+  white-space: normal;
+  text-align: left;
+}
+
+.ranking-follow-auxiliary {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.ranking-follow-main {
+  display: block;
+}

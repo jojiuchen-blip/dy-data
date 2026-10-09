@@ -559,6 +559,7 @@ function TooltipPreview() {
     <div className="catalog-preview-row">
       <TooltipLabel description="已完成核销且满足当前归属规则的订单金额。" label="核销收入" />
       <TooltipLabel description="从销售订单生成到完成核销的平均天数。" label="平均核销周期" />
+      <TooltipLabel interactive description="全部正式分配轮次中有人工跟进动作的比例；不因自动核销计分，独立使用自己的分母。支持键盘聚焦与触屏点击查看。" label="跟进动作率" />
     </div>
   );
 }

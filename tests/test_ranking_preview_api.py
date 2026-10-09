@@ -54,6 +54,10 @@ def test_preview_route_reads_snapshot_not_legacy_table(preview_client):
     assert data["totals"]["storeCount"] == 3
     assert data["totals"]["orderAverage"] == 3.333333
     assert data["totals"]["follow24hRate"] == .3
+    assert data["totals"]["followAnyDenominator"] == 10
+    assert data["totals"]["followActionRate"] == .4
+    assert data["totals"]["followActionNumerator"] == 4
+    assert data["totals"]["followActionDenominator"] == 10
     assert data["totals"]["verificationRate"] == .5
     assert "虚拟测试" in data["previewNote"]
 
@@ -130,7 +134,8 @@ def test_export_three_metric_sheets_with_two_level_sections(preview_client):
         assert "大区排行" in values and "区域排行" in values
         assert "baseline" in str(values) and "2026-09-01" in str(values)
     assert "抖音订单量（辅助）" in [c.value for row in book.worksheets[0] for c in row]
-    assert "不限24小时跟进率（辅助）" in [c.value for row in book.worksheets[1] for c in row]
+    follow_headers = [c.value for row in book.worksheets[1] for c in row]
+    assert {"跟进率", "跟进率分母", "跟进动作率", "人工跟进轮次", "正式分配轮次"} <= set(follow_headers)
 
 
 def test_export_rankings_match_board_and_include_all_rows(preview_client):
@@ -192,3 +197,26 @@ def test_shared_metric_ranking_ties_nulls_and_auxiliary_values():
     assert [row["rank"] for row in sort_ranking_rows(rows, "order_average")] == [1, 1, 3]
     assert sort_ranking_rows(rows, "follow_24h_rate")[-1]["rank"] is None
     assert "rank" not in rows[0]
+
+
+def test_api_and_export_preserve_three_different_denominators(preview_client, db_session):
+    from apps.api.dy_api.ranking_schema_v1 import snapshots
+    for metric, numerator, denominator in [("follow_24h", 1, 3), ("follow_any", 2, 2), ("follow_action", 3, 4)]:
+        db_session.execute(snapshots.update().where(snapshots.c.run_id == "baseline",
+            snapshots.c.store_id == "A", snapshots.c.metric_key == metric).values(
+                numerator=numerator, denominator=denominator))
+    db_session.commit()
+    login(preview_client)
+    response = preview_client.get("/api/v1/dashboard/douyin-ranking", params={**PARAMS, "storeId": "A"})
+    assert response.status_code == 200
+    data = response.json()["data"]
+    for row in [data["totals"], data["rows"][0]]:
+        assert (row["followNumerator"], row["followDenominator"], row["follow24hRate"]) == (1, 3, .333333)
+        assert (row["followAnyNumerator"], row["followAnyDenominator"], row["followRate"]) == (2, 2, 1)
+        assert (row["followActionNumerator"], row["followActionDenominator"], row["followActionRate"]) == (3, 4, .75)
+    book = workbook(preview_client.get(EXPORT, params={**PARAMS, "storeId": "A", "levels": "store", "metrics": "follow_24h_rate"}))
+    rows = list(book.active.iter_rows(values_only=True))
+    headers = next(row for row in rows if row[0] == "排名")
+    exported = dict(zip(headers, next(row for row in rows if isinstance(row[0], int))))
+    assert (exported["24小时有效跟进分母"], exported["跟进率分母"], exported["正式分配轮次"]) == (3, 2, 4)
+    assert (exported["24小时有效跟进率"], exported["跟进率"], exported["跟进动作率"]) == (.333333, 1, .75)

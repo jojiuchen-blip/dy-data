@@ -524,3 +524,62 @@ def test_refund_certificate_numeric_string_preserves_business_time(db_session, s
     terminal = load_terminal_evidence(db_session, {"O"}, observed_through=CUTOFF)["O"]
     assert terminal.kind == "refunded"
     assert terminal.terminal_at == refunded_at
+
+
+@pytest.mark.parametrize(
+    "kind,terminal_hour,follow_hour,expected_24h,expected_any,expected_action",
+    [
+        (None, None, None, (0, 1), (0, 1), (0, 1)),
+        (None, None, 25, (0, 1), (1, 1), (1, 1)),
+        ("verified", 4, None, (1, 1), (1, 1), (0, 1)),
+        ("verified", 30, None, (0, 1), (1, 1), (0, 1)),
+        ("verified", 30, 31, (0, 1), (1, 1), (1, 1)),
+        ("refunded", 4, None, (0, 0), (0, 0), (0, 1)),
+        ("refunded", 30, None, (0, 1), (0, 0), (0, 1)),
+        ("closed", 30, None, (0, 1), (0, 0), (0, 1)),
+        ("refunded", 30, 25, (0, 1), (1, 1), (1, 1)),
+        ("closed", 30, 25, (0, 1), (1, 1), (1, 1)),
+        ("refunded", 4, 5, (0, 0), (0, 0), (1, 1)),
+        ("refunded", 30, 30, (0, 1), (0, 0), (1, 1)),
+        ("refunded", -1, 1, (0, 0), (0, 0), (1, 1)),
+        ("verified", None, 1, (0, 0), (0, 0), (1, 1)),
+    ],
+)
+def test_three_follow_metrics_have_independent_business_rules(
+    kind, terminal_hour, follow_hour, expected_24h, expected_any, expected_action
+):
+    terminal_at = AT + timedelta(hours=terminal_hour) if terminal_hour is not None else None
+    metric = evaluate_clue_followup_round(
+        round_value(),
+        terminal=TerminalEvidence(kind, terminal_at, AT) if kind else None,
+        follow_ups=() if follow_hour is None else (follow(created_at=AT + timedelta(hours=follow_hour)),),
+        observed_through=AT + timedelta(hours=48),
+    )
+    assert (metric.numerator, metric.denominator) == expected_24h
+    assert (metric.follow_any_numerator, metric.follow_any_denominator) == expected_any
+    assert (metric.follow_action_numerator, metric.follow_action_denominator) == expected_action
+    assert metric.as_dict()["follow_action_denominator"] == expected_action[1]
+
+
+@pytest.mark.parametrize("invalid", ["store", "round", "order", "deleted", "before", "future"])
+def test_manual_action_keeps_original_identity_deletion_and_time_bounds(invalid):
+    from dataclasses import replace
+    overrides = {
+        "store": {"assigned_store_id": "OTHER"},
+        "round": {"assignment_round_id": "OTHER"},
+        "order": {"order_id": "OTHER"},
+        "deleted": {"deleted_at": AT + timedelta(hours=2)},
+        "before": {"created_at": AT - timedelta(seconds=1)},
+        "future": {"created_at": CUTOFF + timedelta(seconds=1)},
+    }
+    metric = evaluate_clue_followup_round(round_value(),
+        follow_ups=(replace(follow(), **overrides[invalid]),), observed_through=CUTOFF)
+    assert (metric.follow_action_numerator, metric.follow_action_denominator) == (0, 1)
+
+
+@pytest.mark.parametrize("mode,assigned", [("trial", AT), ("formal", None), ("formal", AT + timedelta(days=1))])
+def test_manual_action_excludes_nonformal_unassigned_and_future_rounds(mode, assigned):
+    from dataclasses import replace
+    metric = evaluate_clue_followup_round(replace(round_value(), execution_mode=mode, assigned_at=assigned),
+        follow_ups=(follow(),), observed_through=CUTOFF)
+    assert (metric.follow_action_numerator, metric.follow_action_denominator) == (0, 0)

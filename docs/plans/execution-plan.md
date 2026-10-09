@@ -1,3 +1,10 @@
+# 当前增量：打榜跟进辅助指标与历史门店名称（2026-10-09）
+
+- 用户明确授权跳过 Linear，直接推送并合并 Git；沿用 [T0.1](delivery-plans/sub-delivery-plan-clue-terminal-followup-T0.1.md) 的增量验收。
+- 跟进率与 24 小时指标共享终态规则，取消时限；跟进动作率保留原人工记录口径。三者分母独立，页面和导出正常展示，附可交互口径说明。
+- 两店历史名称纠正迁移 `20261008_0061` 已实现，保留审计及条件回滚。详见 [修正说明](../devlog/20261008_historical_store_name_correction.md)。
+- 本地完整回归 3370 通过、178 跳过；新增真实后端桌面/移动联调 2 项通过，组件契约 71 项通过；生产构建、独立审查通过。待 Git 推送和 CI；未执行生产迁移。见 [增量日志](../devlog/20261009_refactor_log_Your_Name.md)。
+
 # 当前发布：线索终态与24小时规则（2026-10-08）
 
 - 当前正式计划：[线索终态与跟进规则](delivery-plans/main-delivery-plan-clue-terminal-followup.md)。
