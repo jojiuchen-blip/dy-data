@@ -130,6 +130,8 @@ URLs, local personal paths, or credentials.
 - 删除前必须重新确认路径在备份目录内、不是符号链接、文件未发生变化且校验有效；校验失败时停止删除。
 - 不得使用 `docker volume prune`、无范围的 `docker system prune` 或未审阅的 `VACUUM FULL` 应急清盘。数据库 `DELETE` 也不等于操作系统通过 `df` 立即回收空间。
 - 记录扫描、预演、实际删除和文件系统回收的独立证据；未在目标环境验证时不得声称线上空间或恢复能力已生效。
+- 涉及榜单时遵守 [`docs/api/ranking-lifecycle.md`](docs/api/ranking-lifecycle.md)：导出复用静态结果，不重算或复制事实；源变化与时间边界决定刷新。新增计算依赖必须同步源变化跟踪和迁移，禁止单独重置计数。
+- 关键业务版本先显式归档再清理；普通版本按查询键保留最近两版，闲置范围按契约淘汰。只能分批删除完整榜单版本，不能以清缓存为名删除业务事实；首次启用自动清理前先盘点并归档历史关键版本。
 
 ## 4. Linear-First Requirement Lifecycle
 
