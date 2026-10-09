@@ -73,7 +73,7 @@ def test_validator_command_adapter_streams_dump_to_stdin(tmp_path: Path) -> None
     validator = tmp_path / "validator.py"
     validator.write_text(
         "import sys\n"
-        "if sys.argv[1:] != ['--list', '-']:\n"
+        "if sys.argv[1:] != ['--list']:\n"
         "    raise SystemExit(3)\n"
         "raise SystemExit(0 if sys.stdin.buffer.read(5) == b'PGDMP' else 4)\n",
         encoding="utf-8",
@@ -101,7 +101,7 @@ def test_deploy_backup_functions_write_atomic_partial_and_use_validator_prefligh
 compose() {{
   case "$*" in
     *"pg_restore --version"*) return 0 ;;
-    *"pg_restore --list -"*) cat >/dev/null; return 0 ;;
+    *"pg_restore --list"*) cat >/dev/null; return 0 ;;
     *"pg_dump"*) printf 'PGDMP\\001test'; return 0 ;;
     *) return 0 ;;
   esac

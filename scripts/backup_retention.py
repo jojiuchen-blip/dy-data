@@ -198,7 +198,7 @@ def validate_backup_file(
         if validator_command:
             with path.open("rb") as stream:
                 result = subprocess.run(
-                    [*validator_command, "--list", "-"],
+                    [*validator_command, "--list"],
                     check=False,
                     stdin=stream,
                     capture_output=True,
@@ -500,7 +500,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--validator-command",
-        help="command used as pg_restore adapter; receives '--list -' and the dump on stdin",
+        help="command used as pg_restore adapter; receives '--list' and the dump on stdin",
     )
     parser.add_argument("--as-of", type=_parse_as_of, help="reference time for retention buckets")
     parser.add_argument("--report-file", type=Path, help="write JSON evidence to this path")

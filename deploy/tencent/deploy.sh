@@ -164,7 +164,7 @@ validate_backup_path() {
     "$BACKUP_PG_RESTORE_BIN" --list "$backup_file" >/dev/null
     return
   fi
-  compose exec -T postgres pg_restore --list - < "$backup_file" >/dev/null
+  compose exec -T postgres pg_restore --list < "$backup_file" >/dev/null
 }
 
 latest_ordinary_backup_path() {
