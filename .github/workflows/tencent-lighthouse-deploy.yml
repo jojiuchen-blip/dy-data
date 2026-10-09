@@ -29,7 +29,26 @@ jobs:
           c() { sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml "$@"; }
           date -u
           df -h /
-          sudo docker system df -v | head -140
+          sudo python3 - <<'PY'
+          import subprocess,json,datetime
+          def run(args): return subprocess.check_output(args,text=True)
+          used=set()
+          containers=run(['docker','ps','-aq']).split()
+          if containers: used={x['Image'] for x in json.loads(run(['docker','inspect',*containers]))}
+          candidates=run(['docker','images','--filter','reference=dy-dashboard-*','--format','{{.ID}}']).split()
+          removed=0
+          for key in sorted(set(candidates)):
+            item=json.loads(run(['docker','image','inspect',key]))[0]
+            tags=item.get('RepoTags') or []
+            if item['Id'] in used: continue
+            if not tags or any(':local' in t or ':rollback' in t or ':dydata87-pre-' in t for t in tags): continue
+            created=datetime.datetime.fromisoformat(item['Created'].replace('Z','+00:00'))
+            if created > datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(days=7): continue
+            print('Removing unused rebuildable project image:',key,flush=True)
+            subprocess.run(['docker','image','rm',*tags],check=True,stdout=subprocess.DEVNULL)
+            removed+=1
+          print('Unused project images removed:',removed)
+          PY
+          df -h /
           c ps
-          sudo find /opt/dy-dashboard/logs/backups -maxdepth 1 -type f -name '*.dump' -printf '%s %f\n' | sort -n | tail -8
           REMOTE
