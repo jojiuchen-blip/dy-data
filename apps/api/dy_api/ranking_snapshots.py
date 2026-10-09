@@ -301,6 +301,11 @@ def calculate_snapshot(
             metric.numerator, metric.denominator, {"order_id": row.order_id, "lead_key": _lead(row),
                                    "round_id": row.assignment_round_id,
                                    "follow_record_ids": evidence,
+                                   # Keep the time-driven cache boundary with
+                                   # the immutable evidence.  Lifecycle policy
+                                   # may expire this run when the 24h window
+                                   # matures even if no source row is written.
+                                   "deadline": metric.deadline.isoformat() if metric.deadline else None,
                                    "reason_code": metric.reason_code,
                                    "terminal_kind": metric.terminal_kind,
                                    "terminal_at": metric.terminal_at.isoformat() if metric.terminal_at else None})
