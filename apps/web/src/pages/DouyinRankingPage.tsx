@@ -42,18 +42,16 @@ function displayAverage(value: number | null | undefined) {
   return value === null || value === undefined ? "暂无数据" : value.toFixed(2);
 }
 
-const FOLLOW_24H_DESCRIPTION = "24小时内人工跟进或成功核销轮次 ÷ 有效分配轮次。未满24小时也计入；退款/关闭按有效规则剔除。";
-const FOLLOW_DESCRIPTION = "人工跟进或成功核销轮次 ÷ 24小时跟进率的同一分母，仅取消分子的24小时时限。";
-const FOLLOW_ACTION_DESCRIPTION = "有人工跟进记录的轮次 ÷ 全部正式分配轮次，不限24小时。未接通、战败也算；自动核销不算人工动作。";
+const FOLLOW_24H_DESCRIPTION = "24小时内有人工跟进记录的轮次 ÷ 全部正式分配轮次。未接通、战败也算；核销不自动计入，退款不剔除。";
+const FOLLOW_DESCRIPTION = "有人工跟进记录的轮次 ÷ 全部正式分配轮次，不限24小时。核销不自动计入，退款不剔除。";
 
 function displayCount(value: number | null | undefined) {
   return value === null || value === undefined ? "—" : formatInteger(value);
 }
 
-function AuxiliaryFollowRates({ metrics }: { metrics: Pick<DouyinRankingRow, "followRate" | "followAnyNumerator" | "followAnyDenominator" | "followActionRate" | "followActionNumerator" | "followActionDenominator"> | undefined }) {
+function AuxiliaryFollowRates({ metrics }: { metrics: Pick<DouyinRankingRow, "followRate" | "followAnyNumerator" | "followAnyDenominator"> | undefined }) {
   return <span className="ranking-follow-auxiliary">
     <small><TooltipLabel label="跟进率" description={FOLLOW_DESCRIPTION} interactive hideIcon /> {displayRate(metrics?.followRate)}（{displayCount(metrics?.followAnyNumerator)}/{displayCount(metrics?.followAnyDenominator)}）</small>
-    <small><TooltipLabel label="跟进动作衡量指标" description={FOLLOW_ACTION_DESCRIPTION} interactive hideIcon /> {displayRate(metrics?.followActionRate)}（{displayCount(metrics?.followActionNumerator)}/{displayCount(metrics?.followActionDenominator)}）</small>
   </span>;
 }
 

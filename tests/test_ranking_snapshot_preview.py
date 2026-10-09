@@ -28,9 +28,9 @@ def test_assigned_order_verified_elsewhere_is_not_self_verified(db_session):
                                        period_end=at + timedelta(days=2), level="store")
     assert result["totals"]["verification_denominator"] == 1
     assert result["totals"]["verification_numerator"] == 0
-    # Any-store verification still receives the established 24h business bonus.
-    assert result["totals"]["follow_numerator"] == 1
-    assert result["totals"]["follow_any_numerator"] == 1
+    # Verification never replaces a manual follow record under the restored rules.
+    assert result["totals"]["follow_numerator"] == 0
+    assert result["totals"]["follow_any_numerator"] == 0
     assert result["totals"]["follow_action_numerator"] == 0
 
 
@@ -38,8 +38,8 @@ def test_snapshot_engine_is_available():
     assert importlib.util.find_spec("apps.api.dy_api.ranking_snapshots") is not None
 
 
-def test_snapshot_early_verified_round_counts_one_of_one_without_follow(preview):
-    """The production snapshot path must use the shared verified override."""
+def test_snapshot_verification_does_not_count_as_manual_follow(preview):
+    """The restored board only credits manual records, even after verification."""
     from apps.api.dy_api.models import ClueFollowUpRecord
     from apps.worker.ranking_preview_fixture import AT
 
@@ -59,7 +59,7 @@ def test_snapshot_early_verified_round_counts_one_of_one_without_follow(preview)
     sample = preview.execute(select(samples).where(
         samples.c.metric_key == "follow_24h", samples.c.sample_key == "RA1"
     )).mappings().one()
-    assert (sample["numerator"], sample["denominator"]) == (1, 1)
+    assert (sample["numerator"], sample["denominator"]) == (0, 1)
     assert sample["evidence_json"]["follow_record_ids"] == []
 
 
@@ -437,8 +437,8 @@ def test_business_follow_denominator_is_shared_in_snapshot_and_live(preview, lev
     for item in [totals, *result["rows"]]:
         assert item["follow_any_denominator"] == item["follow_denominator"]
         assert item["follow_numerator"] <= item["follow_any_numerator"] <= item["follow_denominator"]
-    assert (totals["follow_numerator"], totals["follow_denominator"], totals["follow_24h_rate"]) == (3, 10, .3)
-    assert (totals["follow_any_numerator"], totals["follow_any_denominator"], totals["follow_rate"]) == (4, 10, .4)
+    assert (totals["follow_numerator"], totals["follow_denominator"], totals["follow_24h_rate"]) == (4, 11, .363636)
+    assert (totals["follow_any_numerator"], totals["follow_any_denominator"], totals["follow_rate"]) == (5, 11, .454545)
     assert (totals["follow_action_numerator"], totals["follow_action_denominator"], totals["follow_action_rate"]) == (5, 11, .454545)
     live = build_douyin_ranking_report(preview, period_start=START, period_end=END, level=level)["totals"]
     for key in ["follow_numerator", "follow_denominator", "follow_24h_rate", "follow_any_numerator",
