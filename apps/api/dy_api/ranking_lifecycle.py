@@ -392,6 +392,12 @@ def backfill_lifecycle_metadata(
         )
     else:
         statement = snapshot_lifecycle.insert()
+    if session.bind.dialect.name in {"postgresql", "sqlite"}:
+        # psycopg executemany may report rowcount=-1 even after an insert.
+        # RETURNING counts only rows actually inserted by this transaction.
+        return len(session.execute(
+            statement.returning(snapshot_lifecycle.c.run_id), payload,
+        ).scalars().all())
     result = session.execute(statement, payload)
     return max(result.rowcount, 0)
 
