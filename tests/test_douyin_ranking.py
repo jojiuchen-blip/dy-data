@@ -293,10 +293,9 @@ def test_ranking_orders_include_store_professional_accounts_and_all_channels(db_
     row = report["rows"][0]
     assert row["order_count"] == 4
     assert row["order_average"] == 2.0
-    # The first round has a follow before its early verification.  The second
-    # store round verifies exactly at its 24-hour boundary and therefore earns
-    # the terminal-within-window 1/1 rule even without a manual follow.
-    assert row["follow_numerator"] == 2
+    # Only the first round has a manual follow. Verification alone never
+    # credits a follow numerator under the restored pre-October-7 rules.
+    assert row["follow_numerator"] == 1
     assert row["follow_denominator"] == 3
     assert row["verification_numerator"] == 2
     assert row["verification_denominator"] == 3

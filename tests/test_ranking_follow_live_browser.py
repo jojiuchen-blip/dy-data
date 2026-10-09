@@ -145,30 +145,27 @@ def test_ranking_live_api_independent_follow_rates_and_empty_filter(
         assert data["snapshotId"].startswith("business-")
         assert data["total"] == 1
         for metrics in (data["totals"], data["rows"][0]):
-            assert (metrics["followNumerator"], metrics["followDenominator"]) == (1, 3)
-            assert metrics["follow24hRate"] == pytest.approx(1 / 3, abs=1e-6)
-            assert (metrics["followAnyNumerator"], metrics["followAnyDenominator"], metrics["followRate"]) == (2, 3, pytest.approx(2 / 3, abs=1e-6))
+            assert (metrics["followNumerator"], metrics["followDenominator"]) == (1, 4)
+            assert metrics["follow24hRate"] == pytest.approx(1 / 4, abs=1e-6)
+            assert (metrics["followAnyNumerator"], metrics["followAnyDenominator"], metrics["followRate"]) == (1, 4, .25)
             assert metrics["followAnyDenominator"] == metrics["followDenominator"]
             assert metrics["followRate"] >= metrics["follow24hRate"]
             assert (metrics["followActionNumerator"], metrics["followActionDenominator"], metrics["followActionRate"]) == (1, 4, .25)
         card = page.locator(".metric-card").filter(has_text="线索24小时有效跟进率")
-        expect(card).to_contain_text("33.33%")
-        expect(card).to_contain_text("有效 1 / 分配 3")
-        expect(card).to_contain_text("66.67%（2/3）")
+        expect(card).to_contain_text("25%")
+        expect(card).to_contain_text("有效 1 / 分配 4")
         expect(card).to_contain_text("25%（1/4）")
         row = page.locator("tbody tr").first if width == 1440 else page.locator(".data-table-mobile-card").first
-        expect(row).to_contain_text("33.33%（1/3）")
-        expect(row).to_contain_text("66.67%（2/3）")
         expect(row).to_contain_text("25%（1/4）")
-        help_button = row.get_by_role("button", name="跟进动作衡量指标口径说明", exact=True)
-        expect(help_button).to_have_text("跟进动作衡量指标")
+        help_button = row.get_by_role("button", name="跟进率口径说明", exact=True)
+        expect(help_button).to_have_text("跟进率")
         expect(page.locator(".tooltip-trigger").filter(has_text="?")).to_have_count(0)
         if width == 390:
             help_button.tap()
         else:
             help_button.hover()
         tooltip = page.locator('[role="tooltip"]:popover-open')
-        expect(tooltip).to_contain_text("自动核销不算人工动作")
+        expect(tooltip).to_contain_text("核销不自动计入")
         page.keyboard.press("Escape")
         expect(tooltip).to_have_count(0)
         page.screenshot(path=str(tmp_path / f"ranking-live-{width}.png"), full_page=True)
@@ -184,7 +181,8 @@ def test_ranking_live_api_independent_follow_rates_and_empty_filter(
         expect(page.get_by_text("当前统计范围没有可展示数据，请检查筛选范围及快照更新状态。", exact=True)).to_be_visible()
         expect(card.locator(".metric-card__value")).to_have_text("暂无样本")
         expect(card.locator(".ranking-follow-auxiliary small").nth(0)).to_contain_text("暂无样本（0/0）")
-        expect(card.locator(".ranking-follow-auxiliary small").nth(1)).to_contain_text("暂无样本（0/0）")
+        expect(card.locator(".ranking-follow-auxiliary small")).to_have_count(1)
+        expect(page.get_by_text("跟进动作衡量指标", exact=True)).to_have_count(0)
         assert not errors
     finally:
         context.close()

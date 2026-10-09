@@ -135,7 +135,8 @@ def test_export_three_metric_sheets_with_two_level_sections(preview_client):
         assert "baseline" in str(values) and "2026-09-01" in str(values)
     assert "抖音订单量（辅助）" in [c.value for row in book.worksheets[0] for c in row]
     follow_headers = [c.value for row in book.worksheets[1] for c in row]
-    assert {"跟进率", "跟进率分母", "跟进动作衡量指标", "人工跟进轮次", "正式分配轮次"} <= set(follow_headers)
+    assert {"跟进率", "跟进率分母"} <= set(follow_headers)
+    assert "跟进动作衡量指标" not in follow_headers
 
 
 def test_export_rankings_match_board_and_include_all_rows(preview_client):
@@ -218,5 +219,6 @@ def test_api_and_export_share_business_denominator_keep_action_independent(previ
     rows = list(book.active.iter_rows(values_only=True))
     headers = next(row for row in rows if row[0] == "排名")
     exported = dict(zip(headers, next(row for row in rows if isinstance(row[0], int))))
-    assert (exported["24小时有效跟进分母"], exported["跟进率分母"], exported["正式分配轮次"]) == (3, 3, 4)
-    assert (exported["24小时有效跟进率"], exported["跟进率"], exported["跟进动作衡量指标"]) == (.333333, .666667, .75)
+    assert (exported["24小时有效跟进分母"], exported["跟进率分母"]) == (3, 3)
+    assert "跟进动作衡量指标" not in headers
+    assert (exported["24小时有效跟进率"], exported["跟进率"]) == (.333333, .666667)

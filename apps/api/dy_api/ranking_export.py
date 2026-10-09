@@ -19,8 +19,7 @@ METRIC_COLUMNS = {
         ("follow_numerator", "24小时有效跟进轮次", "0"), ("follow_denominator", "24小时有效跟进分母", "0"),
         ("follow_rate", "跟进率", "0.00%"),
         ("follow_any_numerator", "跟进率分子", "0"), ("follow_any_denominator", "跟进率分母", "0"),
-        ("follow_action_rate", "跟进动作衡量指标", "0.00%"),
-        ("follow_action_numerator", "人工跟进轮次", "0"), ("follow_action_denominator", "正式分配轮次", "0")],
+        ],
     "verification_rate": [("verification_rate", "订单核销率", "0.00%"), ("verification_numerator", "本店成功核销订单数", "0"), ("verification_denominator", "正式分配关联订单数", "0")],
 }
 
