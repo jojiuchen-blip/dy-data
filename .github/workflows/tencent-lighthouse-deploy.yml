@@ -1,4 +1,4 @@
-name: Tencent login read-only diagnosis
+name: Tencent login disk recovery
 on:
   workflow_dispatch:
 permissions:
@@ -21,7 +21,7 @@ jobs:
           chmod 600 ~/.ssh/tencent_lighthouse
           printf '%s\n' "$TENCENT_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-      - name: Read-only server diagnosis
+      - name: Release rebuildable caches and verify database
         run: |
           ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" -o BatchMode=yes -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=5 "$TENCENT_SSH_USER@$TENCENT_HOST" 'bash -s' <<'REMOTE'
           set -eu
@@ -29,7 +29,14 @@ jobs:
           c() { sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml "$@"; }
           date -u
           df -h /
-          sudo docker system df
-          sudo du -x -h --max-depth=1 /var/lib/docker /opt/dy-dashboard /var/log 2>/dev/null | sort -h
-          c logs --since 30m --tail 150 postgres 2>&1 | python3 -c 'import sys,re; print("\n".join(x for x in sys.stdin.read().splitlines() if re.search(r"PANIC|FATAL|ERROR|LOG:.*(redo|recovery|checkpoint|ready|shut)|space|disk",x)))'
+          sudo docker builder prune --all --force
+          sudo docker image prune --force
+          df -h /
+          sudo du -x -h --max-depth=2 /opt/dy-dashboard/logs 2>/dev/null | sort -h | tail -15
+          for attempt in $(seq 1 12); do
+            if c exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "select 1,pg_is_in_recovery();"'; then break; fi
+            sleep 5
+          done
+          c ps
+          c logs --since 2m --tail 60 postgres 2>&1 | python3 -c 'import sys,re; print("\n".join(x for x in sys.stdin.read().splitlines() if re.search(r"PANIC|FATAL|ERROR|LOG:.*(recovery|checkpoint|ready)|space",x)))'
           REMOTE
