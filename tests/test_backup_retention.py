@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -132,10 +133,12 @@ test -z "$(find "$BACKUP_DIR" -maxdepth 1 -name '*.partial' -print -quit)"
         }
     )
     result = subprocess.run(
-        [bash, "-c", harness],
+        [bash],
+        input=harness,
         check=False,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
         env=environment,
     )
 
@@ -163,6 +166,52 @@ def test_deploy_defaults_to_container_validator_and_estimates_next_backup_capaci
     assert "umask 077" in deploy_script
     assert 'partial_file="$backup_file.partial"' in deploy_script
     assert 'mv -- "$partial_file" "$backup_file"' in deploy_script
+
+
+def test_container_validator_command_round_trips_paths_with_spaces() -> None:
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash is required for deployment integration test")
+    deploy_script = Path(__file__).parents[1] / "deploy" / "tencent" / "deploy.sh"
+    source_prefix = deploy_script.read_text(encoding="utf-8").replace("\r\n", "\n").split(
+        "trap on_error ERR", 1
+    )[0]
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "ENV_FILE": "/srv/dy data/production.env",
+            "COMPOSE_FILE": "/srv/dy data/compose.yaml",
+            "APT_MIRROR": "http://mirror.example",
+            "DY_WEB_BASE_URL": "https://app.example",
+        }
+    )
+    result = subprocess.run(
+        [bash],
+        input=f"{source_prefix}\nbackup_validator_command\n",
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        env=environment,
+    )
+
+    assert result.returncode == 0, result.stderr
+    command = shlex.split(result.stdout.strip())
+    assert command == [
+        "sudo",
+        "APT_MIRROR=http://mirror.example",
+        "DY_WEB_BASE_URL=https://app.example",
+        "docker",
+        "compose",
+        "--env-file",
+        "/srv/dy data/production.env",
+        "-f",
+        "/srv/dy data/compose.yaml",
+        "exec",
+        "-T",
+        "postgres",
+        "pg_restore",
+    ]
 
 
 def test_pinned_manifest_and_sidecar_are_kept(tmp_path: Path) -> None:
