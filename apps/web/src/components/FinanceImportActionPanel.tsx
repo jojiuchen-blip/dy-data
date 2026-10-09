@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useLayoutEffect, useState, type FormEvent } from "react";
 import {
   ApiRequestError,
   commitFinanceImport,
@@ -56,7 +56,9 @@ export function FinanceImportActionPanel({
   const [commitKey, setCommitKey] = useState(() => crypto.randomUUID());
   const [fileInputVersion, setFileInputVersion] = useState(0);
 
-  useEffect(() => {
+  // Reset the input before the panel becomes interactive. A passive effect
+  // can otherwise clear a file selected immediately after the panel opens.
+  useLayoutEffect(() => {
     setFile(null);
     setPreview(null);
     setMessage("");

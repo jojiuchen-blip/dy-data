@@ -20,6 +20,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from dy_api.auth import AuthContext, get_current_user
+from dy_api.db import get_session_factory
 from dy_api.routes._data import (
     ReportingPermissionError,
     ReportingValidationError,
@@ -34,6 +35,13 @@ from apps.api.dy_api.douyin_ranking import build_douyin_ranking_report
 from apps.api.dy_api.ranking_snapshots import read_snapshot_report
 from apps.api.dy_api.ranking_export import build_ranking_workbook, parse_export_choices, LEVEL_LABELS, METRIC_LABELS
 from apps.api.dy_api.ranking_business import ensure_business_snapshot
+from apps.api.dy_api.ranking_lifecycle import (
+    hold_snapshot_read,
+    record_snapshot_access,
+    resolve_static_snapshot,
+    run_background_retention,
+)
+from apps.api.dy_api.ranking_snapshots import metric_version
 from dy_api.schemas import (
     CommissionRulesSummaryData,
     OrderDetailsData,
@@ -507,6 +515,7 @@ def store_ranking(
 @router.get("/dashboard/douyin-ranking")
 def douyin_ranking(
     request: Request,
+    background_tasks: BackgroundTasks,
     product_scope: str = Query(default="jingcheng", alias="productScope"),
     period_start: date = Query(alias="periodStart"),
     period_end: date = Query(alias="periodEnd"),
@@ -563,6 +572,9 @@ def douyin_ranking(
         if not preview:
             run_id = ensure_business_snapshot(session, period_start=start_at, period_end=end_at, product_scope=product_scope)
             session.commit()
+            # Re-open the read transaction after publication and keep a
+            # parent KEY SHARE lock until the report rows have been consumed.
+            hold_snapshot_read(session, run_id)
         data = read_snapshot_report(
             session,
             product_scope=product_scope,
@@ -589,6 +601,12 @@ def douyin_ranking(
         session.rollback()
         _raise_reporting_error(request, status.HTTP_503_SERVICE_UNAVAILABLE,
             "RANKING_QUERY_UNAVAILABLE", "指标查询暂时不可用，请稍后重试或缩短日期范围")
+    if not preview:
+        factory = get_session_factory()
+        if factory is not None:
+            # Retention uses a separate session and one-run bound, so an
+            # already-published board response never waits for maintenance.
+            background_tasks.add_task(run_background_retention, factory)
     definitions = [{**item, "description": data.get("metric_definitions", {}).get(item["key"], item["description"])}
                    for item in DOUYIN_RANKING_DEFINITIONS]
     return _reporting_success(request, data, definitions=definitions)
@@ -626,10 +644,18 @@ def export_douyin_ranking(
     end_at = datetime.combine(period_end + timedelta(days=1), time.min, tzinfo=business_tz)
     preview = getattr(request.app.state, "ranking_snapshot_preview", False)
     try:
-        run_id = None
-        if not preview:
-            run_id = ensure_business_snapshot(session, period_start=start_at, period_end=end_at, product_scope=product_scope)
-            session.commit()
+        # Export is a read of an already published immutable batch.  It must
+        # never invoke the calculator or create a new run as a side effect of
+        # downloading a file.  ``resolve_static_snapshot`` holds a PostgreSQL
+        # KEY SHARE lock until the surrounding request transaction finishes.
+        run_id = resolve_static_snapshot(
+            session,
+            period_start=start_at,
+            period_end=end_at,
+            metric_version=metric_version(product_scope),
+            data_mode="synthetic" if preview else "business",
+            lock_for_read=True,
+        )
         content = build_ranking_workbook(session, levels=selected_levels, metrics=selected_metrics,
             product_scope=product_scope,
             run_id=run_id, data_mode="synthetic" if preview else "business",
@@ -640,6 +666,13 @@ def export_douyin_ranking(
             district_name=(district_name or "").strip() or None,
             area_name=(area_name or "").strip() or None,
             store_id=(store_id or "").strip() or None)
+        # Only a successful workbook build records one access on the already
+        # resolved run. It never creates a ranking snapshot or recalculates it.
+        record_snapshot_access(session, run_id)
+        # The dashboard dependency closes its generator without advancing the
+        # context manager's post-yield commit. Commit here so the access mark
+        # survives the response while the KEY SHARE read lock is still held.
+        session.commit()
     except ValueError as exc:
         session.rollback()
         _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "RANKING_SNAPSHOT_UNAVAILABLE", str(exc))
