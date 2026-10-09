@@ -43,6 +43,9 @@ class _StoreFacts:
     area_name: str | None
     order_count: int = 0
     follow_any_numerator: int = 0
+    follow_any_denominator: int = 0
+    follow_action_numerator: int = 0
+    follow_action_denominator: int = 0
     follow_numerator: int = 0
     follow_denominator: int = 0
     verification_order_ids: set[str] | None = None
@@ -353,6 +356,9 @@ def _load_clue_metrics(
         facts.follow_denominator += metric.denominator
         facts.follow_numerator += metric.numerator
         facts.follow_any_numerator += metric.follow_any_numerator
+        facts.follow_any_denominator += metric.follow_any_denominator
+        facts.follow_action_numerator += metric.follow_action_numerator
+        facts.follow_action_denominator += metric.follow_action_denominator
         facts.verification_order_ids.add(row.order_id)
         if row.order_id in attributed_stores_by_order and assigned_store_id in attributed_stores_by_order[row.order_id]:
             facts.verification_verified_order_ids.add(row.order_id)
@@ -418,6 +424,9 @@ def build_douyin_ranking_report(
                 "store_count": 0,
                 "order_count": 0,
                 "follow_any_numerator": 0,
+                "follow_any_denominator": 0,
+                "follow_action_numerator": 0,
+                "follow_action_denominator": 0,
                 "follow_numerator": 0,
                 "follow_denominator": 0,
                 "verification_numerator": 0,
@@ -428,6 +437,9 @@ def build_douyin_ranking_report(
         item["store_count"] += 1
         item["order_count"] += row.order_count
         item["follow_any_numerator"] += row.follow_any_numerator
+        item["follow_any_denominator"] += row.follow_any_denominator
+        item["follow_action_numerator"] += row.follow_action_numerator
+        item["follow_action_denominator"] += row.follow_action_denominator
         item["follow_numerator"] += row.follow_numerator
         item["follow_denominator"] += row.follow_denominator
         item["verification_numerator"] += len(row.verification_verified_order_ids or set())
@@ -437,7 +449,8 @@ def build_douyin_ranking_report(
     rows: list[dict[str, Any]] = []
     for item in grouped.values():
         item["order_average"] = round(item["order_count"] / item["store_count"], 6) if item["store_count"] else None
-        item["follow_rate"] = _rate(item["follow_any_numerator"], item["follow_denominator"])
+        item["follow_rate"] = _rate(item["follow_any_numerator"], item["follow_any_denominator"])
+        item["follow_action_rate"] = _rate(item["follow_action_numerator"], item["follow_action_denominator"])
         item["follow_24h_rate"] = _rate(item["follow_numerator"], item["follow_denominator"])
         item["verification_rate"] = _rate(item["verification_numerator"], item["verification_denominator"])
         item.pop("store_ids", None)
@@ -452,13 +465,17 @@ def build_douyin_ranking_report(
         "store_count": sum(item["store_count"] for item in rows),
         "order_count": sum(item["order_count"] for item in rows),
         "follow_any_numerator": sum(item["follow_any_numerator"] for item in rows),
+        "follow_any_denominator": sum(item["follow_any_denominator"] for item in rows),
+        "follow_action_numerator": sum(item["follow_action_numerator"] for item in rows),
+        "follow_action_denominator": sum(item["follow_action_denominator"] for item in rows),
         "follow_numerator": sum(item["follow_numerator"] for item in rows),
         "follow_denominator": sum(item["follow_denominator"] for item in rows),
         "verification_numerator": sum(item["verification_numerator"] for item in rows),
         "verification_denominator": sum(item["verification_denominator"] for item in rows),
     }
     totals["order_average"] = round(totals["order_count"] / totals["store_count"], 6) if totals["store_count"] else None
-    totals["follow_rate"] = _rate(totals["follow_any_numerator"], totals["follow_denominator"])
+    totals["follow_rate"] = _rate(totals["follow_any_numerator"], totals["follow_any_denominator"])
+    totals["follow_action_rate"] = _rate(totals["follow_action_numerator"], totals["follow_action_denominator"])
     totals["follow_24h_rate"] = _rate(totals["follow_numerator"], totals["follow_denominator"])
     totals["verification_rate"] = _rate(totals["verification_numerator"], totals["verification_denominator"])
     return {
@@ -476,6 +493,7 @@ def build_douyin_ranking_report(
             "order_average": "辖区精诚养车订单量除以辖区全部有效精诚养车门店数",
             "follow_24h_rate": CLUE_FOLLOWUP_METRIC_DEFINITIONS["follow_24h_rate"],
             "follow_any_rate": CLUE_FOLLOWUP_METRIC_DEFINITIONS["follow_any_rate"],
+            "follow_action_rate": CLUE_FOLLOWUP_METRIC_DEFINITIONS["follow_action_rate"],
             "terminal_evidence": CLUE_FOLLOWUP_METRIC_DEFINITIONS["terminal_evidence"],
             "verification_rate": "正式分配给本店的精诚养车线索关联订单中，在本店成功核销的订单数除以关联订单总数；上级累加门店分子分母",
         },

@@ -85,3 +85,14 @@ def test_product_scopes_partition_counts_and_isolate_cache(business_db):
     with pytest.raises(ValueError):
         read_snapshot_report(business_db, period_start=START, period_end=END,
             run_id=ids["all"], product_scope="jingcheng")
+
+
+def test_business_snapshot_rebuilds_previous_follow_metric_version(business_db):
+    first = ensure(business_db)
+    business_db.execute(runs.update().where(runs.c.run_id == first).values(
+        metric_version="douyin-ranking-self-store-v6-period-start-sales-org-clue-followup-v3-assigned-terminal-aware"))
+    business_db.commit()
+    refreshed = ensure(business_db)
+    assert refreshed != first
+    assert "clue-followup-v4-independent-action" in business_db.scalar(
+        select(runs.c.metric_version).where(runs.c.run_id == refreshed))
