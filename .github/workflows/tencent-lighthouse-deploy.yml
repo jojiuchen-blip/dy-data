@@ -206,6 +206,8 @@ jobs:
             -P "$port" \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=20 \
             /tmp/dy-dashboard-source.tar.gz \
             "$TENCENT_SSH_USER@$TENCENT_HOST:$archive"
 
@@ -237,5 +239,7 @@ jobs:
             -p "$port" \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=20 \
             "$TENCENT_SSH_USER@$TENCENT_HOST" \
             "bash -s -- '$GITHUB_SHA' '$archive' '$DY_WEB_BASE_URL' '$TENCENT_START_WORKER'" < /tmp/tencent-deploy-bootstrap.sh
