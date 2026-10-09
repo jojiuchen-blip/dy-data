@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -10,10 +12,15 @@ from pathlib import Path
 
 import pytest
 
+import scripts.backup_retention as retention
 from scripts.backup_retention import (
+    RetentionApplyError,
     RetentionBlocked,
+    RetentionError,
+    _write_report,
     apply_plan,
     build_parser,
+    main,
     make_plan,
     scan_backups,
 )
@@ -309,6 +316,160 @@ def test_changed_file_is_detected_before_any_delete(tmp_path: Path) -> None:
     with pytest.raises(RetentionBlocked):
         apply_plan(plan, validator=_always_valid)
     assert all(path.exists() for path in tmp_path.glob("pre-migrate-*.dump"))
+
+
+def test_apply_rechecks_pin_protection_before_delete(tmp_path: Path) -> None:
+    for stamp in ("20261007T000000Z", "20261008T000000Z", "20261009T000000Z", "20261010T000000Z"):
+        _write_dump(tmp_path, stamp)
+    pin_file = tmp_path / "pins.txt"
+    pin_file.write_text("", encoding="utf-8")
+
+    records = scan_backups(tmp_path, validator=_always_valid, pin_file=pin_file)
+    plan = make_plan(
+        tmp_path,
+        records,
+        as_of=_as_of(),
+        latest_count=1,
+        daily_days=0,
+        weekly_weeks=0,
+    )
+    newly_pinned = plan.deletable[0].name
+    pin_file.write_text(f"{newly_pinned}\n", encoding="utf-8")
+
+    with pytest.raises(RetentionBlocked, match="protection changed"):
+        apply_plan(plan, validator=_always_valid, pin_file=pin_file)
+    assert (tmp_path / newly_pinned).exists()
+
+
+def test_apply_reports_files_deleted_before_partial_unlink_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for stamp in (
+        "20261006T000000Z",
+        "20261007T000000Z",
+        "20261008T000000Z",
+        "20261009T000000Z",
+        "20261010T000000Z",
+    ):
+        _write_dump(tmp_path, stamp)
+
+    records = scan_backups(tmp_path, validator=_always_valid)
+    plan = make_plan(
+        tmp_path,
+        records,
+        as_of=_as_of(),
+        latest_count=1,
+        daily_days=0,
+        weekly_weeks=0,
+    )
+    real_unlink = retention.os.unlink
+    calls = 0
+
+    def flaky_unlink(path: Path) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("simulated unlink failure")
+        real_unlink(path)
+
+    monkeypatch.setattr(retention.os, "unlink", flaky_unlink)
+    with pytest.raises(RetentionApplyError) as caught:
+        apply_plan(plan, validator=_always_valid)
+
+    assert caught.value.deleted == (plan.deletable[0].name,)
+    assert caught.value.skipped == (
+        {"name": plan.deletable[1].name, "reason": "delete failed: simulated unlink failure"},
+    )
+    assert not (tmp_path / plan.deletable[0].name).exists()
+    assert (tmp_path / plan.deletable[1].name).exists()
+
+
+def test_report_target_cannot_overwrite_backup_pin_or_alias(tmp_path: Path) -> None:
+    backup = _write_dump(tmp_path, "20261007T000000Z")
+    pin_file = tmp_path / "pins.json"
+    pin_file.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(RetentionError, match=".json suffix"):
+        _write_report(backup, {"phase": "planned"}, backup_root=tmp_path, pin_file=pin_file)
+    with pytest.raises(RetentionError, match="pin file"):
+        _write_report(pin_file, {"phase": "planned"}, backup_root=tmp_path, pin_file=pin_file)
+
+    alias = tmp_path.parent / "backup-report.json"
+    try:
+        alias.hardlink_to(backup)
+    except (OSError, NotImplementedError):
+        pytest.skip("hard links are unavailable on this platform")
+    with pytest.raises(RetentionError, match="aliases a backup"):
+        _write_report(alias, {"phase": "planned"}, backup_root=tmp_path, pin_file=pin_file)
+    assert backup.read_bytes().startswith(b"PGDMP")
+
+
+def test_report_is_exclusive_private_and_can_be_refreshed(tmp_path: Path) -> None:
+    report = tmp_path / "backup-retention-report.json"
+    _write_report(report, {"mode": "apply", "root": str(tmp_path), "scanned": [], "would_delete": [], "phase": "planned"}, backup_root=tmp_path, pin_file=None)
+
+    mode = stat.S_IMODE(report.stat().st_mode)
+    if os.name != "nt":
+        assert mode == 0o600
+    assert not list(tmp_path.glob(".backup-retention-report.json.*.partial"))
+
+    _write_report(report, {"mode": "apply", "root": str(tmp_path), "scanned": [], "would_delete": [], "phase": "complete"}, backup_root=tmp_path, pin_file=None)
+    assert json.loads(report.read_text(encoding="utf-8"))["phase"] == "complete"
+
+
+def test_report_collision_does_not_remove_existing_partial(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    report = tmp_path / "backup-retention-report.json"
+    partial = tmp_path / ".backup-retention-report.json.fixed.partial"
+    partial.write_text("keep me", encoding="utf-8")
+
+    class FixedUuid:
+        hex = "fixed"
+
+    monkeypatch.setattr(retention.uuid, "uuid4", lambda: FixedUuid())
+    with pytest.raises(FileExistsError):
+        _write_report(
+            report,
+            {"mode": "dry-run", "root": str(tmp_path), "scanned": [], "would_delete": []},
+            backup_root=tmp_path,
+            pin_file=None,
+        )
+    assert partial.read_text(encoding="utf-8") == "keep me"
+
+
+def test_apply_rejects_report_target_before_deleting(tmp_path: Path) -> None:
+    for stamp in ("20261007T000000Z", "20261008T000000Z", "20261009T000000Z"):
+        _write_dump(tmp_path, stamp)
+    validator = tmp_path / "validator.py"
+    validator.write_text(
+        "import sys\n"
+        "if sys.argv[1:] != ['--list', '-']:\n"
+        "    raise SystemExit(3)\n"
+        "raise SystemExit(0 if sys.stdin.buffer.read(5) == b'PGDMP' else 4)\n",
+        encoding="utf-8",
+    )
+    report_target = tmp_path / _name("20261008T000000Z")
+    before = sorted(path.name for path in tmp_path.glob("*.dump"))
+
+    result = main(
+        [
+            "--backup-dir",
+            str(tmp_path),
+            "--apply",
+            "--latest",
+            "1",
+            "--daily-days",
+            "0",
+            "--weekly-weeks",
+            "0",
+            "--validator-command",
+            shlex.join([sys.executable, str(validator)]),
+            "--report-file",
+            str(report_target),
+        ]
+    )
+
+    assert result == 1
+    assert sorted(path.name for path in tmp_path.glob("*.dump")) == before
 
 
 def test_symlink_candidate_is_invalid_and_never_deleted(tmp_path: Path) -> None:

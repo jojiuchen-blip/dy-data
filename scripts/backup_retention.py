@@ -17,6 +17,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -37,6 +38,21 @@ class RetentionError(RuntimeError):
 
 class RetentionBlocked(RetentionError):
     """Raised when validation or a pre-delete safety check fails."""
+
+
+class RetentionApplyError(RetentionError):
+    """Raised when deletion fails after one or more files were removed."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        deleted: Sequence[str] = (),
+        skipped: Sequence[dict[str, str]] = (),
+    ) -> None:
+        super().__init__(message)
+        self.deleted = tuple(deleted)
+        self.skipped = tuple(skipped)
 
 
 @dataclass(frozen=True)
@@ -98,10 +114,18 @@ class RetentionPlan:
     def blocked(self) -> bool:
         return bool(self.blocked_reasons)
 
-    def report(self, *, apply: bool, deleted: Sequence[str] = (), skipped: Sequence[dict[str, str]] = ()) -> dict[str, object]:
+    def report(
+        self,
+        *,
+        apply: bool,
+        phase: str | None = None,
+        deleted: Sequence[str] = (),
+        skipped: Sequence[dict[str, str]] = (),
+    ) -> dict[str, object]:
         return {
             "root": str(self.root),
             "mode": "apply" if apply else "dry-run",
+            "phase": phase or ("planned" if apply else "dry-run"),
             "blocked": self.blocked,
             "blocked_reasons": list(self.blocked_reasons),
             "reference": self.reference.isoformat() if self.reference else None,
@@ -406,10 +430,56 @@ def make_plan(
 
 def _same_fingerprint(path: Path, expected: FileFingerprint, root: Path) -> bool:
     try:
-        current = _fingerprint(root, path)
+        current = _fingerprint(path, root)
     except (OSError, RetentionError):
         return False
     return current == expected
+
+
+def _record_signature(record: BackupRecord) -> tuple[object, ...]:
+    return (
+        record.name,
+        record.timestamp,
+        record.fingerprint,
+        record.valid,
+        record.pinned,
+    )
+
+
+def _recheck_plan_inputs(
+    plan: RetentionPlan,
+    *,
+    validator: Validator | None,
+    pg_restore: str,
+    validator_command: Sequence[str] | None,
+    pin_file: Path | None,
+) -> None:
+    """Fail closed if files or protection markers changed after planning."""
+
+    try:
+        current = scan_backups(
+            plan.root,
+            validator=validator,
+            pg_restore=pg_restore,
+            validator_command=validator_command,
+            pin_file=pin_file,
+        )
+    except RetentionError as exc:
+        raise RetentionBlocked(f"retention inputs changed before delete: {exc}") from exc
+    expected_by_name = {record.name: _record_signature(record) for record in plan.records}
+    current_by_name = {record.name: _record_signature(record) for record in current}
+    if expected_by_name.keys() != current_by_name.keys():
+        raise RetentionBlocked("ordinary backup set changed after planning; rerun the retention scan")
+    changed = [
+        name
+        for name in sorted(expected_by_name)
+        if expected_by_name[name] != current_by_name[name]
+    ]
+    if changed:
+        raise RetentionBlocked(
+            "ordinary backup or pin protection changed after planning: "
+            + ", ".join(changed)
+        )
 
 
 def apply_plan(
@@ -418,12 +488,20 @@ def apply_plan(
     validator: Validator | None = None,
     pg_restore: str = "pg_restore",
     validator_command: Sequence[str] | None = None,
+    pin_file: Path | None = None,
 ) -> tuple[tuple[str, ...], tuple[dict[str, str], ...]]:
     """Delete only unchanged, revalidated files; return deleted and skipped names."""
 
     if plan.blocked:
         raise RetentionBlocked("; ".join(plan.blocked_reasons))
 
+    _recheck_plan_inputs(
+        plan,
+        validator=validator,
+        pg_restore=pg_restore,
+        validator_command=validator_command,
+        pin_file=pin_file,
+    )
     failures: list[dict[str, str]] = []
     for record in plan.deletable:
         if record.fingerprint is None or not _same_fingerprint(record.path, record.fingerprint, plan.root):
@@ -454,7 +532,12 @@ def apply_plan(
         try:
             os.unlink(record.path)
         except OSError as exc:
-            raise RetentionError(f"failed to delete {record.name}: {exc}") from exc
+            skipped = ({"name": record.name, "reason": f"delete failed: {exc}"},)
+            raise RetentionApplyError(
+                f"failed to delete {record.name}: {exc}",
+                deleted=deleted,
+                skipped=skipped,
+            ) from exc
         deleted.append(record.name)
     return tuple(deleted), ()
 
@@ -472,15 +555,101 @@ def _parse_as_of(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def _write_report(path: Path, payload: dict[str, object]) -> None:
-    if path.is_symlink():
-        raise RetentionError(f"report path must not be a symlink: {path}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.partial")
-    if temporary.is_symlink():
-        raise RetentionError(f"report temporary path must not be a symlink: {temporary}")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
+def _path_key(path: Path) -> str:
+    """Normalize a lexical path without following its final symlink."""
+
+    return os.path.normcase(os.path.abspath(os.fspath(path)))
+
+
+def _looks_like_retention_report(path: Path) -> bool:
+    """Recognize a prior report so it can be atomically refreshed safely."""
+
+    if path.is_symlink() or not path.is_file():
+        return False
+    try:
+        with path.open("r", encoding="utf-8") as stream:
+            raw = stream.read(1024 * 1024 + 1)
+        if len(raw) > 1024 * 1024:
+            return False
+        document = json.loads(raw)
+    except (OSError, UnicodeError, ValueError):
+        return False
+    return isinstance(document, dict) and {
+        "mode",
+        "root",
+        "scanned",
+        "would_delete",
+    }.issubset(document)
+
+
+def _validate_report_target(
+    path: Path,
+    *,
+    backup_root: Path,
+    pin_file: Path | None,
+) -> Path:
+    report = Path(path)
+    if report.suffix.lower() != ".json":
+        raise RetentionError(f"report path must use the .json suffix: {report}")
+    root = _resolve_root(backup_root)
+    report_key = _path_key(report)
+    if pin_file is not None and report_key == _path_key(pin_file):
+        raise RetentionError(f"report path must not overwrite the pin file: {report}")
+    for entry in root.iterdir():
+        if report_key == _path_key(entry):
+            if _looks_like_retention_report(report):
+                continue
+            raise RetentionError(f"report path must not overwrite a backup artifact: {report}")
+        if report.exists():
+            try:
+                if os.path.samestat(report.lstat(), entry.lstat()):
+                    raise RetentionError(f"report path aliases a backup artifact: {report}")
+            except FileNotFoundError:
+                pass
+    if report.is_symlink():
+        raise RetentionError(f"report path must not be a symlink: {report}")
+    if report.exists() and report.is_dir():
+        raise RetentionError(f"report path must be a file: {report}")
+    if report.parent.exists() and report.parent.is_symlink():
+        raise RetentionError(f"report parent must not be a symlink: {report.parent}")
+    return report
+
+
+def _write_report(
+    path: Path,
+    payload: dict[str, object],
+    *,
+    backup_root: Path,
+    pin_file: Path | None,
+) -> None:
+    report = _validate_report_target(path, backup_root=backup_root, pin_file=pin_file)
+    report.parent.mkdir(parents=True, exist_ok=True)
+    serialized = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    temporary = report.with_name(f".{report.name}.{uuid.uuid4().hex}.partial")
+    descriptor: int | None = None
+    created = False
+    try:
+        descriptor = os.open(temporary, flags, 0o600)
+        created = True
+        stream = os.fdopen(descriptor, "w", encoding="utf-8")
+        descriptor = None
+        with stream:
+            stream.write(serialized)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary, 0o600)
+        _validate_report_target(report, backup_root=backup_root, pin_file=pin_file)
+        os.replace(temporary, report)
+    except Exception:
+        if descriptor is not None:
+            os.close(descriptor)
+        if created:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+        raise
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -533,10 +702,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             weekly_weeks=args.weekly_weeks,
         )
         if args.apply:
+            report_path = args.report_file
+            if report_path:
+                planned_payload = plan.report(apply=True, phase="planned")
+                planned_payload["report_file"] = str(report_path)
+                _write_report(
+                    report_path,
+                    planned_payload,
+                    backup_root=args.backup_dir,
+                    pin_file=args.pin_file,
+                )
             if plan.blocked:
-                payload = plan.report(apply=True)
-                if args.report_file:
-                    _write_report(args.report_file, payload)
+                payload = plan.report(apply=True, phase="blocked")
+                if report_path:
+                    payload["report_file"] = str(report_path)
+                    _write_report(
+                        report_path,
+                        payload,
+                        backup_root=args.backup_dir,
+                        pin_file=args.pin_file,
+                    )
                 print(json.dumps(payload, ensure_ascii=False))
                 return 2
             try:
@@ -544,20 +729,59 @@ def main(argv: Sequence[str] | None = None) -> int:
                     plan,
                     pg_restore=args.pg_restore,
                     validator_command=validator_command,
+                    pin_file=args.pin_file,
                 )
             except RetentionBlocked as exc:
-                payload = plan.report(apply=True)
+                payload = plan.report(apply=True, phase="blocked")
                 payload["blocked"] = True
                 payload["blocked_reasons"] = [*plan.blocked_reasons, str(exc)]
-                if args.report_file:
-                    _write_report(args.report_file, payload)
+                if report_path:
+                    payload["report_file"] = str(report_path)
+                    _write_report(
+                        report_path,
+                        payload,
+                        backup_root=args.backup_dir,
+                        pin_file=args.pin_file,
+                    )
                 print(json.dumps(payload, ensure_ascii=False))
                 return 2
-            payload = plan.report(apply=True, deleted=deleted, skipped=skipped)
+            except RetentionApplyError as exc:
+                payload = plan.report(
+                    apply=True,
+                    phase="partial-failure",
+                    deleted=exc.deleted,
+                    skipped=exc.skipped,
+                )
+                payload["blocked"] = True
+                payload["blocked_reasons"] = [*plan.blocked_reasons, str(exc)]
+                if report_path:
+                    payload["report_file"] = str(report_path)
+                    _write_report(
+                        report_path,
+                        payload,
+                        backup_root=args.backup_dir,
+                        pin_file=args.pin_file,
+                    )
+                print(json.dumps(payload, ensure_ascii=False))
+                return 2
+            payload = plan.report(apply=True, phase="complete", deleted=deleted, skipped=skipped)
+            if report_path:
+                payload["report_file"] = str(report_path)
+                _write_report(
+                    report_path,
+                    payload,
+                    backup_root=args.backup_dir,
+                    pin_file=args.pin_file,
+                )
         else:
             payload = plan.report(apply=False)
-        if args.report_file:
-            _write_report(args.report_file, payload)
+            if args.report_file:
+                _write_report(
+                    args.report_file,
+                    payload,
+                    backup_root=args.backup_dir,
+                    pin_file=args.pin_file,
+                )
         print(json.dumps(payload, ensure_ascii=False))
         return 0
     except RetentionBlocked as exc:
