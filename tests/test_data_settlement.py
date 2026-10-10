@@ -207,7 +207,40 @@ def test_fixture_upsert_and_settlement_rebuild_are_idempotent(db_session: Sessio
     assert first_stats.detail_count == 7
     assert second_stats.detail_count == 7
     assert count(db_session, SettlementOrderDetail) == 7
-    assert count(db_session, JobRun) == 1
+    assert count(db_session, JobRun) == 2
+    publication = db_session.get(
+        JobRun, "settlement-publication-after-job-settlement-fixture"
+    )
+    assert publication is not None
+    assert publication.status == "queued"
+    assert publication.metadata_json["source_run_id"] == SETTLEMENT_RUN_ID
+    assert publication.metadata_json["trigger_source"] == "settlement_job_completed"
+
+
+def test_failed_settlement_job_does_not_queue_publication(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_rebuild(*_args, **_kwargs):
+        raise RuntimeError("settlement rebuild failed")
+
+    monkeypatch.setattr(settlement_worker, "rebuild_settlement", fail_rebuild)
+
+    with pytest.raises(RuntimeError, match="settlement rebuild failed"):
+        run_settlement_job(
+            db_session,
+            job_id="failed-settlement-job",
+            source_run_id="failed-settlement-job",
+        )
+
+    publication = db_session.get(
+        JobRun,
+        "settlement-publication-after-failed-settlement-job",
+    )
+    failed_job = db_session.get(JobRun, "failed-settlement-job")
+    assert publication is None
+    assert failed_job is not None
+    assert failed_job.status == "failed"
 
 
 def test_settlement_rebuild_clears_stale_quality_issues(db_session: Session) -> None:

@@ -100,6 +100,13 @@ def test_run_collect_and_settle_records_success_job_and_phase_order(db_session: 
     assert job.failed_count == 0
     assert job.metadata_json["phases"]["orders"]["upserted"] == 1
     assert job.metadata_json["source_window"]["timezone"] == "Asia/Shanghai"
+    publication = db_session.scalar(
+        select(JobRun).where(JobRun.job_name == "settlement_rebuild")
+    )
+    assert publication is not None
+    assert publication.status == "queued"
+    assert publication.metadata_json["source_run_id"] == "collect-1"
+    assert publication.metadata_json["trigger_source"] == "collect_and_settle_completed"
 
 
 class FakeDefaultCollectionClient:
@@ -1312,6 +1319,41 @@ def test_queued_settlement_rebuild_coalesces_older_jobs_after_latest_success(
     )
     assert second.processed_job_id is None
     assert calls == [("queued-new", "queued-new")]
+
+
+def test_admin_settlement_rebuild_wins_publication_job_on_timestamp_tie(
+    db_session: Session,
+    monkeypatch,
+):
+    from apps.worker import queued_jobs
+
+    tied_at = datetime.fromisoformat("2026-06-17T05:30:00+00:00")
+    queue_job_run(
+        db_session,
+        "queued-admin-rules",
+        "settlement_rebuild",
+        metadata_json={"trigger": "admin_non_commission_owner_accounts"},
+        started_at=tied_at,
+    )
+    queue_job_run(
+        db_session,
+        "settlement-publication-after-collect-1",
+        "settlement_rebuild",
+        metadata_json={"trigger_source": "collect_and_settle_completed"},
+        started_at=tied_at,
+    )
+    db_session.commit()
+
+    monkeypatch.setattr(
+        settlement_rebuild,
+        "rebuild_settlement",
+        lambda *_args, **_kwargs: SettlementStats(1, 0, 0, 0),
+    )
+    result = queued_jobs.process_queued_settlement_rebuilds(
+        sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False, future=True)
+    )
+
+    assert result.processed_job_id == "queued-admin-rules"
 
 
 def test_commit_fence_checks_lease_after_pending_data_is_flushed(db_session, monkeypatch):

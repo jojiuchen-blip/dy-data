@@ -41,6 +41,7 @@ from apps.api.dy_api.models import (
     DouyinRefundEvent,
     InvoiceRecord,
     JobImpact,
+    JobRun,
     PromotionInvoiceAllocation,
     RawAwemeBinding,
     RawDouyinOrder,
@@ -71,7 +72,12 @@ from apps.worker.receipt_amounts import (
     load_order_attributions,
     resolve_coupon_receipt_cent,
 )
-from apps.worker.repositories import finish_job_run, start_job_run, upsert_data_quality_issue
+from apps.worker.repositories import (
+    finish_job_run,
+    queue_job_run,
+    start_job_run,
+    upsert_data_quality_issue,
+)
 
 
 VALID_VERIFY_STATUSES = {"1", "valid", "verified", "success", "fulfilled", "used"}
@@ -2633,7 +2639,36 @@ def run_settlement_job(session: Session, *, job_id: str, source_run_id: str) -> 
         finish_job_run(session, job_id, status="failed", failed_count=1, error_message=str(exc))
         raise
     finish_job_run(session, job_id, status="success", success_count=stats.detail_count)
+    queue_settlement_publication_job(
+        session,
+        source_run_id=source_run_id,
+        trigger_id=job_id,
+        trigger_source="settlement_job_completed",
+    )
     return stats
+
+
+def queue_settlement_publication_job(
+    session: Session,
+    *,
+    source_run_id: str,
+    trigger_id: str,
+    trigger_source: str,
+) -> None:
+    """Queue durable billing publication after successful fee materialization."""
+    publication_job_id = f"settlement-publication-after-{trigger_id}"
+    existing = session.get(JobRun, publication_job_id)
+    if existing is not None:
+        return
+    queue_job_run(
+        session,
+        publication_job_id,
+        "settlement_rebuild",
+        metadata_json={
+            "source_run_id": source_run_id,
+            "trigger_source": trigger_source,
+        },
+    )
 
 
 def rebuild_settlement(
@@ -5891,6 +5926,78 @@ def _select_valid_verify_record(session: Session, coupon_id: str) -> RawDouyinVe
     if valid_records:
         return valid_records[0]
     return None
+
+
+def select_coupon_ids_by_verify_business_month(
+    session: Session, business_month: str
+) -> tuple[str, ...]:
+    """Coupons whose latest valid verify lands in one Shanghai business month.
+
+    Mirrors ``_select_valid_verify_record`` exactly: the newest non-cancelled
+    record in ``VALID_VERIFY_STATUSES`` with a known ``verify_time`` wins per
+    coupon, and the month is derived *after* that selection.  Used by the
+    month-scoped rebuild so a coupon verified in another month is never
+    recomputed.
+    """
+
+    status = func.lower(func.trim(func.coalesce(RawDouyinVerifyRecord.verify_status, "")))
+    ranked = (
+        select(
+            RawDouyinVerifyRecord.coupon_id.label("coupon_id"),
+            RawDouyinVerifyRecord.verify_time.label("verify_time"),
+            func.row_number()
+            .over(
+                partition_by=RawDouyinVerifyRecord.coupon_id,
+                order_by=(
+                    RawDouyinVerifyRecord.verify_time.desc(),
+                    RawDouyinVerifyRecord.verify_id.desc(),
+                ),
+            )
+            .label("recency"),
+        )
+        .where(
+            status.in_(sorted(VALID_VERIFY_STATUSES)),
+            RawDouyinVerifyRecord.cancel_time.is_(None),
+            RawDouyinVerifyRecord.verify_time.is_not(None),
+        )
+        .subquery("ranked_verify_month")
+    )
+    if session.get_bind().dialect.name == "postgresql":
+        month = func.to_char(
+            func.timezone("Asia/Shanghai", ranked.c.verify_time), "YYYY-MM"
+        )
+    else:
+        month = func.strftime("%Y-%m", ranked.c.verify_time, "+8 hours")
+    return tuple(
+        session.scalars(
+            select(ranked.c.coupon_id)
+            .where(ranked.c.recency == 1, month == business_month)
+            .order_by(ranked.c.coupon_id)
+        )
+    )
+
+
+def count_current_fee_results_for_month(session: Session, business_month: str) -> int:
+    """Current commission results attributable to one business month.
+
+    Used as the month-close source-readiness gate: a month with no current
+    result is not billable, so a close must fail loudly instead of reporting a
+    successful no-op.
+    """
+
+    return int(
+        session.scalar(
+            select(func.count())
+            .select_from(SettlementFeeResult)
+            .join(
+                SettlementFeeResultCurrent,
+                SettlementFeeResultCurrent.fee_result_id
+                == SettlementFeeResult.fee_result_id,
+            )
+            .where(SettlementFeeResult.original_business_month == business_month)
+        )
+        or 0
+    )
 
 
 def _find_poi_mapping(session: Session, poi_id: str | None) -> DimStorePoiMapping | None:
