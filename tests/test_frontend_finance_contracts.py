@@ -270,11 +270,12 @@ def test_detection_and_management_correction_reuse_keys_only_for_identical_retri
 def test_finance_sibling_routes_remount_direction_specific_pages() -> None:
     app = source("App.tsx")
 
+    # Direction stays part of each key so the sibling routes never share state.
     for key in [
-        'key="finance-fee-promotion"',
-        'key="finance-fee-management"',
-        'key="finance-orders-promotion"',
-        'key="finance-orders-management"',
+        "key={`finance-fee:PROMOTION:${searchParams.toString()}`}",
+        "key={`finance-fee:MANAGEMENT:${searchParams.toString()}`}",
+        "key={`finance-orders:PROMOTION:${searchParams.toString()}`}",
+        "key={`finance-orders:MANAGEMENT:${searchParams.toString()}`}",
     ]:
         assert key in app
 
@@ -404,3 +405,63 @@ def test_finance_row_actions_remain_available_in_mobile_cards_and_by_keyboard() 
     assert 'event.key === "Enter" || event.key === " "' in table
     assert 'rowActionLabel={(row) => row.invoiceId && row.isCurrent ? "更正" : undefined}' in fees
     assert 'rowActionLabel={() => "查看完整字段"}' in orders
+
+
+def test_finance_pages_remount_when_the_url_month_context_changes() -> None:
+    app = source("App.tsx")
+    fees = source("pages/FinanceFeePage.tsx")
+    orders = source("pages/FinanceOrderDetailsPage.tsx")
+
+    # The URL carries the selected month on these routes, and both pages read it
+    # in their useState initializers. A static React key therefore leaves the
+    # page querying the previous month after a same-pathname URL change
+    # (history navigation, bookmark, in-app link), which shows money for a month
+    # the URL no longer selects.
+    for stale_key in [
+        'key="finance-fee-promotion"',
+        'key="finance-fee-management"',
+        'key="finance-orders-promotion"',
+        'key="finance-orders-management"',
+    ]:
+        assert stale_key not in app
+    # Both pages still initialise the month from the URL, falling back to the
+    # last completed Shanghai month (see tests/test_frontend_statement_month.py).
+    assert "initialStatementMonth(searchParams)" in fees
+    assert "initialStatementMonth(searchParams)" in orders
+    # The existing URL-driven remount pattern is unchanged for the other pages.
+    assert "key={`finance-imports:${searchParams.toString()}`}" in app
+    assert "key={`douyin-ranking:${searchParams.toString()}`}" in app
+
+
+def test_finance_pages_default_to_the_last_completed_shanghai_month() -> None:
+    helper = source("utils/statementMonth.ts")
+    fees = source("pages/FinanceFeePage.tsx")
+    orders = source("pages/FinanceOrderDetailsPage.tsx")
+    stores = source("pages/FinanceStoresPage.tsx")
+
+    # One shared rule, matching the server's previous_business_month.
+    assert 'export const SHANGHAI_TIME_ZONE = "Asia/Shanghai";' in helper
+    assert "export function previousShanghaiStatementMonth(" in helper
+    assert "export function initialStatementMonth(" in helper
+    for page in [fees, orders, stores]:
+        assert "initialStatementMonth(searchParams)" in page
+        # No page may derive a period from its own clock any more.
+        assert "defaultStatementMonth" not in page
+        assert "getMonth() + 1" not in page
+    # Reset returns to the same confirmed default, not to the calendar month.
+    assert "updateMonth(previousShanghaiStatementMonth())" in fees
+
+
+def test_finance_fee_month_control_updates_state_url_and_request_params() -> None:
+    fees = source("pages/FinanceFeePage.tsx")
+
+    assert "const updateMonth = (value: string) => {" in fees
+    assert "setMonth(value);" in fees
+    assert "replaceStatementMonthInUrl(value);" in fees
+    assert "onChange={(event) => updateMonth(event.target.value)}" in fees
+    assert "onChange={(event) => setMonth(event.target.value)}" not in fees
+    # The summary, the list and the export all read the same state value.
+    assert "month," in fees
+    assert "() => fetchFinanceSummary(commonQuery)" in fees
+    assert "fetchFinanceInvoices({ ...invoiceQuery, pageSize: 50 })" in fees
+    assert "downloadFinanceInvoices(invoiceQuery)" in fees

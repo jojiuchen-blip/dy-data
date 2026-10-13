@@ -894,9 +894,19 @@ def _job_target(job) -> str:
 
 
 def _priority_paged_enabled(job: Any) -> bool:
-    """Gate resumable collection by the explicit scheduler config version."""
+    """Gate resumable collection by the explicit scheduler config version.
 
-    return str(getattr(job, "config_version", "") or "") == "priority-daily-v1"
+    Recovery generations re-issue their day's chain under a derived
+    ``config_version``, so an equality check against the bare base version would
+    silently drop a recovered child onto the unbounded legacy collector: no
+    durable cursor, and no priority budget guard protecting the reserve the next
+    required day keeps.  The shared predicate keeps this gate identical to the
+    scheduler's selection gate.
+    """
+
+    from apps.worker.day_recovery import priority_generation_config
+
+    return priority_generation_config(getattr(job, "config_version", None))
 
 
 def _required_stages_for_job(job) -> tuple[str, ...]:

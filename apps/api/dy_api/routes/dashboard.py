@@ -5931,7 +5931,10 @@ def monthly_settlement(
     _require_store_scope(current_user, store_id)
     _validate_month(month, "month", request)
     _validate_product_selection(store, product_scope, product_type, request)
-    _validate_monthly_context(store, store_id, month, request)
+    # A selectable period may legitimately hold no rows yet (for example the
+    # previous business month before its first close).  Only an unknown store is
+    # a not-found here; an empty period resolves to a real empty payload.
+    _require_known_store(store, store_id, request)
     data = _call_reporting_store(
         request,
         store.monthly_settlement_report,
@@ -11633,9 +11636,9 @@ def _validate_product_selection(
         )
 
 
-def _validate_monthly_context(
-    store, store_id: str, month: str, request: Request
-) -> None:
+def _require_known_store(store, store_id: str, request: Request) -> None:
+    """Unknown stores are a real 404; an empty period is not."""
+
     store_exists = getattr(store, "store_exists", lambda _store_id: True)
     if not store_exists(store_id):
         _raise_reporting_error(
@@ -11645,6 +11648,12 @@ def _validate_monthly_context(
             "门店不存在",
             field="storeId",
         )
+
+
+def _validate_monthly_context(
+    store, store_id: str, month: str, request: Request
+) -> None:
+    _require_known_store(store, store_id, request)
     context_exists = getattr(
         store,
         "monthly_settlement_context_exists",

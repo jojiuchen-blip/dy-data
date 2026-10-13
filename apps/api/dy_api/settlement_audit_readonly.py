@@ -24,6 +24,7 @@ than a query artefact:
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
@@ -31,6 +32,7 @@ from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
+    DataQualityIssue,
     RawDouyinVerifyRecord,
     SettlementCarryforwardApplication,
     SettlementFeeAdjustment,
@@ -473,7 +475,6 @@ def read_settlement_month_audit(
     The caller owns the transaction; this function never commits, and it is
     expected to run inside a database-enforced read-only transaction.
     """
-
     selected = tuple(month for month in AUDIT_MONTHS if month in set(months))
     if not selected:
         raise ValueError("audit months are fixed to 2026-09 and 2026-10")
@@ -487,7 +488,132 @@ def read_settlement_month_audit(
     )
 
 
+class MonthCloseReadinessAlert(BaseModel):
+    """Operator alert: a business month could not be closed yet.
+
+    Deliberately narrow: the month, the reason state, severity and the
+    operator message only.  Source identifiers stay in the database.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    month: str
+    state: str
+    severity: str
+    message: str
+
+
+class SettlementMonthReadiness(BaseModel):
+    """Read-only view of outstanding month-close readiness alerts."""
+
+    model_config = ConfigDict(extra="forbid")
+    alerts: list[MonthCloseReadinessAlert]
+
+
+# Only these reasons may be surfaced, in this fixed wording.  Nothing from the
+# database row is echoed back: a quality-issue message or context can contain
+# order numbers, phone numbers or store names.
+READINESS_STATES: dict[str, str] = {
+    "watermark_incomplete": "采集未完整",
+    "no_current_results": "无有效佣金结果",
+    "locked": "账单已锁账",
+}
+READINESS_SEVERITY = "warning"
+# Strictly the previous complete Shanghai business month: the only month the
+# planner ever dispatches, so no other month can be surfaced.
+READINESS_WINDOW_MONTHS = 1
+_MONTH_KEY_PATTERN = re.compile(r"\d{4}-\d{2}\Z")
+
+
+def _shift_month(month: str, delta: int) -> str:
+    index = int(month[:4]) * 12 + (int(month[5:7]) - 1) + delta
+    return f"{index // 12:04d}-{index % 12 + 1:02d}"
+
+
+def readiness_month_window(
+    now: Any = None, *, months: int = READINESS_WINDOW_MONTHS
+) -> tuple[str, ...]:
+    """The Shanghai business months an alert may legitimately name.
+
+    With the default window this is exactly the previous complete business
+    month — the only month the planner ever dispatches — so an arbitrary or
+    historical month can never be surfaced.
+    """
+
+    from apps.worker.month_close import previous_business_month
+
+    previous = previous_business_month(now)
+    return tuple(_shift_month(previous, -offset) for offset in range(months))
+
+
+def readiness_message(month: str, state: str) -> str:
+    """Fixed operator template; never interpolates stored text."""
+
+    return (
+        f"{month} 月结未派发：{READINESS_STATES[state]}；"
+        "来源就绪前不会生成账单。"
+    )
+
+
+def read_month_close_readiness(
+    session: Session, *, now: Any = None, limit: int = 12
+) -> SettlementMonthReadiness:
+    """Return outstanding readiness alerts, newest month first.
+
+    Only the four safe fields leave this function.  ``month`` must be a
+    ``YYYY-MM`` key inside the recent business-month window, ``state`` must be
+    one of the known reasons and both ``message`` and ``severity`` are produced
+    here rather than read from the stored row.
+    """
+
+    # Local import keeps the API import path free of worker startup cost while
+    # still sharing the single source of truth for the issue type.
+    from apps.worker.month_close import READINESS_ISSUE_TYPE
+
+    window = set(readiness_month_window(now))
+    rows = session.scalars(
+        select(DataQualityIssue)
+        .where(DataQualityIssue.issue_type == READINESS_ISSUE_TYPE)
+        .order_by(DataQualityIssue.issue_id)
+        .limit(limit)
+    ).all()
+    alerts: list[MonthCloseReadinessAlert] = []
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        context = row.raw_context_json
+        if not isinstance(context, dict):
+            continue
+        month = context.get("business_month")
+        state = context.get("state")
+        if not isinstance(month, str) or not _MONTH_KEY_PATTERN.match(month):
+            continue
+        if month not in window:
+            continue
+        if not isinstance(state, str) or state not in READINESS_STATES:
+            continue
+        if (month, state) in seen:
+            continue
+        seen.add((month, state))
+        alerts.append(
+            MonthCloseReadinessAlert(
+                month=month,
+                state=state,
+                severity=READINESS_SEVERITY,
+                message=readiness_message(month, state),
+            )
+        )
+    alerts.sort(key=lambda alert: alert.month, reverse=True)
+    return SettlementMonthReadiness(alerts=alerts)
+
+
 __all__ = [
+    "MonthCloseReadinessAlert",
+    "READINESS_SEVERITY",
+    "READINESS_STATES",
+    "READINESS_WINDOW_MONTHS",
+    "SettlementMonthReadiness",
+    "read_month_close_readiness",
+    "readiness_message",
+    "readiness_month_window",
     "ADJUSTMENT_ENTRY",
     "AUDIT_MONTHS",
     "MANAGEMENT_FEE",

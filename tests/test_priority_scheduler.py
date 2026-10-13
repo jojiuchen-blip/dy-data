@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -656,3 +656,156 @@ def test_history_range_query_is_bounded_without_global_row_truncation(factory) -
 
     assert parent_job_id in row_ids
     assert row_dates == {target}
+
+def _complete_day(factory, day, *, now) -> None:
+    """Mark one planned day fully published through the real finalize linkage.
+
+    Delegates to the shared fixture in ``test_job_recovery_and_evidence``: the
+    finalize row must come from ``enqueue_finalize_if_ready`` and its publication
+    stage must really run, because a day that merely *claims* to be published is
+    exactly what ``reconcile_finalize_parents`` and the month-close watermark
+    refuse.  It opens its own session and commits, so call it *before* any
+    ``factory.begin()`` block that owns later setup.
+    """
+
+    del now
+    from test_job_recovery_and_evidence import _publish_day
+
+    with factory() as session:
+        _publish_day(session, day)
+
+
+def test_terminal_failed_day_does_not_strand_older_unfinished_days(factory, monkeypatch) -> None:
+    """A 3/3 terminal failure must not stop repair of older unfinished days.
+
+    Production shape: 2026-09-18's daily chain crashed 3/3 and is terminal, while
+    2026-09-16 still holds unclaimed pending rows.  The failed day must stay
+    failed (no automatic retry, audit intact) *and* must not end the history
+    scan, otherwise the older pending rows are never claimed again.
+    """
+    daily_target = date(2026, 9, 19)
+    failed_day = date(2026, 9, 18)
+    settled_day = date(2026, 9, 17)
+    stranded_day = date(2026, 9, 16)
+    now = datetime.fromisoformat("2026-09-20T03:00:00+08:00")
+
+    _complete_day(factory, daily_target, now=now)
+    _complete_day(factory, settled_day, now=now)
+    with factory.begin() as session:
+        # 09-18 crashed: terminal 3/3 failure on the all-domain range_sync.
+        priority_scheduler.ensure_daily_priority_plan(session, failed_day, now=now)
+        failed_parent = next(
+            row
+            for row in priority_scheduler._priority_rows_for_day(session, failed_day)
+            if row.job_kind == "range_sync" and priority_scheduler._row_target(row) == "all"
+        )
+        failed_parent.status = "failed"
+        failed_parent.attempt_count = 3
+        failed_parent.max_attempts = 3
+        failed_parent.error_code = "worker_exit_1"
+        failed_parent.error_summary = "Traceback (most recent call last): crash"
+        failed_parent_id = failed_parent.job_id
+        failed_finished_at = failed_parent.finished_at
+        # 09-16 keeps its planned rows unclaimed.
+        priority_scheduler.ensure_daily_priority_plan(session, stranded_day, now=now)
+
+    stranded_before = None
+    with factory() as session:
+        stranded_before = {
+            row.job_id: row.status
+            for row in priority_scheduler._priority_rows_for_day(session, stranded_day)
+        }
+        assert stranded_before and set(stranded_before.values()) == {"pending"}
+
+    monkeypatch.setattr(priority_scheduler, "_plan_due_dimensions", lambda *_args: ())
+    calls: list[str] = []
+
+    def child_runner(_factory, job_id: str):
+        calls.append(job_id)
+        return ChildRunResult(job_id=job_id, status=ChildRunStatus.SUCCESS, attempts=1)
+
+    result = priority_scheduler.run_priority_daily_tick(
+        factory,
+        now=now,
+        child_runner=child_runner,
+        product_sync_runner=lambda _factory, **_kwargs: None,
+    )
+
+    assert result.action == "executed"
+    assert calls == [result.selected_job_id]
+    # The claimed row is one of the older day's still-pending rows.
+    assert result.selected_job_id in set(stranded_before)
+    with factory() as session:
+        selected = session.get(JobRun, result.selected_job_id)
+        assert selected is not None
+        # The claimed row belongs to the older, still-repairable day.
+        assert priority_scheduler._job_business_date(selected) == stranded_day
+        # The terminal failure is untouched: same status, attempts and audit.
+        reloaded = session.get(JobRun, failed_parent_id)
+        assert reloaded is not None
+        assert reloaded.status == "failed"
+        assert reloaded.attempt_count == 3
+        assert reloaded.error_code == "worker_exit_1"
+        assert reloaded.error_summary == "Traceback (most recent call last): crash"
+        assert reloaded.finished_at == failed_finished_at
+        # The failed day is still not published, so month close stays blocked.
+        assert (
+            priority_scheduler._day_state(
+                failed_day,
+                priority_scheduler._priority_rows_for_day(session, failed_day),
+            ).state
+            == "failed"
+        )
+        # Repair must not fabricate a finalize for the older day.
+        finalize_rows = [
+            row
+            for row in priority_scheduler._priority_rows_for_day(session, stranded_day)
+            if row.job_kind == "finalize"
+        ]
+        assert finalize_rows == []
+
+
+def test_failed_day_is_still_reported_when_no_older_gap_exists(factory, monkeypatch) -> None:
+    """With no repairable older day the tick keeps reporting the failed block."""
+    daily_target = date(2026, 9, 19)
+    failed_day = date(2026, 9, 18)
+    now = datetime.fromisoformat("2026-09-20T03:00:00+08:00")
+    # Bound the history window to the failed day itself so no older gap exists.
+    monkeypatch.setattr(
+        priority_scheduler,
+        "_history_bounds",
+        lambda _session, *, daily_date: (failed_day, failed_day),
+    )
+
+    _complete_day(factory, daily_target, now=now)
+    with factory.begin() as session:
+        priority_scheduler.ensure_daily_priority_plan(session, failed_day, now=now)
+        failed_parent = next(
+            row
+            for row in priority_scheduler._priority_rows_for_day(session, failed_day)
+            if row.job_kind == "range_sync" and priority_scheduler._row_target(row) == "all"
+        )
+        failed_parent.status = "failed"
+
+    monkeypatch.setattr(priority_scheduler, "_plan_due_dimensions", lambda *_args: ())
+    monkeypatch.setattr(
+        priority_scheduler,
+        "_select_due_dimension_candidate",
+        lambda *_args, **_kwargs: None,
+    )
+    calls: list[str] = []
+
+    def child_runner(_factory, job_id: str):
+        calls.append(job_id)
+        return ChildRunResult(job_id=job_id, status=ChildRunStatus.SUCCESS, attempts=1)
+
+    result = priority_scheduler.run_priority_daily_tick(
+        factory,
+        now=now,
+        child_runner=child_runner,
+        product_sync_runner=lambda _factory, **_kwargs: None,
+    )
+
+    assert result.action == "blocked"
+    assert result.reason == "history_day_failed:2026-09-18"
+    assert calls == []

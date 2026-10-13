@@ -100,8 +100,17 @@ class PriorityRequestGovernor:
 
 
 def protect_priority_requests(client: Any, job: Any) -> None:
-    """Install once on a task-local client; leave legacy and test clients intact."""
-    if job.config_version != "priority-daily-v1":
+    """Install once on a task-local client; leave legacy and test clients intact.
+
+    Recovery generations must be protected exactly like the day they replace:
+    skipping the governor for a recovered child would let it spend requests with
+    no per-endpoint budget at all, which is the failure mode the recovery exists
+    to avoid repeating.
+    """
+
+    from apps.worker.day_recovery import priority_generation_config
+
+    if not priority_generation_config(getattr(job, "config_version", None)):
         return
     governor = getattr(client, "request_governor", None)
     if governor is None or isinstance(governor, PriorityRequestGovernor):

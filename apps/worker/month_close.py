@@ -18,6 +18,7 @@ Consequences:
 from __future__ import annotations
 
 import hashlib
+import logging
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -26,13 +27,14 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.dy_api.db import session_scope
 from apps.api.dy_api.models import (
+    DataQualityIssue,
     JobRun,
     SettlementFeeResult,
     SettlementFeeResultCurrent,
     SettlementStatement,
 )
 from apps.worker.priority_scheduler import _day_state, _priority_rows_for_day
-from apps.worker.repositories import queue_job_run
+from apps.worker.repositories import queue_job_run, upsert_data_quality_issue
 from apps.worker.settlement import FORMAL_SETTLEMENT_START
 from apps.worker.settlement_rebuild import (
     SETTLEMENT_REBUILD_JOB_NAME,
@@ -50,9 +52,27 @@ LOCKED_STATEMENT_STATUS = 4
 MONTH_CLOSE_ENABLED = True
 
 WATERMARK_INCOMPLETE = "watermark_incomplete"
+NO_CURRENT_RESULTS = "no_current_results"
 LOCKED = "locked"
 ACTIVE_REBUILD = "active_rebuild"
 READY = "ready"
+
+# Operator-visible readiness alert type.  One row per (business_month, state),
+# removed again as soon as the month becomes dispatchable.
+READINESS_ISSUE_TYPE = "month_close_source_not_ready"
+_NOT_READY_STATES = (WATERMARK_INCOMPLETE, NO_CURRENT_RESULTS, LOCKED)
+
+_logger = logging.getLogger("apps.worker.month_close")
+
+
+def readiness_issue_id(business_month: str, state: str) -> str:
+    """Stable dedupe key for a month's readiness alert."""
+
+    return f"month-close-readiness:{business_month}:{state}"
+
+
+def _in_formal_window(business_month: str) -> bool:
+    return business_month >= FORMAL_SETTLEMENT_START.strftime("%Y-%m")
 
 
 def previous_business_month(now: datetime | None = None) -> str:
@@ -108,6 +128,23 @@ def month_current_results_fingerprint(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12], len(rows)
 
 
+def published_days_revisions(
+    session: Session, business_month: str
+) -> list[str] | None:
+    """Per-day finalize revisions, or ``None`` when any day is unpublished."""
+
+    revisions: list[str] = []
+    for day in month_business_dates(business_month):
+        state = _day_state(day, _priority_rows_for_day(session, day))
+        if state.state != "success":
+            return None
+        finalize_rows = [row for row in state.rows if row.job_kind == "finalize"]
+        if len(finalize_rows) != 1:
+            return None
+        revisions.append(f"{day.isoformat()}@{finalize_rows[0].job_id}")
+    return revisions
+
+
 def month_source_watermark(session: Session, business_month: str) -> str | None:
     """Fingerprint of the month's billable source, or ``None`` when not ready.
 
@@ -127,31 +164,32 @@ def month_source_watermark(session: Session, business_month: str) -> str | None:
     unknown or missing returns ``None``: fail closed.
     """
 
-    revisions: list[str] = []
-    for day in month_business_dates(business_month):
-        state = _day_state(day, _priority_rows_for_day(session, day))
-        if state.state != "success":
-            return None
-        finalize_rows = [row for row in state.rows if row.job_kind == "finalize"]
-        if len(finalize_rows) != 1:
-            return None
-        revisions.append(f"{day.isoformat()}@{finalize_rows[0].job_id}")
-
+    revisions = published_days_revisions(session, business_month)
+    if revisions is None:
+        return None
     results_fingerprint, result_count = month_current_results_fingerprint(
         session, business_month
     )
     if result_count == 0:
         # Zero commission results must never reach statement generation.
         return None
+    return _watermark_from(revisions, results_fingerprint)
 
+
+def _watermark_from(revisions: list[str], results_fingerprint: str) -> str:
     payload = ",".join(revisions) + "||" + results_fingerprint
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
 def month_close_preflight(session: Session, business_month: str) -> tuple[str, str | None]:
-    """Return ``(state, watermark)`` for one month without changing anything."""
+    """Return ``(state, watermark)`` for one month without changing anything.
 
-    if business_month < FORMAL_SETTLEMENT_START.strftime("%Y-%m"):
+    The states are deliberately distinguishable so an operator alert can say
+    *why* a month cannot close: unpublished days, no billable result, or a
+    locked statement.
+    """
+
+    if not _in_formal_window(business_month):
         return WATERMARK_INCOMPLETE, None
     locked = session.scalar(
         select(SettlementStatement.statement_id)
@@ -163,12 +201,59 @@ def month_close_preflight(session: Session, business_month: str) -> tuple[str, s
     )
     if locked is not None:
         return LOCKED, None
-    watermark = month_source_watermark(session, business_month)
-    if watermark is None:
+    revisions = published_days_revisions(session, business_month)
+    if revisions is None:
         return WATERMARK_INCOMPLETE, None
+    results_fingerprint, result_count = month_current_results_fingerprint(
+        session, business_month
+    )
+    if result_count == 0:
+        return NO_CURRENT_RESULTS, None
+    watermark = _watermark_from(revisions, results_fingerprint)
     if _active_rebuild_exists(session):
         return ACTIVE_REBUILD, watermark
     return READY, watermark
+
+
+def _sync_readiness_issue(
+    session: Session, business_month: str, state: str
+) -> str | None:
+    """Keep exactly one alert per (month, state); clear it once ready.
+
+    Never touches commission results or statements.
+    """
+
+    rows = list(
+        session.scalars(
+            select(DataQualityIssue).where(
+                DataQualityIssue.issue_type == READINESS_ISSUE_TYPE
+            )
+        )
+    )
+    mine = [
+        row
+        for row in rows
+        if (row.raw_context_json or {}).get("business_month") == business_month
+    ]
+    if state not in _NOT_READY_STATES:
+        for row in mine:
+            session.delete(row)
+        return None
+    keep = readiness_issue_id(business_month, state)
+    for row in mine:
+        if row.issue_id != keep:
+            session.delete(row)
+    upsert_data_quality_issue(
+        session,
+        keep,
+        issue_type=READINESS_ISSUE_TYPE,
+        message=(
+            f"{business_month} 月结未派发：{state}；来源未就绪前不会生成账单。"
+        ),
+        severity="warning",
+        raw_context_json={"business_month": business_month, "state": state},
+    )
+    return keep
 
 
 def month_close_job_id(business_month: str, watermark: str) -> str:
@@ -194,7 +279,14 @@ def ensure_month_close_job(
     business_month = previous_business_month(now)
     with session_scope(factory) as session:
         state, watermark = month_close_preflight(session, business_month)
+        if _in_formal_window(business_month):
+            # Keep the operator-visible readiness alert in sync every tick.
+            _sync_readiness_issue(session, business_month, state)
         if watermark is None:
+            if state in _NOT_READY_STATES:
+                _logger.warning(
+                    "month_close_not_ready month=%s state=%s", business_month, state
+                )
             return None
         job_id = month_close_job_id(business_month, watermark)
         if session.get(JobRun, job_id) is not None:
@@ -232,6 +324,8 @@ def _active_rebuild_exists(session: Session) -> bool:
 __all__ = [
     "ACTIVE_REBUILD",
     "LOCKED",
+    "NO_CURRENT_RESULTS",
+    "READINESS_ISSUE_TYPE",
     "READY",
     "SHANGHAI",
     "WATERMARK_INCOMPLETE",
@@ -241,4 +335,6 @@ __all__ = [
     "month_close_preflight",
     "month_source_watermark",
     "previous_business_month",
+    "published_days_revisions",
+    "readiness_issue_id",
 ]

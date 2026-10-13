@@ -159,7 +159,11 @@ def test_zero_current_results_fails_closed(db_session):
     _publish_month(db_session)
 
     assert month_source_watermark(db_session, MONTH) is None
-    assert month_close_preflight(db_session, MONTH) == (WATERMARK_INCOMPLETE, None)
+    # Days are complete but nothing is billable: the preflight now reports this
+    # distinctly so the readiness alert can name the real reason.
+    from apps.worker.month_close import NO_CURRENT_RESULTS
+
+    assert month_close_preflight(db_session, MONTH) == (NO_CURRENT_RESULTS, None)
 
 
 def test_planner_enabled_but_incomplete_month_enqueues_nothing(db_session):

@@ -339,6 +339,8 @@ def test_store_finance_defaults_use_account_store_and_api_latest_period() -> Non
     for page in [settlement, status]:
         assert "currentUser.store_ids[0]" in page
         assert "meta?.statementMonths[0]" in page
+        # The settlement period never comes from the browser clock.
+        assert "new Date()" not in page
     assert "defaultStatementMonth" not in invoice
     assert "new Date()" not in invoice
     assert "filterMeta?.statementMonths[0]" in invoice
@@ -360,6 +362,60 @@ def test_missing_store_finance_metrics_are_not_rendered_as_real_zero_values() ->
     assert 'selectedStatements.length ? formatCurrency(selectedAmountCent) : "尚未生成"' in invoice
     assert '<div><dt>价税合计</dt><dd>{selectedStatements.length ? formatCurrency(selectedAmountCent) : "尚未生成"}</dd></div>' in invoice
     assert 'promotionAmountCent ?? 0)}' not in invoice
+
+
+def test_store_settlement_metric_cards_state_month_and_formal_cumulative_boundaries() -> None:
+    page = read_source("pages/StoreSettlementPage.tsx")
+
+    # Boundary values come from the formal API metadata, never the page clock.
+    assert "meta?.formalPeriodStartMonth" in page
+    assert "new Date()" not in page
+    # The single-month cards name the selected month.
+    assert "`${activeMonth} 单月 · 原始" in page
+    # The cumulative cards state the real formal window: start month → selected month.
+    assert "`${cumulativeStartMonth} 至 ${activeMonth} 正式账期累计`" in page
+    # Before the formal start month a cumulative zero would be a fabricated amount.
+    assert "cumulativeApplies" in page
+    assert "value={displayMetricCurrency(cumulativeMetrics?.promotionNetFeeCent)}" not in page
+    assert "value={displayMetricCurrency(cumulativeMetrics?.managementNetFeeCent)}" not in page
+    # Card labels stay frozen; the boundary lives in the辅助 meta line.
+    for label in ["当期推广服务费", "累计推广服务费", "当期管理服务费", "累计管理服务费"]:
+        assert f'label="{label}"' in page
+    # Both cumulative cards render the API's computedCumulative payload — the same
+    # figure the empty-month fallback keeps at the last formal period's value.
+    assert "const cumulativeMetrics = view?.computedCumulative;" in page
+    assert "displayCumulativeCurrency(cumulativeMetrics?.promotionNetFeeCent, cumulativeApplies)" in page
+    assert "displayCumulativeCurrency(cumulativeMetrics?.managementNetFeeCent, cumulativeApplies)" in page
+    assert "cumulativeMetrics?.promotionNetFeeCent" in page
+    assert "cumulativeMetrics?.managementNetFeeCent" in page
+
+
+def test_store_settlement_month_carrying_navigation_reuses_the_active_month() -> None:
+    page = read_source("pages/StoreSettlementPage.tsx")
+
+    # The settlement page itself owns no export button; every month-carrying
+    # navigation it emits must reuse the resolved active month.
+    assert "exportOrderFeeDetails" not in page
+    assert "month=${encodeURIComponent(activeMonth)}" in page
+    assert "month=${encodeURIComponent(month)}" not in page
+
+
+def test_order_fee_details_export_reuses_the_same_month_as_the_list_query() -> None:
+    page = read_source("pages/OrderDetailsPage.tsx")
+    export_body = page.split("const handleExportOrders = async () => {", 1)[1].split(
+        "\n  };", 1
+    )[0]
+
+    assert "await exportOrderFeeDetails({" in export_body
+    # The export keeps the month context of the list unless a statement
+    # statement+line source replaces it (those two are mutually exclusive).
+    assert "month: context.statementId ? undefined : context.month ?? undefined" in export_body
+    assert "storeId: context.statementId ? undefined : context.storeId ?? undefined" in export_body
+    assert "feeDirection: context.feeDirection" in export_body
+    assert "productScope: context.productScope" in export_body
+    assert "productType: context.productType" in export_body
+    # The list query builds its month the same way, so both ask for one month.
+    assert "month: hasPreviewSource && !hasStatementSource ? month : undefined" in page
 
 
 def test_store_finance_pages_do_not_publish_developer_issue_copy() -> None:

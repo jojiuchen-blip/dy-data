@@ -22,6 +22,11 @@ import type {
 import { formatCurrency, formatDateTime } from "../utils/format";
 import { userFacingError } from "../utils/userFacingError";
 import { displayFinanceInvoiceStatus, displayFinanceProcessingStatus } from "../utils/userFacingLabels";
+import {
+  initialStatementMonth,
+  previousShanghaiStatementMonth,
+  replaceStatementMonthInUrl,
+} from "../utils/statementMonth";
 
 interface FinanceFeePageProps {
   feeDirection: FeeDirection;
@@ -39,11 +44,6 @@ type CorrectionDraft = {
   changeReason: string;
   idempotencyKey: string;
 };
-
-function defaultStatementMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
 
 function currencyMetric(value: number | undefined): string {
   return typeof value === "number" ? formatCurrency(value) : "—";
@@ -98,7 +98,7 @@ function navigateTo(href: string) {
 }
 
 export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePageProps) {
-  const [month, setMonth] = useState(searchParams.get("month") ?? defaultStatementMonth());
+  const [month, setMonth] = useState(() => initialStatementMonth(searchParams));
   const [search, setSearch] = useState(searchParams.get("q") ?? "");
   const [invoiceStatus, setInvoiceStatus] = useState(searchParams.get("invoiceStatus") ?? "");
   const [metricScope, setMetricScope] = useState<BillingMetricScope>("MONTH");
@@ -224,6 +224,14 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
     }
   };
 
+  // The month control is the one filter the operator expects to survive a
+  // refresh or a shared link, so it also updates the address bar. Local state
+  // stays authoritative for the summary, list and export requests below.
+  const updateMonth = (value: string) => {
+    setMonth(value);
+    replaceStatementMonthInUrl(value);
+  };
+
   const handleExport = async () => {
     setExportBusy(true);
     setNotice("");
@@ -240,7 +248,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
   };
 
   const resetFilters = () => {
-    setMonth(defaultStatementMonth());
+    updateMonth(previousShanghaiStatementMonth());
     setSearch("");
     setInvoiceStatus("");
     setMetricScope("MONTH");
@@ -340,7 +348,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
       <section className="finance-workbench" aria-label={`${title}筛选与操作`}>
         <div className="finance-workbench__filters">
           <TextField label="搜索" onChange={(event) => setSearch(event.target.value)} placeholder="搜索门店、SAP 或发票号码" type="search" value={search} />
-          <TextField label="筛选账期" onChange={(event) => setMonth(event.target.value)} type="month" value={month} />
+          <TextField label="筛选账期" onChange={(event) => updateMonth(event.target.value)} type="month" value={month} />
           <SelectField label={feeDirection === "PROMOTION" ? "发票审核状态" : "开票状态"} onChange={setInvoiceStatus} options={statusOptions} value={invoiceStatus} />
           <SelectField label="指标口径" onChange={(value) => setMetricScope(value as BillingMetricScope)} options={[{ value: "MONTH", label: "单月" }, { value: "CUMULATIVE", label: "累计" }]} value={metricScope} />
         </div>

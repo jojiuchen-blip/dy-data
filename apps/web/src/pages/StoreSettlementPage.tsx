@@ -49,6 +49,12 @@ const displayMetricCurrency = (value: number | undefined) =>
   value === undefined ? "暂无数据" : formatCurrency(value);
 const displayMetricCount = (value: number | undefined, unit: string) =>
   value === undefined ? "暂无数据" : `${formatInteger(value)} ${unit}`;
+// A cumulative total is only a real amount inside the formal window. Outside it
+// the pinned read legitimately returns zeros, which must not be shown as ¥0.00.
+const displayCumulativeCurrency = (value: number | undefined, inFormalWindow: boolean) => {
+  if (value === undefined) return "暂无数据";
+  return inFormalWindow ? formatCurrency(value) : "不适用";
+};
 
 function feeDirectionLabel(direction: FeeDirection): string {
   return direction === "PROMOTION" ? "推广服务费" : "管理服务费";
@@ -150,6 +156,12 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
   const view = settlementResource.data?.data;
   const metrics = view?.metrics;
   const cumulativeMetrics = view?.computedCumulative;
+  // Both boundaries come from the formal API: single month = the selected
+  // month, cumulative = the configured formal start month through it.
+  const cumulativeStartMonth = meta?.formalPeriodStartMonth ?? "";
+  const cumulativeApplies = Boolean(
+    cumulativeStartMonth && activeMonth && activeMonth >= cumulativeStartMonth,
+  );
   const metaError = metaResource.rawError
     ? apiErrorText(metaResource.rawError, "筛选条件暂不可用，请稍后重试。")
     : metaResource.error;
@@ -317,10 +329,10 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
       <section className="metric-grid store-summary-metrics" aria-label="分账指标">
             <MetricCard label="销售金额" value={displayMetricCurrency(metrics?.salesAmountCent)} meta={displayMetricCount(metrics?.salesOrderCount, "笔订单")} />
             <MetricCard label="核销金额" value={displayMetricCurrency(metrics?.verifiedAmountCent)} meta={displayMetricCount(metrics?.verifiedOrderCount, "笔核销")} />
-            <MetricCard label="当期推广服务费" value={displayMetricCurrency(metrics?.promotionNetFeeCent)} meta={metrics ? `原始 ${formatCurrency(metrics.promotionOriginalFeeCent)} · 调整 ${formatCurrency(metrics.promotionAdjustmentFeeCent)}` : "暂无数据"} />
-            <MetricCard label="累计推广服务费" value={displayMetricCurrency(cumulativeMetrics?.promotionNetFeeCent)} meta={cumulativeMetrics ? "已发布计算累计" : "暂无数据"} />
-            <MetricCard label="当期管理服务费" value={displayMetricCurrency(metrics?.managementNetFeeCent)} meta={metrics ? `原始 ${formatCurrency(metrics.managementOriginalFeeCent)} · 调整 ${formatCurrency(metrics.managementAdjustmentFeeCent)}` : "暂无数据"} />
-            <MetricCard label="累计管理服务费" value={displayMetricCurrency(cumulativeMetrics?.managementNetFeeCent)} meta={cumulativeMetrics ? "已发布计算累计" : "暂无数据"} />
+            <MetricCard label="当期推广服务费" value={displayMetricCurrency(metrics?.promotionNetFeeCent)} meta={metrics ? `${activeMonth} 单月 · 原始 ${formatCurrency(metrics.promotionOriginalFeeCent)} · 调整 ${formatCurrency(metrics.promotionAdjustmentFeeCent)}` : "暂无数据"} />
+            <MetricCard label="累计推广服务费" value={displayCumulativeCurrency(cumulativeMetrics?.promotionNetFeeCent, cumulativeApplies)} meta={cumulativeApplies ? `${cumulativeStartMonth} 至 ${activeMonth} 正式账期累计` : `正式累计自 ${cumulativeStartMonth || "正式账期"} 起，所选月不参与累计`} />
+            <MetricCard label="当期管理服务费" value={displayMetricCurrency(metrics?.managementNetFeeCent)} meta={metrics ? `${activeMonth} 单月 · 原始 ${formatCurrency(metrics.managementOriginalFeeCent)} · 调整 ${formatCurrency(metrics.managementAdjustmentFeeCent)}` : "暂无数据"} />
+            <MetricCard label="累计管理服务费" value={displayCumulativeCurrency(cumulativeMetrics?.managementNetFeeCent, cumulativeApplies)} meta={cumulativeApplies ? `${cumulativeStartMonth} 至 ${activeMonth} 正式账期累计` : `正式累计自 ${cumulativeStartMonth || "正式账期"} 起，所选月不参与累计`} />
       </section>
 
       <section className="content-section" aria-label="账单确认与异议">
