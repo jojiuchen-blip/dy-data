@@ -1,14 +1,8 @@
 name: Tencent Lighthouse Deploy
 
-# Isolated diagnosis ref: this file is the already-registered workflow path, so
-# it stays dispatchable without touching the default branch. On this ref the
-# workflow only performs read-only diagnosis: no build, no deploy, no database
-# write, no API mode, and no change to frozen/confirmed/locked statements.
-#
-# Every SQL statement runs inside an explicit read-only transaction. Error
-# evidence is limited to fields the application already persisted, masked on the
-# server before it reaches the job log. Free-text container logs are never
-# emitted, and no September source row is classified as settleable.
+# Isolated operational ref. Cleans dangling builder cache only; validates
+# unchanged containers, rollback image tags and volume inventory.
+# Does not deploy or write application/database/backup data.
 
 "on":
   workflow_dispatch:
@@ -25,7 +19,7 @@ permissions:
 
 jobs:
   diagnose:
-    name: DYDATA-102/103 read-only production diagnosis
+    name: DYDATA-102/103 scoped dangling build cache maintenance
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -59,23 +53,23 @@ jobs:
             "$TENCENT_SSH_USER@$TENCENT_HOST" 'bash -s' <<'REMOTE' > "$RUNNER_TEMP/report.txt"
           set -euo pipefail
           export LC_ALL=C
-          cd /opt/dy-dashboard/repo
-          echo '# capacity'; df -Pk /opt/dy-dashboard/logs/backups
-          echo '# docker aggregate'; sudo docker system df
-          echo '# builder aggregate'; if sudo docker buildx version >/dev/null 2>&1; then sudo docker buildx du | tail -4; else echo buildx_unavailable; fi
-          echo '# directory aggregates'
-          for p in /opt/dy-dashboard/logs/backups /var/lib/docker/buildkit /var/log; do
-            timeout 30 sudo du -sh "$p" || echo 'directory_scan_unavailable_or_timed_out'
-          done
-          echo '# container states and image ids'
-          for cid in $(sudo docker ps -aq); do
-            sudo docker inspect -f '{{.Name}}|{{.Config.Image}}|{{.Image}}|{{.State.Status}}' "$cid"
-          done
-          echo '# rollback image tags'
-          sudo docker images --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}} {{.Size}}' | awk '/dy-dashboard-rollback:/'
-          echo '# running deployment guard'
-          if pgrep -f '[b]ash deploy/tencent/deploy.sh' >/dev/null; then echo deploy_running=true; else echo deploy_running=false; fi
-          echo 'readonly=true deletions=0'
+          if pgrep -f '[b]ash deploy/tencent/deploy.sh|[d]ocker (build|buildx build|compose .*build)' >/dev/null; then echo 'active_build_or_deploy_abort'; exit 1; fi
+          containers() { for cid in $(sudo docker ps -aq); do sudo docker inspect -f '{{.Id}}|{{.Image}}|{{.State.Status}}' "$cid"; done | sort; }
+          rollback() { sudo docker images --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' | awk '/dy-dashboard-rollback:/' | sort; }
+          volumes() { sudo docker volume ls --format '{{.Name}}|{{.Driver}}' | sort; }
+          before_containers=$(containers)
+          before_rollback=$(rollback)
+          before_volumes=$(volumes)
+          test -n "$before_rollback"
+          echo '# before'; df -Pk /opt/dy-dashboard/logs/backups; sudo docker system df
+          echo '# clean dangling builder cache only, no -a, no image/container/volume/backup deletion'
+          sudo docker builder prune -f
+          [ "$(containers)" = "$before_containers" ] || { echo 'container_invariant_failed'; exit 1; }
+          [ "$(rollback)" = "$before_rollback" ] || { echo 'rollback_invariant_failed'; exit 1; }
+          [ "$(volumes)" = "$before_volumes" ] || { echo 'volume_invariant_failed'; exit 1; }
+          echo 'container_image_state_rollback_volume_invariants=pass'
+          echo '# after'; df -Pk /opt/dy-dashboard/logs/backups; sudo docker system df
+          echo 'scope=dangling_builder_cache_only'
           REMOTE
       - name: Fail closed, then publish the masked report
         run: |
