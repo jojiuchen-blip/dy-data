@@ -58,133 +58,24 @@ jobs:
             -o ServerAliveInterval=30 -o ServerAliveCountMax=5 \
             "$TENCENT_SSH_USER@$TENCENT_HOST" 'bash -s' <<'REMOTE' > "$RUNNER_TEMP/report.txt"
           set -euo pipefail
+          export LC_ALL=C
           cd /opt/dy-dashboard/repo
-          dc() { sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml "$@"; }
-          ro_sql() { dc exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At'; }
-          scratch=$(mktemp -d)
-          trap 'rm -rf "$scratch"' EXIT
-          mask() {
-            sed -E \
-              -e 's#(postgres(ql)?(\+[a-z]+)?://)[^@[:space:]]*@#\1***@#g' \
-              -e 's#(https?://)[^/@[:space:]]*:[^/@[:space:]]*@#\1***@#g' \
-              -e 's/((Cookie|Set-Cookie|Authorization|X-Api-Key|X-Auth-Token)[":= ]+)[^[:space:]";]{4,}/\1***/Ig' \
-              -e 's/((password|passwd|secret|token|api[_-]?key|session[_-]?key)[":= ]+)[^[:space:]";]{4,}/\1***/Ig' \
-              -e 's/(-----BEGIN[^-]*)[A-Z ]*PRIVATE KEY-----/\1PRIVATE KEY-----/g' \
-              -e 's#/home/[A-Za-z0-9._-]+#/home/<user>#g' \
-              -e 's#/Users/[A-Za-z0-9._-]+#/Users/<user>#g'
-          }
-          # A psql failure must fail the job: write first, check the status, then mask.
-          show_query() {
-            label="$1"; shift
-            echo "# $label"
-            if ! ro_sql > "$scratch/out" 2>"$scratch/err"; then
-              echo "query_failed=true"
-              mask < "$scratch/err" | head -5 || true
-              exit 1
-            fi
-            mask < "$scratch/out"
-          }
-          echo "# collected_at_utc"; date -u +%Y-%m-%dT%H:%M:%SZ
-          echo "# deploy markers (explanatory only, never proof of the running image)"
-          git rev-parse HEAD 2>/dev/null || true
-          sudo cat /opt/dy-dashboard/logs/last-deploy.json 2>/dev/null || true
-          if pgrep -f '[b]ash deploy/tencent/deploy.sh' >/dev/null; then echo "deploy_script_running=true"; else echo "deploy_script_running=false"; fi
-          echo "# running container | configured ref | immutable image id | state"
-          for s in postgres api migrate worker web browser ops-agent proxy; do
-            cid=$(dc ps -q "$s" 2>/dev/null || true)
-            if [ -z "$cid" ]; then echo "$s|no-container|-|-"; continue; fi
-            echo "$s|$(sudo docker inspect -f '{{.Config.Image}}' "$cid")|$(sudo docker inspect -f '{{.Image}}' "$cid")|$(sudo docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid")"
+          echo '# capacity'; df -Pk /opt/dy-dashboard/logs/backups
+          echo '# docker aggregate'; sudo docker system df
+          echo '# builder aggregate'; sudo docker buildx du | tail -4
+          echo '# directory aggregates'
+          for p in /opt/dy-dashboard/logs/backups /var/lib/docker/buildkit /var/log; do
+            timeout 30 sudo du -sh "$p" || echo 'directory_scan_unavailable_or_timed_out'
           done
-          echo "# tag -> immutable image id (local builds publish no RepoDigests)"
-          sudo docker images --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' | grep 'dy-dashboard' || true
-          show_query "alembic version" <<'SQL'
-          BEGIN READ ONLY;
-          SELECT version_num FROM alembic_version;
-          COMMIT;
-          SQL
-          show_query "job_runs for the six fixed dates" <<'SQL'
-          BEGIN READ ONLY;
-          SELECT business_date, job_kind, status, attempt_count, max_attempts, coalesce(config_version, '-'),
-                 parent_job_id IS NOT NULL AS has_parent, data_source IS NOT NULL AS has_source,
-                 window_start, window_end, started_at, finished_at
-            FROM job_runs
-           WHERE business_date IN (DATE '2026-09-14', DATE '2026-09-16', DATE '2026-09-20',
-                                   DATE '2026-09-25', DATE '2026-09-28', DATE '2026-10-09')
-           ORDER BY business_date, job_kind, config_version;
-          COMMIT;
-          SQL
-          echo "# failed attempts: full persisted error fields, never truncated as a substitute for the root cause"
-          show_query "attempts (untruncated error_summary/error_code; masked on output)" <<'SQL'
-          BEGIN READ ONLY;
-          SELECT jsonb_pretty(jsonb_agg(t ORDER BY job_id, attempt_number)) FROM (
-            SELECT a.job_id, a.attempt_number, a.exit_type, a.exit_code, a.error_code,
-                   a.error_id, a.started_at, a.finished_at, a.error_summary
-              FROM job_attempts a JOIN job_runs jr ON jr.job_id = a.job_id
-             WHERE jr.business_date IN (DATE '2026-09-14', DATE '2026-09-16', DATE '2026-09-20',
-                                        DATE '2026-09-25', DATE '2026-09-28', DATE '2026-10-09')
-               AND (a.error_code IS NOT NULL OR a.error_summary IS NOT NULL)) t;
-          COMMIT;
-          SQL
-          show_query "recovery generations already recorded for these dates" <<'SQL'
-          BEGIN READ ONLY;
-          SELECT business_date, job_id, config_version,
-                 metadata_json ->> 'recovery_root_job_id' AS recovery_root_job_id,
-                 metadata_json ->> 'recovery_ordinal' AS recovery_ordinal
-            FROM job_runs
-           WHERE config_version LIKE 'priority-daily-v1-recovery-%'
-             AND business_date IN (DATE '2026-09-14', DATE '2026-09-16', DATE '2026-09-20',
-                                   DATE '2026-09-25', DATE '2026-09-28', DATE '2026-10-09')
-           ORDER BY business_date, config_version;
-          COMMIT;
-          SQL
-          show_query "range parents in the window (candidates only; eligibility needs application validation)" <<'SQL'
-          BEGIN READ ONLY;
-          SELECT p.job_id, p.status, p.data_source, p.window_start, p.window_end, p.started_at,
-                 (SELECT count(*) FROM job_runs g
-                   WHERE g.config_version LIKE 'priority-daily-v1-recovery-%'
-                     AND g.metadata_json ->> 'recovery_root_job_id' = p.job_id) AS generations_recorded
-            FROM job_runs p
-           WHERE p.job_kind = 'range_sync' AND p.parent_job_id IS NULL AND p.status IN ('pending', 'failed')
-             AND p.config_version NOT LIKE 'priority-daily-v1-recovery-%'
-           ORDER BY p.started_at DESC LIMIT 20;
-          COMMIT;
-          SQL
-          show_query "2026-09 raw verify records by status x cancelled (raw counts only; NOT a settleable-source verdict)" <<'SQL'
-          BEGIN READ ONLY;
-          SELECT lower(btrim(coalesce(verify_status, '<null>'))) AS verify_status,
-                 (cancel_time IS NOT NULL) AS cancelled,
-                 count(*) AS raw_rows,
-                 count(*) FILTER (WHERE verify_time IS NULL) AS rows_without_verify_time,
-                 to_char(timezone('Asia/Shanghai', verify_time), 'YYYY-MM') AS verify_month
-            FROM raw_douyin_verify_records
-           WHERE to_char(timezone('Asia/Shanghai', verify_time), 'YYYY-MM') = '2026-09'
-              OR to_char(timezone('Asia/Shanghai', verify_time), 'YYYY-MM') IS NULL
-           GROUP BY 1, 2, 5
-           ORDER BY 5 NULLS FIRST, 1, 2;
-          COMMIT;
-          SQL
-          show_query "2026-09 current statement rows (valid rows only, no per-source verdict)" <<'SQL'
-          BEGIN READ ONLY;
-          SELECT count(*) AS statement_rows, count(DISTINCT store_id) AS stores,
-                 coalesce(sum(promotion_original_fee_cent), 0) AS promotion_original_cent,
-                 coalesce(sum(promotion_net_fee_cent), 0) AS promotion_net_cent,
-                 coalesce(sum(management_net_fee_cent), 0) AS management_net_cent
-            FROM settlement_statement
-           WHERE statement_month = '2026-09' AND is_current;
-          COMMIT;
-          SQL
-          show_query "2026-09 current fee results by direction/status" <<'SQL'
-          BEGIN READ ONLY;
-          SELECT r.fee_direction, r.result_status, count(*) AS fee_rows,
-                 coalesce(sum(r.fee_amount_cent), 0) AS fee_amount_cent,
-                 coalesce(sum(r.fee_base_cent), 0) AS fee_base_cent
-            FROM settlement_fee_result r
-            JOIN settlement_fee_result_current c ON c.fee_result_id = r.fee_result_id
-           WHERE r.original_business_month = '2026-09'
-           GROUP BY r.fee_direction, r.result_status
-           ORDER BY r.fee_direction, r.result_status;
-          COMMIT;
-          SQL
+          echo '# container states and image ids'
+          for cid in $(sudo docker ps -aq); do
+            sudo docker inspect -f '{{.Name}}|{{.Config.Image}}|{{.Image}}|{{.State.Status}}' "$cid"
+          done
+          echo '# rollback image tags'
+          sudo docker images --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}} {{.Size}}' | awk '/dy-dashboard-rollback:/'
+          echo '# running deployment guard'
+          if pgrep -f '[b]ash deploy/tencent/deploy.sh' >/dev/null; then echo deploy_running=true; else echo deploy_running=false; fi
+          echo 'readonly=true deletions=0'
           REMOTE
       - name: Fail closed, then publish the masked report
         run: |
