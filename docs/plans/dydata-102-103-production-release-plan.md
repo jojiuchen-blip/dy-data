@@ -1,8 +1,8 @@
 # DYDATA-102/103 生产发布预案（本地，未执行）
 
-状态：**草案，未执行**。本轮只做连接诊断与发布准备。未推送、未部署、未改生产、未创建凭据、未改代理规则/防火墙/VPN。
+状态（2026-10-14 更新）：**发布未执行**。GitHub Actions/生产 SSH 通道已实测可用（只读诊断 run `38491997277` 成功）；当前门禁是本轮 docs 修复后的最终提交验证（见 §4、§8）。未部署、未补跑生产任务、未改生产、未创建凭据、未改代理规则/防火墙/VPN。
 
-连接诊断结论：SSH 到 `dydata-production`（`124.222.59.236:22`）**TCP 可建立但 12 秒内收不到服务端 SSH banner**，连接停在 `Connection timed out during banner exchange`，本机 `Local version string` 已发出。同一条本机代理路径（`127.0.0.1:6544` HTTP CONNECT）可以成功读到 `ssh.github.com:443` 的 banner（`SSH-2.0-3bc2e72`）。**该 443 对照只能证明本机代理可以承载到外部的 SSH over 443，不能排除 22 端口链路的策略差异，因此不能据此排除本机侧原因**。当前只能判定“本机到该 IP:22 未收到 banner”，**根因未定**：远端 sshd 状态、22 端口链路策略、控制台侧状态均未确认。用户无法访问云控制台，因此没有可用的旁路通道可以证伪任一方向。**不做重复网络探测。**
+连接诊断结论（**历史——本机直连诊断，2026-10-13 记录**；当前 GitHub Actions 通道已实际成功，见 §8 与 §10）：SSH 到 `dydata-production`（`TENCENT_HOST`:22，即生产 host 别名；真实取值只存在于仓库变量与本机 SSH 配置，本文不记录）**TCP 可建立但 12 秒内收不到服务端 SSH banner**，连接停在 `Connection timed out during banner exchange`，本机 `Local version string` 已发出。同一条本机代理路径（`127.0.0.1:6544` HTTP CONNECT）可以成功读到 `ssh.github.com:443` 的 banner（`SSH-2.0-3bc2e72`）。**该 443 对照只能证明本机代理可以承载到外部的 SSH over 443，不能排除 22 端口链路的策略差异，因此不能据此排除本机侧原因**。当前只能判定“本机到该 IP:22 未收到 banner”，**根因未定**：远端 sshd 状态、22 端口链路策略、控制台侧状态均未确认。用户无法访问云控制台，因此没有可用的旁路通道可以证伪任一方向。**不做重复网络探测。**
 
 ---
 
@@ -15,18 +15,18 @@
 | 服务器脚本 | `deploy/tencent/deploy.sh`（服务器上执行；也可由工作流通过 `bash -s` 投递 bootstrap） |
 | 服务器布局 | repo `/opt/dy-dashboard/repo`；env `/opt/dy-dashboard/env/production.env`；日志 `/opt/dy-dashboard/logs`；备份 `$LOG_DIR/backups` |
 | 数据源/变量 | `TENCENT_HOST`、`TENCENT_SSH_PORT`、`TENCENT_SSH_USER`、`DY_WEB_BASE_URL`（仓库变量）；`TENCENT_SSH_KEY`、`TENCENT_KNOWN_HOSTS`（仓库密文） |
-| 本机 SSH alias | `dydata-production`：HostName `124.222.59.236`、User `ubuntu`、Port 22、`IdentitiesOnly yes`、`BatchMode yes`、`StrictHostKeyChecking yes`、无 `ProxyJump`/无 `ProxyCommand`/`ControlMaster` 未启用、无驻留 ssh 主连接 |
+| 本机 SSH alias | `dydata-production`：HostName = `TENCENT_HOST` 的取值（生产 host，不在文档中记录字面量）、User `ubuntu`、Port 22、`IdentitiesOnly yes`、`BatchMode yes`、`StrictHostKeyChecking yes`、无 `ProxyJump`/无 `ProxyCommand`/`ControlMaster` 未启用、无驻留 ssh 主连接 |
 | 本机管理通道 | 无 `tccli`/`aws`/`gcloud`；无 `.tccli`/`.tencentcloud`/`.aws` 配置；无 `TENCENTCLOUD_*`/密钥类环境变量。**没有可用云控制台入口，也没有现成 CLI 管理通道** |
 | 本机可用出网路径 | `127.0.0.1:6544` = HTTP CONNECT 代理（对 22 端口返回 `200 Connection established`；对 `ssh.github.com:443` 可读到 banner）。另有 `giegiecloud` TUN（PID 15468，无任何 TCP 监听），DNS 对公网域名返回 `198.18.x.x` fake-IP 段——**该地址不是真实服务器，不得据此改 host 或 DNS** |
 
 ## 2. 发布原则（含关键约束）
 
 1. **镜像 tag 必须显式统一为 stamp，且不得假设 `:local`**：`deploy/compose.yaml` 中 api（含 `migrate`，两者共用 `API_IMAGE`）、web、worker、browser、ops-agent 的镜像均为 `${*_IMAGE:-dy-dashboard-<name>:local}`——**支持用环境变量覆盖**（`API_IMAGE`、`WEB_IMAGE`、`WORKER_IMAGE`、`BROWSER_IMAGE`、`OPS_AGENT_IMAGE`；`deploy/.env.example` 已列出这些键）。但生产 `production.env` 由服务器侧维护，**其现值未知**：若未设置这些键，`deploy.sh` 的 `compose build` 会把镜像构建并覆盖到 `:local`，旧镜像即被顶掉。因此：发布前必须先 `docker inspect` 实际运行容器得到真实 `.Image`（不可变 image ID），再把各服务显式统一到带 stamp 的 tag（如 `dy-dashboard-api:20261013T...`），并在构建前写入环境文件，使本次构建产物不再落到 `:local`。无 Registry 推送，故没有可按 SHA 拉取的发布物。
-2. **本次修复尚未提交**：当前分支 `codex/dydata-102-fee-details`，HEAD `937ea04`，改动未提交。`deploy.sh` 默认 `git reset --hard <TARGET_SHA>` 并要求工作区干净；因此发布前必须先落地一个可被服务器获取的目标 SHA（提交+推送），或在受控流程下用 `SKIP_GIT_SYNC=true` + 已投递归档。**本预案不执行该动作。**
+2. **修复已提交并推送集成分支**：`codex/dydata-102-103-integrated`，本地 HEAD `499c8c0`（已含 `origin/main` 的合并与锁重试修复，见 §9）。`deploy.sh` 默认 `git reset --hard <TARGET_SHA>` 并要求工作区干净；发布前必须先推送一个干净、服务器可 `git fetch` 到的目标 SHA（本文件本轮修复落地后的新 SHA），或在受控流程下用 `SKIP_GIT_SYNC=true` + 已投递归档。**本预案不执行该动作。**
 3. **迁移只前进**：`alembic upgrade` 前的 lineage preflight 为只读；本次 5 天恢复修复**不需要新迁移**（未新增列/表），因此预期不触发 schema 变更。若生产 `alembic_version` 在目标源码中缺失，脚本会在 `alembic upgrade` 前停止并打印迁移源码区间，**不得**用 `alembic stamp` 绕过。
 4. worker 必须启动：`TENCENT_START_WORKER=true`；恢复依赖 scheduler 真实 tick 领取新生成的行。
 
-## 3. 待发布物清单（本 worktree 未提交改动）
+## 3. 待发布物清单（已提交并推送集成分支 `codex/dydata-102-103-integrated`）
 
 新增：
 - `apps/worker/day_recovery.py`（独立代际恢复核心）
@@ -43,17 +43,23 @@
 
 修改（测试面）：`tests/test_api_account_permissions.py`、`test_api_dashboard.py`、`test_frontend_finance_contracts.py`、`test_frontend_store_finance_pages.py`、`test_month_close.py`、`test_priority_scheduler.py`、`test_worker_subprocess_recovery.py`
 
-统计：25 个已跟踪文件改动（+1344/−107），10 个未跟踪新增（`git ls-files --others --exclude-standard` 实测）。
+统计（`git diff --shortstat 9cb1363 HEAD` 实测，即相对 `origin/main` 的合并范围）：**63 个文件、+8993/−107**；其中包含 main 侧带入的历史改动。
 
-## 4. 发布前置门禁（缺一不可）
+## 4. 门禁与验证记录（2026-10-14 状态）
 
-- [x] 相关测试集：Codex 已于另一进程独立验证 **206 passed / 8 skipped**（该进程**不得终止，也不得重复启动全量 pytest**）。
-- [ ] 全量 `python -m pytest` 的完整退出码由该独立进程跑完后记录（**在其回报前不得记为通过**）。
-- [x] `npm --prefix apps/web run build` 已通过（已有证据：Web build 通过）。
-- [x] `git diff --check` 通过（本轮 EXIT=0）。
-- [ ] 目标 SHA 已提交且服务器可 `git fetch` 到该 SHA。
-- [ ] 发布前镜像基线已按第 5 节从实际运行容器导出（不可变 image ID + 统一 stamp tag）。
-- [ ] SSH 通道恢复，且能读到远端 sshd banner。
+| 项 | 证据 | 结论 |
+| --- | --- | --- |
+| 相关测试集（财务 / 锁 / 备份） | 独立进程：财务 309 passed、锁 6 项（其中 3 项本机 PG 条件未配置，skip）、备份 34 passed | 通过；skip 不计为通过 |
+| 全量测试 | GitHub Actions run `38495348449`（Linux，CI 真实 PostgreSQL 步骤） | **3574 passed / 185 skipped / 1 failed**；唯一失败为文档安全测试 `test_current_docs_do_not_embed_known_production_identifiers`（本文档嵌入了生产 IP），本轮已修复，待修复后 SHA 的 CI 复跑确认 |
+| Web build | `npm --prefix apps/web run build` | 通过 |
+| 只读生产诊断 | GitHub Actions run `38491997277`（`--ref codex/dydata-102-103-readonly-diagnosis`） | run 成功、报告为脱敏明文并已取回，根因已确证（见 devlog）；**该 run 成功只证明通道可用，不代表已发布** |
+| 生产失败根因 | 六个固定日期共 18 条 `worker_exit_1` attempt | 全部为 `RuntimeError: clue master materialization lock unavailable`；**持锁者身份未确证**，仍是待证假设 |
+| 九月来源现状（只读） | `raw_douyin_verify_records`：非取消 **10,909** 行、取消 100 行（仅为行分布） | 原始行**未被取消**，但 10,909/100 只是分布、**不等于合格结算来源**；合格来源与金额口径必须复用真实 settlement 选源读路径核对，不得用 raw/`paid_amount` 代替 |
+| 提交状态 | 集成分支 `codex/dydata-102-103-integrated`，HEAD `499c8c0` | 修复已提交并推送；发布目标为本文档修复落地后的新 SHA |
+| 未执行项 | — | 未部署、未补跑生产任务、未改生产配置 |
+| 遗留技术门禁（仅本机直连） | 本机到生产 `TENCENT_HOST`:22 收不到 sshd banner；GitHub 通道不受影响 | 只影响本机直连 SSH/控制台动作；发布走 GitHub 通道，见 §8 |
+
+**旧本地全量进程已切换源码、结论无效，已停止**，不再作为门禁证据；全量结论以 CI（含真实 PostgreSQL 步骤）为准。上述数字来自不同运行环境，**不得互相替代**。CI 结论只在修复后 SHA 复跑通过时才算最终确认（见 §8）。
 
 发布前只读快照（必须留档，作为回滚与验收基线）。三条硬性要求：**（a）所有 psql 必须在容器内用 `sh -c` 展开 `$POSTGRES_USER`/`$POSTGRES_DB`**（这两个变量在 compose 传入的容器环境里，宿主机 shell 没有；不得把宿主 shell 的字面量当作库身份）；**（b）实际运行镜像必须 `docker inspect` 实际容器取 `.Image`**，不能只 `docker images | grep`、更不能假设 `:local`；**（c）本地构建镜像通常没有 `RepoDigests`，`--digests` 不能作为基线**。
 
@@ -181,35 +187,42 @@ curl -sS -X POST "https://<生产域名>/api/v1/admin/operations/jobs/<RANGE_PAR
 5. 保护不被绕过：已确认/锁账/发票/异议记录不得因恢复或月结被改写。
 6. 证据留档：行数、金额、SQL/导出证据、排除项与异常记录原因（含 5 天恢复前后的对比）。
 
-## 8. 当前阻塞点与解除条件
+## 8. 通道状态、当前门禁与授权
 
-**真实阻塞点（技术门禁，非授权问题）**：本机到 `124.222.59.236:22` 收不到服务端 SSH banner，导致所有需要服务器或控制台的生产动作（只读核验、发布、补跑）都无法开始。已观测事实：TCP 连接可建立、12 秒内无服务端 banner、无认证/密钥交换报错、无驻留连接可复用。**同一路径上 `ssh.github.com:443` 能读到 banner 只能证明本机代理可承载 SSH over 443，不能排除 22 端口链路策略差异，因此既不构成“已排除本机侧原因”，也不构成远端 sshd 故障的证据**；用户无法访问云控制台，没有旁路通道可证伪任一方向。**根因未定；不再重复网络探测。**
+**GitHub 通道可用（已实测）**：`workflow_dispatch` 通道已实际成功执行——只读生产诊断 run `38491997277`（`--ref codex/dydata-102-103-readonly-diagnosis`）跑通并取回脱敏明文报告（见 §4、§10 及 devlog）。该成功**只证明 GitHub Actions/生产 SSH 通道可用且可执行生产侧只读命令，不代表已发布**。
 
-解除条件（任一）：
-- 运维/云控制台侧恢复该实例的 SSH 可达性（重启 sshd、安全组/网络策略、实例状态）；
-- 开放一个可用的受控管理入口（云控制台或新的受控连接路径），由用户授权后使用，**不新建凭据**。
+**当前门禁（发布路径上的未完成项）**：本轮 docs 修复（生产标识符脱敏 + 状态校正）落地为集成分支上的最终提交，并在该 SHA 上复跑 CI 全量确认（`38495348449` 的 3574 passed / 185 skipped / 1 文档失败 → 修复后应 0 失败）。验收顺序：Codex 对本文件 diff 做事实一致性复核 → 提交/推送 → 修复后 SHA 的 CI 复跑 → 再由 Codex 安排发布。
 
-**授权状态**：用户已授权 DYDATA-102/103 的生产发布与 5 天定向恢复；**解除条件满足后即可执行生产动作，不需要用户再次验收**。当前唯一缺口是技术通道（SSH banner）与第 4 节的 pytest 记录。
+**未执行**：未部署、未补跑生产任务（5 天定向恢复未执行）、未改生产配置、未创建凭据。
 
-解除后只读核验顺序：SSH banner → `/opt/dy-dashboard` 布局与 `last-deploy.json`（仅作说明性证据）→ 实际容器与镜像（`inspect` image ID + rollback tag 对照）→ `alembic_version` → 14/16/20/25/28 及 10-09 的 JobRun 行 → 5 天失败日志（脱敏）。
+**授权状态**：用户已授权 DYDATA-102/103 的生产发布与 5 天定向恢复，**授权已存在，不需要再次验收**；Codex 负责技术验收与发布安排。`tencent-lighthouse-deploy.yml` 的 `workflow_dispatch` 会真实部署，**不得用 dispatch 代替最终提交验证**。
+
+**已登记的独立技术阻塞（不影响 GitHub 通道，只影响本机直连 SSH/控制台动作）**：本机到生产 host（`TENCENT_HOST`:22）收不到服务端 SSH banner（TCP 可建立、12 秒内无 banner、无认证/密钥交换报错）。`ssh.github.com:443` 能读到 banner 只证明本机代理可承载 SSH over 443，不能排除 22 端口链路策略差异；远端 sshd、22 端口策略、控制台侧状态均未确认，**根因未定**。解除方式：运维/云控制台侧恢复 SSH 可达性，或提供一个受控管理入口（**不新建凭据**）。**不做重复网络探测。**
+
+仅在需要**本机直连 SSH**时，按以下只读核验顺序执行（该直连未恢复前不得据此等待，GitHub workflow 内的服务器侧只读命令不受影响）：SSH banner → `/opt/dy-dashboard` 布局与 `last-deploy.json`（仅作说明性证据）→ 实际容器与镜像（`inspect` image ID + rollback tag 对照）→ `alembic_version` → 14/16/20/25/28 及 10-09 的 JobRun 行 → 5 天失败日志（脱敏）。
 
 ## 9. 发布范围与远端差异（2026-10-13 实测，已 fetch 后核对）
 
 | 项 | 事实 |
 | --- | --- |
 | `origin/main`（fetch 后） | `9cb1363` `docs: record ranking retention deployment acceptance [skip ci]`（2026-10-09 20:59 +0800） |
-| 生产已部署 SHA | `08cd321`（即 PR #49 磁盘/榜单保留合并；已在 main 上，晚于本 worktree 的分叉点） |
-| 发布分支 HEAD | `937ea04`（2026-10-10 16:57 +0800）——**分叉点早于 main**：相对真实 main 为「领先 1、落后 15」 |
-| 结论 | 交付只能是 `937ea04` **rebase/merge 到当前 main 之上**后的新 SHA；不得从旧分叉点直接发布，否则会回退榜单保留、0061/0062 迁移与 `deploy.sh` 备份保留逻辑 |
-| 该提交内容 | 23 文件 / +2740−14：`settlement_audit_readonly.py`、`month_close.py`、`settlement*.py`、`queued_jobs.py`、`pipeline.py`、`scheduler.py` 及 8 个测试 |
-| 未提交在途改动 | 25 个已跟踪文件 + 10 个未跟踪新增（含 `apps/worker/day_recovery.py`）。**关键耦合**：在途的 `operations.py`/`daily_task.py`/`priority_budget.py`/`priority_scheduler.py` 导入 `day_recovery`，而已提交的 937ea04 不导入；两者必须作为**一个原子发布包**，否则任一半都会使构建/运行失败 |
-| 与 main 的冲突面 | 仅 `docs/plans/execution-plan.md`（`git merge-tree` 实测 CONFLICT）；其余文件族不重叠（main 侧为 ranking/retention/backup，本侧为 settlement/month-close）。合并时保留双方功能与迁移 0061/0062 及备份保留策略 |
-| 已有正式入口 | 合并到 main 后由既有 `tencent-lighthouse-deploy.yml`（verify 全门禁 + deploy）发布；`08cd321` 携带的 `deploy.sh` 备份保留与 `pg_restore` 校验逻辑保持不动 |
+| 生产已部署 SHA | `last-deploy.json` 的 `08cd321` 只是**历史部署标记，不证明当前运行镜像的源码**；生产实际运行的 api/worker/web 为 **custom 镜像、Oct 10 构建**，服务器 checkout 为 `ba3976c` |
+| 集成分支已合并 main | `0e3f3ea` `Merge remote-tracking branch 'origin/main' into codex/dydata-102-103-integrated`——分叉点问题已在集成分支消除 |
+| 发布分支 HEAD | `499c8c0`（`codex/dydata-102-103-integrated`）——已含 main 侧榜单保留/0061/0062 迁移与 `deploy.sh` 备份保留逻辑 |
+| 结论 | 发布目标只能是集成分支上**干净且已推送**的 SHA（本文档修复落地后的新 SHA）；**不得从旧分叉点 `937ea04` 直接发布**，否则会回退榜单保留、0061/0062 迁移与 `deploy.sh` 备份保留逻辑 |
+| 937ea04 内容 | 23 文件 / +2740−14：`settlement_audit_readonly.py`、`month_close.py`、`settlement*.py`、`queued_jobs.py`、`pipeline.py`、`scheduler.py` 及 8 个测试 |
+| 恢复包与 main 的耦合 | `apps/worker/day_recovery.py` 与 `operations.py`/`daily_task.py`/`priority_budget.py`/`priority_scheduler.py` 必须作为**一个原子发布包**：只发布 `day_recovery.py` 而不发布其调用方，或反之，都会使构建/运行失败 |
+| 与 main 的冲突面 | 原 937ea04 相对 main 仅 `docs/plans/execution-plan.md` 冲突（`git merge-tree` 实测 CONFLICT）；集成分支已完成该合并，本轮不再有未合并冲突 |
+| 已有正式入口 | 合并到 main 后由既有 `tencent-lighthouse-deploy.yml`（verify 全门禁 + deploy）发布；`08cd321` 携带的 `deploy.sh` 备份保留与 `pg_restore` 校验逻辑保持不动（`08cd321` 本身不证明当前运行镜像源码，见上行） |
 
-## 10. 只读诊断入口（本分支新增，待 Codex 验收后 dispatch）
+## 10. 只读诊断入口（临时件，由 Codex 授权终端删除）
 
-新增 `.github/workflows/dydata-102-103-readonly-diagnosis.yml`（单 job，**无 build/部署/写入/API 模式**），只读产出：实际运行容器不可变 image ID、`alembic_version`、六个固定日期（09-14/16/20/25/28 + 10-09）的 `job_runs`、已持久化的失败 attempt 字段（`exit_type`/`exit_code`/`error_code`/截断后的 `error_summary`）、已存在的 recovery 代、窗口内 range parent **候选**（资格仍需应用侧校验）、2026-09 有效源行数与费用分项（`settlement_statement` 当月 `is_current` 行、`settlement_fee_result` join `settlement_fee_result_current`、`raw_douyin_verify_records` 最新有效非取消 verify 行）。
+`.github/workflows/dydata-102-103-readonly-diagnosis.yml` 作为独立只读诊断入口（单 job，**无 build/部署/写入/API 模式**）已在独立 ref 上执行成功：GitHub Actions run `38491997277`（`--ref codex/dydata-102-103-readonly-diagnosis`）。报告为**服务器侧脱敏后的明文**（不是密文，也无“解密”步骤），内容经脱敏后留档于 `docs/devlog/20261013_dydata-102-lock-contention-rootcause.md`。
 
-安全约束：每条 SQL 都在 `BEGIN READ ONLY` 事务内；`set -euo pipefail` 且 psql 先落盘再判状态，失败不被掩码管道吞掉；`TENCENT_KNOWN_HOSTS` 为必需 secret 且 `StrictHostKeyChecking=yes`、启动前用 `ssh-keygen -F` 校验 pinned host key；错误文本在服务器侧脱敏后才进入日志；masking gate 失败只打印固定错误并扣留报告；不输出容器自由文本日志或任意 payload。
+**删除状态**：该临时 workflow **已由 Codex 授权终端执行 `git rm` 删除并暂存**，待与本轮文档改动一起提交（本轮沙箱无该删除权限，故由授权终端执行）。诊断能力保留在远端独立分支 `origin/codex/dydata-102-103-readonly-diagnosis`，删除该临时件不影响正式 CI 与 `tencent-lighthouse-deploy.yml`。
 
-**当前状态：未 dispatch、未部署、未推送生产。** 等 Codex 对本文件的 diff 技术验收后，再由其在诊断分支 dispatch。
+只读产出（历史契约）：实际运行容器不可变 image ID、`alembic_version`、六个固定日期（09-14/16/20/25/28 + 10-09）的 `job_runs`、已持久化的失败 attempt 字段（`exit_type`/`exit_code`/`error_code`/`error_summary`，**报告中为完整错误文本**，仅在服务器侧按脱敏规则处理凭据/cookie/连接串/内网地址/个人路径）、已存在的 recovery 代、窗口内 range parent **候选**（资格仍需应用侧校验）、2026-09 行数与费用分项（`settlement_statement` 当月 `is_current` 行、`settlement_fee_result` join `settlement_fee_result_current`、`raw_douyin_verify_records` 按核销状态及取消状态分组的原始核销行）。**`raw_douyin_verify_records` 的 10,909 非取消 / 100 取消只是行分布，不等于合格结算来源**；合格口径必须复用真实 settlement 选源读路径核对，不得用 raw/`paid_amount` 代替。
+
+安全约束（同历史契约）：每条 SQL 都在 `BEGIN READ ONLY` 事务内；`set -euo pipefail` 且 psql 先落盘再判状态，失败不被掩码管道吞掉；`TENCENT_KNOWN_HOSTS` 为必需 secret 且 `StrictHostKeyChecking=yes`、启动前用 `ssh-keygen -F` 校验 pinned host key；错误文本在服务器侧脱敏后才进入日志；masking gate 失败只打印固定错误并扣留报告；不输出容器自由文本日志或任意 payload。
+
+**当前状态：诊断已完成；该临时 workflow 已由 Codex 授权终端 `git rm` 删除并暂存，待与文档一起提交；未部署、未补跑生产任务。** 通道与门禁状态见 §8。

@@ -1,6 +1,6 @@
 # DYDATA-102/103 生产日链失败真实根因：clue master materialization 事务锁竞争
 
-2026-10-13 补充：只读生产诊断（GitHub Actions run `38491997277`，`--ref codex/dydata-102-103-readonly-diagnosis`）已取回并解密报告，**原始 `worker_exit_1` 根因已确证，不再是未知占位**。本文件只记录定位证据与下一步，不含任何生产写入。
+2026-10-13 补充：只读生产诊断（GitHub Actions run `38491997277`，`--ref codex/dydata-102-103-readonly-diagnosis`）已执行成功并取回**服务器侧脱敏后的明文报告**（无“解密”步骤），**原始 `worker_exit_1` 根因已确证，不再是未知占位**。本文件只记录定位证据与下一步，不含任何生产写入。
 
 ## 1. 已确证证据
 
@@ -9,8 +9,9 @@
 - 调用链（报告中的 traceback 逐帧）：`daily_task.materialize` → `run_incremental_clue_materialization` → `_process_incremental_clue_work_item`。
 - 该消息只有一个产生点（源码核实）：`apps/worker/clue_allocation.py:1579-1580`——增量页处理调用 `materialize_clue_master_leads(...)` 后，若返回 `{"skipped": "locked"}` 即抛出。
 - 九月源数据现状（只读，未推定可结算）：`raw_douyin_verify_records` 非取消 10,909 行、取消 100 行；`settlement_statement`（`2026-09`、`is_current`）0 行、相关金额 0；`settlement_fee_result` join `settlement_fee_result_current`（`2026-09`）**为空**。合格来源与金额口径后续必须复用真实 settlement 选源读路径核对，不得用 raw/`paid_amount` 代替。
+- **18/18 均同因**：六个日期的 18 条 `worker_exit_1` attempt 完整异常末尾全部为 `RuntimeError: clue master materialization lock unavailable`；**持锁者身份仍未确证，属待证假设**（见 §2 末）。
 - 运行态：实际运行镜像仍为 `dydata103-alert-20261010`；服务器 checkout `ba3976c`；`last-deploy.json` 的 `08cd321` **不能**作为实际运行代码的证据。
-- 全量 `python -m pytest` 仍在另一进程进行（约 80%，已出现 1 个失败待末尾详情）。**该进程不得终止或重复启动。**
+- 全量验证结论来自 CI：GitHub Actions run `38495348449`（Linux，含真实 PostgreSQL 步骤）为 **3574 passed / 185 skipped / 1 failed**，失败项是文档安全扫描 `test_current_docs_do_not_embed_known_production_identifiers`（文档嵌入生产 IP，本轮已修复，待修复后 SHA 复跑确认）。**旧本地全量进程已因源码被切换而结论无效并已停止**，不再作为门禁证据，也不需要重启。
 
 ## 2. 竞争机制（代码只读追踪）
 
@@ -33,18 +34,16 @@
 
 1. **只读持锁诊断（仅诊断分支扩展）**：查询 `pg_locks`（`locktype='advisory'`、`classid/objid/objsubid` 映射锁键）join `pg_stat_activity`，
    只输出 PID、锁键、`state`、`xact_start`/`query_start` 与等待时长，**不输出 SQL 文本、不输出凭据**；固定日期窗口内取样即可。
-2. **最小根因修复（回 `codex/dydata-102-103-controlled-release`，先等 pytest 结束再 merge/main/业务代码）**：
+2. **最小根因修复（已在集成分支 `codex/dydata-102-103-integrated` 落地并推送，HEAD `499c8c0`）**：
    - 把“锁被占用”从终态失败改为**可重试的瞬时状态**：对 advisory lock 采用**有界等待 + backoff**（或把 `skipped: locked`
      明确上抛为可重试错误码/状态，由既有重试机制重新领取），让页处理在持锁事务提交后继续，而不是立即杀死当天计划。
    - 保持锁语义不变：**禁止强制释放生产锁、禁止绕过锁**；`skipped: locked` 仍不得被当作“成功”吞掉。
    - 同类调用方（`daily_task.py:707/809`）使用同一可重试语义，避免只修一条路径。
    - 必要的诊断可观测性：记录等待时长/重试次数（不含 SQL 文本与凭据）。
    - 生产持锁者确证后，若确为长事务（正式分配回调跨页持锁），再评估把该回调移出持锁事务或缩小事务范围；**这属于后续独立变更**。
-3. **必要回归**：`tests/test_clue_allocation_incremental.py`（现有用例在 `~2991` 处断言 `RuntimeError match="lock unavailable"`，
-   必须随语义更新为“有界重试后仍不可用才失败/或等待期间成功”），并补两个用例：①同一把锁被另一会话持有时本会话等待后成功；
-   ②超过有界等待仍被占用时才以可重试错误结束且不吞锁。Postgres 路径用例（若仓库已有 `*_postgres` 相关锁测试）一起更新。
+3. **必要回归（已在集成提交 `1c8b375` 落地并通过 CI）**：`tests/test_clue_allocation_incremental.py`（原用例断言 `RuntimeError match="lock unavailable"`，已随语义更新为“有界重试后仍不可用才失败/或等待期间成功”），并补两个用例：①同一把锁被另一会话持有时本会话等待后成功；②超过有界等待仍被占用时才以可重试错误结束且不吞锁。
 
 ## 4. 边界
 
-- 本轮只做定位与方案；未部署、未补跑、未释放任何生产锁、未改业务代码。
-- 诊断分支只保留只读诊断（不把覆盖 deploy workflow 的版本合入业务发布分支）；业务修复走集成分支 → PR → main → 既有 `tencent-lighthouse-deploy.yml` 门禁。
+- 定位轮只做定位与方案；此后最小修复已在集成分支提交并推送（`499c8c0`），CI 全量结论见 §1；**至今未部署、未补跑生产任务、未释放任何生产锁。**
+- 临时只读诊断工作流 `dydata-102-103-readonly-diagnosis.yml` 已完成诊断使命，**该文件目前仍存在于集成分支，待 Codex 授权终端删除**（本轮沙箱无删除权限）；诊断能力保留在远端独立分支 `origin/codex/dydata-102-103-readonly-diagnosis`。业务修复走集成分支 → PR → main → 既有 `tencent-lighthouse-deploy.yml` 门禁。
