@@ -53,44 +53,19 @@ jobs:
             "$TENCENT_SSH_USER@$TENCENT_HOST" 'bash -s' <<'REMOTE' > "$RUNNER_TEMP/report.txt"
           set -euo pipefail
           cd /opt/dy-dashboard/repo
-          sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml exec -T api python - <<'PY'
-          import json, hashlib
-          from datetime import date
-          from sqlalchemy import select, text, or_
-          from dy_api import models as M
-          from dy_api.pdca_readonly_access import _open_pdca_readonly_session
-          from dy_api.settlement_audit_readonly import read_settlement_month_audit, read_month_close_readiness
-          out={}
-          gen=_open_pdca_readonly_session(); session=next(gen)
-          try:
-              assert session.scalar(text('SHOW transaction_read_only')) == 'on'
-              out['audit']=read_settlement_month_audit(session).model_dump()
-              out['readiness']=read_month_close_readiness(session).model_dump()
-              dates=[date(2026,9,d) for d in (14,16,20,25,28)]
-              jobs=session.scalars(select(M.JobRun).where(or_(M.JobRun.business_date.in_(dates), M.JobRun.config_version.like('priority-daily-v1-recovery%'), M.JobRun.job_id.in_(('range-sync-cfd16d14060472e3243b03244fd65322','range-sync-0d35a675812f47be5569e9587d1e06a1','range-sync-a0073da45cf533ba03d2e5bd987983ba','range-sync-1fbe55177b379063c7ac62fbce48926d','range-sync-26bdb86ac42e1ca6a5eec90a9b9546f0')))).order_by(M.JobRun.business_date,M.JobRun.job_id)).all()
-              out['jobs']=[{k:str(getattr(j,k)) if getattr(j,k) is not None else None for k in ('job_id','job_kind','business_date','status','parent_job_id','data_source','config_version','attempt_count','max_attempts','lease_expires_at','cancel_requested_at','pause_after_stage_requested_at','error_code')} | {'target':(j.metadata_json or {}).get('target'),'recovery_generations':(j.metadata_json or {}).get('day_recovery_generations',[])} for j in jobs]
-              from apps.worker.month_close import month_close_preflight
-              from apps.worker.priority_scheduler import _day_state, _priority_rows_for_day
-              out['month_close_preflight']=month_close_preflight(session,'2026-09')
-              out['september_day_states']=[{'date':f'2026-09-{d:02d}','state':_day_state(date(2026,9,d),_priority_rows_for_day(session,date(2026,9,d))).state} for d in range(1,31)]
-              out['active_jobs']=[{'job_id':j.job_id,'kind':j.job_kind,'date':str(j.business_date),'status':j.status,'stage':j.current_stage,'attempts':j.attempt_count,'error_code':j.error_code,'lease_expires_at':str(j.lease_expires_at)} for j in session.scalars(select(M.JobRun).where(M.JobRun.status.in_(('running','retry_wait'))).order_by(M.JobRun.started_at).limit(15))]
-              out['active_stages']=[{'job_id':r.job_id,'stage':r.stage_name,'status':r.status,'started_at':str(r.started_at),'updated_at':str(r.updated_at)} for r in session.scalars(select(M.JobStageRun).where(M.JobStageRun.status=='running'))]
-              out['database_waits']=[dict(r) for r in session.execute(text("SELECT state, wait_event_type, wait_event, count(*) AS sessions, max(extract(epoch FROM now()-query_start))::int AS max_query_age_seconds FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() GROUP BY 1,2,3 ORDER BY 4 DESC")).mappings()]
-              from sqlalchemy import func
-              published=session.execute(select(M.JobRun.business_date,func.count()).where(M.JobRun.job_kind=='finalize',M.JobRun.status=='success',M.JobRun.business_date>=date(2026,9,1),M.JobRun.business_date<date(2026,10,1)).group_by(M.JobRun.business_date)).all()
-              out['published_september_dates']=[str(r[0]) for r in published]
-              out['settlement_jobs']=[{'job_id':j.job_id,'status':j.status,'error_code':j.error_code} for j in session.scalars(select(M.JobRun).where(M.JobRun.job_name=='settlement_rebuild').order_by(M.JobRun.started_at.desc()).limit(8))]
-              out['august_facts']={}
-              stmts=select(M.SettlementStatement.statement_id).where(M.SettlementStatement.statement_month=='2026-08')
-              for cls,cond in [(M.SettlementStatement,M.SettlementStatement.statement_month=='2026-08'),(M.SettlementFeeResult,M.SettlementFeeResult.original_business_month=='2026-08'),(M.SettlementFeeAdjustment,M.SettlementFeeAdjustment.adjustment_posting_month=='2026-08'),(M.SettlementStatementEntry,M.SettlementStatementEntry.statement_id.in_(stmts)),(M.SettlementStatementConfirmation,M.SettlementStatementConfirmation.statement_id.in_(stmts))]:
-                  rows=session.execute(select(*cls.__table__.columns).where(cond)).all()
-                  payload=sorted(json.dumps(list(r),default=str,sort_keys=True) for r in rows)
-                  out['august_facts'][cls.__tablename__]={'rows':len(rows),'sha256':hashlib.sha256(('\n'.join(payload)).encode()).hexdigest()}
-          finally:
-              gen.close()
-          print(json.dumps(out,default=str,sort_keys=True))
+          sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml exec -T worker python - <<'PY'
+          import base64,subprocess,sys,os,json,time
+          code=base64.b64decode('aW1wb3J0IGpzb24sdGltZSxvcyxjb250ZXh0bGliCmZyb20gZGF0ZXRpbWUgaW1wb3J0IGRhdGUsZGF0ZXRpbWUsdGltZXpvbmUKZnJvbSBzcWxhbGNoZW15IGltcG9ydCB0ZXh0CmZyb20gYXBwcy5hcGkuZHlfYXBpLmRiIGltcG9ydCBnZXRfZW5naW5lLGdldF9zZXNzaW9uX2ZhY3Rvcnksc2Vzc2lvbl9zY29wZQpmcm9tIGFwcHMuYXBpLmR5X2FwaS5tb2RlbHMgaW1wb3J0IEpvYlJ1bgpmcm9tIGFwcHMud29ya2VyLnNjaGVkdWxlciBpbXBvcnQgcnVuX2RhaWx5X2NoaWxkCmZyb20gYXBwcy53b3JrZXIucHJpb3JpdHlfc2NoZWR1bGVyIGltcG9ydCBfcHJpb3JpdHlfcm93c19mb3JfZGF5LF9kYXlfc3RhdGUsX3N0YW1wX3JlY292ZXJ5X2dlbmVyYXRpb24sX3NlbGVjdF9jYW5kaWRhdGUsX3Jlc291cmNlX3dhaXQsSElTVE9SWV9QVVJQT1NFLERBSUxZX1JFUVVJUkVEX1BVUlBPU0UKcGFyZW50cz17MTQ6InJhbmdlLXN5bmMtY2ZkMTZkMTQwNjA0NzJlMzI0M2IwMzI0NGZkNjUzMjIiLDE2OiJyYW5nZS1zeW5jLTBkMzVhNjc1ODEyZjQ3YmU1NTY5ZTk1ODdkMWUwNmExIiwyMDoicmFuZ2Utc3luYy1hMDA3M2RhNDVjZjUzM2JhMDNkMmU1YmQ5ODc5ODNiYSIsMjU6InJhbmdlLXN5bmMtMWZiZTU1MTc3YjM3OTA2M2M3YWM2MmZiY2U0ODkyNmQiLDI4OiJyYW5nZS1zeW5jLTI2YmRiODZhYzQyZTFjYTZhNWVlYzkwYTliOTU0NmYwIn0KcHJvZ3Jlc3M9Ii90bXAvZHlkYXRhMTAyLXNjb3BlZC1yZWNvdmVyeS1wcm9ncmVzcy5qc29ubCIKZGVmIHJlY29yZCh2KToKICAgIHdpdGggb3Blbihwcm9ncmVzcywiYSIsZW5jb2Rpbmc9InV0Zi04IikgYXMgZjpmLndyaXRlKGpzb24uZHVtcHMoZGljdCh0aW1lc3RhbXA9ZGF0ZXRpbWUubm93KHRpbWV6b25lLnV0YykuaXNvZm9ybWF0KCksKip2KSkrIlxuIikKICAgIG9zLmNobW9kKHByb2dyZXNzLDBvNjAwKQplbmdpbmU9Z2V0X2VuZ2luZSgpO2ZhY3Rvcnk9Z2V0X3Nlc3Npb25fZmFjdG9yeSgpO2Fzc2VydCBlbmdpbmUgaXMgbm90IE5vbmUgYW5kIGZhY3RvcnkgaXMgbm90IE5vbmUKd2l0aCBlbmdpbmUuY29ubmVjdCgpIGFzIGd1YXJkOgogICAgbG9ja2VkPWd1YXJkLnNjYWxhcih0ZXh0KCJTRUxFQ1QgcGdfdHJ5X2Fkdmlzb3J5X2xvY2soMTQ2MzEyMDIxMjAyNikiKSk7Z3VhcmQuY29tbWl0KCkKICAgIGlmIG5vdCBsb2NrZWQ6cmVjb3JkKHsic3RhdGUiOiJkdXBsaWNhdGVfZHJpdmVyX3JlZnVzZWQifSk7cmFpc2UgU3lzdGVtRXhpdCgwKQogICAgdHJ5OgogICAgICAgIHJlY29yZCh7InN0YXRlIjoic3RhcnRlZCIsInBpZCI6b3MuZ2V0cGlkKCksInNjb3BlIjoiZml2ZV9hdXRob3JpemVkX3NlcHRlbWJlcl9nZW5lcmF0aW9ucyIsInBvbGxfbGltaXRfc2Vjb25kcyI6MjE2MDB9KQogICAgICAgIHN0YXJ0ZWQ9dGltZS5tb25vdG9uaWMoKTtsYXN0PU5vbmUKICAgICAgICB3aGlsZSB0aW1lLm1vbm90b25pYygpLXN0YXJ0ZWQ8MjE2MDA6CiAgICAgICAgICAgIHNlbGVjdGVkPU5vbmU7c3RhdGVzPVtdCiAgICAgICAgICAgIHdpdGggc2Vzc2lvbl9zY29wZShmYWN0b3J5KSBhcyBzZXNzaW9uOgogICAgICAgICAgICAgICAgbm93PWRhdGV0aW1lLm5vdyh0aW1lem9uZS51dGMpCiAgICAgICAgICAgICAgICBmb3IgZGF5LHBpZCBpbiBwYXJlbnRzLml0ZW1zKCk6CiAgICAgICAgICAgICAgICAgICAgcGFyZW50PXNlc3Npb24uZ2V0KEpvYlJ1bixwaWQpO2Fzc2VydCBwYXJlbnQgaXMgbm90IE5vbmUKICAgICAgICAgICAgICAgICAgICBhc3NlcnQgc3RyKHBhcmVudC5jb25maWdfdmVyc2lvbikuc3RhcnRzd2l0aCgicHJpb3JpdHktZGFpbHktdjEtcmVjb3ZlcnktIikKICAgICAgICAgICAgICAgICAgICBpZiBwYXJlbnQuY2FuY2VsX3JlcXVlc3RlZF9hdCBpcyBub3QgTm9uZSBvciBwYXJlbnQucGF1c2VfYWZ0ZXJfc3RhZ2VfcmVxdWVzdGVkX2F0IGlzIG5vdCBOb25lOgogICAgICAgICAgICAgICAgICAgICAgICByZWNvcmQoeyJzdGF0ZSI6InN0b3BwZWRfb25fY29udHJvbF9yZXF1ZXN0IiwicGFyZW50IjpwaWR9KTtyYWlzZSBTeXN0ZW1FeGl0KDApCiAgICAgICAgICAgICAgICAgICAgcm93cz1fcHJpb3JpdHlfcm93c19mb3JfZGF5KHNlc3Npb24sZGF0ZSgyMDI2LDksZGF5KSkKICAgICAgICAgICAgICAgICAgICBfc3RhbXBfcmVjb3ZlcnlfZ2VuZXJhdGlvbihzZXNzaW9uLHJvd3Msbm93PW5vdykKICAgICAgICAgICAgICAgICAgICByb3dzPV9wcmlvcml0eV9yb3dzX2Zvcl9kYXkoc2Vzc2lvbixkYXRlKDIwMjYsOSxkYXkpKTtzdGF0ZT1fZGF5X3N0YXRlKGRhdGUoMjAyNiw5LGRheSkscm93cykKICAgICAgICAgICAgICAgICAgICBzdGF0ZXMuYXBwZW5kKHsiZGF5IjpkYXksInN0YXRlIjpzdGF0ZS5zdGF0ZX0pCiAgICAgICAgICAgICAgICAgICAgaWYgc3RhdGUuc3RhdGU9PSJmYWlsZWQiOnJlY29yZCh7InN0YXRlIjoicmVjb3ZlcnlfZ2VuZXJhdGlvbl9mYWlsZWQiLCJwYXJlbnQiOnBpZH0pO3JhaXNlIFN5c3RlbUV4aXQoMSkKICAgICAgICAgICAgICAgICAgICBzY29wZWQ9dHVwbGUociBmb3IgciBpbiBzdGF0ZS5yb3dzIGlmIHIucGFyZW50X2pvYl9pZD09cGlkIGFuZCByLmNhbmNlbF9yZXF1ZXN0ZWRfYXQgaXMgTm9uZSBhbmQgci5wYXVzZV9hZnRlcl9zdGFnZV9yZXF1ZXN0ZWRfYXQgaXMgTm9uZSkKICAgICAgICAgICAgICAgICAgICBjYW5kaWRhdGU9X3NlbGVjdF9jYW5kaWRhdGUoc2NvcGVkLG5vdz1ub3csYWxsb3dlZF9wdXJwb3Nlcz17SElTVE9SWV9QVVJQT1NFLERBSUxZX1JFUVVJUkVEX1BVUlBPU0V9LHNlc3Npb249c2Vzc2lvbikKICAgICAgICAgICAgICAgICAgICBpZiBzZWxlY3RlZCBpcyBOb25lIGFuZCBjYW5kaWRhdGUgaXMgbm90IE5vbmUgYW5kIGNhbmRpZGF0ZS5zdGF0dXMhPSJydW5uaW5nIjpzZWxlY3RlZD0oZGF5LGNhbmRpZGF0ZS5qb2JfaWQsKGNhbmRpZGF0ZS5tZXRhZGF0YV9qc29uIG9yIHt9KS5nZXQoInByaW9yaXR5X3B1cnBvc2UiLEhJU1RPUllfUFVSUE9TRSkpCiAgICAgICAgICAgIGlmIHN0YXRlcyE9bGFzdDpyZWNvcmQoeyJzdGF0ZSI6InByb2dyZXNzIiwiZGF5cyI6c3RhdGVzfSk7bGFzdD1zdGF0ZXMKICAgICAgICAgICAgaWYgYWxsKHhbInN0YXRlIl09PSJzdWNjZXNzIiBmb3IgeCBpbiBzdGF0ZXMpOnJlY29yZCh7InN0YXRlIjoiYWxsX2ZpdmVfZGF5c19wdWJsaXNoZWQifSk7YnJlYWsKICAgICAgICAgICAgaWYgc2VsZWN0ZWQ6CiAgICAgICAgICAgICAgICBkYXksamlkLHB1cnBvc2U9c2VsZWN0ZWQKICAgICAgICAgICAgICAgIGlmIF9yZXNvdXJjZV93YWl0KGRhdGUoMjAyNiw5LGRheSksamlkLHB1cnBvc2UpIGlzIE5vbmU6CiAgICAgICAgICAgICAgICAgICAgcmVzdWx0PXJ1bl9kYWlseV9jaGlsZChmYWN0b3J5LGpvYl9pZD1qaWQpCiAgICAgICAgICAgICAgICAgICAgaWYgcmVzdWx0LmF0dGVtcHRzIG9yIHJlc3VsdC5zdGF0dXMudmFsdWUgbm90IGluICgiYnVzeSIsImNvbnRyb2xfZXJyb3IiKToKICAgICAgICAgICAgICAgICAgICAgICAgcmVjb3JkKHsic3RhdGUiOiJjaGlsZF9yZXN1bHQiLCJqb2JfaWQiOmppZCwic3RhdHVzIjpyZXN1bHQuc3RhdHVzLnZhbHVlLCJhdHRlbXB0cyI6cmVzdWx0LmF0dGVtcHRzfSkKICAgICAgICAgICAgdGltZS5zbGVlcCgzMCkKICAgICAgICBlbHNlOnJlY29yZCh7InN0YXRlIjoicG9sbF9saW1pdF9yZWFjaGVkIn0pCiAgICBmaW5hbGx5OgogICAgICAgIGd1YXJkLmV4ZWN1dGUodGV4dCgiU0VMRUNUIHBnX2Fkdmlzb3J5X3VubG9jaygxNDYzMTIwMjEyMDI2KSIpKTtndWFyZC5jb21taXQoKQo=').decode()
+          path='/tmp/dydata102-scoped-recovery-runtime.log'
+          with open(path,'a') as log:
+              os.chmod(path,0o600)
+              p=subprocess.Popen([sys.executable,'-c',code],stdout=log,stderr=log,start_new_session=True)
+          print(json.dumps({'launched_pid':p.pid,'scope':'five_authorized_september_generations','runtime_log':path}))
+          time.sleep(1)
+          progress='/tmp/dydata102-scoped-recovery-progress.jsonl'
+          if os.path.exists(progress):
+              with open(progress) as f: print(''.join(f.readlines()[-3:]))
           PY
-          sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml exec -T worker python -c 'from apps.worker.scheduler import resolve_scheduler_mode; print("worker_scheduler_mode="+resolve_scheduler_mode())'
           REMOTE
       - name: Fail closed, then publish the masked report
         run: |
