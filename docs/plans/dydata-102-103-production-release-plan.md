@@ -192,3 +192,24 @@ curl -sS -X POST "https://<生产域名>/api/v1/admin/operations/jobs/<RANGE_PAR
 **授权状态**：用户已授权 DYDATA-102/103 的生产发布与 5 天定向恢复；**解除条件满足后即可执行生产动作，不需要用户再次验收**。当前唯一缺口是技术通道（SSH banner）与第 4 节的 pytest 记录。
 
 解除后只读核验顺序：SSH banner → `/opt/dy-dashboard` 布局与 `last-deploy.json`（仅作说明性证据）→ 实际容器与镜像（`inspect` image ID + rollback tag 对照）→ `alembic_version` → 14/16/20/25/28 及 10-09 的 JobRun 行 → 5 天失败日志（脱敏）。
+
+## 9. 发布范围与远端差异（2026-10-13 实测，已 fetch 后核对）
+
+| 项 | 事实 |
+| --- | --- |
+| `origin/main`（fetch 后） | `9cb1363` `docs: record ranking retention deployment acceptance [skip ci]`（2026-10-09 20:59 +0800） |
+| 生产已部署 SHA | `08cd321`（即 PR #49 磁盘/榜单保留合并；已在 main 上，晚于本 worktree 的分叉点） |
+| 发布分支 HEAD | `937ea04`（2026-10-10 16:57 +0800）——**分叉点早于 main**：相对真实 main 为「领先 1、落后 15」 |
+| 结论 | 交付只能是 `937ea04` **rebase/merge 到当前 main 之上**后的新 SHA；不得从旧分叉点直接发布，否则会回退榜单保留、0061/0062 迁移与 `deploy.sh` 备份保留逻辑 |
+| 该提交内容 | 23 文件 / +2740−14：`settlement_audit_readonly.py`、`month_close.py`、`settlement*.py`、`queued_jobs.py`、`pipeline.py`、`scheduler.py` 及 8 个测试 |
+| 未提交在途改动 | 25 个已跟踪文件 + 10 个未跟踪新增（含 `apps/worker/day_recovery.py`）。**关键耦合**：在途的 `operations.py`/`daily_task.py`/`priority_budget.py`/`priority_scheduler.py` 导入 `day_recovery`，而已提交的 937ea04 不导入；两者必须作为**一个原子发布包**，否则任一半都会使构建/运行失败 |
+| 与 main 的冲突面 | 仅 `docs/plans/execution-plan.md`（`git merge-tree` 实测 CONFLICT）；其余文件族不重叠（main 侧为 ranking/retention/backup，本侧为 settlement/month-close）。合并时保留双方功能与迁移 0061/0062 及备份保留策略 |
+| 已有正式入口 | 合并到 main 后由既有 `tencent-lighthouse-deploy.yml`（verify 全门禁 + deploy）发布；`08cd321` 携带的 `deploy.sh` 备份保留与 `pg_restore` 校验逻辑保持不动 |
+
+## 10. 只读诊断入口（本分支新增，待 Codex 验收后 dispatch）
+
+新增 `.github/workflows/dydata-102-103-readonly-diagnosis.yml`（单 job，**无 build/部署/写入/API 模式**），只读产出：实际运行容器不可变 image ID、`alembic_version`、六个固定日期（09-14/16/20/25/28 + 10-09）的 `job_runs`、已持久化的失败 attempt 字段（`exit_type`/`exit_code`/`error_code`/截断后的 `error_summary`）、已存在的 recovery 代、窗口内 range parent **候选**（资格仍需应用侧校验）、2026-09 有效源行数与费用分项（`settlement_statement` 当月 `is_current` 行、`settlement_fee_result` join `settlement_fee_result_current`、`raw_douyin_verify_records` 最新有效非取消 verify 行）。
+
+安全约束：每条 SQL 都在 `BEGIN READ ONLY` 事务内；`set -euo pipefail` 且 psql 先落盘再判状态，失败不被掩码管道吞掉；`TENCENT_KNOWN_HOSTS` 为必需 secret 且 `StrictHostKeyChecking=yes`、启动前用 `ssh-keygen -F` 校验 pinned host key；错误文本在服务器侧脱敏后才进入日志；masking gate 失败只打印固定错误并扣留报告；不输出容器自由文本日志或任意 payload。
+
+**当前状态：未 dispatch、未部署、未推送生产。** 等 Codex 对本文件的 diff 技术验收后，再由其在诊断分支 dispatch。
