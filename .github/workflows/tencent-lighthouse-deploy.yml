@@ -62,7 +62,7 @@ jobs:
           cd /opt/dy-dashboard/repo
           echo '# capacity'; df -Pk /opt/dy-dashboard/logs/backups
           echo '# docker aggregate'; sudo docker system df
-          echo '# builder aggregate'; sudo docker buildx du | tail -4
+          echo '# builder aggregate'; if sudo docker buildx version >/dev/null 2>&1; then sudo docker buildx du | tail -4; else echo buildx_unavailable; fi
           echo '# directory aggregates'
           for p in /opt/dy-dashboard/logs/backups /var/lib/docker/buildkit /var/log; do
             timeout 30 sudo du -sh "$p" || echo 'directory_scan_unavailable_or_timed_out'
