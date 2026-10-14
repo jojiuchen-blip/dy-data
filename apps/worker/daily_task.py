@@ -16,6 +16,7 @@ from apps.worker import pipeline
 from apps.worker.clue_allocation import (
     materialize_clue_master_leads,
     run_incremental_clue_materialization,
+    wait_for_clue_master_materialization_lock,
 )
 from apps.worker.clue_center import refresh_clue_center_projection
 from apps.worker.formal_allocation_runtime import notify_formal_allocation
@@ -698,6 +699,8 @@ def _run_verification_order_batch(
         "eligible_orders": 0,
         "assignment_rounds": 0,
     }
+    if not wait_for_clue_master_materialization_lock(session):
+        raise RuntimeError("clue master materialization lock unavailable")
     master = materialize_clue_master_leads(
         session,
         now=datetime.now(UTC),
@@ -800,6 +803,8 @@ def _run_verification_projection_page(
     for offset in range(0, len(bounded_orders), VERIFICATION_ORDER_BATCH_SIZE):
         order_batch = set(bounded_orders[offset : offset + VERIFICATION_ORDER_BATCH_SIZE])
         order_count += len(order_batch)
+        if not wait_for_clue_master_materialization_lock(session):
+            raise RuntimeError("clue master materialization lock unavailable")
         master = materialize_clue_master_leads(
             session,
             now=datetime.now(UTC),
