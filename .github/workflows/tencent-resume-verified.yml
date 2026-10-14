@@ -79,12 +79,12 @@ jobs:
           # Original script repeats backup, lineage, migration and all health gates.
           # Output also stays on server so interruption does not lose evidence.
           # Immutable image IDs recorded by target release attempt 2 build logs.
-          check_image() { test "$(sudo docker image inspect -f '{{.Id}}' "$1")" = "$2"; }
-          check_image dy-dashboard-api:local sha256:3278e365781729fb4765f14810d7f1dc7d9d0150bed404fcb2d724d7f7a4c6c3
-          check_image dy-dashboard-worker:local sha256:58462aeb180b56b5a32cd8fa04637964ccab5cadd2f2feb06c1c2d4ccfd8f0d8
-          check_image dy-dashboard-web:local sha256:31c6cb17669f2278c15640bf2abd6c9b0e257ace2ca1b6624e1bf88311a6fa80
-          check_image dy-dashboard-browser:local sha256:5428ffb0431f9125966e77f26f0a22fa8eea829af71dd0cd59d4fe82d877fb06
-          check_image dy-dashboard-ops-agent:local sha256:59746baf2a66b2e2e0f80fefdf45ca7dbe6e92387e425f70cc286a2613708401
+          check_image() { actual=$(sudo docker image inspect -f '{{.Id}}' "$1"); echo "$1|$actual"; case "|$2|" in *"|$actual|"*) ;; *) echo image_identity_mismatch; exit 1 ;; esac; }
+          check_image dy-dashboard-api:local 'sha256:3278e365781729fb4765f14810d7f1dc7d9d0150bed404fcb2d724d7f7a4c6c3|sha256:cf7a1e7990c7f7213173d56f359f49357c3c847b56806cd528385640efa89211|sha256:29cc90af8f44f6353897cd67d8ca2e595c2d37f0e52f3d9a9190463429fbf7fe'
+          check_image dy-dashboard-worker:local 'sha256:58462aeb180b56b5a32cd8fa04637964ccab5cadd2f2feb06c1c2d4ccfd8f0d8|sha256:332f5f827c34196a379925eaad402ea24edd2b8bf04db889af853f955d4b5a44|sha256:e2ec237ca5145387c20e5995853b094f83b2745afb92a4babe9edd68c2b09fce'
+          check_image dy-dashboard-web:local 'sha256:31c6cb17669f2278c15640bf2abd6c9b0e257ace2ca1b6624e1bf88311a6fa80|sha256:5be93ed5a7b08078bbb21473142eb7d883bc6c450be8b2fa7a8b4f56f04c249c|sha256:5963ac4cfb43dae231f252c4d9b404340a91405aa5aabe70c0108fe49ff2f7b2'
+          check_image dy-dashboard-browser:local 'sha256:5428ffb0431f9125966e77f26f0a22fa8eea829af71dd0cd59d4fe82d877fb06|sha256:3c604d2c8af22e8e8053a57c206c034f7f7a0933447cc0fa95e186cc0bc4d0e3|sha256:6126dac2d9f05cda4c060d7e252385443d30c2e9773403900a51af2d3ac3fdfc'
+          check_image dy-dashboard-ops-agent:local 'sha256:59746baf2a66b2e2e0f80fefdf45ca7dbe6e92387e425f70cc286a2613708401|sha256:2d92d671fe88625f7b43f974775bccb413d2c1ccddd0ce5936b08dd121c68bcd|sha256:69bd4f446bff15f3bd6c059a7b427fa5983d252aeb846de57ee921005e206936'
           echo 'Verified all five immutable build image IDs from pinned release'
           # Change only the already completed build step in an ephemeral script.
           test "$(grep -Fxc 'compose build --progress=plain api web browser worker ops-agent' deploy/tencent/deploy.sh)" = 1
