@@ -90,7 +90,7 @@ jobs:
               gen.close()
           print(json.dumps(out,default=str,sort_keys=True))
           PY
-          sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml exec -T worker python -c 'from apps.worker.scheduler import resolve_scheduler_mode; print("worker_scheduler_mode="+resolve_scheduler_mode())'
+          sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml exec -T worker python -c 'from apps.worker.scheduler import resolve_scheduler_mode; print("worker_scheduler_mode="+resolve_scheduler_mode())' </dev/null
           sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml exec -T worker python - <<'DRIVER'
           import os,json,re
           progress='/tmp/dydata102-scoped-recovery-progress.jsonl'
