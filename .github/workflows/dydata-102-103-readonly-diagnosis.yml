@@ -1,0 +1,161 @@
+name: DYDATA-102/103 read-only production diagnosis
+
+# Single read-only entry point: no build, no deploy, no database write, and no
+# change to frozen/confirmed/locked statements. Every SQL statement runs inside
+# an explicit read-only transaction, and raw error text, cookies, DSNs, tokens
+# and private paths are masked on the server before anything reaches the log.
+
+on:
+  workflow_dispatch:
+    inputs:
+      business_dates:
+        description: "Comma separated YYYY-MM-DD dates to inspect"
+        required: true
+        default: "2026-09-14,2026-09-16,2026-09-20,2026-09-25,2026-09-28,2026-10-09"
+
+concurrency:
+  group: dydata-102-103-readonly-diagnosis
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Read-only production evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TENCENT_HOST: ${{ vars.TENCENT_HOST }}
+      TENCENT_SSH_PORT: ${{ vars.TENCENT_SSH_PORT }}
+      TENCENT_SSH_USER: ${{ vars.TENCENT_SSH_USER }}
+      TENCENT_SSH_KEY: ${{ secrets.TENCENT_SSH_KEY }}
+    steps:
+      - name: Check required settings
+        run: |
+          for name in TENCENT_HOST TENCENT_SSH_USER TENCENT_SSH_KEY; do
+            [ -n "${!name}" ] || { echo "::error::$name is not configured"; exit 1; }
+          done
+      - name: Configure SSH
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$TENCENT_SSH_KEY" > ~/.ssh/tencent_lighthouse
+          chmod 600 ~/.ssh/tencent_lighthouse
+      # Masking happens on the server, so no unmasked value enters this log.
+      - name: Collect masked read-only evidence
+        run: |
+          ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" \
+            -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=5 \
+            "$TENCENT_SSH_USER@$TENCENT_HOST" \
+            "bash -s -- '${{ github.event.inputs.business_dates }}'" <<'REMOTE' > "$RUNNER_TEMP/diagnosis.txt"
+          set -eu
+          dates="$1"
+          printf '%s' "$dates" | grep -Eq '^(20[0-9]{2}-[0-9]{2}-[0-9]{2})(,20[0-9]{2}-[0-9]{2}-[0-9]{2})*$' || { echo "invalid business_dates" >&2; exit 2; }
+          cd /opt/dy-dashboard/repo
+          mask() {
+            sed -E \
+              -e 's#(postgres(ql)?(\+[a-z]+)?://)[^@[:space:]]*@#\1***@#g' \
+              -e 's#(https?://)[^/@[:space:]]*:[^/@[:space:]]*@#\1***@#g' \
+              -e 's/((Cookie|Set-Cookie|Authorization|X-Api-Key|X-Auth-Token)[":= ]+)[^[:space:]";]{4,}/\1***/Ig' \
+              -e 's/((password|passwd|secret|token|api[_-]?key|session[_-]?key)[":= ]+)[^[:space:]";]{4,}/\1***/Ig' \
+              -e 's/(-----BEGIN[^-]*)[A-Z ]*PRIVATE KEY-----/\1PRIVATE KEY-----/g' \
+              -e 's#/home/[A-Za-z0-9._-]+#/home/<user>#g' \
+              -e 's#/Users/[A-Za-z0-9._-]+#/Users/<user>#g'
+          }
+          # BEGIN READ ONLY makes any attempted write fail.
+          ro_sql() {
+            sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml \
+              exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At'
+          }
+          dc() { sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml "$@"; }
+          in_dates="DATE '$(printf '%s' "$dates" | sed "s/,/'), DATE '/g")'"
+          echo "# collected_at_utc"; date -u +%Y-%m-%dT%H:%M:%SZ
+          echo "# deploy markers (explanatory only, never proof of the running image)"
+          git rev-parse HEAD 2>/dev/null || true
+          sudo cat /opt/dy-dashboard/logs/last-deploy.json 2>/dev/null || true
+          if pgrep -f '[b]ash deploy/tencent/deploy.sh' >/dev/null; then echo "deploy_script_running=true"; else echo "deploy_script_running=false"; fi
+          echo "# running container | configured ref | immutable image id | state"
+          for s in postgres api migrate worker web browser ops-agent proxy; do
+            cid=$(dc ps -q "$s" 2>/dev/null || true)
+            if [ -z "$cid" ]; then echo "$s|no-container|-|-"; continue; fi
+            echo "$s|$(sudo docker inspect -f '{{.Config.Image}}' "$cid")|$(sudo docker inspect -f '{{.Image}}' "$cid")|$(sudo docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid")"
+          done
+          echo "# tag -> immutable image id (local builds publish no RepoDigests)"
+          sudo docker images --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' | grep 'dy-dashboard' || true
+          echo "# alembic version"
+          ro_sql <<'SQL' | mask
+          BEGIN READ ONLY;
+          SELECT version_num FROM alembic_version;
+          COMMIT;
+          SQL
+          echo "# job_runs rows for the requested dates"
+          ro_sql <<SQL | mask
+          BEGIN READ ONLY;
+          SELECT business_date, job_kind, status, attempt_count, max_attempts, coalesce(config_version, '-'),
+                 parent_job_id IS NOT NULL, data_source IS NOT NULL, window_start, window_end, started_at, finished_at
+            FROM job_runs WHERE business_date IN ($in_dates)
+           ORDER BY business_date, job_kind, config_version;
+          COMMIT;
+          SQL
+          echo "# failed attempts, error evidence masked"
+          ro_sql <<SQL | mask
+          BEGIN READ ONLY;
+          SELECT jsonb_pretty(jsonb_agg(t)) FROM (
+            SELECT a.job_id, a.attempt_number, a.exit_type, a.exit_code, a.error_code, a.started_at, a.finished_at,
+                   left(a.error_summary, 400) AS error_summary
+              FROM job_attempts a JOIN job_runs jr ON jr.job_id = a.job_id
+             WHERE jr.business_date IN ($in_dates) ORDER BY jr.business_date, a.started_at) t;
+          COMMIT;
+          SQL
+          echo "# recovery generations already recorded for these dates"
+          ro_sql <<SQL | mask
+          BEGIN READ ONLY;
+          SELECT business_date, job_id, config_version, metadata_json ->> 'recovery_root_job_id' AS recovery_root,
+                 metadata_json ->> 'recovery_ordinal' AS recovery_ordinal
+            FROM job_runs
+           WHERE config_version LIKE 'priority-daily-v1-recovery-%' AND business_date IN ($in_dates)
+           ORDER BY business_date, config_version;
+          COMMIT;
+          SQL
+          echo "# range parents eligible for one recovery generation (budget < 2)"
+          ro_sql <<'SQL' | mask
+          BEGIN READ ONLY;
+          SELECT p.job_id, p.status, p.data_source, p.started_at,
+                 (SELECT count(*) FROM job_runs g WHERE g.config_version LIKE 'priority-daily-v1-recovery-%'
+                    AND g.metadata_json ->> 'recovery_root_job_id' = p.job_id) AS generations_recorded
+            FROM job_runs p
+           WHERE p.job_kind = 'range_sync' AND p.parent_job_id IS NULL
+             AND p.config_version NOT LIKE 'priority-daily-v1-recovery-%'
+           ORDER BY p.started_at DESC LIMIT 20;
+          COMMIT;
+          SQL
+          echo "# read-only row counts"
+          ro_sql <<'SQL' | mask
+          BEGIN READ ONLY;
+          SELECT 'settlement_statement', count(*) FROM settlement_statement
+          UNION ALL SELECT 'settlement_statement_entry', count(*) FROM settlement_statement_entry
+          UNION ALL SELECT 'job_runs', count(*) FROM job_runs
+          UNION ALL SELECT 'job_attempts', count(*) FROM job_attempts;
+          COMMIT;
+          SQL
+          echo "# worker error context (masked, last 120 lines)"
+          dc logs --tail=120 worker 2>&1 | mask || true
+          REMOTE
+      - name: Fail closed, then publish the masked report
+        run: |
+          set -eu
+          report="$RUNNER_TEMP/diagnosis.txt"
+          test -s "$report"
+          if grep -Eqi 'BEGIN [A-Z ]*PRIVATE KEY|(Cookie|Authorization):[[:space:]]*[^ ]|postgres(ql)?(\+[a-z]+)?://[^@[:space:]]*:[^@*[:space:]]*@|eyJ[A-Za-z0-9_-]{10,}\.' "$report"; then
+            echo "::error::masking gate failed; raw report withheld"
+            exit 1
+          fi
+          cat "$report"
+      - name: Upload masked report
+        uses: actions/upload-artifact@v4
+        with:
+          name: dydata-102-103-readonly-diagnosis
+          path: ${{ runner.temp }}/diagnosis.txt
+          if-no-files-found: error
+          retention-days: 14
