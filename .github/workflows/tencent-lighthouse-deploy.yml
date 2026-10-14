@@ -72,8 +72,9 @@ jobs:
               from apps.worker.month_close import month_close_preflight
               from apps.worker.priority_scheduler import _day_state, _priority_rows_for_day
               out['month_close_preflight']=month_close_preflight(session,'2026-09')
-              out['september_day_states']=[str(_day_state(date(2026,9,d),_priority_rows_for_day(session,date(2026,9,d)))) for d in range(1,31)]
-              out['active_jobs']=[{'job_id':j.job_id,'kind':j.job_kind,'status':j.status,'lease_expires_at':str(j.lease_expires_at)} for j in session.scalars(select(M.JobRun).where(M.JobRun.status.in_(('running','retry_wait'))).order_by(M.JobRun.started_at).limit(15))]
+              out['september_day_states']=[{'date':f'2026-09-{d:02d}','state':_day_state(date(2026,9,d),_priority_rows_for_day(session,date(2026,9,d))).state} for d in range(1,31)]
+              out['active_jobs']=[{'job_id':j.job_id,'kind':j.job_kind,'date':str(j.business_date),'status':j.status,'stage':j.current_stage,'attempts':j.attempt_count,'error_code':j.error_code,'lease_expires_at':str(j.lease_expires_at)} for j in session.scalars(select(M.JobRun).where(M.JobRun.status.in_(('running','retry_wait'))).order_by(M.JobRun.started_at).limit(15))]
+              out['active_stages']=[{'job_id':r.job_id,'stage':r.stage_name,'status':r.status,'started_at':str(r.started_at),'updated_at':str(r.updated_at)} for r in session.scalars(select(M.JobStageRun).where(M.JobStageRun.status=='running'))]
               from sqlalchemy import func
               published=session.execute(select(M.JobRun.business_date,func.count()).where(M.JobRun.job_kind=='finalize',M.JobRun.status=='success',M.JobRun.business_date>=date(2026,9,1),M.JobRun.business_date<date(2026,10,1)).group_by(M.JobRun.business_date)).all()
               out['published_september_dates']=[str(r[0]) for r in published]
