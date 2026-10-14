@@ -351,8 +351,8 @@
       "avoidWhen": "关键规则、错误和必要操作说明不能只藏在提示中。",
       "states": ["default", "hover", "focus-visible"],
       "tokens": ["font.caption", "surface", "shadow.popover"],
-      "accessibility": "提示触发器可聚焦并提供完整 aria-label。",
-      "responsive": "移动端不依赖悬停，关键说明应改为常驻辅助文案。",
+      "accessibility": "默认提示触发器可聚焦并提供完整 aria-label；interactive 模式使用按钮、aria-describedby 与顶层 popover，支持悬停、聚焦、点击和 Escape 关闭，避免表格裁切。",
+      "responsive": "interactive 模式支持触屏点击查看，说明限制在视口内；关键说明仍应使用常驻辅助文案。",
       "previewAnchor": "catalog-tooltip-label"
     },
     {

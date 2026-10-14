@@ -41,7 +41,7 @@ from apps.api.dy_api.models import (
 from apps.worker.order_status import normalize_coupon_status, resolve_clue_order_status
 
 
-FOLLOW_UP_METRIC_VERSION = "clue-followup-v3-assigned-terminal-aware"
+FOLLOW_UP_METRIC_VERSION = "clue-followup-v5-common-business-denominator"
 FOLLOW_UP_WINDOW = timedelta(hours=24)
 EVIDENCE_QUERY_BATCH_SIZE = 500
 
@@ -60,8 +60,13 @@ CLUE_FOLLOWUP_METRIC_DEFINITIONS: dict[str, str] = {
         "已确认终止但缺少业务终止时间因证据不足暂按0/0排除，待补齐后重算"
     ),
     "follow_any_rate": (
-        "正式分配轮次中，分配后且终止前存在同轮次同门店未删除跟进的轮次占比；"
-        "该辅助指标同样遵守观测截止时间"
+        "分母与24小时有效跟进率完全一致，仅分子的24小时限制不同；"
+        "纳入分母的轮次，正式分配后核销或终止前同轮次同门店未删除人工跟进计分子1；"
+        "超过24小时退款或关闭且未有效跟进仍计0/1；遵守观测截止时间"
+    ),
+    "follow_action_rate": (
+        "全部正式分配轮次为分母；分配后至观测截止时间存在同轮次同门店未删除人工跟进即计分子1，"
+        "包括无法联系、流失及终止后的跟进；不限制24小时，不因核销自动计入分子，不按终态排除分母"
     ),
     "terminal_evidence": (
         "核销、全量退款或关闭证据的业务发生时间与来源观测时间分离；"
@@ -69,8 +74,8 @@ CLUE_FOLLOWUP_METRIC_DEFINITIONS: dict[str, str] = {
         "缺少业务终止时间时不以观测时间冒充业务时间"
     ),
     "terminal_time_unknown": (
-        "已确认核销、全量退款或关闭但缺少可用业务终止时间；24小时跟进按0/0排除，"
-        "跟进证据暂不计入并待补齐终止时间后重算，不使用来源观测时间推断业务时间"
+        "已确认核销、全量退款或关闭但缺少可用业务终止时间；24小时跟进率及跟进率按0/0排除，"
+        "待补齐终止时间后重算，不使用来源观测时间推断业务时间；跟进动作衡量指标仍按实际人工跟进统计"
     ),
 }
 
@@ -292,6 +297,9 @@ class FollowUpMetric:
     follow_record_ids: tuple[str, ...] = ()
     follow_any_record_ids: tuple[str, ...] = ()
     under_observation: bool = False
+    follow_action_numerator: int = 0
+    follow_action_denominator: int = 0
+    follow_action_record_ids: tuple[str, ...] = ()
 
     @property
     def follow_24h_rate(self) -> float | None:
@@ -305,6 +313,9 @@ class FollowUpMetric:
             "denominator": self.denominator,
             "follow_any_numerator": self.follow_any_numerator,
             "follow_any_denominator": self.follow_any_denominator,
+            "follow_action_numerator": self.follow_action_numerator,
+            "follow_action_denominator": self.follow_action_denominator,
+            "follow_action_record_ids": list(self.follow_action_record_ids),
             "reason_code": self.reason_code,
             "deadline": self.deadline,
             "terminal_kind": self.terminal_kind,
@@ -391,45 +402,10 @@ def evaluate_clue_followup_round(
             **{key: value for key, value in empty_kwargs.items() if key not in {"assignment_round_id", "order_id"}},
         )
 
-    visible_terminal = _terminal_visible_at(
-        terminal or TerminalEvidence(None, None, None), cutoff
-    )
-    terminal_at = visible_terminal.terminal_at
-    terminal_kind = visible_terminal.kind
-    if visible_terminal.is_terminal and terminal_at is None:
-        # A terminal kind without a business timestamp cannot establish either
-        # the 24-hour window or the strict-before-terminal follow boundary.
-        # Keep it visible for data-quality repair, but exclude the sample until
-        # the source supplies a usable business timestamp.
-        return FollowUpMetric(
-            assignment_round_id=assignment_round_id,
-            order_id=order_id,
-            numerator=0,
-            denominator=0,
-            follow_any_numerator=0,
-            follow_any_denominator=0,
-            reason_code="terminal_time_unknown",
-            deadline=deadline,
-            terminal_kind=terminal_kind,
-            terminal_at=None,
-            under_observation=False,
-        )
-    if terminal_at is not None and terminal_at <= assigned_at:
-        return FollowUpMetric(
-            assignment_round_id,
-            order_id,
-            0,
-            0,
-            0,
-            0,
-            "terminal_before_assignment",
-            deadline,
-            terminal_kind,
-            terminal_at,
-        )
-
-    valid_any: list[str] = []
-    valid_window: list[str] = []
+    # Manual action preserves the original unrestricted follow-any metric.
+    # Collect it before applying terminal exclusions so every assigned round
+    # retains its own action denominator, including unknown/earlier terminals.
+    valid_actions: list[FollowUpEvidence] = []
     seen: set[str] = set()
     for item in follow_ups:
         evidence = item if isinstance(item, FollowUpEvidence) else FollowUpEvidence.from_row(item)
@@ -445,14 +421,47 @@ def evaluate_clue_followup_round(
             continue
         if created_at < assigned_at or created_at > cutoff:
             continue
-        if terminal_at is not None and created_at >= terminal_at:
-            # The terminal boundary is exclusive.  A follow at the exact
-            # refund/verification time is post-terminal evidence.
-            continue
-        valid_any.append(evidence.follow_up_record_id)
-        if created_at <= deadline:
-            valid_window.append(evidence.follow_up_record_id)
+        valid_actions.append(evidence)
+    action_kwargs = dict(
+        follow_action_numerator=int(bool(valid_actions)),
+        follow_action_denominator=1,
+        follow_action_record_ids=tuple(item.follow_up_record_id for item in valid_actions),
+    )
 
+    visible_terminal = _terminal_visible_at(
+        terminal or TerminalEvidence(None, None, None), cutoff
+    )
+    terminal_at = visible_terminal.terminal_at
+    terminal_kind = visible_terminal.kind
+    if visible_terminal.is_terminal and terminal_at is None:
+        # Business follow metrics need a known strict-before-terminal boundary;
+        # manual action itself remains observable without that timestamp.
+        return FollowUpMetric(
+            assignment_round_id=assignment_round_id,
+            order_id=order_id,
+            numerator=0,
+            denominator=0,
+            follow_any_numerator=0,
+            follow_any_denominator=0,
+            reason_code="terminal_time_unknown",
+            deadline=deadline,
+            terminal_kind=terminal_kind,
+            terminal_at=None,
+            under_observation=False,
+            **action_kwargs,
+        )
+    if terminal_at is not None and terminal_at <= assigned_at:
+        return FollowUpMetric(
+            assignment_round_id, order_id, 0, 0, 0, 0,
+            "terminal_before_assignment", deadline, terminal_kind, terminal_at,
+            **action_kwargs,
+        )
+
+    valid_any = [item.follow_up_record_id for item in valid_actions
+                 if terminal_at is None or _aware(item.created_at) < terminal_at]
+    valid_window = [item.follow_up_record_id for item in valid_actions
+                    if (terminal_at is None or _aware(item.created_at) < terminal_at)
+                    and _aware(item.created_at) <= deadline]
     terminal_within_window = terminal_at is not None and terminal_at <= deadline
     under_observation = terminal_at is None and cutoff < deadline
     if terminal_within_window:
@@ -466,19 +475,25 @@ def evaluate_clue_followup_round(
         numerator, denominator = int(bool(valid_window)), 1
         reason = "terminal_after_24h" if terminal_at is not None else "active_under_observation" if under_observation else "active_matured"
 
+    # Both business rates use exactly the same eligible rounds. Only the
+    # numerator's 24-hour deadline differs; action metrics remain independent.
+    any_denominator = denominator
+    any_numerator = int(bool(denominator) and (terminal_kind == "verified" or bool(valid_any)))
+
     return FollowUpMetric(
         assignment_round_id=assignment_round_id,
         order_id=order_id,
         numerator=numerator,
         denominator=denominator,
-        follow_any_numerator=int(bool(valid_any)),
-        follow_any_denominator=1,
+        follow_any_numerator=any_numerator,
+        follow_any_denominator=any_denominator,
         reason_code=reason,
         deadline=deadline,
         terminal_kind=terminal_kind,
         terminal_at=terminal_at,
         follow_record_ids=tuple(valid_window),
         follow_any_record_ids=tuple(valid_any),
+        **action_kwargs,
         under_observation=under_observation,
     )
 

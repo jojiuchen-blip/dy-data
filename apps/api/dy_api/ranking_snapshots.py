@@ -23,13 +23,14 @@ from apps.api.dy_api.ranking_schema_v1 import (
 )
 from apps.api.dy_api.ranking_identity import OrderAttributionIndex
 from apps.api.dy_api.clue_product_scope import PRODUCT_SCOPE_LABELS, scope_predicate, validate_product_scope
-from apps.api.dy_api.clue_followup_metrics import (
-    CLUE_FOLLOWUP_METRIC_DEFINITIONS,
-    FOLLOW_UP_METRIC_VERSION,
-    bulk_evaluate_clue_followup_metrics,
+from apps.api.dy_api.ranking_legacy_followup import (
+    LEGACY_DEFINITIONS as CLUE_FOLLOWUP_METRIC_DEFINITIONS,
+    LEGACY_RANKING_VERSION,
+    bulk_evaluate_legacy_ranking_followup as bulk_evaluate_clue_followup_metrics,
 )
 
-METRIC_VERSION = "douyin-ranking-self-store-v6-period-start-sales-org-" + FOLLOW_UP_METRIC_VERSION
+METRIC_VERSION = "douyin-ranking-self-store-v7-period-start-sales-org-" + LEGACY_RANKING_VERSION
+
 
 
 def metric_version(product_scope: str) -> str:
@@ -54,6 +55,7 @@ DEFINITIONS = {
     "order_average": "订单量÷统计开始日适用名单中的精诚养车门店数（含零销量店）",
     "follow_24h_rate": CLUE_FOLLOWUP_METRIC_DEFINITIONS["follow_24h_rate"],
     "follow_any_rate": CLUE_FOLLOWUP_METRIC_DEFINITIONS["follow_any_rate"],
+    "follow_action_rate": CLUE_FOLLOWUP_METRIC_DEFINITIONS["follow_action_rate"],
     "terminal_evidence": CLUE_FOLLOWUP_METRIC_DEFINITIONS["terminal_evidence"],
     "verification_rate": "正式分配给本店且成功自店核销的订单数÷正式分配给本店的关联订单数；上级累加门店责任样本",
 }
@@ -300,6 +302,11 @@ def calculate_snapshot(
             metric.numerator, metric.denominator, {"order_id": row.order_id, "lead_key": _lead(row),
                                    "round_id": row.assignment_round_id,
                                    "follow_record_ids": evidence,
+                                   # Keep the time-driven cache boundary with
+                                   # the immutable evidence.  Lifecycle policy
+                                   # may expire this run when the 24h window
+                                   # matures even if no source row is written.
+                                   "deadline": metric.deadline.isoformat() if metric.deadline else None,
                                    "reason_code": metric.reason_code,
                                    "terminal_kind": metric.terminal_kind,
                                    "terminal_at": metric.terminal_at.isoformat() if metric.terminal_at else None})
@@ -310,6 +317,10 @@ def calculate_snapshot(
              "reason_code": metric.reason_code,
              "terminal_kind": metric.terminal_kind,
              "terminal_at": metric.terminal_at.isoformat() if metric.terminal_at else None})
+        add("follow_action", row.assignment_round_id, row.assigned_store_id, version, at,
+            metric.follow_action_numerator, metric.follow_action_denominator,
+            {"order_id": row.order_id,
+             "follow_record_ids": list(metric.follow_action_record_ids)})
         if metric.under_observation:
             quality["follow_rounds_under_observation"] += 1
         responsibilities[(row.order_id, row.assigned_store_id)].append(row)
@@ -394,7 +405,7 @@ def read_snapshot_report(
         if value:
             query = query.where(column == value)
     grouped = {}
-    fields = ("order_count", "follow_numerator", "follow_denominator", "follow_any_numerator", "follow_any_denominator", "verification_numerator", "verification_denominator")
+    fields = ("order_count", "follow_numerator", "follow_denominator", "follow_any_numerator", "follow_any_denominator", "follow_action_numerator", "follow_action_denominator", "verification_numerator", "verification_denominator")
 
     def empty(key: str, name: str) -> dict:
         return {"key": key, "name": name, "_stores": set(), **dict.fromkeys(fields, 0)}
@@ -416,17 +427,18 @@ def read_snapshot_report(
             elif metric == "follow_any":
                 target["follow_any_numerator"] += row["numerator"]
                 target["follow_any_denominator"] += row["denominator"]
+            elif metric == "follow_action":
+                target["follow_action_numerator"] += row["numerator"]
+                target["follow_action_denominator"] += row["denominator"]
             elif metric == "self_verification":
                 target["verification_numerator"] += row["numerator"]
                 target["verification_denominator"] += row["denominator"]
 
     def finish(item: dict) -> dict:
-        complete = item["follow_any_denominator"] == item["follow_denominator"]
-        item["follow_rate"] = round(item["follow_any_numerator"] / item["follow_denominator"], 6) if complete and item["follow_denominator"] else None
-        if not complete:
-            item["follow_any_numerator"] = None
         item["store_count"] = len(item.pop("_stores"))
         for result, num, den in [("order_average", "order_count", "store_count"),
+                                 ("follow_rate", "follow_any_numerator", "follow_any_denominator"),
+                                 ("follow_action_rate", "follow_action_numerator", "follow_action_denominator"),
                                  ("follow_24h_rate", "follow_numerator", "follow_denominator"),
                                  ("verification_rate", "verification_numerator", "verification_denominator")]:
             item[result] = round(item[num] / item[den], 6) if item[den] else None

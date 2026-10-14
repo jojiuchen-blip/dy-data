@@ -54,6 +54,10 @@ def test_preview_route_reads_snapshot_not_legacy_table(preview_client):
     assert data["totals"]["storeCount"] == 3
     assert data["totals"]["orderAverage"] == 3.333333
     assert data["totals"]["follow24hRate"] == .3
+    assert data["totals"]["followAnyDenominator"] == 10
+    assert data["totals"]["followActionRate"] == .4
+    assert data["totals"]["followActionNumerator"] == 4
+    assert data["totals"]["followActionDenominator"] == 10
     assert data["totals"]["verificationRate"] == .5
     assert "虚拟测试" in data["previewNote"]
 
@@ -113,6 +117,42 @@ def test_snapshot_read_never_creates_another_batch(preview_client, db_session):
 EXPORT = "/api/v1/dashboard/douyin-ranking/export"
 
 
+def test_business_export_never_recalculates_even_after_source_changes(preview_client, db_session, monkeypatch):
+    from dy_api.routes import dashboard
+    from apps.api.dy_api.models import RawDouyinOrder
+    from apps.api.dy_api.ranking_schema_v1 import samples, snapshots
+    from apps.api.dy_api.ranking_lifecycle_schema import snapshot_lifecycle
+
+    login(preview_client)
+    preview_client.app.state.ranking_snapshot_preview = False
+    db_session.execute(runs.update().where(runs.c.run_id == "baseline").values(data_mode="business"))
+    order = db_session.scalar(select(RawDouyinOrder).where(RawDouyinOrder.order_id == "O1"))
+    order.owner_account_name = "changed after static publication"
+    db_session.commit()
+    before = [db_session.scalar(select(func.count()).select_from(table)) for table in (runs, samples, snapshots)]
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("export must not calculate a snapshot")
+    monkeypatch.setattr(dashboard, "ensure_business_snapshot", forbidden)
+    response = preview_client.get(EXPORT, params=PARAMS)
+    assert response.status_code == 200
+    assert response.content.startswith(b"PK")
+    assert before == [db_session.scalar(select(func.count()).select_from(table)) for table in (runs, samples, snapshots)]
+    assert db_session.scalar(select(snapshot_lifecycle.c.last_accessed_at).where(snapshot_lifecycle.c.run_id == "baseline")) is not None
+
+
+def test_business_export_missing_static_version_does_not_calculate(preview_client, db_session, monkeypatch):
+    from dy_api.routes import dashboard
+    login(preview_client)
+    preview_client.app.state.ranking_snapshot_preview = False
+    def forbidden(*args, **kwargs):
+        pytest.fail("missing static version must not trigger calculation")
+    monkeypatch.setattr(dashboard, "ensure_business_snapshot", forbidden)
+    response = preview_client.get(EXPORT, params=PARAMS)
+    assert response.status_code == 422
+    assert db_session.scalar(select(func.count()).select_from(runs)) == 1
+
+
 def workbook(response):
     from io import BytesIO
     from openpyxl import load_workbook
@@ -130,7 +170,9 @@ def test_export_three_metric_sheets_with_two_level_sections(preview_client):
         assert "大区排行" in values and "区域排行" in values
         assert "baseline" in str(values) and "2026-09-01" in str(values)
     assert "抖音订单量（辅助）" in [c.value for row in book.worksheets[0] for c in row]
-    assert "不限24小时跟进率（辅助）" in [c.value for row in book.worksheets[1] for c in row]
+    follow_headers = [c.value for row in book.worksheets[1] for c in row]
+    assert {"跟进率", "跟进率分母"} <= set(follow_headers)
+    assert "跟进动作衡量指标" not in follow_headers
 
 
 def test_export_rankings_match_board_and_include_all_rows(preview_client):
@@ -192,3 +234,27 @@ def test_shared_metric_ranking_ties_nulls_and_auxiliary_values():
     assert [row["rank"] for row in sort_ranking_rows(rows, "order_average")] == [1, 1, 3]
     assert sort_ranking_rows(rows, "follow_24h_rate")[-1]["rank"] is None
     assert "rank" not in rows[0]
+
+
+def test_api_and_export_share_business_denominator_keep_action_independent(preview_client, db_session):
+    from apps.api.dy_api.ranking_schema_v1 import snapshots
+    for metric, numerator, denominator in [("follow_24h", 1, 3), ("follow_any", 2, 3), ("follow_action", 3, 4)]:
+        db_session.execute(snapshots.update().where(snapshots.c.run_id == "baseline",
+            snapshots.c.store_id == "A", snapshots.c.metric_key == metric).values(
+                numerator=numerator, denominator=denominator))
+    db_session.commit()
+    login(preview_client)
+    response = preview_client.get("/api/v1/dashboard/douyin-ranking", params={**PARAMS, "storeId": "A"})
+    assert response.status_code == 200
+    data = response.json()["data"]
+    for row in [data["totals"], data["rows"][0]]:
+        assert (row["followNumerator"], row["followDenominator"], row["follow24hRate"]) == (1, 3, .333333)
+        assert (row["followAnyNumerator"], row["followAnyDenominator"], row["followRate"]) == (2, 3, .666667)
+        assert (row["followActionNumerator"], row["followActionDenominator"], row["followActionRate"]) == (3, 4, .75)
+    book = workbook(preview_client.get(EXPORT, params={**PARAMS, "storeId": "A", "levels": "store", "metrics": "follow_24h_rate"}))
+    rows = list(book.active.iter_rows(values_only=True))
+    headers = next(row for row in rows if row[0] == "排名")
+    exported = dict(zip(headers, next(row for row in rows if isinstance(row[0], int))))
+    assert (exported["24小时有效跟进分母"], exported["跟进率分母"]) == (3, 3)
+    assert "跟进动作衡量指标" not in headers
+    assert (exported["24小时有效跟进率"], exported["跟进率"]) == (.333333, .666667)

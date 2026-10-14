@@ -28,14 +28,18 @@ def test_assigned_order_verified_elsewhere_is_not_self_verified(db_session):
                                        period_end=at + timedelta(days=2), level="store")
     assert result["totals"]["verification_denominator"] == 1
     assert result["totals"]["verification_numerator"] == 0
+    # Verification never replaces a manual follow record under the restored rules.
+    assert result["totals"]["follow_numerator"] == 0
+    assert result["totals"]["follow_any_numerator"] == 0
+    assert result["totals"]["follow_action_numerator"] == 0
 
 
 def test_snapshot_engine_is_available():
     assert importlib.util.find_spec("apps.api.dy_api.ranking_snapshots") is not None
 
 
-def test_snapshot_early_verified_round_counts_one_of_one_without_follow(preview):
-    """The production snapshot path must use the shared verified override."""
+def test_snapshot_verification_does_not_count_as_manual_follow(preview):
+    """The restored board only credits manual records, even after verification."""
     from apps.api.dy_api.models import ClueFollowUpRecord
     from apps.worker.ranking_preview_fixture import AT
 
@@ -55,7 +59,7 @@ def test_snapshot_early_verified_round_counts_one_of_one_without_follow(preview)
     sample = preview.execute(select(samples).where(
         samples.c.metric_key == "follow_24h", samples.c.sample_key == "RA1"
     )).mappings().one()
-    assert (sample["numerator"], sample["denominator"]) == (1, 1)
+    assert (sample["numerator"], sample["denominator"]) == (0, 1)
     assert sample["evidence_json"]["follow_record_ids"] == []
 
 
@@ -404,3 +408,56 @@ def test_period_query_keeps_old_assigned_order_without_loading_all_sales(preview
     assert totals["order_count"] == 9
     assert totals["follow_denominator"] == 10
     assert totals["verification_denominator"] == 4
+
+
+@pytest.mark.parametrize("level", ["store", "area", "district", "service_center", "group"])
+def test_business_follow_denominator_is_shared_in_snapshot_and_live(preview, level):
+    from apps.api.dy_api.models import ClueFollowUpRecord, RawDouyinRefundRecord
+    from apps.worker.ranking_preview_fixture import AT, START, END
+
+    # Seven O3 rounds: only its 25h manual follow precedes the late refund.
+    # Extra early-refunded round has a post-terminal lost/unreachable action.
+    preview.add(RawDouyinOrder(order_id="EARLY", sku_id="TEST-JC", sale_time=AT,
+                               order_status="已支付", owner_account_id="B-store"))
+    preview.add(ClueAssignmentRound(assignment_round_id="EARLY-R", order_id="EARLY",
+        assigned_store_id="B", assigned_at=AT, execution_mode="formal", round_status="closed"))
+    for oid, hours in [("O3", 30), ("EARLY", 4)]:
+        at = AT + timedelta(hours=hours)
+        preview.add(RawDouyinRefundRecord(source_record_key="RF-" + oid, order_id=oid,
+            refund_id="RF-" + oid, normalized_refund_status=2, raw_refund_status="50",
+            refund_completed_at=at, source_observed_at=at, payload_hash=oid,
+            raw_payload={"refund_type": "2", "refund_completed_at": at.isoformat()}))
+    preview.add(ClueFollowUpRecord(follow_up_record_id="POST-TERMINAL", order_id="EARLY",
+        assignment_round_id="EARLY-R", assigned_store_id="B", round_no=1,
+        created_at=AT + timedelta(hours=5), follow_result="lost"))
+    preview.commit()
+    calculate(preview)
+    result = report(preview, level=level)
+    totals = result["totals"]
+    for item in [totals, *result["rows"]]:
+        assert item["follow_any_denominator"] == item["follow_denominator"]
+        assert item["follow_numerator"] <= item["follow_any_numerator"] <= item["follow_denominator"]
+    assert (totals["follow_numerator"], totals["follow_denominator"], totals["follow_24h_rate"]) == (4, 11, .363636)
+    assert (totals["follow_any_numerator"], totals["follow_any_denominator"], totals["follow_rate"]) == (5, 11, .454545)
+    assert (totals["follow_action_numerator"], totals["follow_action_denominator"], totals["follow_action_rate"]) == (5, 11, .454545)
+    live = build_douyin_ranking_report(preview, period_start=START, period_end=END, level=level)["totals"]
+    for key in ["follow_numerator", "follow_denominator", "follow_24h_rate", "follow_any_numerator",
+                "follow_any_denominator", "follow_rate", "follow_action_numerator",
+                "follow_action_denominator", "follow_action_rate"]:
+        assert live[key] == totals[key], key
+
+
+def test_manual_action_counts_unreachable_and_lost_results(preview):
+    from apps.api.dy_api.models import ClueFollowUpRecord
+    from apps.worker.ranking_preview_fixture import AT
+    from apps.api.dy_api.ranking_schema_v1 import samples
+    for rid, result in [("RB4", "unreachable"), ("RB5", "lost")]:
+        preview.add(ClueFollowUpRecord(follow_up_record_id=result, assignment_round_id=rid,
+            order_id="O3", assigned_store_id="B", round_no=1, follow_result=result,
+            created_at=AT + timedelta(hours=50)))
+    preview.commit()
+    calculate(preview)
+    rows = preview.execute(select(samples).where(samples.c.metric_key == "follow_action",
+        samples.c.sample_key.in_(["RB4", "RB5"]))).mappings().all()
+    assert len(rows) == 2
+    assert all((row["numerator"], row["denominator"]) == (1, 1) for row in rows)

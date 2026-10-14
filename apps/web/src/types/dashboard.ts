@@ -644,6 +644,10 @@ export interface DouyinRankingRow {
   follow24hRate: number | null;
   followRate?: number | null;
   followAnyNumerator?: number | null;
+  followAnyDenominator?: number | null;
+  followActionRate?: number | null;
+  followActionNumerator?: number | null;
+  followActionDenominator?: number | null;
   verificationNumerator: number;
   verificationDenominator: number;
   verificationRate: number | null;
@@ -658,6 +662,10 @@ export interface DouyinRankingTotals {
   follow24hRate: number | null;
   followRate?: number | null;
   followAnyNumerator?: number | null;
+  followAnyDenominator?: number | null;
+  followActionRate?: number | null;
+  followActionNumerator?: number | null;
+  followActionDenominator?: number | null;
   verificationNumerator: number;
   verificationDenominator: number;
   verificationRate: number | null;

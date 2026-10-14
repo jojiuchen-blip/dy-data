@@ -118,6 +118,21 @@ deployment reliability.
 Do not commit secrets, cookies, browser profiles, real exported data, database
 URLs, local personal paths, or credentials.
 
+## 3.1 通用磁盘与备份管理
+
+涉及磁盘、整库备份、日志或容器存储时，协作者必须先阅读
+[`docs/rules/storage-management.md`](docs/rules/storage-management.md)。规则面向可迁移的部署环境，不绑定具体云主机：
+
+- 备份前必须通过可用空间门禁；默认可用空间低于 15% 或 10 GiB 时停止产生新备份，并预留最近一份有效备份大小乘安全系数（默认 150%）的空间。
+- 普通整库备份只允许由 `scripts/backup_retention.py` 按精确的
+  `pre-migrate-YYYYMMDDTHHMMSSZ.dump` 命名规则管理。工具默认 dry-run，删除必须显式 `--apply`，并保留清理报告。
+- 写入大备份前必须确认校验器可用；部署默认通过当前 Compose `postgres` 服务内的 `pg_restore` 校验，只有显式配置 `BACKUP_PG_RESTORE_BIN` 时才使用外部可执行文件。备份写入必须在 `umask 077` 下先落到 `.partial`，完成非空与 `pg_restore --list` 校验后再原子 rename；专项、pin、异地副本和非普通文件不得被普通轮换删除。
+- 删除前必须重新确认路径在备份目录内、不是符号链接、文件未发生变化且校验有效；校验失败时停止删除。
+- 不得使用 `docker volume prune`、无范围的 `docker system prune` 或未审阅的 `VACUUM FULL` 应急清盘。数据库 `DELETE` 也不等于操作系统通过 `df` 立即回收空间。
+- 记录扫描、预演、实际删除和文件系统回收的独立证据；未在目标环境验证时不得声称线上空间或恢复能力已生效。
+- 涉及榜单时遵守 [`docs/api/ranking-lifecycle.md`](docs/api/ranking-lifecycle.md)：导出复用静态结果，不重算或复制事实；源变化与时间边界决定刷新。新增计算依赖必须同步源变化跟踪和迁移，禁止单独重置计数。
+- 关键业务版本先显式归档再清理；普通版本按查询键保留最近两版，闲置范围按契约淘汰。只能分批删除完整榜单版本，不能以清缓存为名删除业务事实；首次启用自动清理前先盘点并归档历史关键版本。
+
 ## 4. Linear-First Requirement Lifecycle
 
 For this project, Linear is the unified requirement pool and execution view.
