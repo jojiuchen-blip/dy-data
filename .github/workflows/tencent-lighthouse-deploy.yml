@@ -1,5 +1,15 @@
 name: Tencent Lighthouse Deploy
 
+# Isolated diagnosis ref: this file is the already-registered workflow path, so
+# it stays dispatchable without touching the default branch. On this ref the
+# workflow only performs read-only diagnosis: no build, no deploy, no database
+# write, no API mode, and no change to frozen/confirmed/locked statements.
+#
+# Every SQL statement runs inside an explicit read-only transaction. Error
+# evidence is limited to fields the application already persisted, masked on the
+# server before it reaches the job log. Free-text container logs are never
+# emitted, and no September source row is classified as settleable.
+
 "on":
   workflow_dispatch:
   push:
@@ -13,229 +23,183 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  PYTHON_VERSION: "3.12"
-  NODE_VERSION: "22"
-
 jobs:
-  verify:
-    name: Verify
+  diagnose:
+    name: DYDATA-102/103 read-only production diagnosis
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || vars.TENCENT_DEPLOY_ON_PUSH == 'true'
-
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: dydata_release
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d dydata_release"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-          cache-dependency-path: requirements.txt
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: apps/web/package-lock.json
-
-      - name: Select current formal delivery plan
-        run: node scripts/prepare_governance_plan.mjs .
-
-      - name: Run project governance gates
-        run: |
-          npm --prefix .agent/project-manager-suite run test:ai-pm
-          node .agent/project-manager-suite/tools/verify-suite-lock.mjs .
-          node .agent/project-manager-suite/tools/check-protocol-alignment.mjs .agent/project-manager-suite
-          node .agent/project-manager-suite/tools/validate-global-files.mjs .
-          node .agent/project-manager-suite/tools/route-check.mjs .
-
-      - name: Run real PostgreSQL release gate
-        env:
-          DY_RELEASE_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_release
-        run: |
-          python scripts/verify_postgres_release_gate.py
-          python -m pytest -q tests/test_settlement_rebuild_postgres.py
-          python -m pytest -q tests/test_priority_budget_pause_postgres.py
-          python -m pytest -q tests/test_shop_poi_postgres.py
-
-      - name: Verify clue state transitions on PostgreSQL
-        env:
-          DYDATA_CLUE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_clue_test
-        run: |
-          python -c 'import psycopg; conn = psycopg.connect("host=127.0.0.1 port=5432 dbname=dydata_release user=postgres password=postgres", autocommit=True); conn.execute("CREATE DATABASE dydata_clue_test"); conn.close()'
-          python -m pytest -q tests/test_clue_follow_up_postgres.py tests/test_formal_allocation_runtime_postgres.py
-
-      - name: Install frontend dependencies
-        working-directory: apps/web
-        run: npm ci
-
-      - name: Install Playwright browser
-        run: |
-          # Bound individual mirror connections; never bypass failed setup.
-          printf '%s\n' \
-            'Acquire::http::Timeout "30";' \
-            'Acquire::https::Timeout "30";' \
-            'Acquire::Retries "2";' \
-            | sudo tee /etc/apt/apt.conf.d/zzzz-codex-playwright-network >/dev/null
-          # Playwright downloads its own Chromium; the runner's unrelated
-          # Chrome apt feed can block dependency installation during CDN sync.
-          for source in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
-            [ -f "$source" ] || continue
-            if grep -q 'dl.google.com/linux/chrome' "$source"; then
-              sudo mv -- "$source" "${source}.disabled"
-            fi
-          done
-          if [ -f /etc/apt/apt-mirrors.txt ]; then
-            # The full archive also publishes the signed security suites.
-            printf '%s\n' \
-              'https://archive.ubuntu.com/ubuntu' \
-              | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-          fi
-          for source in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
-            [ -f "$source" ] || continue
-            sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|https://archive.ubuntu.com/ubuntu|g' "$source"
-          done
-          sudo apt-config dump | grep -E '^Acquire::(http::Timeout|https::Timeout|Retries)'
-          sudo apt-config dump | grep -Fx 'Acquire::http::Timeout "30";'
-          sudo apt-config dump | grep -Fx 'Acquire::https::Timeout "30";'
-          sudo apt-config dump | grep -Fx 'Acquire::Retries "2";'
-          curl --fail --silent --show-error --connect-timeout 10 --max-time 30 \
-            --output /dev/null --write-out 'Ubuntu archive HTTP %{http_code} in %{time_total}s\n' \
-            https://archive.ubuntu.com/ubuntu/dists/noble/InRelease
-          timeout 10m python -m playwright install chromium --with-deps
-
-      - name: Run tests
-        run: python -m pytest
-
-      - name: Build frontend
-        working-directory: apps/web
-        run: npm run build
-
-      - name: Build API Docker image
-        run: docker build --build-arg PIP_INDEX_URL=https://pypi.org/simple -f apps/api/Dockerfile -t dy-dashboard-api:ci .
-
-      - name: Build Worker Docker image
-        run: docker build --build-arg PIP_INDEX_URL=https://pypi.org/simple -f apps/worker/Dockerfile -t dy-dashboard-worker:ci .
-
-      - name: Build Browser Docker image
-        run: docker build --build-arg PIP_INDEX_URL=https://pypi.org/simple -f deploy/browser/Dockerfile -t dy-dashboard-browser:ci .
-
-      - name: Build Web Docker image
-        run: docker build -f apps/web/Dockerfile -t dy-dashboard-web:ci apps/web
-
-  deploy:
-    name: Deploy Tencent Lighthouse
-    runs-on: ubuntu-latest
-    needs: verify
-    if: github.event_name == 'workflow_dispatch' || vars.TENCENT_DEPLOY_ON_PUSH == 'true'
-    timeout-minutes: 30
-
+    timeout-minutes: 15
     env:
       TENCENT_HOST: ${{ vars.TENCENT_HOST }}
       TENCENT_SSH_PORT: ${{ vars.TENCENT_SSH_PORT }}
       TENCENT_SSH_USER: ${{ vars.TENCENT_SSH_USER }}
-      TENCENT_APT_MIRROR: ${{ vars.TENCENT_APT_MIRROR }}
-      TENCENT_START_WORKER: ${{ vars.TENCENT_START_WORKER }}
-      DY_WEB_BASE_URL: ${{ vars.DY_WEB_BASE_URL }}
       TENCENT_SSH_KEY: ${{ secrets.TENCENT_SSH_KEY }}
       TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Check required Tencent deployment settings
+      - name: Check required settings
         run: |
-          required=(
-            TENCENT_HOST
-            TENCENT_SSH_USER
-            DY_WEB_BASE_URL
-            TENCENT_START_WORKER
-            TENCENT_SSH_KEY
-            TENCENT_KNOWN_HOSTS
-          )
-          for name in "${required[@]}"; do
-            if [ -z "${!name}" ]; then
-              echo "::error::$name is not configured"
-              exit 1
-            fi
+          for name in TENCENT_HOST TENCENT_SSH_USER TENCENT_SSH_KEY TENCENT_KNOWN_HOSTS; do
+            [ -n "${!name}" ] || { echo "::error::$name is not configured"; exit 1; }
           done
-          if [ "$TENCENT_START_WORKER" != "true" ]; then
-            echo "::error::TENCENT_START_WORKER must be true for recoverable finance detection jobs"
-            exit 1
-          fi
-
-      - name: Configure SSH
+      # The pinned host key is mandatory: StrictHostKeyChecking keeps its secure
+      # default and a mismatch fails the job instead of being accepted.
+      - name: Configure SSH with pinned host key
         run: |
           install -m 700 -d ~/.ssh
           printf '%s\n' "$TENCENT_SSH_KEY" > ~/.ssh/tencent_lighthouse
           chmod 600 ~/.ssh/tencent_lighthouse
           printf '%s\n' "$TENCENT_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-
-      - name: Deploy on server
+          ssh-keygen -F "$TENCENT_HOST" -f ~/.ssh/known_hosts >/dev/null \
+            || { echo "::error::pinned host key does not cover TENCENT_HOST"; exit 1; }
+      - name: Collect masked read-only evidence
         run: |
-          port="${TENCENT_SSH_PORT:-22}"
-          archive="/tmp/dy-dashboard-${GITHUB_SHA}.tar.gz"
-
-          git archive --format=tar "$GITHUB_SHA" | gzip > /tmp/dy-dashboard-source.tar.gz
-          scp -i ~/.ssh/tencent_lighthouse \
-            -P "$port" \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            /tmp/dy-dashboard-source.tar.gz \
-            "$TENCENT_SSH_USER@$TENCENT_HOST:$archive"
-
-          cat > /tmp/tencent-deploy-bootstrap.sh <<'REMOTE'
+          ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=5 \
+            "$TENCENT_SSH_USER@$TENCENT_HOST" 'bash -s' <<'REMOTE' > "$RUNNER_TEMP/report.txt"
           set -euo pipefail
-          target_sha="$1"
-          archive_path="$2"
-          web_base_url="$3"
-          start_worker="$4"
-          app_dir="${APP_DIR:-/opt/dy-dashboard/repo}"
-          log_dir="${LOG_DIR:-/opt/dy-dashboard/logs}"
-          apt_mirror="${TENCENT_APT_MIRROR:-http://mirrors.tencentyun.com}"
-
-          mkdir -p "$app_dir" "$log_dir"
-          cd "$app_dir"
-          if [ -d .git ] && (! git diff --quiet || ! git diff --cached --quiet); then
-            dirty_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-            git status --short > "$log_dir/pre-bootstrap-dirty-$dirty_stamp.status"
-            git diff > "$log_dir/pre-bootstrap-dirty-$dirty_stamp.patch"
-          fi
-
-          find "$app_dir" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
-          tar -xzf "$archive_path" -C "$app_dir"
-          rm -f "$archive_path"
-
-          SKIP_GIT_SYNC=true APT_MIRROR="$apt_mirror" DY_WEB_BASE_URL="$web_base_url" TENCENT_START_WORKER="$start_worker" bash deploy/tencent/deploy.sh "$target_sha"
+          cd /opt/dy-dashboard/repo
+          dc() { sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml "$@"; }
+          ro_sql() { dc exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At'; }
+          scratch=$(mktemp -d)
+          trap 'rm -rf "$scratch"' EXIT
+          mask() {
+            sed -E \
+              -e 's#(postgres(ql)?(\+[a-z]+)?://)[^@[:space:]]*@#\1***@#g' \
+              -e 's#(https?://)[^/@[:space:]]*:[^/@[:space:]]*@#\1***@#g' \
+              -e 's/((Cookie|Set-Cookie|Authorization|X-Api-Key|X-Auth-Token)[":= ]+)[^[:space:]";]{4,}/\1***/Ig' \
+              -e 's/((password|passwd|secret|token|api[_-]?key|session[_-]?key)[":= ]+)[^[:space:]";]{4,}/\1***/Ig' \
+              -e 's/(-----BEGIN[^-]*)[A-Z ]*PRIVATE KEY-----/\1PRIVATE KEY-----/g' \
+              -e 's#/home/[A-Za-z0-9._-]+#/home/<user>#g' \
+              -e 's#/Users/[A-Za-z0-9._-]+#/Users/<user>#g'
+          }
+          # A psql failure must fail the job: write first, check the status, then mask.
+          show_query() {
+            label="$1"; shift
+            echo "# $label"
+            if ! ro_sql > "$scratch/out" 2>"$scratch/err"; then
+              echo "query_failed=true"
+              mask < "$scratch/err" | head -5 || true
+              exit 1
+            fi
+            mask < "$scratch/out"
+          }
+          echo "# collected_at_utc"; date -u +%Y-%m-%dT%H:%M:%SZ
+          echo "# deploy markers (explanatory only, never proof of the running image)"
+          git rev-parse HEAD 2>/dev/null || true
+          sudo cat /opt/dy-dashboard/logs/last-deploy.json 2>/dev/null || true
+          if pgrep -f '[b]ash deploy/tencent/deploy.sh' >/dev/null; then echo "deploy_script_running=true"; else echo "deploy_script_running=false"; fi
+          echo "# running container | configured ref | immutable image id | state"
+          for s in postgres api migrate worker web browser ops-agent proxy; do
+            cid=$(dc ps -q "$s" 2>/dev/null || true)
+            if [ -z "$cid" ]; then echo "$s|no-container|-|-"; continue; fi
+            echo "$s|$(sudo docker inspect -f '{{.Config.Image}}' "$cid")|$(sudo docker inspect -f '{{.Image}}' "$cid")|$(sudo docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid")"
+          done
+          echo "# tag -> immutable image id (local builds publish no RepoDigests)"
+          sudo docker images --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' | grep 'dy-dashboard' || true
+          show_query "alembic version" <<'SQL'
+          BEGIN READ ONLY;
+          SELECT version_num FROM alembic_version;
+          COMMIT;
+          SQL
+          show_query "job_runs for the six fixed dates" <<'SQL'
+          BEGIN READ ONLY;
+          SELECT business_date, job_kind, status, attempt_count, max_attempts, coalesce(config_version, '-'),
+                 parent_job_id IS NOT NULL AS has_parent, data_source IS NOT NULL AS has_source,
+                 window_start, window_end, started_at, finished_at
+            FROM job_runs
+           WHERE business_date IN (DATE '2026-09-14', DATE '2026-09-16', DATE '2026-09-20',
+                                   DATE '2026-09-25', DATE '2026-09-28', DATE '2026-10-09')
+           ORDER BY business_date, job_kind, config_version;
+          COMMIT;
+          SQL
+          echo "# failed attempts: full persisted error fields, never truncated as a substitute for the root cause"
+          show_query "attempts (untruncated error_summary/error_code; masked on output)" <<'SQL'
+          BEGIN READ ONLY;
+          SELECT jsonb_pretty(jsonb_agg(t ORDER BY job_id, attempt_number)) FROM (
+            SELECT a.job_id, a.attempt_number, a.exit_type, a.exit_code, a.error_code,
+                   a.error_id, a.started_at, a.finished_at, a.error_summary
+              FROM job_attempts a JOIN job_runs jr ON jr.job_id = a.job_id
+             WHERE jr.business_date IN (DATE '2026-09-14', DATE '2026-09-16', DATE '2026-09-20',
+                                        DATE '2026-09-25', DATE '2026-09-28', DATE '2026-10-09')
+               AND (a.error_code IS NOT NULL OR a.error_summary IS NOT NULL)) t;
+          COMMIT;
+          SQL
+          show_query "recovery generations already recorded for these dates" <<'SQL'
+          BEGIN READ ONLY;
+          SELECT business_date, job_id, config_version,
+                 metadata_json ->> 'recovery_root_job_id' AS recovery_root_job_id,
+                 metadata_json ->> 'recovery_ordinal' AS recovery_ordinal
+            FROM job_runs
+           WHERE config_version LIKE 'priority-daily-v1-recovery-%'
+             AND business_date IN (DATE '2026-09-14', DATE '2026-09-16', DATE '2026-09-20',
+                                   DATE '2026-09-25', DATE '2026-09-28', DATE '2026-10-09')
+           ORDER BY business_date, config_version;
+          COMMIT;
+          SQL
+          show_query "range parents in the window (candidates only; eligibility needs application validation)" <<'SQL'
+          BEGIN READ ONLY;
+          SELECT p.job_id, p.status, p.data_source, p.window_start, p.window_end, p.started_at,
+                 (SELECT count(*) FROM job_runs g
+                   WHERE g.config_version LIKE 'priority-daily-v1-recovery-%'
+                     AND g.metadata_json ->> 'recovery_root_job_id' = p.job_id) AS generations_recorded
+            FROM job_runs p
+           WHERE p.job_kind = 'range_sync' AND p.parent_job_id IS NULL AND p.status IN ('pending', 'failed')
+             AND p.config_version NOT LIKE 'priority-daily-v1-recovery-%'
+           ORDER BY p.started_at DESC LIMIT 20;
+          COMMIT;
+          SQL
+          show_query "2026-09 raw verify records by status x cancelled (raw counts only; NOT a settleable-source verdict)" <<'SQL'
+          BEGIN READ ONLY;
+          SELECT lower(btrim(coalesce(verify_status, '<null>'))) AS verify_status,
+                 (cancel_time IS NOT NULL) AS cancelled,
+                 count(*) AS raw_rows,
+                 count(*) FILTER (WHERE verify_time IS NULL) AS rows_without_verify_time,
+                 to_char(timezone('Asia/Shanghai', verify_time), 'YYYY-MM') AS verify_month
+            FROM raw_douyin_verify_records
+           WHERE to_char(timezone('Asia/Shanghai', verify_time), 'YYYY-MM') = '2026-09'
+              OR to_char(timezone('Asia/Shanghai', verify_time), 'YYYY-MM') IS NULL
+           GROUP BY 1, 2, 5
+           ORDER BY 5 NULLS FIRST, 1, 2;
+          COMMIT;
+          SQL
+          show_query "2026-09 current statement rows (valid rows only, no per-source verdict)" <<'SQL'
+          BEGIN READ ONLY;
+          SELECT count(*) AS statement_rows, count(DISTINCT store_id) AS stores,
+                 coalesce(sum(promotion_original_fee_cent), 0) AS promotion_original_cent,
+                 coalesce(sum(promotion_net_fee_cent), 0) AS promotion_net_cent,
+                 coalesce(sum(management_net_fee_cent), 0) AS management_net_cent
+            FROM settlement_statement
+           WHERE statement_month = '2026-09' AND is_current;
+          COMMIT;
+          SQL
+          show_query "2026-09 current fee results by direction/status" <<'SQL'
+          BEGIN READ ONLY;
+          SELECT r.fee_direction, r.result_status, count(*) AS fee_rows,
+                 coalesce(sum(r.fee_amount_cent), 0) AS fee_amount_cent,
+                 coalesce(sum(r.fee_base_cent), 0) AS fee_base_cent
+            FROM settlement_fee_result r
+            JOIN settlement_fee_result_current c ON c.fee_result_id = r.fee_result_id
+           WHERE r.original_business_month = '2026-09'
+           GROUP BY r.fee_direction, r.result_status
+           ORDER BY r.fee_direction, r.result_status;
+          COMMIT;
+          SQL
           REMOTE
-          ssh -i ~/.ssh/tencent_lighthouse \
-            -p "$port" \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            "$TENCENT_SSH_USER@$TENCENT_HOST" \
-            "bash -s -- '$GITHUB_SHA' '$archive' '$DY_WEB_BASE_URL' '$TENCENT_START_WORKER'" < /tmp/tencent-deploy-bootstrap.sh
+      - name: Fail closed, then publish the masked report
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/report.txt"
+          test -s "$report"
+          if grep -Eqi 'BEGIN [A-Z ]*PRIVATE KEY|(Cookie|Authorization):[[:space:]]*[^ ]|postgres(ql)?(\+[a-z]+)?://[^@[:space:]]*:[^@*[:space:]]*@|eyJ[A-Za-z0-9_-]{10,}\.' "$report"; then
+            echo "::error::masking gate failed: a credential-shaped value survived masking; report withheld"
+            exit 1
+          fi
+          cat "$report"
+      - name: Upload masked report
+        uses: actions/upload-artifact@v4
+        with:
+          name: dydata-102-103-readonly-diagnosis
+          path: ${{ runner.temp }}/report.txt
+          if-no-files-found: error
+          retention-days: 14
