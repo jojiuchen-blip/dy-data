@@ -1,6 +1,6 @@
 name: Tencent Lighthouse Deploy
 
-# Isolated operational ref. Cleans dangling builder cache only; validates
+# Isolated operational ref. Cleans unused builder cache only; validates
 # unchanged containers, rollback image tags and volume inventory.
 # Does not deploy or write application/database/backup data.
 
@@ -62,14 +62,14 @@ jobs:
           before_volumes=$(volumes)
           test -n "$before_rollback"
           echo '# before'; df -Pk /opt/dy-dashboard/logs/backups; sudo docker system df
-          echo '# clean dangling builder cache only, no -a, no image/container/volume/backup deletion'
-          sudo docker builder prune -f
+          echo '# clean unused builder cache only, builder-cache only; no image/container/volume/backup prune'
+          sudo docker builder prune -a -f
           [ "$(containers)" = "$before_containers" ] || { echo 'container_invariant_failed'; exit 1; }
           [ "$(rollback)" = "$before_rollback" ] || { echo 'rollback_invariant_failed'; exit 1; }
           [ "$(volumes)" = "$before_volumes" ] || { echo 'volume_invariant_failed'; exit 1; }
           echo 'container_image_state_rollback_volume_invariants=pass'
           echo '# after'; df -Pk /opt/dy-dashboard/logs/backups; sudo docker system df
-          echo 'scope=dangling_builder_cache_only'
+          echo 'scope=unused_builder_cache_only'
           REMOTE
       - name: Fail closed, then publish the masked report
         run: |
