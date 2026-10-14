@@ -1,0 +1,112 @@
+name: Resume verified Tencent deployment
+"on":
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: tencent-lighthouse-refs/heads/main
+  cancel-in-progress: false
+jobs:
+  resume:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TARGET_SHA: b81c71b248771a72f9f3754578313d67f5bda069
+      VERIFIED_RUN: '38500239200'
+      GH_TOKEN: ${{ github.token }}
+      TENCENT_HOST: ${{ vars.TENCENT_HOST }}
+      TENCENT_SSH_PORT: ${{ vars.TENCENT_SSH_PORT }}
+      TENCENT_SSH_USER: ${{ vars.TENCENT_SSH_USER }}
+      TENCENT_START_WORKER: ${{ vars.TENCENT_START_WORKER }}
+      DY_WEB_BASE_URL: ${{ vars.DY_WEB_BASE_URL }}
+      TENCENT_SSH_KEY: ${{ secrets.TENCENT_SSH_KEY }}
+      TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
+    steps:
+      - name: Verify immutable release evidence
+        run: |
+          set -euo pipefail
+          gh api repos/${{ github.repository }}/actions/runs/$VERIFIED_RUN > /tmp/run.json
+          gh api repos/${{ github.repository }}/actions/runs/$VERIFIED_RUN/jobs > /tmp/jobs.json
+          python - <<'PY'
+          import json, os
+          run = json.load(open('/tmp/run.json'))
+          jobs = json.load(open('/tmp/jobs.json'))['jobs']
+          assert run['head_sha'] == os.environ['TARGET_SHA']
+          assert run['status'] == 'completed'
+          assert any(j['name'] == 'Verify' and j['conclusion'] == 'success' for j in jobs)
+          assert all(j['status'] == 'completed' for j in jobs)
+          print('Full release verification passed for pinned target', run['head_sha'])
+          PY
+      - uses: actions/checkout@v4
+        with:
+          ref: b81c71b248771a72f9f3754578313d67f5bda069
+      - name: Configure bounded SSH keepalive
+        run: |
+          set -euo pipefail
+          test "$TENCENT_START_WORKER" = true
+          test -n "$DY_WEB_BASE_URL"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$TENCENT_SSH_KEY" > ~/.ssh/tencent_lighthouse
+          chmod 600 ~/.ssh/tencent_lighthouse
+          printf '%s\n' "$TENCENT_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Inspect server then resume original deployment
+        run: |
+          set -euo pipefail
+          script_hash="$(sha256sum deploy/tencent/deploy.sh | cut -d' ' -f1)"
+          cat > /tmp/resume.sh <<'REMOTE'
+          set -euo pipefail
+          cd /opt/dy-dashboard/repo
+          target="$1"
+          expected_hash="$2"
+          web_url="$3"
+          worker="$4"
+          # Never overlap a deployment left running after transport failure.
+          if pgrep -af '[b]ash deploy/tencent/deploy.sh' ; then
+            echo 'Original deployment remains active; blocking duplicate deployment'
+            exit 1
+          fi
+          echo 'Inspecting deployment state (no secrets)'
+          if test -f /opt/dy-dashboard/logs/last-deploy.json; then
+            cat /opt/dy-dashboard/logs/last-deploy.json
+          fi
+          test "$(sha256sum deploy/tencent/deploy.sh | cut -d' ' -f1)" = "$expected_hash"
+          # Check distinctive files from the fixed archive before executing it.
+          test -f alembic/versions/20261008_0061_correct_historical_store_names.py
+          log="/opt/dy-dashboard/logs/release-resume-${target:0:8}-$(date -u +%Y%m%dT%H%M%SZ).log"
+          echo "Resuming verified deployment; server log=$log"
+          # Original script repeats backup, lineage, migration and all health gates.
+          # Output also stays on server so interruption does not lose evidence.
+          # Immutable image IDs recorded by target release attempt 2 build logs.
+          check_image() { test "$(sudo docker image inspect -f '{{.Id}}' "$1")" = "$2"; }
+          check_image dy-dashboard-api:local sha256:3278e365781729fb4765f14810d7f1dc7d9d0150bed404fcb2d724d7f7a4c6c3
+          check_image dy-dashboard-worker:local sha256:58462aeb180b56b5a32cd8fa04637964ccab5cadd2f2feb06c1c2d4ccfd8f0d8
+          check_image dy-dashboard-web:local sha256:31c6cb17669f2278c15640bf2abd6c9b0e257ace2ca1b6624e1bf88311a6fa80
+          check_image dy-dashboard-browser:local sha256:5428ffb0431f9125966e77f26f0a22fa8eea829af71dd0cd59d4fe82d877fb06
+          check_image dy-dashboard-ops-agent:local sha256:59746baf2a66b2e2e0f80fefdf45ca7dbe6e92387e425f70cc286a2613708401
+          echo 'Verified all five immutable build image IDs from pinned release'
+          # Change only the already completed build step in an ephemeral script.
+          test "$(grep -Fxc 'compose build --progress=plain api web browser worker ops-agent' deploy/tencent/deploy.sh)" = 1
+          resume_script=$(mktemp /tmp/dydata-verified-resume.XXXXXX)
+          trap 'rm -f "$resume_script"' EXIT
+          sed 's/^compose build --progress=plain api web browser worker ops-agent$/log "Reusing five verified immutable images; build already completed"/' deploy/tencent/deploy.sh > "$resume_script"
+          # sudo otherwise strips image override variables; pin verified refs in compose invocation.
+          python3 - "$resume_script" <<'PIN'
+          import pathlib, sys
+          p = pathlib.Path(sys.argv[1]); s = p.read_text()
+          needle = 'sudo APT_MIRROR="$APT_MIRROR" DY_WEB_BASE_URL="$DY_WEB_BASE_URL" docker compose'
+          assert s.count(needle) == 1
+          pins = 'sudo API_IMAGE=dy-dashboard-api:local WORKER_IMAGE=dy-dashboard-worker:local WEB_IMAGE=dy-dashboard-web:local BROWSER_IMAGE=dy-dashboard-browser:local OPS_AGENT_IMAGE=dy-dashboard-ops-agent:local APT_MIRROR="$APT_MIRROR" DY_WEB_BASE_URL="$DY_WEB_BASE_URL" docker compose'
+          p.write_text(s.replace(needle, pins))
+          PIN
+          bash -n "$resume_script"
+          API_IMAGE=dy-dashboard-api:local WORKER_IMAGE=dy-dashboard-worker:local WEB_IMAGE=dy-dashboard-web:local BROWSER_IMAGE=dy-dashboard-browser:local OPS_AGENT_IMAGE=dy-dashboard-ops-agent:local \
+          SKIP_GIT_SYNC=true DY_WEB_BASE_URL="$web_url" TENCENT_START_WORKER="$worker" \
+            bash "$resume_script" "$target" 2>&1 | tee "$log"
+          REMOTE
+          ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
+            "$TENCENT_SSH_USER@$TENCENT_HOST" \
+            "bash -s -- '$TARGET_SHA' '$script_hash' '$DY_WEB_BASE_URL' '$TENCENT_START_WORKER'" < /tmp/resume.sh
