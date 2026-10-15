@@ -54,46 +54,18 @@ jobs:
           set -euo pipefail
           cd /opt/dy-dashboard/repo
           sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml exec -T api python - <<'PY'
-          import json, hashlib
-          from datetime import date
-          from sqlalchemy import select, text, or_
+          import json,re
+          from sqlalchemy import select,text
           from dy_api import models as M
           from dy_api.pdca_readonly_access import _open_pdca_readonly_session
-          from dy_api.settlement_audit_readonly import read_settlement_month_audit, read_month_close_readiness
-          out={}
-          gen=_open_pdca_readonly_session(); session=next(gen)
+          gen=_open_pdca_readonly_session();session=next(gen)
           try:
-              assert session.scalar(text('SHOW transaction_read_only')) == 'on'
-              out['audit']=read_settlement_month_audit(session).model_dump()
-              out['readiness']=read_month_close_readiness(session).model_dump()
-              dates=[date(2026,9,d) for d in (14,16,20,25,28)]
-              jobs=session.scalars(select(M.JobRun).where(or_(M.JobRun.business_date.in_(dates), M.JobRun.config_version.like('priority-daily-v1-recovery%'), M.JobRun.job_id.in_(('range-sync-cfd16d14060472e3243b03244fd65322','range-sync-0d35a675812f47be5569e9587d1e06a1','range-sync-a0073da45cf533ba03d2e5bd987983ba','range-sync-1fbe55177b379063c7ac62fbce48926d','range-sync-26bdb86ac42e1ca6a5eec90a9b9546f0')))).order_by(M.JobRun.business_date,M.JobRun.job_id)).all()
-              out['jobs']=[{k:str(getattr(j,k)) if getattr(j,k) is not None else None for k in ('job_id','job_kind','business_date','status','parent_job_id','data_source','config_version','attempt_count','max_attempts','lease_expires_at','cancel_requested_at','pause_after_stage_requested_at','error_code')} | {'target':(j.metadata_json or {}).get('target'),'recovery_generations':(j.metadata_json or {}).get('day_recovery_generations',[])} for j in jobs]
-              from apps.worker.month_close import month_close_preflight
-              from apps.worker.priority_scheduler import _day_state, _priority_rows_for_day
-              recovery_parent='range-sync-cfd16d14060472e3243b03244fd65322'
-              children=session.scalars(select(M.JobRun).where(M.JobRun.parent_job_id==recovery_parent)).all()
-              import re
-              out['september14_error_summaries']=[re.sub(r'https?://\S+|postgres\S+|[0-9]{8,}', '[masked]', line)[:350] for j in children for line in (j.error_message or '').splitlines() if line.startswith('ValueError:')]
-              out['september14_children']=[{'job_id':j.job_id,'kind':j.job_kind,'status':j.status,'attempts':j.attempt_count,'error_code':j.error_code,'error_classes':re.findall(r'([A-Za-z][A-Za-z0-9_.]*(?:Error|Exception))',j.error_message or ''),'failure_flags':{k:k in (j.error_message or '').lower() for k in ('lock unavailable','timeout','rate limit','publication','not committed','coverage','watermark')}} for j in children]
-              out['month_close_preflight']=month_close_preflight(session,'2026-09')
-              out['september_day_states']=[{'date':f'2026-09-{d:02d}','state':_day_state(date(2026,9,d),_priority_rows_for_day(session,date(2026,9,d))).state} for d in range(1,31)]
-              out['active_jobs']=[{'job_id':j.job_id,'kind':j.job_kind,'date':str(j.business_date),'status':j.status,'stage':j.current_stage,'attempts':j.attempt_count,'error_code':j.error_code,'lease_expires_at':str(j.lease_expires_at)} for j in session.scalars(select(M.JobRun).where(M.JobRun.status.in_(('running','retry_wait'))).order_by(M.JobRun.started_at).limit(15))]
-              out['active_stages']=[{'job_id':r.job_id,'stage':r.stage_name,'status':r.status,'started_at':str(r.started_at),'updated_at':str(r.updated_at)} for r in session.scalars(select(M.JobStageRun).where(M.JobStageRun.status=='running'))]
-              out['database_waits']=[dict(r) for r in session.execute(text("SELECT state, wait_event_type, wait_event, count(*) AS sessions, max(extract(epoch FROM now()-query_start))::int AS max_query_age_seconds FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() GROUP BY 1,2,3 ORDER BY 4 DESC")).mappings()]
-              from sqlalchemy import func
-              published=session.execute(select(M.JobRun.business_date,func.count()).where(M.JobRun.job_kind=='finalize',M.JobRun.status=='success',M.JobRun.business_date>=date(2026,9,1),M.JobRun.business_date<date(2026,10,1)).group_by(M.JobRun.business_date)).all()
-              out['published_september_dates']=[str(r[0]) for r in published]
-              out['settlement_jobs']=[{'job_id':j.job_id,'status':j.status,'error_code':j.error_code} for j in session.scalars(select(M.JobRun).where(M.JobRun.job_name=='settlement_rebuild').order_by(M.JobRun.started_at.desc()).limit(8))]
-              out['august_facts']={}
-              stmts=select(M.SettlementStatement.statement_id).where(M.SettlementStatement.statement_month=='2026-08')
-              for cls,cond in [(M.SettlementStatement,M.SettlementStatement.statement_month=='2026-08'),(M.SettlementFeeResult,M.SettlementFeeResult.original_business_month=='2026-08'),(M.SettlementFeeAdjustment,M.SettlementFeeAdjustment.adjustment_posting_month=='2026-08'),(M.SettlementStatementEntry,M.SettlementStatementEntry.statement_id.in_(stmts)),(M.SettlementStatementConfirmation,M.SettlementStatementConfirmation.statement_id.in_(stmts))]:
-                  rows=session.execute(select(*cls.__table__.columns).where(cond)).all()
-                  payload=sorted(json.dumps(list(r),default=str,sort_keys=True) for r in rows)
-                  out['august_facts'][cls.__tablename__]={'rows':len(rows),'sha256':hashlib.sha256(('\n'.join(payload)).encode()).hexdigest()}
+              assert session.scalar(text('SHOW transaction_read_only'))=='on'
+              children=session.scalars(select(M.JobRun).where(M.JobRun.parent_job_id=='range-sync-cfd16d14060472e3243b03244fd65322')).all()
+              out={'children':[{'job_id':j.job_id,'kind':j.job_kind,'status':j.status,'error_code':j.error_code} for j in children],'error_summaries':[re.sub(r'https?://\S+|postgres\S+|[0-9]{8,}','[masked]',line)[:350] for j in children for line in (j.error_message or '').splitlines() if line.startswith('ValueError:')]}
           finally:
               gen.close()
-          print(json.dumps(out,default=str,sort_keys=True))
+          print(json.dumps(out))
           PY
           sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml exec -T worker python -c 'from apps.worker.scheduler import resolve_scheduler_mode; print("worker_scheduler_mode="+resolve_scheduler_mode())' </dev/null
           sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml exec -T worker python - <<'DRIVER'
