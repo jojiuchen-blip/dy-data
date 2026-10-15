@@ -4408,39 +4408,45 @@ def test_r2c2_external_writer_lock_is_transient_and_retryable(monkeypatch):
             connect_args={"check_same_thread": False, "timeout": 0.2},
             future=True,
         )
-        Base.metadata.create_all(engine)
-        factory = sessionmaker(bind=engine, autoflush=False, future=True)
-        with factory() as seed:
-            seed.add(
-                AggStoreMonthlySettlement(
-                    month="2026-08",
-                    store_id="deadline-store",
-                    product_scope="all",
-                    product_type="all",
-                    statement_status=1,
-                    projection_run_id="deadline-run",
-                )
-            )
-            seed.commit()
-
         lock_holder = {"connection": None}
-        original_promote = bootstrap._promote_staging_to_ready
-
-        def promote_then_lock(factory_arg, generation_id):
-            generation = original_promote(factory_arg, generation_id)
-            if lock_holder["connection"] is None:
-                lock_holder["connection"] = engine.connect()
-                lock_holder["connection"].exec_driver_sql("BEGIN IMMEDIATE")
-            return generation
-
-        monkeypatch.setattr(bootstrap, "_promote_staging_to_ready", promote_then_lock)
-        monkeypatch.setattr(bootstrap, "_FINAL_FENCE_DEADLINE_SECONDS", 0.05)
         try:
-            with pytest.raises(
-                bootstrap.LegacyProjectionBootstrapError,
-                match="fence|deadline|timeout|locked",
-            ):
-                certify_legacy_null_root(factory, batch_size=1, resource_limits=_limits(rows=1))
+            Base.metadata.create_all(engine)
+            factory = sessionmaker(bind=engine, autoflush=False, future=True)
+            with factory() as seed:
+                seed.add(
+                    AggStoreMonthlySettlement(
+                        month="2026-08",
+                        store_id="deadline-store",
+                        product_scope="all",
+                        product_type="all",
+                        statement_status=1,
+                        projection_run_id="deadline-run",
+                    )
+                )
+                seed.commit()
+
+            original_promote = bootstrap._promote_staging_to_ready
+
+            def promote_then_lock(factory_arg, generation_id):
+                generation = original_promote(factory_arg, generation_id)
+                if lock_holder["connection"] is None:
+                    lock_holder["connection"] = engine.connect()
+                    lock_holder["connection"].exec_driver_sql("BEGIN IMMEDIATE")
+                return generation
+
+            # Scope the fault injection (lock holder + tight fence deadline) to
+            # the first, failing call only: the healthy retry must run under the
+            # real deadline, exactly like production.
+            original_deadline = bootstrap._FINAL_FENCE_DEADLINE_SECONDS
+            with monkeypatch.context() as fault:
+                fault.setattr(bootstrap, "_promote_staging_to_ready", promote_then_lock)
+                fault.setattr(bootstrap, "_FINAL_FENCE_DEADLINE_SECONDS", 0.05)
+                with pytest.raises(
+                    bootstrap.LegacyProjectionBootstrapError,
+                    match="fence|deadline|timeout|locked",
+                ):
+                    certify_legacy_null_root(factory, batch_size=1, resource_limits=_limits(rows=1))
+            assert bootstrap._FINAL_FENCE_DEADLINE_SECONDS == original_deadline
             with factory() as check:
                 generation = check.scalar(select(SettlementProjectionGeneration))
                 pointer = check.get(SettlementProjectionActive, "settlement")
@@ -4448,16 +4454,25 @@ def test_r2c2_external_writer_lock_is_transient_and_retryable(monkeypatch):
                 assert generation.state in {"staging", "ready"}
                 assert generation.state not in {"failed", "published"}
                 assert pointer is None or pointer.generation_id is None
+
+            # Release the external writer lock *before* the retry: the healthy
+            # retry must see an unlocked database, not spin on the injected
+            # holder until some large deadline burns.
+            if lock_holder["connection"] is not None:
+                lock_holder["connection"].rollback()
+                lock_holder["connection"].close()
+                lock_holder["connection"] = None
+
+            retry = certify_legacy_null_root(
+                factory, batch_size=1, resource_limits=_limits(rows=1)
+            )
+            assert retry.status == "published"
         finally:
             if lock_holder["connection"] is not None:
                 lock_holder["connection"].rollback()
                 lock_holder["connection"].close()
-
-        retry = certify_legacy_null_root(
-            factory, batch_size=1, resource_limits=_limits(rows=1)
-        )
-        assert retry.status == "published"
-        engine.dispose()
+                lock_holder["connection"] = None
+            engine.dispose()
 
 
 def test_r2c2_deadline_expiry_between_pages_preserves_retryable_generation(monkeypatch):
