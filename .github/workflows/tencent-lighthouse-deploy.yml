@@ -63,6 +63,15 @@ jobs:
               assert session.scalar(text('SHOW transaction_read_only'))=='on'
               children=session.scalars(select(M.JobRun).where(M.JobRun.parent_job_id=='range-sync-cfd16d14060472e3243b03244fd65322')).all()
               out={'children':[{'job_id':j.job_id,'kind':j.job_kind,'status':j.status,'error_code':j.error_code} for j in children],'error_summaries':[re.sub(r'https?://\S+|postgres\S+|[0-9]{8,}','[masked]',line)[:350] for j in children for line in (j.error_message or '').splitlines() if line.startswith('ValueError:')]}
+              root=session.get(M.JobRun,'range-sync-10562f3369ac7d31e9801d42d8db1d60')
+              entries=(root.metadata_json or {}).get('recovery_generations',[]) if root else []
+              out['root_recovery_ledger']=[{k:e.get(k) for k in ('parent_job_id','ordinal','config_version')} for e in entries]
+              out['root_status']=root.status if root else None
+              out['recovery_parents']=[{'job_id':j.job_id,'status':j.status,'cancel_requested':j.cancel_requested_at is not None,'pause_requested':j.pause_after_stage_requested_at is not None} for j in session.scalars(select(M.JobRun).where(M.JobRun.job_id.in_([e.get('parent_job_id') for e in entries])))]
+              active=session.get(M.SettlementProjectionActive,'settlement')
+              head=session.get(M.SettlementProjectionGeneration,active.generation_id) if active and active.generation_id else None
+              out['active_head']={'generation_id':head.generation_id,'depth':head.lineage_depth,'kind':head.generation_kind,'state':head.state} if head else None
+              out['heavy_jobs']=[{'job_id':j.job_id,'kind':j.job_kind,'status':j.status,'date':str(j.business_date),'stage':j.current_stage,'lease_expires_at':str(j.lease_expires_at)} for j in session.scalars(select(M.JobRun).where(M.JobRun.execution_slot=='heavy_sync',M.JobRun.status=='running').limit(5))]
           finally:
               gen.close()
           print(json.dumps(out))
