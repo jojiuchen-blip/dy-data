@@ -455,6 +455,9 @@ def test_pg_concurrent_claims_are_exclusive(compaction_pg) -> None:
 
     factory = compaction_pg
     with factory() as session:
+        # Flush order matters: the head's base_generation_id is a self-referential
+        # FK and there is no ORM relationship, so the root must be flushed before
+        # the head, and the active pointer after both.
         session.add(
             SettlementProjectionGeneration(
                 generation_id="pg-compaction-root",
@@ -468,6 +471,7 @@ def test_pg_concurrent_claims_are_exclusive(compaction_pg) -> None:
                 source_input_json={},
             )
         )
+        session.flush()
         session.add(
             SettlementProjectionGeneration(
                 generation_id="pg-compaction-head",
@@ -482,6 +486,7 @@ def test_pg_concurrent_claims_are_exclusive(compaction_pg) -> None:
                 source_input_json={},
             )
         )
+        session.flush()
         session.add(
             SettlementProjectionActive(
                 projection_name="settlement",
