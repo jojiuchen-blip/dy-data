@@ -27,10 +27,10 @@ import hashlib
 from datetime import datetime, time, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from apps.api.dy_api.models import JobRun
+from apps.api.dy_api.models import JobAttempt, JobRun
 from apps.worker.daily_windows import (
     SHANGHAI_TIMEZONE,
     DailySyncPlan,
@@ -257,7 +257,7 @@ def plan_day_recovery(
         )
     if len(generations) >= MAX_RECOVERY_GENERATIONS:
         raise DayRecoveryNotAllowed("recovery generation budget exhausted for this day")
-    in_flight = _in_flight_generation(session, generations, reference)
+    in_flight = _in_flight_generation(session, parent, generations, reference)
     if in_flight is not None:
         # A newer key must not stack a *parallel* generation on top of one that is
         # still running or still executable: two generations of the same day both
@@ -499,6 +499,7 @@ def _active_children(
 
 def _in_flight_generation(
     session: Session,
+    root: JobRun,
     generations: list[dict[str, Any]],
     reference: datetime,
 ) -> str | None:
@@ -506,7 +507,11 @@ def _in_flight_generation(
 
     "In flight" is deliberately broad — a pending or retryable generation is
     still going to run, so a second generation started now would race it for the
-    same window rather than replace it.
+    same window rather than replace it.  The single exception is the production
+    stopped shape proven by :func:`_pending_generation_is_stopped` against the
+    original root and its own ledger entry: the newest generation is pending
+    only because its finalize failed with its attempt budget exhausted, so the
+    original ledger may append the next ordinal.
     """
 
     parent_ids = [
@@ -524,15 +529,154 @@ def _in_flight_generation(
             )
         )
     )
+    entries = {
+        entry.get("parent_job_id"): entry
+        for entry in generations
+        if isinstance(entry.get("parent_job_id"), str)
+    }
+    latest_ordinal = max(
+        (
+            int(entry.get("ordinal"))
+            for entry in entries.values()
+            if isinstance(entry.get("ordinal"), int)
+        ),
+        default=None,
+    )
     for candidate in candidates:
         if candidate.status in {"success", "failed", "cancelled"}:
             continue
-        # Any non-terminal generation — pending, running, queued, retry_wait — is
-        # still going to run.  A `retry_wait` with a future `next_retry_at` is not
-        # "settled": its child still owns the day's retry budget, so a second
-        # generation would stack onto it and collect the window twice.
+        if candidate.status == "pending" and _pending_generation_is_stopped(
+            session,
+            candidate,
+            reference,
+            root=root,
+            entry=entries.get(candidate.job_id, {}),
+            latest_ordinal=latest_ordinal,
+        ):
+            # The newest generation genuinely stopped: its collection children
+            # really succeeded and its single finalize failed with its attempt
+            # budget exhausted.  It owns no future work, so the original ledger
+            # may append the next ordinal instead of racing a doomed row.
+            continue
+        # Any other non-terminal generation — running, queued, retry_wait, or a
+        # pending row that does not match the stopped shape — is still going to
+        # run.  A `retry_wait` with a future `next_retry_at` is not "settled":
+        # its child still owns the day's retry budget, so a second generation
+        # would stack onto it and collect the window twice.
         return candidate.job_id
     return None
+
+
+def _attempt_budget_exhausted(job: JobRun) -> bool:
+    attempt_count = max(0, int(job.attempt_count or 0))
+    budget = int(job.max_attempts or 3) + max(0, int(job.quota_pause_count or 0))
+    return attempt_count >= budget
+
+
+def _pending_generation_is_stopped(
+    session: Session,
+    candidate: JobRun,
+    reference: datetime,
+    *,
+    root: JobRun,
+    entry: dict[str, Any],
+    latest_ordinal: int | None,
+) -> bool:
+    """Whether a *pending* recorded generation has genuinely stopped.
+
+    The production 2026-09-14 shape, proven fail-closed against the original
+    root and the generation's own ledger entry: the newest recovery generation
+    is still ``pending`` only because its single finalize child failed with its
+    attempt budget exhausted after its one date_sync and one parent_sync child
+    really succeeded.  Every check below refuses instead of allowing: an older
+    pending generation is never judged stopped; the row's recovery metadata
+    (recovery root, ordinal, request key) and its config identity must match the
+    ledger entry and the root; window and data_source must match the root; the
+    child set must be exactly one date_sync + one parent_sync + one finalize
+    with no unfinished ``JobAttempt`` row and no cancel/pause request; every
+    collection child must be a genuine success and the finalize a terminal
+    failure with no attempt budget left.  A recovery generation is never
+    reopened and never recovers itself — only the original ledger grows.
+    """
+
+    if latest_ordinal is None:
+        return False
+    if not isinstance(entry.get("ordinal"), int):
+        return False
+    if entry["ordinal"] != latest_ordinal:
+        return False
+    metadata = candidate.metadata_json or {}
+    if metadata.get(RECOVERY_ROOT_KEY) != root.job_id:
+        return False
+    if metadata.get(RECOVERY_ORDINAL_KEY) != entry["ordinal"]:
+        return False
+    if metadata.get("recovery_request_key") != entry.get("request_key"):
+        return False
+    if candidate.config_version != entry.get("config_version"):
+        return False
+    if not str(candidate.config_version or "").startswith(RECOVERY_CONFIG_PREFIX):
+        return False
+    if not _same_plan_window(candidate.window_start, root.window_start):
+        return False
+    if not _same_plan_window(candidate.window_end, root.window_end):
+        return False
+    if candidate.data_source != root.data_source:
+        return False
+    if candidate.cancel_requested_at is not None:
+        return False
+    if candidate.pause_after_stage_requested_at is not None:
+        return False
+    if _holds_live_lease(candidate.lease_expires_at, reference):
+        return False
+    children = list(
+        session.scalars(
+            select(JobRun).where(JobRun.parent_job_id == candidate.job_id)
+        )
+    )
+    date_children = [child for child in children if child.job_kind == "date_sync"]
+    parent_children = [
+        child for child in children if child.job_kind == "parent_sync"
+    ]
+    finalizes = [child for child in children if child.job_kind == "finalize"]
+    if len(children) != 3:
+        return False
+    if len(date_children) != 1 or len(parent_children) != 1 or len(finalizes) != 1:
+        return False
+    unfinished_attempts = (
+        session.scalar(
+            select(func.count())
+            .select_from(JobAttempt)
+            .where(
+                JobAttempt.job_id.in_(
+                    [child.job_id for child in children] + [candidate.job_id]
+                ),
+                JobAttempt.finished_at.is_(None),
+            )
+        )
+        or 0
+    )
+    if unfinished_attempts:
+        return False
+    for child in children:
+        if child.cancel_requested_at is not None:
+            return False
+        if child.pause_after_stage_requested_at is not None:
+            return False
+        if child.config_version != candidate.config_version:
+            return False
+        if child.data_source != candidate.data_source:
+            return False
+        if _holds_live_lease(child.lease_expires_at, reference):
+            return False
+        if child.job_kind == "finalize":
+            if child.status != "failed":
+                return False
+            if not _attempt_budget_exhausted(child):
+                return False
+        else:
+            if child.status != "success":
+                return False
+    return True
 
 
 def _retry_is_due(job: JobRun, reference: datetime) -> bool:

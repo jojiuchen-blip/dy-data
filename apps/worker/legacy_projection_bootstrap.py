@@ -5530,6 +5530,86 @@ def _compact_projection_metadata_locked(
     )
 
 
+def _verification_session_factory(caller: Session) -> Callable[[], Session]:
+    """Return a factory of read-only sessions bound to the caller's transaction.
+
+    Each session joins the caller's connection with a dedicated savepoint
+    (``join_transaction_mode="create_savepoint"``): the reads observe the
+    caller's own uncommitted evidence, and closing the session only releases
+    that savepoint, never the caller's surrounding transaction.
+    """
+
+    def factory() -> Session:
+        return Session(
+            bind=caller.connection(),
+            join_transaction_mode="create_savepoint",
+            autoflush=False,
+            expire_on_commit=False,
+        )
+
+    return factory
+
+
+def reverify_ready_compaction_publication(
+    session: Session,
+    *,
+    generation_id: str,
+) -> dict[str, Any]:
+    """Re-verify a ready compact head against its actual merged evidence.
+
+    The evidence is read through the caller's publish transaction via
+    savepoint-isolated sessions bound to the same connection, so the
+    verification cannot be pointed at a different database and cannot end the
+    caller's transaction.  The replay is read-only over the source generations
+    and bounded by the recorded batch size.
+    """
+
+    session_factory = _verification_session_factory(session)
+    generation = _load_generation(session_factory, generation_id)
+    if generation is None:
+        raise LegacyProjectionBootstrapError("reverify compaction generation is missing")
+    if (
+        generation.generation_kind != "compact"
+        or generation.state != "ready"
+        or generation.base_generation_id is not None
+    ):
+        raise LegacyProjectionBootstrapError(
+            "reverify compaction generation is not a ready compact head"
+        )
+    base_generation_id = generation.compaction_base_generation_id
+    if not isinstance(base_generation_id, str) or not base_generation_id:
+        raise LegacyProjectionBootstrapError("reverify compaction base is missing")
+    lineage_rows = _load_compaction_lineage(session_factory, base_generation_id)
+    checkpoint = generation.checkpoint_json
+    if not isinstance(checkpoint, Mapping):
+        raise LegacyProjectionBootstrapError("reverify compaction checkpoint is malformed")
+    batch_size = _strict_int(checkpoint.get("batch_size"), "reverify compaction batch size")
+    resource: tuple[int, int, int, int, int] = tuple(
+        _strict_int(
+            checkpoint.get(key), f"reverify compaction {key}", nonnegative=True
+        )
+        for key in (
+            "estimated_manifest_rows",
+            "estimated_write_rows",
+            "estimated_write_bytes",
+            "estimated_wal_bytes",
+            "estimated_disk_headroom_bytes",
+        )
+    )  # type: ignore[assignment]
+    plan_summary = _summarize_compaction_plan(
+        session_factory, base_generation_id, lineage_rows, batch_size
+    )
+    return _verify_compaction_ready(
+        session_factory,
+        generation,
+        base_generation_id=base_generation_id,
+        lineage_rows=lineage_rows,
+        plan_summary=plan_summary,
+        resource=resource,
+        batch_size=batch_size,
+    )
+
+
 def compact_projection_metadata(
     session_factory: Callable[[], Session],
     *,
@@ -5574,4 +5654,5 @@ __all__ = [
     "LegacyProjectionBootstrapError",
     "certify_legacy_null_root",
     "compact_projection_metadata",
+    "reverify_ready_compaction_publication",
 ]

@@ -1721,3 +1721,350 @@ def test_management_api_rejects_recovering_a_successful_plan(
     assert "not terminal" in response.json()["detail"]
     db_session.expire_all()
     assert day_recovery.recovery_generations(db_session.get(JobRun, parent_id)) == []
+
+
+# --------------------------------------------------------------------------- #
+# The production 2026-09-14 blocked shape: the ordinal-1 recovery generation is
+# still *pending* only because its finalize failed 3/3 after its collection
+# children really succeeded.  The original root ledger must be able to append
+# ordinal 2 — without touching the stale generation's rows.
+# --------------------------------------------------------------------------- #
+
+
+def _ordinal1_generation_stopped_shape(
+    session: Session,
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    run_parent_sync: bool = True,
+    finalize_attempt_count: int = 3,
+    finalize_live_lease: bool = False,
+) -> tuple[str, str, str | None]:
+    """Create root + one pending ordinal-1 generation with a failed finalize.
+
+    Returns ``(root_id, ordinal1_parent_id, finalize_id_or_None)``.  Every child
+    attempt is recorded through the real claim/attempt machinery.
+    """
+
+    root_id, _old_child, _old_attempts = _exhausted_day_plan(session)
+    # Days newer than the failed one are already published so the tick's history
+    # scan reaches DAY — the same prerequisite the ordinal-1 test uses.
+    for offset in range(1, 6):
+        _publish_day(session, DAY + timedelta(days=offset))
+    plan, replayed = day_recovery.plan_day_recovery(
+        session,
+        parent=session.get(JobRun, root_id),
+        request_key="operator-recover-ordinal1",
+        reason="first recovery generation",
+        actor="system-admin",
+        now=NOW,
+    )
+    assert replayed is False
+    gen1_parent_id = plan.parent_job_id
+    finalize_id: str | None = None
+    if run_parent_sync:
+        first = _tick(session, monkeypatch=monkeypatch)
+        assert first.action == "executed"
+        session.expire_all()
+        new_child_id = session.scalar(
+            select(JobRun.job_id).where(
+                JobRun.parent_job_id == gen1_parent_id,
+                JobRun.job_kind == "date_sync",
+            )
+        )
+        _complete_stages(session, new_child_id)
+        second = _tick(session, monkeypatch=monkeypatch)
+        assert second.action == "executed"
+        session.expire_all()
+        assert session.get(JobRun, new_child_id).status == "success"
+        finalize = enqueue_finalize_if_ready(session, gen1_parent_id)
+        assert finalize is not None
+        finalize_id = finalize.job_id
+        for attempt_number in range(1, finalize_attempt_count + 1):
+            token = claim_job(
+                session,
+                job_id=finalize_id,
+                lease_owner=f"finalize-worker-{attempt_number}",
+                component_instance_id=f"finalize-recovery-{attempt_number}",
+                lease_seconds=600,
+            )
+            assert token is not None
+            _close_attempt(
+                session,
+                token.attempt_id,
+                exit_type="fatal_failure",
+                exit_code=1,
+                error_code="worker_exit_1",
+                error_summary=CRASH_TAIL,
+            )
+            row = session.get(JobRun, finalize_id)
+            # Keep the row claimable between attempts exactly like the real
+            # retry path; only the final attempt records the terminal failure.
+            if attempt_number < finalize_attempt_count:
+                row.status = "retry_wait"
+                row.next_retry_at = datetime(2026, 9, 21, 1, 0, tzinfo=UTC)
+            else:
+                row.status = "failed"
+                row.next_retry_at = None
+            row.attempt_count = attempt_number
+            row.lease_owner = None
+            row.lease_expires_at = None
+            session.flush()
+        if finalize_live_lease:
+            row = session.get(JobRun, finalize_id)
+            row.lease_expires_at = NOW + timedelta(hours=1)
+            session.flush()
+    _visible(session)
+    return root_id, gen1_parent_id, finalize_id
+
+
+def test_stopped_pending_generation_allows_ordinal2_from_original_root(
+    monkeypatch: pytest.MonkeyPatch, db_session: Session
+) -> None:
+    root_id, gen1_id, finalize_id = _ordinal1_generation_stopped_shape(
+        db_session, monkeypatch=monkeypatch
+    )
+    assert finalize_id is not None
+    assert len(day_recovery.recovery_generations(db_session.get(JobRun, root_id))) == 1
+
+    plan, replayed = day_recovery.plan_day_recovery(
+        db_session,
+        parent=db_session.get(JobRun, root_id),
+        request_key="operator-recover-ordinal2",
+        reason="ordinal two after the exhausted recovery finalize",
+        actor="system-admin",
+        now=NOW,
+    )
+    db_session.flush()
+    assert replayed is False
+    gen2 = db_session.get(JobRun, plan.parent_job_id)
+    assert day_recovery.generation_ordinal(gen2) == 2
+    ledger = day_recovery.recovery_generations(db_session.get(JobRun, root_id))
+    assert [entry["ordinal"] for entry in ledger] == [1, 2]
+
+    # The stale ordinal-1 generation keeps its pending status and its real
+    # failed finalize untouched — only the additive ledger grew.
+    db_session.expire_all()
+    gen1 = db_session.get(JobRun, gen1_id)
+    assert gen1.status == "pending"
+    assert gen1.cancel_requested_at is None
+    finalize_row = db_session.get(JobRun, finalize_id)
+    assert finalize_row.status == "failed"
+    assert finalize_row.attempt_count == 3
+    assert finalize_row.lease_expires_at is None
+
+
+def test_pending_generation_with_unexhausted_finalize_still_blocks(
+    monkeypatch: pytest.MonkeyPatch, db_session: Session
+) -> None:
+    root_id, _gen1_id, _finalize_id = _ordinal1_generation_stopped_shape(
+        db_session,
+        monkeypatch=monkeypatch,
+        finalize_attempt_count=1,
+    )
+    with pytest.raises(day_recovery.DayRecoveryNotAllowed, match="in flight"):
+        day_recovery.plan_day_recovery(
+            db_session,
+            parent=db_session.get(JobRun, root_id),
+            request_key="operator-recover-ordinal2",
+            reason="finalize retry budget remains",
+            actor="system-admin",
+            now=NOW,
+        )
+
+
+def test_pending_generation_with_live_child_lease_still_blocks(
+    monkeypatch: pytest.MonkeyPatch, db_session: Session
+) -> None:
+    root_id, _gen1_id, _finalize_id = _ordinal1_generation_stopped_shape(
+        db_session,
+        monkeypatch=monkeypatch,
+        finalize_live_lease=True,
+    )
+    with pytest.raises(day_recovery.DayRecoveryNotAllowed, match="in flight"):
+        day_recovery.plan_day_recovery(
+            db_session,
+            parent=db_session.get(JobRun, root_id),
+            request_key="operator-recover-ordinal2",
+            reason="finalize child still holds a lease",
+            actor="system-admin",
+            now=NOW,
+        )
+
+
+def test_pending_generation_with_runnable_child_still_blocks(
+    monkeypatch: pytest.MonkeyPatch, db_session: Session
+) -> None:
+    root_id, _gen1_id, _finalize_id = _ordinal1_generation_stopped_shape(
+        db_session,
+        monkeypatch=monkeypatch,
+        run_parent_sync=False,
+    )
+    with pytest.raises(day_recovery.DayRecoveryNotAllowed, match="in flight"):
+        day_recovery.plan_day_recovery(
+            db_session,
+            parent=db_session.get(JobRun, root_id),
+            request_key="operator-recover-ordinal2",
+            reason="collection child is still executable",
+            actor="system-admin",
+            now=NOW,
+        )
+
+
+def _stopped_shape_root(session: Session, monkeypatch: pytest.MonkeyPatch) -> str:
+    root_id, _gen1_id, _finalize_id = _ordinal1_generation_stopped_shape(
+        session, monkeypatch=monkeypatch
+    )
+    return root_id
+
+
+def test_pending_generation_missing_source_child_still_blocks(
+    monkeypatch: pytest.MonkeyPatch, db_session: Session
+) -> None:
+    from sqlalchemy import update
+
+    root_id = _stopped_shape_root(db_session, monkeypatch)
+    gen1_id = db_session.get(JobRun, root_id).metadata_json[
+        day_recovery.RECOVERED_BY_KEY
+    ]
+    parent_sync_id = db_session.scalar(
+        select(JobRun.job_id).where(
+            JobRun.parent_job_id == gen1_id,
+            JobRun.job_kind == "parent_sync",
+        )
+    )
+    # Simulate a malformed generation whose source child is missing: the row no
+    # longer has the one parent_sync child the stopped shape requires.
+    db_session.execute(
+        update(JobRun)
+        .where(JobRun.job_id == parent_sync_id)
+        .values(job_kind="product_sync")
+    )
+    db_session.commit()
+    with pytest.raises(day_recovery.DayRecoveryNotAllowed, match="in flight"):
+        day_recovery.plan_day_recovery(
+            db_session,
+            parent=db_session.get(JobRun, root_id),
+            request_key="operator-recover-ordinal2",
+            reason="source child shape is not the exact stopped shape",
+            actor="system-admin",
+            now=NOW,
+        )
+
+
+def test_pending_generation_with_unfinished_attempt_still_blocks(
+    monkeypatch: pytest.MonkeyPatch, db_session: Session
+) -> None:
+    from apps.api.dy_api.models import ComponentHeartbeat, JobAttempt
+
+    root_id = _stopped_shape_root(db_session, monkeypatch)
+    gen1_id = db_session.get(JobRun, root_id).metadata_json[
+        day_recovery.RECOVERED_BY_KEY
+    ]
+    finalize_id = db_session.scalar(
+        select(JobRun.job_id).where(
+            JobRun.parent_job_id == gen1_id,
+            JobRun.job_kind == "finalize",
+        )
+    )
+    # An open attempt row is live execution evidence the ledger must respect.
+    db_session.add(
+        ComponentHeartbeat(
+            component_instance_id="hb-unfinished-attempt",
+            component_type="worker",
+            started_at=NOW,
+            last_heartbeat_at=NOW,
+            status="healthy",
+        )
+    )
+    db_session.add(
+        JobAttempt(
+            attempt_id="attempt-unfinished-evidence",
+            job_id=finalize_id,
+            attempt_number=4,
+            lease_epoch=4,
+            component_instance_id="hb-unfinished-attempt",
+            component_type="worker",
+            started_at=NOW,
+            finished_at=None,
+        )
+    )
+    db_session.commit()
+    with pytest.raises(day_recovery.DayRecoveryNotAllowed, match="in flight"):
+        day_recovery.plan_day_recovery(
+            db_session,
+            parent=db_session.get(JobRun, root_id),
+            request_key="operator-recover-ordinal2",
+            reason="an attempt row is still open",
+            actor="system-admin",
+            now=NOW,
+        )
+
+
+def test_pending_generation_with_child_cancel_request_still_blocks(
+    monkeypatch: pytest.MonkeyPatch, db_session: Session
+) -> None:
+    root_id = _stopped_shape_root(db_session, monkeypatch)
+    gen1_id = db_session.get(JobRun, root_id).metadata_json[
+        day_recovery.RECOVERED_BY_KEY
+    ]
+    finalize_id = db_session.scalar(
+        select(JobRun.job_id).where(
+            JobRun.parent_job_id == gen1_id,
+            JobRun.job_kind == "finalize",
+        )
+    )
+    db_session.get(JobRun, finalize_id).cancel_requested_at = NOW
+    db_session.commit()
+    with pytest.raises(day_recovery.DayRecoveryNotAllowed, match="in flight"):
+        day_recovery.plan_day_recovery(
+            db_session,
+            parent=db_session.get(JobRun, root_id),
+            request_key="operator-recover-ordinal2",
+            reason="finalize child has a cancel request",
+            actor="system-admin",
+            now=NOW,
+        )
+
+
+def test_pending_generation_with_recovery_metadata_mismatch_still_blocks(
+    monkeypatch: pytest.MonkeyPatch, db_session: Session
+) -> None:
+    root_id = _stopped_shape_root(db_session, monkeypatch)
+    gen1 = db_session.get(
+        JobRun,
+        db_session.get(JobRun, root_id).metadata_json[day_recovery.RECOVERED_BY_KEY],
+    )
+    metadata = dict(gen1.metadata_json or {})
+    metadata[day_recovery.RECOVERY_ROOT_KEY] = "range-sync-not-this-root"
+    gen1.metadata_json = metadata
+    db_session.commit()
+    with pytest.raises(day_recovery.DayRecoveryNotAllowed, match="in flight"):
+        day_recovery.plan_day_recovery(
+            db_session,
+            parent=db_session.get(JobRun, root_id),
+            request_key="operator-recover-ordinal2",
+            reason="recovery metadata points at another root",
+            actor="system-admin",
+            now=NOW,
+        )
+
+
+def test_pending_generation_with_window_mismatch_still_blocks(
+    monkeypatch: pytest.MonkeyPatch, db_session: Session
+) -> None:
+    root_id = _stopped_shape_root(db_session, monkeypatch)
+    gen1 = db_session.get(
+        JobRun,
+        db_session.get(JobRun, root_id).metadata_json[day_recovery.RECOVERED_BY_KEY],
+    )
+    gen1.window_start = gen1.window_start + timedelta(hours=1)
+    db_session.commit()
+    with pytest.raises(day_recovery.DayRecoveryNotAllowed, match="in flight"):
+        day_recovery.plan_day_recovery(
+            db_session,
+            parent=db_session.get(JobRun, root_id),
+            request_key="operator-recover-ordinal2",
+            reason="generation window drifted from the original root",
+            actor="system-admin",
+            now=NOW,
+        )
