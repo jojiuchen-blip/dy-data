@@ -71,11 +71,17 @@ jobs:
               active=session.get(M.SettlementProjectionActive,'settlement')
               head=session.get(M.SettlementProjectionGeneration,active.generation_id) if active and active.generation_id else None
               out['active_head']={'generation_id':head.generation_id,'depth':head.lineage_depth,'kind':head.generation_kind,'state':head.state} if head else None
+              out['compaction_estimate']=dict(session.execute(text('''WITH RECURSIVE chain AS (
+                  SELECT generation_id,base_generation_id,0 AS hop FROM settlement_projection_generation WHERE generation_id=:head
+                  UNION ALL SELECT g.generation_id,g.base_generation_id,c.hop+1 FROM settlement_projection_generation g JOIN chain c ON g.generation_id=c.base_generation_id WHERE c.hop<65
+              ) SELECT (SELECT count(*) FROM chain) AS closure_rows,
+                  (SELECT count(*) FROM (SELECT DISTINCT artifact,partition_key FROM settlement_projection_partition_manifest WHERE generation_id IN (SELECT generation_id FROM chain)) p) AS manifest_rows'''),{'head':head.generation_id if head else None}).mappings().one())
               out['heavy_jobs']=[{'job_id':j.job_id,'kind':j.job_kind,'status':j.status,'date':str(j.business_date),'stage':j.current_stage,'lease_expires_at':str(j.lease_expires_at)} for j in session.scalars(select(M.JobRun).where(M.JobRun.execution_slot=='heavy_sync',M.JobRun.status=='running').limit(5))]
           finally:
               gen.close()
           print(json.dumps(out))
           PY
+          df -B1 --output=size,avail,pcent /opt/dy-dashboard
           sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml exec -T worker python -c 'from apps.worker.scheduler import resolve_scheduler_mode; print("worker_scheduler_mode="+resolve_scheduler_mode())' </dev/null
           sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml exec -T worker python - <<'DRIVER'
           import os,json,re
