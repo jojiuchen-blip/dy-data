@@ -74,6 +74,7 @@ jobs:
               recovery_parent='range-sync-cfd16d14060472e3243b03244fd65322'
               children=session.scalars(select(M.JobRun).where(M.JobRun.parent_job_id==recovery_parent)).all()
               import re
+              out['september14_error_summaries']=[re.sub(r'https?://\S+|postgres\S+|[0-9]{8,}', '[masked]', line)[:350] for j in children for line in (j.error_message or '').splitlines() if line.startswith('ValueError:')]
               out['september14_children']=[{'job_id':j.job_id,'kind':j.job_kind,'status':j.status,'attempts':j.attempt_count,'error_code':j.error_code,'error_classes':re.findall(r'([A-Za-z][A-Za-z0-9_.]*(?:Error|Exception))',j.error_message or ''),'failure_flags':{k:k in (j.error_message or '').lower() for k in ('lock unavailable','timeout','rate limit','publication','not committed','coverage','watermark')}} for j in children]
               out['month_close_preflight']=month_close_preflight(session,'2026-09')
               out['september_day_states']=[{'date':f'2026-09-{d:02d}','state':_day_state(date(2026,9,d),_priority_rows_for_day(session,date(2026,9,d))).state} for d in range(1,31)]
