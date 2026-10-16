@@ -1,13 +1,22 @@
-name: Isolated September scope transaction rehearsal
+name: DYDATA-102 scoped recovery operations
 
 "on":
   workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        default: pg_rehearsal
+        options:
+          - pg_rehearsal
+          - production_compact
+        description: Explicit operation; default uses disposable PostgreSQL only
 
 permissions:
   contents: read
 
 jobs:
   scope-transaction:
+    if: github.event.inputs.mode != 'production_compact'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     services:
@@ -46,3 +55,62 @@ jobs:
           export DYDATA_OPS_SCOPE_SCRIPT="$GITHUB_WORKSPACE/ops/ops-preparation/september_scope_config.py"
           cd app
           python -m pytest "$GITHUB_WORKSPACE/ops/ops-preparation/test_scope_pg_acceptance.py" -q -p no:cacheprovider
+
+  production-compact:
+    if: github.event.inputs.mode == 'production_compact'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    concurrency:
+      group: dydata102-production-operations
+      cancel-in-progress: false
+    env:
+      TENCENT_HOST: ${{ vars.TENCENT_HOST }}
+      TENCENT_SSH_PORT: ${{ vars.TENCENT_SSH_PORT }}
+      TENCENT_SSH_USER: ${{ vars.TENCENT_SSH_USER }}
+      TENCENT_SSH_KEY: ${{ secrets.TENCENT_SSH_KEY }}
+      TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure pinned SSH connection
+        run: |
+          set -euo pipefail
+          for name in TENCENT_HOST TENCENT_SSH_USER TENCENT_SSH_KEY TENCENT_KNOWN_HOSTS; do
+            [ -n "${!name}" ] || { echo "::error::missing $name"; exit 1; }
+          done
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$TENCENT_SSH_KEY" > ~/.ssh/tencent_lighthouse
+          chmod 600 ~/.ssh/tencent_lighthouse
+          printf '%s\n' "$TENCENT_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          ssh-keygen -F "$TENCENT_HOST" -f ~/.ssh/known_hosts >/dev/null
+      - name: Verify source and execute the authorized fenced compaction
+        id: compact
+        run: |
+          set -euo pipefail
+          scp -i ~/.ssh/tencent_lighthouse -P "${TENCENT_SSH_PORT:-22}" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            ops-preparation/compaction_snapshot.py \
+            "$TENCENT_SSH_USER@$TENCENT_HOST:/tmp/dydata102-compaction-snapshot.py"
+          ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=5 \
+            "$TENCENT_SSH_USER@$TENCENT_HOST" 'bash -s' \
+            < ops-preparation/production_compaction.sh > "$RUNNER_TEMP/report.txt" 2>&1
+      - name: Validate masked aggregate report
+        if: always() && steps.compact.outcome != 'skipped'
+        id: report
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/report.txt"
+          test -s "$report"
+          if grep -Eqi 'BEGIN [A-Z ]*PRIVATE KEY|(Cookie|Authorization):[[:space:]]*[^ ]|postgres(ql)?(\+[a-z]+)?://[^@[:space:]]*:[^@*[:space:]]*@|eyJ[A-Za-z0-9_-]{10,}\.' "$report"; then
+            echo "::error::credential-shaped report withheld"
+            exit 1
+          fi
+          cat "$report"
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.report.outcome == 'success'
+        with:
+          name: dydata102-compaction-aggregate-evidence
+          path: ${{ runner.temp }}/report.txt
+          retention-days: 14
