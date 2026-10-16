@@ -8170,7 +8170,13 @@ def test_task3c_invalid_lineage_fails_before_compaction_write(
     )
 
     with pytest.raises(
-        bootstrap.LegacyProjectionBootstrapError, match="incomplete|nested compact"
+        bootstrap.LegacyProjectionBootstrapError,
+        # "incomplete" hits the depth gate; a legacy-root row reshaped into a
+        # provenance-bearing terminal compact is now structurally valid, so it
+        # is still rejected — before any compaction write — by the digest gate
+        # (its declared checksum uses the legacy-root envelope, not the
+        # compaction envelope).
+        match="incomplete|nested compact|corrupt",
     ):
         compact_projection_metadata(
             _factory(db_session),

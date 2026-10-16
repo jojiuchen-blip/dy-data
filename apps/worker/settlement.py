@@ -370,10 +370,18 @@ def _sparse_base_chain(
         if len(generation_ids) > 65:
             raise ValueError("base settlement lineage exceeds the sparse limit")
         if current.generation_kind == "compact":
-            if current.generation_id != base_generation_id:
-                raise ValueError("ordinary lineage cannot contain a compact base")
-            if current.base_generation_id is not None or current.lineage_depth != 0:
+            # A compact generation may anchor a lineage chain (as the pinned
+            # base) or terminate it as a verified ancestor after later daily
+            # finalizes rebuilt on top of it.  Either way the compact node must
+            # be terminal and carry its compaction provenance; the storage
+            # CHECK makes any other shape unrepresentable, so this is the
+            # fail-closed backstop.
+            if current.base_generation_id is not None or int(
+                current.lineage_depth or 0
+            ) != 0:
                 raise ValueError("compact base settlement metadata is malformed")
+            if current.compaction_base_generation_id is None:
+                raise ValueError("compact base settlement provenance is missing")
             break
         next_id = current.base_generation_id
         if next_id is None:

@@ -60,3 +60,25 @@
 不改旧任务 status/attempt/lease/error 证据；不伪装成功 child；不做 SQL 重置；不提高 64
 阈值；不触碰冻结/确认/发票事实；实际回采成本 = 9/14 单日整链（既有安全恢复仅支持整日
 新代）。资源参数一律取执行时观测值。
+
+## 2026-10-16 控制者独立验收与生产只读核验
+
+- 生产仍为 `b81c71b248771a72f9f3754578313d67f5bda069`，连续压缩兼容补丁尚未部署。`3cf8428` 的完整 CI 为 3611 passed / 189 skipped，不能代替后续未提交补丁的验收。
+- 九月来源只读汇总：36182 条支付时间落在九月的原始订单，11009 条原始核销事件（含撤销），10882 条已物化有效核销券；九月 current 费用结果与账单均为 0。原始与物化数量口径不同，不能当成丢单差额。[只读证据](https://github.com/jojiuchen-blip/dy-data/actions/runs/38838780134)。
+- 生产范围规则仅有八月启用的 2 条，九月/十月无配置；结算器按有效月份精确匹配，因此这是费用为 0 的直接阻断之一。用户核对现有账号/渠道后明确确认“九月的规则和八月一致”。仅授权补九月范围，不改费率或复制金额。现有范围服务会自动排队重建，须待深度阻断解除后调用；尚未写规则。
+- API 内执行只读 Python 诊断曾触发 768MiB cgroup OOM，uvicorn 被杀后重启，诊断退出137。后续诊断已移至 worker，保留数据库 READ ONLY 和查询超时。[恢复核验](https://github.com/jojiuchen-blip/dy-data/actions/runs/38840748071)：API/worker/PostgreSQL 均 healthy，公开财务入口 HTTP200，磁盘可用 25743392768 bytes；API 570.4MiB/768MiB。不得把历史 OOM 隐瞒为无服务影响。
+- 侧栏 DSH 误操作共享 Git 暂存的用户 stash 已按原对象恢复引用，注入文件先完整备份再移除；主工作区干净，集成区 staging 为空，用户内容保留。DSH 后续仅在无 `.git` 的隔离源代码副本执行，控制者独立负责 Git/CI/部署。
+- 控制者对 DSH 新补丁独立复测：`tests/test_settlement_projection.py` 先 10 passed / 1 failed（查询次数断言），修改后 11 passed。另以关闭后拒绝读取的会话探针复现 `_compaction_source_payload_page` 在 finally 关闭后仍调用 provenance verifier。当前仍需修正会话生命周期，补足大批量读取及更深层篡改回归；没有接受补丁或宣称生产修复。
+- 无 foundation 契约变更；Linear DYDATA-102/103 保持 In Progress，生产数据补跑、范围落库、费用重建、月结及最终 UI/导出验收尚未完成。
+
+### 补充：冻结副本扩大回归
+
+控制者在冻结的 DSH V2 源码副本运行 legacy bootstrap、settlement projection、compaction publisher/runner、finalize、recovery 六组测试：**367 passed, 4 skipped**，324.12s；PG相关4项因未配置测试DSN跳过。此证据不覆盖尚在执行的会话生命周期返修，不替代真实PG CI。已将探针失败证据及小范围返修要求下发DSH。
+
+补充纠正：上述会话探针替换了真实 resolver，证明关闭后仍调用校验方法，不能证明合法生产路径发生数据库重开；真实 resolver 会无条件预热终端 compact closure，正常路径命中缓存。顺序调整属于生命周期防御，不应称为已证实的生产连接泄漏/P1。
+
+### 补充：DSH 返修接入前验收
+
+- 控制者对返修冻结副本运行 `python -m pytest tests/test_settlement_projection.py -q`：**14 passed**，27.53s。包括第四次真实metadata压缩及后续日、原始叶子金额/非空冻结事实保留、C1深层digest篡改拒绝、同来源/深度的105个分区与单分区查询数相同，以及会话调用顺序防御。
+- 对照干净源码归档逐文件比对，执行者仅改约定的5份业务/测试文件；额外诊断脚本不接入。控制者核对执行者文件与独立测试副本字节相同后，仅复制这5份文件到集成分支；原集成文件另有本地恢复备份。未复制缓存/临时目录/诊断脚本，未暂存无关工作。
+- `git diff --check`、全局文件及S4路由检查通过。仍需本次提交完整CI与真实PG门禁，生产未更新。
