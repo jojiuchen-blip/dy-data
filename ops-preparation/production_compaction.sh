@@ -13,6 +13,7 @@ test -n "$worker" && test -n "$postgres" && test -n "$api"
 for container in "$api" "$worker" "$postgres"; do
   test "$(sudo docker inspect --format '{{.State.Status}}' "$container")" = running
   test "$(sudo docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container")" = healthy
+  sudo docker inspect --format 'service={{.Name}} started_at={{.State.StartedAt}}' "$container"
 done
 for container in "$api" "$worker"; do
   while read -r digest module; do
@@ -27,6 +28,11 @@ abc2a3d529fbbdcdc969271e0b1aaad426d8092afb79b02a764db39e07bcf63e apps/worker/leg
 HASHES
 done
 printf 'api_and_worker_source_verification=passed\n'
+compose exec -T worker python - <<'PY'
+from apps.worker.resource_monitor import guard_enabled
+assert guard_enabled(), 'resource_guard_disabled_refusing_maintenance'
+print('real_resource_guard_enabled=true',flush=True)
+PY
 test -f /tmp/dydata102-compaction-snapshot.py
 sudo docker cp /tmp/dydata102-compaction-snapshot.py "$worker:/tmp/dydata102-compaction-snapshot.py"
 compose exec -T worker python /tmp/dydata102-compaction-snapshot.py > /tmp/dydata102-compaction-before.json
