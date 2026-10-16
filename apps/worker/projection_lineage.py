@@ -8,9 +8,11 @@ must fail closed when metadata is incomplete or corrupt.
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 from typing import Any, Iterable, Literal
 
 from sqlalchemy import text
@@ -23,6 +25,8 @@ MAX_LINEAGE_DEPTH = 64
 MAX_PARTITION_KEYS = 1000
 _ARTIFACTS = {"monthly", "ranking", "score"}
 _LOWER_HEX_64 = re.compile(r"[0-9a-f]{64}\Z")
+# Strict signed-integer text form for manifest monetary/count fields.
+_INTEGER_TEXT = re.compile(r"[+-]?[0-9]+\Z")
 # Sentinel distinguishing "not read yet" from a negative (missing) cache entry.
 _MANIFEST_MISSING = object()
 
@@ -205,11 +209,7 @@ def _validate_manifest(
         and manifest_base_generation_id is None
     ):
         raise LineageError("manifest base generation id is blank")
-    row_count = row.get("row_count")
-    try:
-        row_count_int = int(row_count or 0)
-    except (TypeError, ValueError) as exc:
-        raise LineageError("manifest row_count is invalid") from exc
+    row_count = _manifest_integer(row, "row_count")
     if owner_state == "owned" and source_kind == "overlay":
         if data_generation_id is None or data_generation_id not in lineage_ids:
             raise LineageError("overlay manifest has an invalid data generation")
@@ -217,7 +217,7 @@ def _validate_manifest(
         if data_generation_id is not None:
             raise LineageError("legacy-root manifest must not name data generation")
     elif owner_state == "tombstone" and source_kind == "tombstone":
-        if data_generation_id is not None or row_count_int != 0:
+        if data_generation_id is not None or row_count != 0:
             raise LineageError("tombstone manifest must have no data and zero rows")
     else:
         raise LineageError("manifest owner/source metadata is inconsistent")
@@ -232,14 +232,40 @@ def _validate_manifest(
         raise LineageError("manifest base generation is outside pinned lineage")
 
 
-def _manifest_integer(row: dict[str, Any], field: str) -> int:
+def _manifest_signed_integer(row: dict[str, Any], field: str) -> int:
+    """Signed integer parse for monetary manifest fields.
+
+    Amounts are signed: cross-month refund adjustments legitimately produce
+    negative ``amount_total_cent`` totals.  Booleans and non-integer values
+    still fail closed; negatives are never masked via abs/clamp or row drops.
+    """
+
     value = row.get(field)
     if isinstance(value, bool):
         raise LineageError(f"manifest {field} is invalid")
-    try:
-        normalized = int(value or 0)
-    except (TypeError, ValueError) as exc:
-        raise LineageError(f"manifest {field} is invalid") from exc
+    if value is None:
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value) or not value.is_integer():
+            raise LineageError(f"manifest {field} is invalid")
+        return int(value)
+    if isinstance(value, Decimal):
+        if not value.is_finite() or value != value.to_integral_value():
+            raise LineageError(f"manifest {field} is invalid")
+        return int(value)
+    if isinstance(value, str) and _INTEGER_TEXT.fullmatch(value) is not None:
+        # Parse through the arbitrary-precision int constructor, never float,
+        # so large integer amounts keep full precision.
+        return int(value)
+    raise LineageError(f"manifest {field} is invalid")
+
+
+def _manifest_integer(row: dict[str, Any], field: str) -> int:
+    """Non-negative integer parse for counting manifest fields."""
+
+    normalized = _manifest_signed_integer(row, field)
     if normalized < 0:
         raise LineageError(f"manifest {field} is invalid")
     return normalized
@@ -311,8 +337,16 @@ def _verify_compact_closure(
     compact source's own manifest rows at claim-verification time.
     """
 
+    # One bounded query per compact node: head metadata, its compaction base,
+    # and every closure/source row come back together via LEFT JOINs.  The
+    # head is parsed from the first row; closure rows carry non-NULL
+    # ``source_generation_id`` columns from the closure table itself, so a
+    # compact with no closure rows yields a single all-NULL closure side.  The
+    # LIMIT reads at most 66 rows (MAX_LINEAGE_DEPTH + 2) so a closure with
+    # more than 65 sources exceeds the limit and fails closed below instead
+    # of being silently truncated.
     try:
-        head_result = session.execute(
+        rows_result = session.execute(
             text(
                 """
                 SELECT compact.generation_id AS compact_generation_id,
@@ -325,21 +359,40 @@ def _verify_compact_closure(
                        compact.lineage_depth AS compact_lineage_depth,
                        base.generation_id AS base_generation_id,
                        base.projection_name AS base_projection_name,
-                       base.state AS base_state
+                       base.state AS base_state,
+                       closure.source_generation_id,
+                       closure.source_digest,
+                       source.projection_name AS source_projection_name,
+                       source.state AS source_state,
+                       source.generation_kind AS source_generation_kind,
+                       source.base_generation_id AS source_base_generation_id,
+                       source.compaction_base_generation_id
+                         AS source_compaction_base_generation_id,
+                       source.lineage_depth AS source_lineage_depth,
+                       source.manifest_checksum AS source_manifest_checksum
                 FROM settlement_projection_generation AS compact
                 LEFT JOIN settlement_projection_generation AS base
                   ON base.generation_id = compact.compaction_base_generation_id
+                LEFT JOIN settlement_projection_compaction_closure AS closure
+                  ON closure.compact_generation_id = compact.generation_id
+                LEFT JOIN settlement_projection_generation AS source
+                  ON source.generation_id = closure.source_generation_id
                 WHERE compact.generation_id = :compact_generation_id
+                ORDER BY closure.source_generation_id
+                LIMIT :row_limit
                 """
             ),
-            {"compact_generation_id": compact_generation_id},
+            {
+                "compact_generation_id": compact_generation_id,
+                "row_limit": MAX_LINEAGE_DEPTH + 2,
+            },
         )
-        head_rows = [dict(row) for row in head_result.mappings().all()]
+        joined_rows = [dict(row) for row in rows_result.mappings().all()]
     except Exception as exc:
         raise LineageError("failed to read compact head metadata") from exc
-    if not head_rows:
+    if not joined_rows:
         raise LineageError("compact head metadata is missing")
-    head = head_rows[0]
+    head = joined_rows[0]
     compaction_base = _as_text(head.get("compact_compaction_base_generation_id"))
     try:
         head_depth = int(head.get("compact_lineage_depth") or 0)
@@ -363,36 +416,12 @@ def _verify_compact_closure(
     ):
         raise LineageError("compact provenance base is invalid")
 
-    try:
-        closure_result = session.execute(
-            text(
-                """
-                SELECT closure.source_generation_id,
-                       closure.source_digest,
-                       source.projection_name AS source_projection_name,
-                       source.state AS source_state,
-                       source.generation_kind AS source_generation_kind,
-                       source.base_generation_id AS source_base_generation_id,
-                       source.compaction_base_generation_id
-                         AS source_compaction_base_generation_id,
-                       source.lineage_depth AS source_lineage_depth,
-                       source.manifest_checksum AS source_manifest_checksum
-                FROM settlement_projection_compaction_closure AS closure
-                LEFT JOIN settlement_projection_generation AS source
-                  ON source.generation_id = closure.source_generation_id
-                WHERE closure.compact_generation_id = :compact_generation_id
-                ORDER BY closure.source_generation_id
-                LIMIT :closure_limit
-                """
-            ),
-            {
-                "compact_generation_id": compact_generation_id,
-                "closure_limit": MAX_LINEAGE_DEPTH + 2,
-            },
-        )
-        closure_rows = [dict(row) for row in closure_result.mappings().all()]
-    except Exception as exc:
-        raise LineageError("failed to read compact provenance closure") from exc
+    # Closure rows are the joined rows whose closure-side source id is set;
+    # when the compact has no closure rows at all, the LEFT JOIN returns one
+    # row with a NULL closure source id and head fields only.
+    closure_rows = [
+        row for row in joined_rows if row.get("source_generation_id") is not None
+    ]
     if not closure_rows:
         raise LineageError("compact provenance closure is missing")
     source_rows: dict[str, dict[str, Any]] = {}
@@ -624,8 +653,8 @@ class _CompactProvenanceContext:
                         != _valid_digest(row.get("checksum"))
                         or _manifest_integer(source_manifest, "row_count")
                         != _manifest_integer(row, "row_count")
-                        or _manifest_integer(source_manifest, "amount_total_cent")
-                        != _manifest_integer(row, "amount_total_cent")
+                        or _manifest_signed_integer(source_manifest, "amount_total_cent")
+                        != _manifest_signed_integer(row, "amount_total_cent")
                         or _canonical_status_counts(
                             source_manifest.get("status_counts_json")
                         )
@@ -676,8 +705,8 @@ class _CompactProvenanceContext:
                     )
                     or _manifest_integer(anchor_row, "row_count")
                     != _manifest_integer(row, "row_count")
-                    or _manifest_integer(anchor_row, "amount_total_cent")
-                    != _manifest_integer(row, "amount_total_cent")
+                    or _manifest_signed_integer(anchor_row, "amount_total_cent")
+                    != _manifest_signed_integer(row, "amount_total_cent")
                     or _canonical_status_counts(anchor_row.get("status_counts_json"))
                     != _canonical_status_counts(row.get("status_counts_json"))
                     or _as_text(anchor_row.get("checksum"))
@@ -1349,9 +1378,9 @@ def resolve_projection_partitions(
         if manifest is None:
             raise LineageError("overlay partition manifest disappeared")
         try:
-            row_count = int(manifest.get("row_count") or 0)
-        except (TypeError, ValueError) as exc:
-            raise LineageError("overlay manifest row_count is invalid") from exc
+            row_count = _manifest_integer(manifest, "row_count")
+        except LineageError:
+            raise
         if row_count > 0:
             overlay_requirements.append(
                 (normalized_artifact, resolution.actual_data_generation_id, key)

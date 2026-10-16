@@ -1759,3 +1759,347 @@ def test_hundred_partition_compacted_reads_do_not_scale_with_partition_count(
     )
     assert newest_legacy is not None
     assert newest_legacy.sales_amount_cent == 100 * sum(range(1, len(legacy_months) + 1))
+
+
+# ---------------------------------------------------------------------------
+# DYDATA-102 signed-amount acceptance: cross-month refund adjustments are a
+# legal production fact (signed amount schema), so a negative
+# ``amount_total_cent`` manifest must read back through every real entry
+# instead of being rejected as a non-negative count.
+# ---------------------------------------------------------------------------
+
+
+def _seed_positive_fee_with_cross_month_refund(
+    db_session: Session,
+    *,
+    prefix: str,
+    month: str,
+    posting_month: str,
+    source_amount: int,
+    fee_amount: int,
+    adjustment_base_cent: int,
+    adjustment_fee_cent: int,
+    adjustment_id: str,
+):
+    """Seed one positive fee result plus one legal cross-month refund adjustment."""
+
+    result = _fee_result(
+        result_id=f"{prefix}-result-{month}",
+        coupon_id=f"{prefix}-coupon-{month}",
+        direction=1,
+        version=1,
+        month=month,
+        store_id=f"{prefix}-store",
+        source_amount=source_amount,
+        fee_amount=fee_amount,
+    )
+    db_session.add(result)
+    db_session.flush()
+    db_session.add(
+        SettlementFeeResultCurrent(
+            coupon_id=result.coupon_id,
+            fee_direction=1,
+            fee_result_id=result.fee_result_id,
+        )
+    )
+    adjustment = SettlementFeeAdjustment(
+        adjustment_id=adjustment_id,
+        original_fee_result_id=result.fee_result_id,
+        coupon_id=result.coupon_id,
+        order_id=result.order_id,
+        fee_direction=1,
+        original_business_month=month,
+        adjustment_posting_month=posting_month,
+        adjustment_type=1,
+        adjustment_base_cent=adjustment_base_cent,
+        adjustment_fee_cent=adjustment_fee_cent,
+        rule_version="rule-v1",
+        adjustment_reason="cross-month refund",
+        occurred_at=datetime.now(UTC),
+        created_by="test",
+    )
+    db_session.add(adjustment)
+    db_session.flush()
+    return result, adjustment
+
+
+def _financial_row_snapshot(db_session: Session, row: object) -> dict[str, object]:
+    """Read one row back from the database by its full column set."""
+
+    table = type(row).__table__  # type: ignore[attr-defined]
+    identity = {
+        column.key: getattr(row, column.key)
+        for column in table.primary_key.columns
+    }
+    db_row = db_session.execute(
+        select(table).where(
+            *[getattr(table.c, key) == value for key, value in identity.items()]
+        )
+    ).mappings().one()
+    return dict(db_row)
+
+
+def test_cross_month_refund_negative_amount_survives_compaction(db_session: Session):
+    prefix = "refund"
+    root = _seed_base(db_session, prefix=prefix)
+    _real_root_digest(db_session, root)
+    result, adjustment = _seed_positive_fee_with_cross_month_refund(
+        db_session,
+        prefix=prefix,
+        month="2026-08",
+        posting_month="2026-09",
+        source_amount=100,
+        fee_amount=10,
+        adjustment_base_cent=-100,
+        adjustment_fee_cent=-10,
+        adjustment_id=f"{prefix}-adj-1",
+    )
+    _seed_fee_month(db_session, prefix=prefix, month="2026-10", index=2, amounts=(200, 20))
+    db_session.commit()
+
+    result_snapshot = _financial_row_snapshot(db_session, result)
+    adjustment_snapshot = _financial_row_snapshot(db_session, adjustment)
+    fee_row_id, adjustment_row_id = result.id, adjustment.id
+
+    _publish_day(
+        db_session,
+        generation_id=f"{prefix}-l1",
+        base_generation_id=root,
+        affected_month="2026-08",
+    )
+    db_session.expire_all()
+
+    # The real sparse builder produced the Sep monthly row and the
+    # monthly:2026-09 ranking row with the real refund amounts.
+    sep_monthly = db_session.scalar(
+        select(SettlementMonthlyOverlay).where(
+            SettlementMonthlyOverlay.generation_id == f"{prefix}-l1",
+            SettlementMonthlyOverlay.month == "2026-09",
+            SettlementMonthlyOverlay.product_scope == "all",
+            SettlementMonthlyOverlay.product_type == "all",
+        )
+    )
+    assert sep_monthly is not None
+    assert (
+        sep_monthly.promotion_original_fee_cent,
+        sep_monthly.promotion_adjustment_fee_cent,
+        sep_monthly.promotion_net_fee_cent,
+    ) == (0, -10, -10)
+    sep_ranking = db_session.scalar(
+        select(SettlementRankingOverlay).where(
+            SettlementRankingOverlay.generation_id == f"{prefix}-l1",
+            SettlementRankingOverlay.partition_key == "monthly:2026-09",
+            SettlementRankingOverlay.product_scope == "all",
+            SettlementRankingOverlay.product_type == "all",
+        )
+    )
+    assert sep_ranking is not None
+    assert sep_ranking.promotion_net_fee_cent == -10
+
+    day1_monthly_manifest = db_session.scalar(
+        select(SettlementProjectionPartitionManifest).where(
+            SettlementProjectionPartitionManifest.generation_id == f"{prefix}-l1",
+            SettlementProjectionPartitionManifest.artifact == "monthly",
+            SettlementProjectionPartitionManifest.partition_key == "2026-09",
+        )
+    )
+    assert day1_monthly_manifest is not None
+    assert day1_monthly_manifest.row_count == 1
+    assert day1_monthly_manifest.amount_total_cent == -10
+    day1_ranking_manifest = db_session.scalar(
+        select(SettlementProjectionPartitionManifest).where(
+            SettlementProjectionPartitionManifest.generation_id == f"{prefix}-l1",
+            SettlementProjectionPartitionManifest.artifact == "ranking",
+            SettlementProjectionPartitionManifest.partition_key == "monthly:2026-09",
+        )
+    )
+    assert day1_ranking_manifest is not None
+    assert day1_ranking_manifest.amount_total_cent == -10
+
+    # Ordinary (pre-compaction) entry already resolves the negative partition.
+    ordinary = _monthly_resolution(db_session, pinned=f"{prefix}-l1", keys=("2026-09",))
+    assert ordinary["2026-09"].owner_state == "owned"
+    assert ordinary["2026-09"].actual_data_generation_id == f"{prefix}-l1"
+
+    # First compact publish: the direct compact reader must accept the signed
+    # partition and resolve it down to the real leaf without masking anything.
+    compact1 = _publish_compact(
+        db_session, base_generation_id=f"{prefix}-l1", job_suffix=f"{prefix}-c1"
+    )
+    direct = _monthly_resolution(db_session, pinned=compact1, keys=("2026-09",))
+    assert direct["2026-09"].owner_state == "owned"
+    assert direct["2026-09"].source_kind == "overlay"
+    assert direct["2026-09"].nearest_manifest_owner_generation == compact1
+    assert direct["2026-09"].actual_data_generation_id == f"{prefix}-l1"
+    leaf_rows = db_session.scalars(
+        select(SettlementMonthlyOverlay).where(
+            SettlementMonthlyOverlay.generation_id == f"{prefix}-l1",
+            SettlementMonthlyOverlay.month == "2026-09",
+            SettlementMonthlyOverlay.product_scope == "all",
+            SettlementMonthlyOverlay.product_type == "all",
+        )
+    ).all()
+    assert [
+        (row.promotion_adjustment_fee_cent, row.promotion_net_fee_cent)
+        for row in leaf_rows
+    ] == [(-10, -10)]
+    direct_ranking = _monthly_ranking_resolution(
+        db_session, pinned=compact1, key="monthly:2026-09"
+    )["monthly:2026-09"]
+    assert direct_ranking.owner_state == "owned"
+    assert direct_ranking.actual_data_generation_id == f"{prefix}-l1"
+
+    # Compaction preserved the real signed evidence bit-for-bit.
+    compact1_monthly_manifest = db_session.scalar(
+        select(SettlementProjectionPartitionManifest).where(
+            SettlementProjectionPartitionManifest.generation_id == compact1,
+            SettlementProjectionPartitionManifest.artifact == "monthly",
+            SettlementProjectionPartitionManifest.partition_key == "2026-09",
+        )
+    )
+    assert compact1_monthly_manifest is not None
+    assert compact1_monthly_manifest.amount_total_cent == -10
+    assert compact1_monthly_manifest.row_count == day1_monthly_manifest.row_count
+    assert compact1_monthly_manifest.checksum == day1_monthly_manifest.checksum
+
+    # A following day and a second compaction keep the signed partition,
+    # its real leaf, and the summary intact on every entry.
+    _publish_day(
+        db_session,
+        generation_id=f"{prefix}-l2",
+        base_generation_id=compact1,
+        affected_month="2026-10",
+    )
+    compact2 = _publish_compact(
+        db_session, base_generation_id=f"{prefix}-l2", job_suffix=f"{prefix}-c2"
+    )
+    for pinned in (f"{prefix}-l2", compact2):
+        resolution = _monthly_resolution(
+            db_session, pinned=pinned, keys=("2026-09", "2026-10")
+        )
+        assert resolution["2026-09"].owner_state == "owned"
+        assert resolution["2026-09"].actual_data_generation_id == f"{prefix}-l1"
+        assert resolution["2026-10"].owner_state == "owned"
+        assert resolution["2026-10"].actual_data_generation_id == f"{prefix}-l2"
+        rows = db_session.scalars(
+            select(SettlementMonthlyOverlay).where(
+                SettlementMonthlyOverlay.generation_id == f"{prefix}-l1",
+                SettlementMonthlyOverlay.month == "2026-09",
+                SettlementMonthlyOverlay.product_scope == "all",
+                SettlementMonthlyOverlay.product_type == "all",
+            )
+        ).all()
+        assert [(row.promotion_net_fee_cent, row.management_net_fee_cent) for row in rows] == [
+            (-10, 0)
+        ]
+    compact2_monthly_manifest = db_session.scalar(
+        select(SettlementProjectionPartitionManifest).where(
+            SettlementProjectionPartitionManifest.generation_id == compact2,
+            SettlementProjectionPartitionManifest.artifact == "monthly",
+            SettlementProjectionPartitionManifest.partition_key == "2026-09",
+        )
+    )
+    assert compact2_monthly_manifest is not None
+    assert compact2_monthly_manifest.amount_total_cent == -10
+    assert compact2_monthly_manifest.checksum == compact1_monthly_manifest.checksum
+
+    # Compaction never changed a financial row.
+    db_session.expire_all()
+    assert _financial_row_snapshot(db_session, db_session.get(SettlementFeeResult, fee_row_id)) == result_snapshot
+    assert _financial_row_snapshot(
+        db_session, db_session.get(SettlementFeeAdjustment, adjustment_row_id)
+    ) == adjustment_snapshot
+
+
+def test_manifest_signed_amount_and_nonnegative_count_gates():
+    from apps.worker.projection_lineage import (
+        LineageError,
+        _canonical_status_counts,
+        _manifest_integer,
+        _manifest_signed_integer,
+    )
+
+    # Signed amounts stay signed — negatives are legal, never abs/clamped.
+    assert _manifest_signed_integer({"amount_total_cent": -10}, "amount_total_cent") == -10
+    assert _manifest_signed_integer({"amount_total_cent": 0}, "amount_total_cent") == 0
+    # Booleans and non-integer amounts are still illegal.
+    with pytest.raises(LineageError):
+        _manifest_signed_integer({"amount_total_cent": True}, "amount_total_cent")
+    with pytest.raises(LineageError):
+        _manifest_signed_integer({"amount_total_cent": "1.5"}, "amount_total_cent")
+    with pytest.raises(LineageError):
+        _manifest_signed_integer({"amount_total_cent": "abc"}, "amount_total_cent")
+    # Counts (row_count) and status_counts remain strictly non-negative.
+    with pytest.raises(LineageError):
+        _manifest_integer({"row_count": -1}, "row_count")
+    with pytest.raises(LineageError):
+        _manifest_integer({"row_count": True}, "row_count")
+    assert _manifest_integer({"row_count": 3}, "row_count") == 3
+    with pytest.raises(LineageError):
+        _canonical_status_counts({"paid": -1})
+    assert _canonical_status_counts({"paid": 2}) == (("paid", 2),)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        1.5,
+        -0.5,
+        Decimal("1.5"),
+        Decimal("-0.5"),
+        Decimal("NaN"),
+        Decimal("Infinity"),
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        "1.5",
+        "-0.5",
+        "nan",
+        "inf",
+        "1e2",
+        "abc",
+        "",
+    ],
+)
+def test_manifest_non_integer_amounts_rejected(raw):
+    from apps.worker.projection_lineage import (
+        LineageError,
+        _manifest_integer,
+        _manifest_signed_integer,
+    )
+
+    with pytest.raises(LineageError):
+        _manifest_signed_integer({"amount_total_cent": raw}, "amount_total_cent")
+    # Counts must never be truncated either.
+    with pytest.raises(LineageError):
+        _manifest_integer({"row_count": raw}, "row_count")
+
+
+def test_manifest_integer_amounts_accepted_without_precision_loss():
+    from apps.worker.projection_lineage import (
+        _manifest_integer,
+        _manifest_signed_integer,
+    )
+
+    # Normal integers and integer digit strings keep the original semantics.
+    assert _manifest_signed_integer({"amount_total_cent": None}, "amount_total_cent") == 0
+    assert _manifest_signed_integer({}, "amount_total_cent") == 0
+    assert _manifest_signed_integer({"amount_total_cent": 7}, "amount_total_cent") == 7
+    assert _manifest_signed_integer({"amount_total_cent": "-7"}, "amount_total_cent") == -7
+    assert _manifest_signed_integer({"amount_total_cent": 2.0}, "amount_total_cent") == 2
+    assert (
+        _manifest_signed_integer({"amount_total_cent": Decimal("2")}, "amount_total_cent")
+        == 2
+    )
+    # Big integers must not lose precision through a float round-trip.
+    big = 9007199254740993
+    assert _manifest_signed_integer({"amount_total_cent": big}, "amount_total_cent") == big
+    assert _manifest_signed_integer(
+        {"amount_total_cent": str(big)}, "amount_total_cent"
+    ) == big
+    assert _manifest_signed_integer(
+        {"amount_total_cent": f"-{big}"}, "amount_total_cent"
+    ) == -big
+    # Counts accept the same integer forms, still non-negative.
+    assert _manifest_integer({"row_count": "3"}, "row_count") == 3
+    assert _manifest_integer({"row_count": None}, "row_count") == 0

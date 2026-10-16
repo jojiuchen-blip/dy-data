@@ -82,3 +82,12 @@
 - 控制者对返修冻结副本运行 `python -m pytest tests/test_settlement_projection.py -q`：**14 passed**，27.53s。包括第四次真实metadata压缩及后续日、原始叶子金额/非空冻结事实保留、C1深层digest篡改拒绝、同来源/深度的105个分区与单分区查询数相同，以及会话调用顺序防御。
 - 对照干净源码归档逐文件比对，执行者仅改约定的5份业务/测试文件；额外诊断脚本不接入。控制者核对执行者文件与独立测试副本字节相同后，仅复制这5份文件到集成分支；原集成文件另有本地恢复备份。未复制缓存/临时目录/诊断脚本，未暂存无关工作。
 - `git diff --check`、全局文件及S4路由检查通过。仍需本次提交完整CI与真实PG门禁，生产未更新。
+
+### 补充：完整 CI 回归与合法退款金额
+
+- `5effd6e` [完整CI](https://github.com/jojiuchen-blip/dy-data/actions/runs/38844224372) 为 1 failed / 3618 passed / 189 skipped；真实PG门禁通过，唯一失败为1000分区读取查询次数12超过预算11。[并行部署](https://github.com/jojiuchen-blip/dy-data/actions/runs/38845322980) 已在Verify阶段取消，没有执行生产切换。
+- DSH将compact头、base、closure和source合为单个有界LEFT JOIN，保留MAX+2溢出检测。控制者冻结副本复测projection与generation API为116 passed，不能代替下一提交完整CI。
+- [生产只读核验](https://github.com/jojiuchen-blip/dy-data/actions/runs/38863471268) 发现当前最近有效来源的monthly负金额分区1个、ranking负金额分区4个。负金额是跨月退款的合法事实，不应按非负计数拒绝。
+- 控制者用真实正向费用10分和跨月退款调整负10分，经实际日发布、首次压缩发布后读取，独立复现 `manifest amount_total_cent is invalid`。压缩构建本身成功，失败发生在后续读取，因此未执行生产压缩。DSH正在将金额解析与非负计数分开，并补非整数拒绝；还需冻结副本验收和完整CI。
+- 九月补范围及单日恢复运维脚本尚在审查；本地逻辑测试不等于真实PG的外层事务原子性验收。生产仍未更新，九月30/30、费用、待确认账单及最终导出内容验收尚未完成。
+- 最终退款/整数返修经控制者冻结副本独立复测：`python -m pytest tests/test_settlement_projection.py tests/test_settlement_generation_api.py -q -p no:cacheprovider`，**135 passed**，90.22s。包含真实跨月退款、首次/再次压缩后读取、非整数与非有限数拒绝、大整数精度及1000分区查询预算。执行者与验收副本两文件SHA256一致；早期验收副本的测试负数字符串笔误曾导致1 failed / 134 passed，已修正并完整重跑，不计作业务通过证据。
