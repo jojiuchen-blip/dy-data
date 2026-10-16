@@ -73,8 +73,6 @@ jobs:
               assert session.scalar(text('SHOW transaction_read_only'))=='on'
               rows=session.execute(select(M.SettlementScopeRule.effective_month,M.SettlementScopeRule.is_active,func.count()).where(M.SettlementScopeRule.effective_month.in_(['2026-08','2026-09','2026-10'])).group_by(M.SettlementScopeRule.effective_month,M.SettlementScopeRule.is_active)).all()
               print(json.dumps({'monthly_scope_rule_counts':[{'month':month,'active':active,'rows':count} for month,active,count in rows]}))
-              details=session.execute(select(M.SettlementScopeRule.effective_month,M.SettlementScopeRule.owner_account_id,M.DimAwemeAccount.nickname,M.SettlementScopeRule.sale_channel_normalized,M.SettlementScopeRule.is_active).outerjoin(M.DimAwemeAccount,M.DimAwemeAccount.account_id==M.SettlementScopeRule.owner_account_id).where(M.SettlementScopeRule.effective_month=='2026-08').order_by(M.SettlementScopeRule.owner_account_id,M.SettlementScopeRule.sale_channel_normalized).limit(100)).all()
-              print(json.dumps({'august_scope_for_user_review':[{'month':month,'account_id':account,'nickname':nickname,'channel':channel,'active':active} for month,account,nickname,channel,active in details]},ensure_ascii=False))
           finally:
               scope.close()
           PY
