@@ -51,6 +51,12 @@ jobs:
           cache-dependency-path: app/requirements.txt
       - name: Install application dependencies
         run: python -m pip install -r app/requirements.txt
+      - name: Verify streamed-shell and external receipt regression
+        run: |
+          for script in ops/ops-preparation/production_compaction.sh ops/ops-preparation/production_day_recovery.sh ops/ops-preparation/production_scope.sh; do
+            bash -n "$script"
+          done
+          python -m pytest ops/ops-preparation/test_operation_receipt.py -q -p no:cacheprovider
       - name: Verify atomic visibility, rollback and replay on disposable PostgreSQL
         env:
           DY_RELEASE_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_release
