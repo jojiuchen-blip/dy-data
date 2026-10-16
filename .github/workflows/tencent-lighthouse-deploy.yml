@@ -64,7 +64,7 @@ jobs:
           curl --fail --silent --show-error --max-time 15 --output /dev/null --write-out 'public_http_status=%{http_code}\n' https://dy-business-engine.com/finance/promotion
           compose exec -T worker python - <<'PY'
           import json,hashlib
-          from sqlalchemy import select,func,text
+          from sqlalchemy import select,func,text,literal
           from dy_api import models as M
           from dy_api.pdca_readonly_access import _open_pdca_readonly_session
           scope=_open_pdca_readonly_session()
@@ -87,12 +87,30 @@ jobs:
               }
               active=session.get(M.SettlementProjectionActive,'settlement')
               head=session.get(M.SettlementProjectionGeneration,active.generation_id) if active and active.generation_id else None
+              if head is not None:
+                  G=M.SettlementProjectionGeneration
+                  chain=select(G.generation_id,G.base_generation_id,literal(0).label('hop')).where(G.generation_id==head.generation_id).cte('resource_lineage',recursive=True)
+                  chain=chain.union_all(select(G.generation_id,G.base_generation_id,(chain.c.hop+1).label('hop')).join(chain,G.generation_id==chain.c.base_generation_id).where(chain.c.hop<65))
+                  captured=session.execute(select(chain).order_by(chain.c.hop)).mappings().all()
+                  ids=[row['generation_id'] for row in captured]
+                  assert 1<=len(ids)<=65 and len(set(ids))==len(ids) and captured[-1]['base_generation_id'] is None
+                  manifest=M.SettlementProjectionPartitionManifest
+                  partitions=select(manifest.artifact,manifest.partition_key).where(manifest.generation_id.in_(ids)).distinct().subquery()
+                  print(json.dumps({'compaction_observed_resources':{'distinct_manifest_rows':session.scalar(select(func.count()).select_from(partitions)),'closure_rows':len(ids)}}))
               print(json.dumps({'august_full_fact_hashes':facts,'active_head':{'generation_id':head.generation_id,'depth':head.lineage_depth,'state':head.state,'kind':head.generation_kind} if head else None},sort_keys=True))
               rows=session.execute(select(M.SettlementScopeRule.effective_month,M.SettlementScopeRule.is_active,func.count()).where(M.SettlementScopeRule.effective_month.in_(['2026-08','2026-09','2026-10'])).group_by(M.SettlementScopeRule.effective_month,M.SettlementScopeRule.is_active)).all()
               print(json.dumps({'monthly_scope_rule_counts':[{'month':month,'active':active,'rows':count} for month,active,count in rows]}))
           finally:
               scope.close()
           PY
+          pg_container="$(compose ps -q postgres)"
+          pg_mount="$(sudo docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql"}}{{.Type}}|{{.Source}}{{end}}{{end}}' "$pg_container")"
+          IFS='|' read -r pg_type pg_source <<< "$pg_mount"
+          test "$pg_type" = volume
+          test "${pg_source#/}" != "$pg_source"
+          sudo test -d "$pg_source"
+          printf 'pg_volume_disk_total_available_bytes='
+          sudo df -B1 --output=size,avail "$pg_source" | tail -1 | xargs
           free -m
           df -B1 --output=size,avail,pcent /opt/dy-dashboard
           sudo journalctl -k --since '10 minutes ago' --no-pager | grep -Ei 'Out of memory|Killed process|oom-kill' | tail -8 || true
