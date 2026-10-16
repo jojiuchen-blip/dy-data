@@ -55,18 +55,27 @@ jobs:
           cd /opt/dy-dashboard/repo
           sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml exec -T api python - <<'PY'
           import json,re
-          from sqlalchemy import select,text
+          from sqlalchemy import select,text,func
+          from datetime import datetime
           from dy_api import models as M
           from dy_api.pdca_readonly_access import _open_pdca_readonly_session
           gen=_open_pdca_readonly_session();session=next(gen)
           try:
               assert session.scalar(text('SHOW transaction_read_only'))=='on'
+              start=datetime.fromisoformat('2026-09-01T00:00:00+08:00');end=datetime.fromisoformat('2026-10-01T00:00:00+08:00')
               children=session.scalars(select(M.JobRun).where(M.JobRun.parent_job_id=='range-sync-cfd16d14060472e3243b03244fd65322')).all()
               out={'children':[{'job_id':j.job_id,'kind':j.job_kind,'status':j.status,'error_code':j.error_code} for j in children],'error_summaries':[re.sub(r'https?://\S+|postgres\S+|[0-9]{8,}','[masked]',line)[:350] for j in children for line in (j.error_message or '').splitlines() if line.startswith('ValueError:')]}
               root=session.get(M.JobRun,'range-sync-10562f3369ac7d31e9801d42d8db1d60')
               entries=(root.metadata_json or {}).get('recovery_generations',[]) if root else []
               out['root_recovery_ledger']=[{k:e.get(k) for k in ('parent_job_id','ordinal','config_version')} for e in entries]
               out['root_status']=root.status if root else None
+              out['september_source_counts']={
+                  'raw_orders_by_pay_time':session.scalar(select(func.count()).select_from(M.RawDouyinOrder).where(M.RawDouyinOrder.pay_time>=start,M.RawDouyinOrder.pay_time<end)),
+                  'raw_verify_events_including_cancellations':session.scalar(select(func.count()).select_from(M.RawDouyinVerifyRecord).where(M.RawDouyinVerifyRecord.verify_time>=start,M.RawDouyinVerifyRecord.verify_time<end)),
+                  'materialized_verified_coupons':session.scalar(select(func.count()).select_from(M.SettlementOrderDetail).where(M.SettlementOrderDetail.is_verified.is_(True),M.SettlementOrderDetail.verify_time>=start,M.SettlementOrderDetail.verify_time<end)),
+                  'current_fee_results':session.scalar(select(func.count()).select_from(M.SettlementFeeResult).join(M.SettlementFeeResultCurrent,M.SettlementFeeResultCurrent.fee_result_id==M.SettlementFeeResult.fee_result_id).where(M.SettlementFeeResult.original_business_month=='2026-09')),
+                  'current_statements':session.scalar(select(func.count()).select_from(M.SettlementStatement).where(M.SettlementStatement.statement_month=='2026-09',M.SettlementStatement.is_current.is_(True)))
+              }
               out['recovery_parents']=[{'job_id':j.job_id,'status':j.status,'cancel_requested':j.cancel_requested_at is not None,'pause_requested':j.pause_after_stage_requested_at is not None} for j in session.scalars(select(M.JobRun).where(M.JobRun.job_id.in_([e.get('parent_job_id') for e in entries])))]
               active=session.get(M.SettlementProjectionActive,'settlement')
               head=session.get(M.SettlementProjectionGeneration,active.generation_id) if active and active.generation_id else None
