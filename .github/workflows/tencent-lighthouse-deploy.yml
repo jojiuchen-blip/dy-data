@@ -63,7 +63,7 @@ jobs:
           done
           curl --fail --silent --show-error --max-time 15 --output /dev/null --write-out 'public_http_status=%{http_code}\n' https://dy-business-engine.com/finance/promotion
           compose exec -T worker python - <<'PY'
-          import json
+          import json,hashlib
           from sqlalchemy import select,func,text
           from dy_api import models as M
           from dy_api.pdca_readonly_access import _open_pdca_readonly_session
@@ -71,6 +71,23 @@ jobs:
           session=next(scope)
           try:
               assert session.scalar(text('SHOW transaction_read_only'))=='on'
+              def fact_hash(model,predicate):
+                  rows=session.execute(select(*model.__table__.c).where(predicate)).mappings().all()
+                  values=sorted(json.dumps(dict(row),sort_keys=True,default=str,separators=(',',':')) for row in rows)
+                  return {'rows':len(values),'sha256':hashlib.sha256('\n'.join(values).encode()).hexdigest()}
+              august_statements=select(M.SettlementStatement.statement_id).where(M.SettlementStatement.statement_month=='2026-08')
+              facts={
+                  'settlement_fee_result':fact_hash(M.SettlementFeeResult,M.SettlementFeeResult.original_business_month=='2026-08'),
+                  'settlement_fee_adjustment':fact_hash(M.SettlementFeeAdjustment,M.SettlementFeeAdjustment.original_business_month=='2026-08'),
+                  'settlement_statement':fact_hash(M.SettlementStatement,M.SettlementStatement.statement_month=='2026-08'),
+                  'settlement_statement_entry':fact_hash(M.SettlementStatementEntry,M.SettlementStatementEntry.statement_id.in_(august_statements)),
+                  'settlement_statement_confirmation':fact_hash(M.SettlementStatementConfirmation,M.SettlementStatementConfirmation.statement_id.in_(august_statements)),
+                  'settlement_scope_rule':fact_hash(M.SettlementScopeRule,M.SettlementScopeRule.effective_month=='2026-08'),
+                  'sku_fee_rule':fact_hash(M.SkuFeeRule,text('TRUE')),
+              }
+              active=session.get(M.SettlementProjectionActive,'settlement')
+              head=session.get(M.SettlementProjectionGeneration,active.generation_id) if active and active.generation_id else None
+              print(json.dumps({'august_full_fact_hashes':facts,'active_head':{'generation_id':head.generation_id,'depth':head.lineage_depth,'state':head.state,'kind':head.generation_kind} if head else None},sort_keys=True))
               rows=session.execute(select(M.SettlementScopeRule.effective_month,M.SettlementScopeRule.is_active,func.count()).where(M.SettlementScopeRule.effective_month.in_(['2026-08','2026-09','2026-10'])).group_by(M.SettlementScopeRule.effective_month,M.SettlementScopeRule.is_active)).all()
               print(json.dumps({'monthly_scope_rule_counts':[{'month':month,'active':active,'rows':count} for month,active,count in rows]}))
           finally:
