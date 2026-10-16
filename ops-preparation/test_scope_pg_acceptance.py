@@ -123,3 +123,30 @@ def test_pg_reused_key_different_payload_refuses_without_rewrite(rehearsal,monke
     with Session(engine) as s:
         assert [dict(r) for r in s.execute(select(*M.SettlementScopeRule.__table__.c)).mappings()]==before_rules
         assert [dict(r) for r in s.execute(select(*M.JobRun.__table__.c).where(M.JobRun.job_name=='settlement_rebuild')).mappings()]==before_jobs
+
+
+@pytest.mark.parametrize('tamper', ['unscoped','wrong_month','wrong_actor','wrong_trigger','missing_event','wrong_event_actor'])
+def test_pg_incompatible_replay_is_read_only_refused(rehearsal,monkeypatch,tamper):
+    from apps.worker.settlement_rebuild import settlement_month_scope_metadata
+    module,engine=rehearsal
+    assert invoke(module,monkeypatch,apply=True)==0
+    _,jobs=target_state(engine)
+    with Session(engine) as s:
+        job=s.get(M.JobRun,jobs[0][0])
+        metadata=dict(job.metadata_json)
+        if tamper=='unscoped':
+            for key in settlement_month_scope_metadata('2026-09'):metadata.pop(key,None)
+        elif tamper=='wrong_month':metadata.update(settlement_month_scope_metadata('2026-10'))
+        elif tamper=='wrong_actor':metadata['requested_by']='different-qa-actor'
+        elif tamper=='wrong_trigger':metadata['trigger']='different-qa-trigger'
+        job.metadata_json=metadata
+        event=s.scalar(select(M.JobEvent).where(M.JobEvent.job_id==job.job_id,M.JobEvent.event_type=='settlement_scope_restricted'))
+        if tamper=='missing_event':s.delete(event)
+        elif tamper=='wrong_event_actor':event.actor_id='different-qa-actor'
+        s.commit()
+        expected_job=dict(s.execute(select(*M.JobRun.__table__.c).where(M.JobRun.job_id==job.job_id)).mappings().one())
+        expected_events=[dict(r) for r in s.execute(select(*M.JobEvent.__table__.c).where(M.JobEvent.job_id==job.job_id)).mappings()]
+    assert invoke(module,monkeypatch,apply=True)!=0
+    with Session(engine) as s:
+        assert dict(s.execute(select(*M.JobRun.__table__.c).where(M.JobRun.job_id==jobs[0][0])).mappings().one())==expected_job
+        assert [dict(r) for r in s.execute(select(*M.JobEvent.__table__.c).where(M.JobEvent.job_id==jobs[0][0])).mappings()]==expected_events

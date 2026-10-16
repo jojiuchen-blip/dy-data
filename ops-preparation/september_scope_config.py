@@ -20,12 +20,16 @@ Design notes (reviewer-facing):
   commits release only its savepoint; the outer transaction still gates the
   full job + rules + event until the final stamping and fingerprint checks
   pass, then one ``outer.commit()`` publishes everything at once.
-* Idempotent replay: when the idempotency key already owns exactly the expected
-  September slots with matching payload hash, scope and actor evidence, and the
-  derived job carries the same key/payload evidence, the operation returns the
-  recorded status read-only (queued/running/success alike, even if September
-  bills already exist) — nothing is written, no event is duplicated.  Any
-  incompatible payload, scope, actor or partial state is refused.
+* Idempotent replay is validated and returned read-only BEFORE the new-write
+  guards (lineage, source 30/30, no-September-bills) are evaluated, so an
+  existing lineage state can never block a legitimate replay.  Replay requires
+  the recorded rules to be exactly the expected month-scoped shape with matching
+  payload hash and actor evidence, a job carrying the same key/payload/trigger/
+  requested_by/month-scope evidence, and the single audit event whose actor,
+  type, job, payload hash and business month all match; anything else — payload
+  conflict, wrong month/owner/channels, different actor, inactive scope, an
+  un-scoped legacy job, or missing/conflicting event evidence — is refused
+  fail-closed.  A replay never writes anything, never inserts an event.
 * Fingerprints cover every non-target-month settlement fact (fee results,
   current pointers, non-target posting adjustments, statements, entries,
   confirmations, invoice records, promotion invoice allocations), the complete
@@ -99,11 +103,31 @@ def _acquire_scope_lock(conn, key_hash: str) -> None:
     Taken on the outer transaction's own connection after the outer transaction
     has begun, so it is released by the commit/rollback itself; no other lock is
     acquired before the route runs, so no new lock-order hazard is created.
+
+    A blocking acquire is bounded server-side by ``SET LOCAL lock_timeout='2s'``
+    and the whole outer transaction by ``SET LOCAL statement_timeout='30s'``;
+    both are transaction-local so they never leak past commit/rollback.  A lock
+    timeout or failure is refused with only the exception type in a static
+    reason (never the exception string).  ``main`` separately refuses any
+    non-postgresql engine; this function stays a no-op for other dialects so the
+    SQLite unit helper can exercise callers directly.
     """
 
     if conn.dialect.name != "postgresql":
         return
-    conn.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": _scope_lock_key(key_hash)})
+    conn.execute(text("SET LOCAL lock_timeout = '2s'"))
+    conn.execute(text("SET LOCAL statement_timeout = '30s'"))
+    try:
+        conn.execute(text("SELECT pg_advisory_xact_lock(:k)"),
+                     {"k": _scope_lock_key(key_hash)})
+    except Exception as exc:
+        raise Refused(f"scope_lock_failed::{type(exc).__name__}") from None
+
+
+def _ensure_postgresql(engine) -> bool:
+    """Production gate: this operation only ever runs on real PostgreSQL."""
+
+    return engine is not None and engine.dialect.name == "postgresql"
 
 
 def _lineage_reason(session: Session) -> str | None:
@@ -188,8 +212,15 @@ def _fingerprint(session: Session) -> dict[str, tuple[int, str]]:
 
     Sections deliberately include the NON-target-month rows (not just August):
     fee results, current pointers, posting adjustments, statements, entries,
-    confirmations, invoice records and promotion invoice allocations outside the
-    target month, the complete sku_fee_rule table, and the full August scope.
+    confirmations, invoice records, promotion invoices and promotion invoice
+    allocations outside the target month, the complete sku_fee_rule table, and
+    the full August scope.  ``fee_result_current_non_target`` joins each current
+    pointer to its underlying fee result and keeps only pointers whose fee
+    result carries ``original_business_month != MONTH``: a concurrent September
+    worker legitimately moving September current pointers must not fail this
+    check, while any drift of a non-target pointer is still detected.
+    ``promotion_invoice_non_target`` covers the PromotionInvoice main rows that
+    are bound (via their allocations) to a non-target statement month.
     """
 
     stmt_t = SettlementStatement.__table__
@@ -197,7 +228,12 @@ def _fingerprint(session: Session) -> dict[str, tuple[int, str]]:
     return {
         "fee_result_non_target": _rows_digest(session, select(SettlementFeeResult.__table__).where(
             SettlementFeeResult.original_business_month != MONTH)),
-        "fee_result_current_all": _rows_digest(session, select(SettlementFeeResultCurrent.__table__)),
+        "fee_result_current_non_target": _rows_digest(
+            session,
+            select(SettlementFeeResultCurrent.__table__).join(
+                SettlementFeeResult,
+                SettlementFeeResult.fee_result_id == SettlementFeeResultCurrent.fee_result_id,
+            ).where(SettlementFeeResult.original_business_month != MONTH)),
         "fee_adjustment_non_target_posting": _rows_digest(
             session,
             select(SettlementFeeAdjustment.__table__).where(
@@ -215,6 +251,12 @@ def _fingerprint(session: Session) -> dict[str, tuple[int, str]]:
         "invoice_record_non_target": _rows_digest(
             session,
             select(InvoiceRecord.__table__).where(InvoiceRecord.statement_month != MONTH)),
+        "promotion_invoice_non_target": _rows_digest(
+            session,
+            select(PromotionInvoice.__table__).join(
+                PromotionInvoiceAllocation,
+                PromotionInvoiceAllocation.invoice_id == PromotionInvoice.invoice_id,
+            ).where(PromotionInvoiceAllocation.statement_month != MONTH)),
         "promotion_invoice_allocation_non_target": _rows_digest(
             session,
             select(PromotionInvoiceAllocation.__table__).where(
@@ -235,14 +277,24 @@ def _derived_ids(key_hash: str) -> tuple[str, str]:
 
 
 def _classify_request(session: Session, *, key_hash: str, request_hash: str, owner: str,
-                      actor: str, job_id: str) -> tuple[str, str | None]:
+                      actor: str, job_id: str, event_id: str) -> tuple[str, str | None]:
     """Return ``("replay", status)`` or ``("create", None)``, or refuse.
 
-    Replay is read-only and requires the recorded rules to be exactly the
-    expected month-scoped shape with matching payload hash and actor evidence,
-    plus a job carrying the same key/payload evidence.  Anything else — payload
-    conflict, wrong month/owner/channels, different actor, inactive scope, or a
-    job without rules — is refused fail-closed.
+    Replay is read-only and requires, in order:
+
+    * the recorded rules to be exactly the expected month-scoped shape with
+      matching payload hash and actor evidence,
+    * a job carrying the same key/payload evidence whose metadata trigger is the
+      scope-rule path, whose ``requested_by`` is this actor, and whose month
+      scope stamps this target month (an old un-scoped job is refused, never
+      replayed),
+    * the single derived audit event to exist with matching job, event type,
+      actor type/id, payload hash and business month.
+
+    Anything else — payload conflict, wrong month/owner/channels, different
+    actor, inactive scope, a job without rules, an un-scoped or wrong-month job,
+    or missing/conflicting event evidence — is refused fail-closed.  A replay
+    never writes anything, including never inserting an event.
     """
 
     normalized = {channel.lower() for channel in CHANNELS}
@@ -268,6 +320,25 @@ def _classify_request(session: Session, *, key_hash: str, request_hash: str, own
             or job.idempotency_key_hash != key_hash
             or (job.metadata_json or {}).get("request_payload_sha256") != request_hash):
         raise Refused("existing_job_evidence_mismatch")
+    metadata = job.metadata_json or {}
+    if metadata.get("trigger") != SETTLEMENT_SCOPE_REBUILD_TRIGGER:
+        raise Refused("job_trigger_source_mismatch")
+    if metadata.get("requested_by") != actor:
+        raise Refused("job_actor_mismatch")
+    if scoped_business_month(metadata) != MONTH:
+        raise Refused("job_scope_month_mismatch")
+    event = session.get(JobEvent, event_id)
+    if event is None:
+        raise Refused("replay_audit_event_missing")
+    if (event.job_id != job_id
+            or event.event_type != EVENT_TYPE
+            or event.actor_type != ACTOR_TYPE
+            or event.actor_id != actor):
+        raise Refused("replay_audit_event_conflict")
+    event_payload = event.payload_json or {}
+    if (event_payload.get("request_payload_sha256") != request_hash
+            or event_payload.get("business_month") != MONTH):
+        raise Refused("replay_audit_event_conflict")
     return "replay", job.status
 
 
@@ -319,8 +390,20 @@ def _rollback_all(session: Session, outer) -> None:
 
 
 def _post_verify(engine, *, apply: bool, key_hash: str, request_hash: str, job_id: str,
-                 event_id: str, owner: str, actor: str) -> int:
-    """Fresh-connection verification scoped to THIS key, not to the whole month."""
+                 event_id: str, owner: str, actor: str,
+                 fingerprint: dict[str, tuple[int, str]]) -> int:
+    """Fresh-connection verification scoped to THIS key, not to the whole month.
+
+    ``fingerprint`` is the non-target full-field fingerprint recomputed inside
+    the outer transaction before any write; it is recomputed here again on a
+    brand-new connection and really compared, so drift of every non-target
+    settlement fact (including non-target fee current pointers and promotion
+    invoice main rows) is detected after the fact.  For a dry-run the same key
+    must have no persisted rows AND an unchanged fingerprint.  For an apply the
+    audit event evidence must really match and the job status is only ever
+    reported as recorded — a queued/running rebuild job is never claimed to be a
+    generated bill.
+    """
 
     with engine.connect() as conn:
         session = Session(bind=conn)
@@ -333,7 +416,11 @@ def _post_verify(engine, *, apply: bool, key_hash: str, request_hash: str, job_i
                 if rules or job is not None or event is not None:
                     _emit("post_check_failed this dry-run key persisted rows; investigate")
                     return 2
-                _emit("post_check=clean no rows for this key")
+                after = _fingerprint(session)
+                if after != fingerprint:
+                    _emit("post_check_failed dry-run non-target fingerprint changed; investigate")
+                    return 2
+                _emit("post_check=clean no rows for this key non-target fingerprint unchanged")
                 return 0
             normalized = {channel.lower() for channel in CHANNELS}
             if (len(rules) != 2
@@ -354,6 +441,21 @@ def _post_verify(engine, *, apply: bool, key_hash: str, request_hash: str, job_i
             if scope != MONTH:
                 _emit("post_check_failed job is not month-scoped")
                 return 2
+            event_payload = (event.payload_json if event is not None else None) or {}
+            if (event is None
+                    or event.job_id != job_id
+                    or event.event_type != EVENT_TYPE
+                    or event.actor_type != ACTOR_TYPE
+                    or event.actor_id != actor
+                    or event_payload.get("request_payload_sha256") != request_hash
+                    or event_payload.get("business_month") != MONTH):
+                _emit("post_check_failed audit event evidence mismatch")
+                return 2
+            after = _fingerprint(session)
+            if after != fingerprint:
+                _emit("post_check_failed non-target fingerprint changed after apply")
+                return 2
+            _emit("post_check=passed rules job event evidence match non-target fingerprint unchanged")
             _emit(f"post_scope_rows=2 channels={sorted(normalized)}")
             _emit(f"post_job={job_id} status={job.status} month_scope={scope}")
             _emit("note=job status is reported as recorded; queued/running is a rebuild job, "
@@ -378,6 +480,10 @@ def main() -> int:
     if engine is None:
         _emit("db=unavailable")
         return 2
+    if not _ensure_postgresql(engine):
+        # Production gate: this operation only ever runs on real PostgreSQL.
+        _emit("refused reason=production_gate_requires_postgresql")
+        return 2
     request = _synthetic_request()
     key_hash = _idempotency_key_hash(args.idempotency_key, request)
     job_id, event_id = _derived_ids(key_hash)
@@ -388,9 +494,11 @@ def main() -> int:
     mode = "dry_run"
     try:
         _acquire_scope_lock(conn, key_hash)
-        lineage = _lineage_reason(session)
-        if lineage is not None:
-            raise Refused(f"lineage_guard_refused::{lineage}")
+        # Replay evidence is validated BEFORE the new-write guards below, so an
+        # existing lineage state or September bill can never block a legitimate
+        # read-only replay.  The August scope owner is still required first: the
+        # request hash is derived from it, and an August owner/scope change may
+        # refuse a replay (safe, fail-closed).
         owner = _august_scope_owner(session)
         if owner is None:
             raise Refused("august_scope_refused")
@@ -404,10 +512,11 @@ def main() -> int:
             raise Refused("expected_august_scope_mismatch")
         kind, status = _classify_request(
             session, key_hash=key_hash, request_hash=request_hash, owner=owner,
-            actor=args.actor, job_id=job_id)
+            actor=args.actor, job_id=job_id, event_id=event_id)
         if kind == "replay":
             # Read-only replay: no guard evaluation beyond evidence, no writes,
-            # no event insert; safe even if September bills already exist.
+            # no event insert; safe even if September bills already exist or the
+            # lineage state would refuse a new write.
             mode = "replay"
             scope = scoped_business_month(session.get(JobRun, job_id).metadata_json)
             _emit(json.dumps(_allowed_summary(
@@ -416,6 +525,9 @@ def main() -> int:
                 august_rows=august_rows), sort_keys=True))
             outer.rollback()  # nothing was written; release the advisory lock
             return 0
+        lineage = _lineage_reason(session)
+        if lineage is not None:
+            raise Refused(f"lineage_guard_refused::{lineage}")
         guard_reason = _september_new_write_guard_reason(session)
         if guard_reason is not None:
             raise Refused(guard_reason)
@@ -484,7 +596,8 @@ def main() -> int:
     if mode == "replay":
         return 0
     return _post_verify(engine, apply=args.apply, key_hash=key_hash, request_hash=request_hash,
-                        job_id=job_id, event_id=event_id, owner=owner, actor=args.actor)
+                        job_id=job_id, event_id=event_id, owner=owner, actor=args.actor,
+                        fingerprint=before)
 
 
 if __name__ == "__main__":
