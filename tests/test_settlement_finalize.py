@@ -15,7 +15,11 @@ from apps.api.dy_api.models import (
     SettlementProjectionActive,
     SettlementProjectionGeneration,
 )
-from apps.worker.daily_windows import enqueue_finalize_if_ready, plan_daily_sync
+from apps.worker.daily_windows import (
+    enqueue_finalize_if_ready,
+    plan_daily_sync,
+    reconcile_finalize_queue,
+)
 from apps.worker.task_control import claim_job
 
 
@@ -345,5 +349,62 @@ def test_finalize_reuse_pending_identity_without_prewriting_once_event(
     assert replay.metadata_json["required_stages"] == ["finalize"]
     assert db_session.scalar(
         select(func.count()).select_from(JobRun).where(JobRun.job_kind == "finalize")
+    ) == 1
+    assert db_session.scalar(select(func.count()).select_from(JobEvent)) == 0
+
+
+def test_exhausted_finalize_is_not_requeued_and_stays_untouched(
+    db_session: Session,
+) -> None:
+    plan = plan_daily_sync(
+        db_session,
+        start=date(2026, 9, 14),
+        end=date(2026, 9, 15),
+        target="settlement",
+        requested_by="test",
+        trigger_source="manual",
+    )
+    _complete_prerequisites(db_session, parent_job_id=plan.parent_job_id)
+    job = enqueue_finalize_if_ready(db_session, plan.parent_job_id)
+    assert job is not None
+
+    failed_at = datetime(2026, 9, 14, 3, 0, tzinfo=UTC)
+    stale_lease = datetime(2026, 9, 14, 2, 0, tzinfo=UTC)
+    job.status = "failed"
+    job.attempt_count = int(job.max_attempts or 3)
+    job.finished_at = failed_at
+    job.lease_expires_at = stale_lease
+    job.lease_epoch = 2
+    job.error_message = "base settlement lineage depth exceeds the sparse limit"
+    db_session.flush()
+
+    with pytest.raises(RuntimeError, match="requires manual recovery"):
+        enqueue_finalize_if_ready(db_session, plan.parent_job_id)
+
+    assert reconcile_finalize_queue(db_session) == 0
+
+    db_session.expire_all()
+    final = db_session.get(JobRun, job.job_id)
+    assert final is not None
+    assert final.status == "failed"
+    assert int(final.attempt_count or 0) == 3
+    assert final.lease_epoch == 2
+    stored_lease = final.lease_expires_at
+    if stored_lease is not None and stored_lease.tzinfo is None:
+        assert stored_lease == stale_lease.replace(tzinfo=None)
+    else:
+        assert stored_lease == stale_lease
+    assert (
+        final.error_message
+        == "base settlement lineage depth exceeds the sparse limit"
+    )
+    assert db_session.scalar(
+        select(func.count()).select_from(JobRun).where(JobRun.job_kind == "finalize")
+    ) == 1
+    assert db_session.scalar(
+        select(func.count()).select_from(JobStageRun).where(
+            JobStageRun.job_id == job.job_id,
+            JobStageRun.stage_name == "finalize",
+        )
     ) == 1
     assert db_session.scalar(select(func.count()).select_from(JobEvent)) == 0

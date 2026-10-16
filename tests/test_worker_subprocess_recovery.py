@@ -406,6 +406,10 @@ def test_scheduler_main_polls_queued_manual_jobs_when_auto_sync_is_disabled(
         "run_once",
         lambda: pytest.fail("automatic planning must stay paused"),
     )
+    # The real month-close planner is a durable dependency of the queue poll;
+    # this test double uses a non-callable factory sentinel, so the planner must
+    # be stubbed to keep the assertion focused on the scheduler control flow.
+    monkeypatch.setattr(scheduler, "ensure_month_close_job", lambda _factory: None)
 
     scheduler.main()
 

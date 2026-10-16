@@ -49,6 +49,103 @@ backup_environment_file() {
   log "environment backup complete path=$backup_file"
 }
 
+backup_running_images() {
+  # Record and tag the images the running containers actually use before any
+  # build replaces them.  Local builds publish no RepoDigests, so the full
+  # immutable .Image id from docker inspect is the rollback anchor: it is the
+  # only identifier this repo can later reference with `docker image tag`.
+  # A single stamp keeps the rollback tags and the manifest consistent.
+  #
+  # Rollback is a release gate, so identification is fail-closed for containers
+  # that exist: if a running container's inspect or tag step fails, the deploy
+  # stops before any build.  An absent container is not an error - first deploys,
+  # recovery and the START_WORKER=false layout legitimately have none - and is
+  # recorded as no-container so the manifest still describes what was seen.
+  local stamp
+  local manifest
+  local tmp_manifest
+  local service
+  local container_id
+  local configured_ref
+  local image_id
+  local tagged_id
+  local state
+  local recorded=0
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  manifest="$BACKUP_DIR/images-$stamp.manifest"
+  tmp_manifest="$manifest.partial"
+  mkdir -p "$BACKUP_DIR"
+  if sudo test -e "$manifest" || sudo test -e "$tmp_manifest"; then
+    log "image backup manifest already exists; refusing to overwrite path=$manifest"
+    return 1
+  fi
+  sudo tee "$tmp_manifest" >/dev/null <<EOF
+# pre-deploy running images stamp=$stamp target_sha=${TARGET_SHA:-<unset>}
+# service|configured_ref|full_image_id|rollback_tag|state
+EOF
+  for service in api migrate worker web browser ops-agent proxy postgres; do
+    if ! container_id="$(compose ps -q "$service" 2>/dev/null)"; then
+      # A failed query is not the same as an absent container: the image the
+      # running container uses cannot be identified, so the deploy must stop.
+      log "cannot query the running container; refusing to deploy service=$service"
+      sudo rm -f "$tmp_manifest"
+      return 1
+    fi
+    if [ -z "$container_id" ]; then
+      printf '%s|-|-|-|no-container\n' "$service" | sudo tee -a "$tmp_manifest" >/dev/null
+      continue
+    fi
+    if ! image_id="$(sudo docker inspect -f '{{.Image}}' "$container_id" 2>/dev/null)"; then
+      log "cannot read the immutable image id; refusing to deploy service=$service container=$container_id"
+      sudo rm -f "$tmp_manifest"
+      return 1
+    fi
+    if ! configured_ref="$(sudo docker inspect -f '{{.Config.Image}}' "$container_id" 2>/dev/null)"; then
+      log "cannot read the configured image ref; refusing to deploy service=$service container=$container_id"
+      sudo rm -f "$tmp_manifest"
+      return 1
+    fi
+    if ! state="$(sudo docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null)"; then
+      log "cannot read the container state; refusing to deploy service=$service container=$container_id"
+      sudo rm -f "$tmp_manifest"
+      return 1
+    fi
+    if [ -z "$image_id" ]; then
+      log "empty immutable image id; refusing to deploy service=$service container=$container_id"
+      sudo rm -f "$tmp_manifest"
+      return 1
+    fi
+    if ! sudo docker image tag "$image_id" "dy-dashboard-rollback:$stamp-$service" >/dev/null 2>&1; then
+      log "cannot tag the running image for rollback; refusing to deploy service=$service image=$image_id"
+      sudo rm -f "$tmp_manifest"
+      return 1
+    fi
+    # Verify the alias really resolves to the same immutable id before it is
+    # written down as a rollback path.
+    if ! tagged_id="$(sudo docker image inspect -f '{{.Id}}' "dy-dashboard-rollback:$stamp-$service" 2>/dev/null)"; then
+      log "cannot verify the rollback tag; refusing to deploy service=$service"
+      sudo rm -f "$tmp_manifest"
+      return 1
+    fi
+    if [ "$tagged_id" != "$image_id" ]; then
+      log "rollback tag does not match the running image id; refusing to deploy service=$service"
+      sudo rm -f "$tmp_manifest"
+      return 1
+    fi
+    printf '%s|%s|%s|%s|%s\n' \
+      "$service" \
+      "$configured_ref" \
+      "$image_id" \
+      "dy-dashboard-rollback:$stamp-$service" \
+      "$state" | sudo tee -a "$tmp_manifest" >/dev/null
+    recorded=$((recorded + 1))
+  done
+  sudo chmod 600 "$tmp_manifest"
+  sudo mv "$tmp_manifest" "$manifest"
+  last_image_backup_stamp="$stamp"
+  log "running image backup complete stamp=$stamp recorded=$recorded manifest=$manifest"
+}
+
 fetch_origin() {
   for attempt in 1 2 3 4 5; do
     if git -c http.version=HTTP/1.1 fetch --prune origin; then
@@ -393,6 +490,9 @@ ensure_env_value "DY_AGENT_ENVIRONMENT" "production"
 log "validating compose configuration"
 log "using apt mirror $APT_MIRROR"
 validate_compose_config
+
+log "recording running images before any build"
+backup_running_images
 
 log "building images"
 compose build --progress=plain api web browser worker ops-agent

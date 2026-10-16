@@ -23,6 +23,7 @@ from apps.api.dy_api.models import (  # noqa: E402
     DimStore,
     SettlementOrderDetail,
 )
+from apps.worker.month_close import previous_business_month  # noqa: E402
 
 
 def deferred_field(*parts: str) -> str:
@@ -51,13 +52,39 @@ class FakeStore:
     def list_statement_months(self):
         return ["2026-08", "2026-07"]
 
+    # Months this fake has materialized rows for; anything else must behave like
+    # a selectable period that simply holds no data yet.
+    MATERIALIZED_MONTHS = frozenset({"2026-08", "2026-07", "2026-05"})
+
     def store_exists(self, store_id: str):
         return store_id == "store_001"
 
     def monthly_settlement_context_exists(self, store_id: str, month: str):
-        return store_id == "store_001" and month in {"2026-08", "2026-07", "2026-05"}
+        return store_id == "store_001" and month in self.MATERIALIZED_MONTHS
 
     def store_ranking_report(self, filters: dict):
+        if filters["period_key"] not in self.MATERIALIZED_MONTHS:
+            return {
+                "period_type": filters["period_type"],
+                "period_key": filters["period_key"],
+                "product_scope": filters["product_scope"],
+                "product_type": filters["product_type"],
+                "formal_period_start_month": "2026-08",
+                "scope_mode": filters["scope_mode"],
+                "totals": {
+                    "sales_order_count": 0,
+                    "sales_amount_cent": 0,
+                    "verified_order_count": 0,
+                    "verified_amount_cent": 0,
+                    "promotion_net_fee_cent": 0,
+                    "management_net_fee_cent": 0,
+                    "net_settlement_reference_cent": 0,
+                },
+                "list": [],
+                "total": 0,
+                "page": filters["page"],
+                "page_size": filters["page_size"],
+            }
         return {
             "period_type": filters["period_type"],
             "period_key": filters["period_key"],
@@ -94,6 +121,35 @@ class FakeStore:
         }
 
     def monthly_settlement_report(self, filters: dict):
+        if filters["month"] not in self.MATERIALIZED_MONTHS:
+            return {
+                "store": {"store_id": filters["store_id"], "store_name": "Store One"},
+                "month": filters["month"],
+                "product_scope": filters["product_scope"],
+                "product_type": filters["product_type"],
+                "is_formal_period": filters["month"] >= "2026-08",
+                "statement": None,
+                "metrics": {
+                    "sales_order_count": 0,
+                    "sales_amount_cent": 0,
+                    "verified_order_count": 0,
+                    "verified_amount_cent": 0,
+                    "promotion_base_cent": 0,
+                    "promotion_original_fee_cent": 0,
+                    "promotion_adjustment_fee_cent": 0,
+                    "promotion_net_fee_cent": 0,
+                    "management_base_cent": 0,
+                    "management_original_fee_cent": 0,
+                    "management_adjustment_fee_cent": 0,
+                    "management_net_fee_cent": 0,
+                    "net_settlement_reference_cent": 0,
+                },
+                "computed_cumulative": {
+                    "promotion_net_fee_cent": 0,
+                    "management_net_fee_cent": 0,
+                },
+                "lines": [],
+            }
         return {
             "store": {"store_id": filters["store_id"], "store_name": "Store One"},
             "month": filters["month"],
@@ -451,7 +507,11 @@ def test_settlement_reporting_target_contracts_are_camel_case(client: TestClient
     assert metadata_payload["data"]["stores"] == [
         {"storeId": "store_001", "storeName": "Store One"}
     ]
-    assert metadata_payload["data"]["statementMonths"] == ["2026-08", "2026-07"]
+    # The selector always offers the previous business month, even before its
+    # first close, so the newest entry can be newer than any stored month.
+    assert metadata_payload["data"]["statementMonths"] == sorted(
+        {"2026-08", "2026-07", previous_business_month()}, reverse=True
+    )
     assert metadata_payload["data"]["feeDirections"] == ["PROMOTION", "MANAGEMENT"]
     assert metadata_payload["data"]["formalPeriodStartMonth"] == "2026-08"
     assert metadata_payload["meta"]["requestId"].startswith("req_")
@@ -590,6 +650,66 @@ def test_monthly_settlement_missing_store_is_structured_not_found(
 
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "RESOURCE_NOT_FOUND"
+
+
+def test_monthly_settlement_known_store_without_month_rows_is_a_legal_empty_state(
+    client: TestClient,
+):
+    _login(client)
+
+    response = client.get(
+        "/api/v1/stores/store_001/monthly-settlement",
+        params={"month": "2026-09", "productScope": "all", "productType": "all"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["month"] == "2026-09"
+    assert data["store"] == {"storeId": "store_001", "storeName": "Store One"}
+    assert data["isFormalPeriod"] is True
+    assert data["statement"] is None
+    assert data["lines"] == []
+    assert data["metrics"] == {
+        "salesOrderCount": 0,
+        "salesAmountCent": 0,
+        "verifiedOrderCount": 0,
+        "verifiedAmountCent": 0,
+        "promotionBaseCent": 0,
+        "promotionOriginalFeeCent": 0,
+        "promotionAdjustmentFeeCent": 0,
+        "promotionNetFeeCent": 0,
+        "managementBaseCent": 0,
+        "managementOriginalFeeCent": 0,
+        "managementAdjustmentFeeCent": 0,
+        "managementNetFeeCent": 0,
+        "netSettlementReferenceCent": 0,
+    }
+    # Cumulative is a separate pinned read; an empty month must not invent it.
+    assert data["computedCumulative"] == {
+        "promotionNetFeeCent": 0,
+        "managementNetFeeCent": 0,
+    }
+
+
+def test_order_fee_details_still_requires_a_materialized_store_month(
+    client: TestClient,
+):
+    _login(client)
+
+    response = client.get(
+        "/api/v1/order-fee-details",
+        params={
+            "storeId": "store_001",
+            "month": "2026-09",
+            "feeDirection": "PROMOTION",
+            "page": 1,
+            "pageSize": 50,
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "RESOURCE_NOT_FOUND"
+    assert response.json()["detail"]["errors"][0]["field"] == "month"
 
 
 def test_order_fee_detail_source_contexts_are_mutually_exclusive(

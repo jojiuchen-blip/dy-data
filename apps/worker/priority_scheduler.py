@@ -22,6 +22,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from apps.api.dy_api.db import session_scope
 from apps.api.dy_api.models import JobRun
 from apps.worker.daily_windows import DailySyncPlan, plan_daily_sync
+from apps.worker.day_recovery import (
+    DIMENSION_CONFIG_PREFIX,
+    RECOVERY_CONFIG_PREFIX,
+    generation_ordinal,
+    priority_generation_config,
+    winning_generation,
+)
 from apps.worker.repositories import parent_sync_gate_allows_claim
 from apps.worker.sync_config import load_sync_config
 
@@ -158,6 +165,12 @@ def ensure_daily_priority_plan(
         priority_date=business_date,
         request_budget_date=local_shanghai_now(now).date(),
     )
+    # A plan returned here may be an operator-created recovery generation; adopt
+    # it onto the quota class of the day it replaces before it can be selected.
+    _stamp_recovery_generation(
+        session,
+        _priority_rows_for_day(session, business_date),
+    )
     return plan
 
 
@@ -200,6 +213,11 @@ def run_priority_daily_tick(
             ensure_daily_priority_plan(session, target_date, now=local_now)
 
         daily_rows = _priority_rows_for_day(session, target_date)
+        # The recovery generation is adopted *before* the blanket stamping below.
+        # `_stamp_unmarked_daily_rows` defaults every unstamped row to
+        # `daily_required`, so stamping it first would erase the recovered day's
+        # own quota class and charge repair work to the daily reserve.
+        _stamp_recovery_generation(session, daily_rows, now=local_now)
         _stamp_unmarked_daily_rows(
             session,
             daily_rows,
@@ -208,13 +226,15 @@ def run_priority_daily_tick(
         )
         daily_rows = _priority_rows_for_day(session, target_date)
         day_state = _day_state(target_date, daily_rows)
-        daily_selection_rows = daily_rows
+        daily_selection_rows = day_state.rows
         if day_state.state == "failed":
             # A failed domain must not release the all-domain date/finalize
-            # closure, but unrelated manual domains can still make progress.
+            # closure, but unrelated manual domains can still make progress.  Only
+            # this state narrows the selection: a healthy day offers every row its
+            # owning generation owns, date_sync and finalize included.
             daily_selection_rows = tuple(
                 row
-                for row in daily_rows
+                for row in day_state.rows
                 if _is_manual_domain_row(row)
                 or (row.job_kind == "parent_sync" and _row_target(row) == "all")
             )
@@ -421,7 +441,16 @@ def run_priority_daily_tick(
                 )
             )
 
-        gap_rows = _priority_rows_for_day(session, gap.business_date)
+        # Adopt any operator-created recovery generation *before* the manual
+        # candidate pass.  Otherwise the recovered child still carries no purpose,
+        # `_select_candidate` defaults it to `daily_required`, and it is claimed
+        # here — with the daily reserve — while the history stamp below never runs.
+        _stamp_recovery_generation(
+            session,
+            _priority_rows_for_day(session, gap.business_date),
+            now=local_now,
+        )
+        gap_rows = _claimable_day_rows(session, gap.business_date)
         manual_candidate = _select_candidate(
             gap_rows,
             now=local_now,
@@ -446,7 +475,7 @@ def run_priority_daily_tick(
                 gap.business_date,
                 now=local_now,
             )
-            history_rows = _priority_rows_for_day(session, gap.business_date)
+            history_rows = _claimable_day_rows(session, gap.business_date)
             history_candidate = _select_candidate(
                 history_rows,
                 now=local_now,
@@ -547,6 +576,13 @@ def ensure_history_priority_plan(
             priority_date=business_date,
             request_budget_date=local_shanghai_now(now).date(),
         )
+    # History-gap repair is a first-class path into a recovered day: without this
+    # the generation would carry no purpose and be charged to the daily reserve.
+    _stamp_recovery_generation(
+        session,
+        _priority_rows_for_day(session, business_date),
+        now=now,
+    )
     return plan
 
 
@@ -573,7 +609,7 @@ def _latest_active_manual_day(session: Session, now: datetime) -> date | None:
         session.scalars(
             select(JobRun)
             .where(
-                JobRun.config_version == PRIORITY_CONFIG_VERSION,
+                _priority_generation_config_filter(),
                 JobRun.job_kind.in_(DAILY_JOB_KINDS),
                 JobRun.status.in_(("pending", "running", "retry_wait")),
             )
@@ -600,7 +636,7 @@ def _priority_rows_for_day(session: Session, business_date: date) -> tuple[JobRu
         session.scalars(
             select(JobRun)
             .where(
-                JobRun.config_version == PRIORITY_CONFIG_VERSION,
+                _priority_generation_config_filter(),
                 JobRun.job_kind.in_(("range_sync", *DAILY_JOB_KINDS)),
                 _business_date_predicate(business_date),
             )
@@ -611,6 +647,22 @@ def _priority_rows_for_day(session: Session, business_date: date) -> tuple[JobRu
     return tuple(row for row in rows if _job_business_date(row) == business_date)
 
 
+def _priority_generation_config_filter():
+    """Match base and recovery daily generations inside SQL.
+
+    A recovery generation is created under ``priority-daily-v1-recovery-<digest>``.
+    Selecting only ``== PRIORITY_CONFIG_VERSION`` would hide the replaced day from
+    the scheduler and from the month-close watermark, so every daily selection
+    point narrows by this predicate instead.  ``LIKE`` is used with a bound
+    parameter (no wildcards are ever interpolated from data).
+    """
+
+    return or_(
+        JobRun.config_version == PRIORITY_CONFIG_VERSION,
+        JobRun.config_version.like(f"{RECOVERY_CONFIG_PREFIX}%"),
+    )
+
+
 def _dimension_rows_for_day(
     session: Session,
     business_date: date,
@@ -619,7 +671,7 @@ def _dimension_rows_for_day(
         session.scalars(
             select(JobRun)
             .where(
-                JobRun.config_version.like(f"{PRIORITY_CONFIG_VERSION}-dimensions-%"),
+                JobRun.config_version.like(f"{DIMENSION_CONFIG_PREFIX}%"),
                 JobRun.job_kind.in_(("parent_sync", "finalize")),
                 _business_date_predicate(business_date),
             )
@@ -649,7 +701,7 @@ def _all_priority_rows(
         session.scalars(
             select(JobRun)
             .where(
-                JobRun.config_version == PRIORITY_CONFIG_VERSION,
+                _priority_generation_config_filter(),
                 JobRun.job_kind.in_(("range_sync", *DAILY_JOB_KINDS)),
                 or_(
                     and_(
@@ -685,19 +737,29 @@ def _business_date_predicate(business_date: date):
 
 
 def _day_state(business_date: date, rows: tuple[JobRun, ...]) -> _DayState:
-    parent = next(
-        (
-            row
-            for row in rows
-            if row.job_kind == "range_sync" and _row_target(row) == "all"
-        ),
-        None,
-    )
+    """Summarize one business day under exactly one owning generation.
+
+    A day can hold several ``range_sync`` generations: the original plan plus each
+    audited recovery generation.  Only the newest generation *owns* the day.  A
+    superseded generation stays in the ledger as immutable failure evidence, but
+    neither its failed children nor its leftover pending children may decide the
+    day: counting them would either fail a day whose recovery succeeded, or let a
+    superseded child be claimed a second time.
+
+    A *failed* winning generation reports no claimable rows at all.  That is the
+    single rule that keeps an exhausted chain from re-running itself: the day is
+    terminal until an audited recovery generation exists, at which point the
+    winning parent changes and its own rows become claimable.
+    """
+
+    winning = winning_generation(rows)
     executable_rows = tuple(
         row
         for row in rows
         if row.job_kind in DAILY_JOB_KINDS
         and _row_target(row) == "all"
+        and winning is not None
+        and row.parent_job_id == winning.job_id
     )
     manual_rows = tuple(
         row
@@ -706,21 +768,47 @@ def _day_state(business_date: date, rows: tuple[JobRun, ...]) -> _DayState:
         and _row_target(row) not in {None, "all"}
         and _priority_purpose(row, DAILY_REQUIRED_PURPOSE) == DAILY_REQUIRED_PURPOSE
     )
-    if any(row.status == "failed" for row in (*executable_rows, *manual_rows)):
-        return _DayState("failed", parent, rows)
-    if parent is None:
-        return _DayState("missing", None, rows)
-    if parent.status == "failed":
-        return _DayState("failed", parent, rows)
+    if winning is None:
+        return _DayState("missing", None, manual_rows)
+    if winning.status == "failed" or any(
+        row.status == "failed" for row in executable_rows
+    ):
+        # The owning generation is exhausted.  It exposes no claimable rows at
+        # all: the day is terminal until an audited recovery generation exists,
+        # which is what stops the old chain from being re-run.
+        return _DayState("failed", winning, ())
+    owned_rows = (*executable_rows, *manual_rows)
+    if any(row.status == "failed" for row in manual_rows):
+        # A failed manual domain keeps the day out of "success" and away from the
+        # all-domain date/finalize closure, exactly as before: its own domain must
+        # not be retried automatically, while unrelated manual domains still can.
+        return _DayState("failed", winning, owned_rows)
     finalize_rows = tuple(row for row in executable_rows if row.job_kind == "finalize")
     published = (
-        parent.status == "success"
+        winning.status == "success"
         and len(finalize_rows) == 1
         and finalize_rows[0].status == "success"
-        and all(row.status == "success" for row in executable_rows)
-        and all(row.status == "success" for row in manual_rows)
+        and all(row.status == "success" for row in owned_rows)
     )
-    return _DayState("success" if published else "incomplete", parent, rows)
+    return _DayState("success" if published else "incomplete", winning, owned_rows)
+
+
+def _claimable_day_rows(
+    session: Session,
+    business_date: date,
+) -> tuple[JobRun, ...]:
+    """Rows of one day that may be offered to the selector, generation-scoped.
+
+    Every claim path — the daily target, the history-gap repair, and the manual
+    domain scan — must go through this helper.  Reading ``_priority_rows_for_day``
+    directly would hand the selector the superseded generation's leftover rows,
+    which either block the day forever or run the old failed chain again.
+    """
+
+    return _day_state(
+        business_date,
+        _priority_rows_for_day(session, business_date),
+    ).rows
 
 
 def _find_history_gap(
@@ -745,6 +833,7 @@ def _find_history_gap(
         (upper_date - history_start).days + 1,
     )
     current = upper_date
+    newest_failed: _HistoryGap | None = None
     for _ in range(scan_limit):
         day_rows = tuple(grouped.get(current, ()))
         state = _day_state(current, day_rows)
@@ -752,13 +841,21 @@ def _find_history_gap(
             current -= timedelta(days=1)
             continue
         if state.state == "failed":
-            return _HistoryGap(
-                current,
-                "failed",
-                f"history_day_failed:{current.isoformat()}",
-            )
+            # A failed day stays failed and must never be treated as published,
+            # nor retried automatically: its attempts are exhausted and only an
+            # explicit, audited recovery may re-open it.  It must not, however,
+            # end the scan, because every older unfinished day behind it would
+            # then keep its pending rows unclaimed forever.
+            if newest_failed is None:
+                newest_failed = _HistoryGap(
+                    current,
+                    "failed",
+                    f"history_day_failed:{current.isoformat()}",
+                )
+            current -= timedelta(days=1)
+            continue
         return _HistoryGap(current, "missing" if state.state == "missing" else "incomplete")
-    return None
+    return newest_failed
 
 
 def _history_bounds(session: Session, *, daily_date: date) -> tuple[date, date]:
@@ -999,6 +1096,47 @@ def _stamp_unmarked_daily_rows(
             row.metadata_json = metadata
 
 
+def _stamp_recovery_generation(
+    session: Session,
+    rows: tuple[JobRun, ...],
+    *,
+    now: datetime | None = None,
+) -> None:
+    """Adopt an operator-created recovery generation onto its day's quota class.
+
+    The API creates the generation without knowing the scheduler's daily/history
+    split.  Inheriting the *original* day plan's purpose is what keeps recovery
+    work governed by the same endpoint budget as the day it repairs, and it is why
+    recovery must never be stamped ``daily_required`` for a history day: that
+    would silently consume the reserve the daily window keeps for itself.
+    """
+
+    recovery_parent = winning_generation(rows)
+    if recovery_parent is None or generation_ordinal(recovery_parent) == 0:
+        return
+    root_job_id = (recovery_parent.metadata_json or {}).get("recovery_root_job_id")
+    root = session.get(JobRun, root_job_id) if root_job_id else None
+    purpose = (
+        _priority_purpose(root, HISTORY_PURPOSE) if root is not None else HISTORY_PURPOSE
+    )
+    priority_date = _job_business_date(recovery_parent)
+    if priority_date is None:
+        return
+    # Re-stamp every tick so a recovery that spans day boundaries never carries a
+    # stale `request_budget_date`/`quota_business_date`.  `priority_purpose` (the
+    # root day's history/daily class) and `priority_business_date` (the recovered
+    # day) are preserved from the generation's own identity, so only the request
+    # budget date advances with `now`.
+    _stamp_plan_metadata(
+        session,
+        parent_job_id=recovery_parent.job_id,
+        purpose=purpose,
+        priority_date=priority_date,
+        request_budget_date=local_shanghai_now(now).date(),
+        extra={"priority_kind": "recovery"},
+    )
+
+
 def _stamp_plan_metadata(
     session: Session,
     *,
@@ -1160,17 +1298,22 @@ def _snapshot(result: PriorityTickResult) -> PriorityTickResult:
 
 __all__ = [
     "DAILY_REQUIRED_PURPOSE",
+    "DIMENSION_CONFIG_PREFIX",
     "DIMENSION_REFRESH_INTERVAL",
     "HISTORY_PURPOSE",
     "PRIORITY_CONFIG_VERSION",
     "PRIORITY_DAILY_CUTOFF",
     "PRIORITY_DAILY_MODE",
+    "RECOVERY_CONFIG_PREFIX",
     "PriorityTickResult",
     "ensure_daily_priority_plan",
     "ensure_history_priority_plan",
+    "generation_ordinal",
     "is_priority_cutoff_open",
     "local_shanghai_now",
     "priority_business_date",
+    "priority_generation_config",
     "resolve_scheduler_mode",
     "run_priority_daily_tick",
+    "winning_generation",
 ]

@@ -787,17 +787,33 @@ def test_order_fee_context_is_validated_before_detail_filters(
     assert [row["orderId"] for row in payload["list"]] == ["order-fee-own"]
 
 
-def test_monthly_settlement_requires_store_specific_month_context(
+def test_monthly_settlement_empty_period_is_legal_but_unknown_store_still_404(
     client: TestClient,
 ) -> None:
     _login_viewer(client)
 
-    response = client.get(
+    # A selectable period that holds no rows yet resolves to a real empty
+    # payload; the store context is returned so the page can name it.
+    empty_period = client.get(
         "/api/v1/stores/store-3/monthly-settlement?month=2026-05"
     )
 
-    assert response.status_code == 404
-    assert response.json()["detail"]["code"] == "RESOURCE_NOT_FOUND"
+    assert empty_period.status_code == 200
+    data = empty_period.json()["data"]
+    assert data["store"]["storeId"] == "store-3"
+    assert data["month"] == "2026-05"
+    assert data["statement"] is None
+    assert data["lines"] == []
+    assert data["metrics"]["promotionNetFeeCent"] == 0
+    assert data["metrics"]["managementNetFeeCent"] == 0
+
+    unknown_store = client.get(
+        "/api/v1/stores/store-missing/monthly-settlement?month=2026-05"
+    )
+
+    assert unknown_store.status_code == 404
+    assert unknown_store.json()["detail"]["code"] == "RESOURCE_NOT_FOUND"
+    assert unknown_store.json()["detail"]["errors"][0]["field"] == "storeId"
 
 
 def test_adjustment_only_preview_line_keeps_original_rate_context(

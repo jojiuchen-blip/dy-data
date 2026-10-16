@@ -22,7 +22,9 @@ from apps.worker.settlement_rebuild import (
     _database_utcnow,
     claim_latest_settlement_rebuild_job,
     reconcile_published_settlement_rebuild,
+    run_settlement_month_rebuild_job,
     run_settlement_rebuild_job,
+    scoped_business_month,
 )
 
 
@@ -329,10 +331,17 @@ def process_queued_settlement_rebuilds(
             failed_stale_job_ids=tuple(failed_stale_job_ids),
         )
     selected_job_id, claim_id, superseded_job_ids = claimed
+    scope_month = _scoped_business_month(factory, selected_job_id)
     try:
-        run_settlement_rebuild_job(
-            job_id=selected_job_id, factory=factory, claim_id=claim_id,
-        )
+        if scope_month is None:
+            run_settlement_rebuild_job(
+                job_id=selected_job_id, factory=factory, claim_id=claim_id,
+            )
+        else:
+            run_settlement_month_rebuild_job(
+                job_id=selected_job_id, factory=factory,
+                business_month=scope_month, claim_id=claim_id,
+            )
     except Exception:
         # Only contain failures durably handed to retry/recovery; a database
         # outage or an unexpected live owner must remain visible to the caller.
@@ -351,6 +360,15 @@ def process_queued_settlement_rebuilds(
         recovered_job_ids=tuple(recovered_job_ids),
         failed_stale_job_ids=tuple(failed_stale_job_ids),
     )
+
+
+def _scoped_business_month(factory: sessionmaker, job_id: str) -> str | None:
+    """Return the durable business-month scope of a queued rebuild job."""
+
+    with factory() as session:
+        job = session.get(JobRun, job_id)
+        metadata = job.metadata_json if job is not None else None
+    return scoped_business_month(metadata)
 
 
 def _release_due_settlement_retries(factory: sessionmaker, *, now: datetime) -> None:

@@ -1,6 +1,7 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
+import os
 import re
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping
@@ -10,6 +11,7 @@ from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from math import asin, cos, radians, sin, sqrt
 from pathlib import Path
+from time import monotonic, sleep
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -1560,6 +1562,8 @@ def _process_incremental_clue_work_item(
                     value = _clean(observed_values.get(field_name))
                     if value is not None:
                         target.add(value)
+            if not wait_for_clue_master_materialization_lock(session):
+                raise RuntimeError("clue master materialization lock unavailable")
             page_result = materialize_clue_master_leads(
                 session,
                 now=now,
@@ -3652,6 +3656,80 @@ def _try_transaction_lock(session: Session, *, lock_name: str) -> bool:
         return True
     lock_key = _advisory_lock_key(lock_name)
     return bool(session.scalar(select(func.pg_try_advisory_xact_lock(lock_key))))
+
+
+# Bounded wait for the materialization advisory lock.  The lock itself is a
+# transaction-scoped advisory lock and is never force-released: a busy lock used
+# to be an immediate terminal failure, which turned one concurrent holder into a
+# failed daily plan, so a short wait window keeps the page retryable while the
+# deadline keeps the failure closed.
+MATERIALIZATION_LOCK_WAIT_SECONDS_DEFAULT = 15.0
+MATERIALIZATION_LOCK_BACKOFF_SECONDS_DEFAULT = 0.25
+MATERIALIZATION_LOCK_BACKOFF_MIN_SECONDS = 0.05
+MATERIALIZATION_LOCK_BACKOFF_MAX_SECONDS = 2.0
+
+
+def _env_float(name: str, default: float, *, minimum: float, maximum: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        value = float(str(raw).strip())
+    except (TypeError, ValueError):
+        return default
+    if value != value:  # NaN
+        return default
+    return min(maximum, max(minimum, value))
+
+
+def _wait_for_materialization_lock(
+    session: Session,
+    *,
+    lock_name: str,
+    timeout: float,
+) -> bool:
+    """Return True once the advisory lock is held inside this transaction.
+
+    The lock stays transaction-scoped and is never force-released.  A busy lock
+    used to be an immediate terminal failure, which turned one concurrent holder
+    into a failed daily plan; this bounded wait keeps a page retryable while the
+    deadline keeps the failure closed.
+    """
+    if _try_transaction_lock(session, lock_name=lock_name):
+        return True
+    budget = max(0.0, float(timeout))
+    deadline = monotonic() + budget
+    backoff = _env_float(
+        "DY_CLUE_MATERIALIZATION_LOCK_BACKOFF_SECONDS",
+        MATERIALIZATION_LOCK_BACKOFF_SECONDS_DEFAULT,
+        minimum=MATERIALIZATION_LOCK_BACKOFF_MIN_SECONDS,
+        maximum=MATERIALIZATION_LOCK_BACKOFF_MAX_SECONDS,
+    )
+    while True:
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            return False
+        sleep(min(backoff, remaining))
+        if _try_transaction_lock(session, lock_name=lock_name):
+            return True
+
+
+def wait_for_clue_master_materialization_lock(session: Session) -> bool:
+    """Bounded wait shared by every caller that needs the M1 materialization lock."""
+    return _wait_for_materialization_lock(
+        session,
+        lock_name=MASTER_MATERIALIZATION_LOCK,
+        timeout=_materialization_lock_timeout(),
+    )
+
+
+def _materialization_lock_timeout() -> float:
+    return _env_float(
+        "DY_CLUE_MATERIALIZATION_LOCK_WAIT_SECONDS",
+        MATERIALIZATION_LOCK_WAIT_SECONDS_DEFAULT,
+        minimum=0.0,
+        maximum=300.0,
+    )
 
 
 def _advisory_lock_key(lock_name: str) -> int:

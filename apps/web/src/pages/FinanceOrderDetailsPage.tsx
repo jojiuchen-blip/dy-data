@@ -23,6 +23,7 @@ import {
   displayFinanceSaleChannel,
   displayFinanceSettlementStatus,
 } from "../utils/userFacingLabels";
+import { initialStatementMonth } from "../utils/statementMonth";
 
 interface FinanceOrderDetailsPageProps {
   feeDirection: FeeDirection;
@@ -41,11 +42,6 @@ type FilterDraft = {
   verifyTo: string;
   pageSize: number;
 };
-
-function defaultStatementMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
 
 function optional(value: string): string | undefined {
   const normalized = value.trim();
@@ -78,7 +74,7 @@ function legacySearchFromParams(searchParams: URLSearchParams): string {
 function initialDraft(searchParams: URLSearchParams): FilterDraft {
   return {
     q: searchParams.get("q") ?? legacySearchFromParams(searchParams),
-    month: searchParams.get("month") ?? defaultStatementMonth(),
+    month: initialStatementMonth(searchParams),
     saleChannel: searchParams.get("saleChannel") ?? "",
     invoiceStatus: searchParams.get("invoiceStatus") ?? "",
     settlementStatus: searchParams.get("settlementStatus") ?? "",

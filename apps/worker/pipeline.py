@@ -20,7 +20,7 @@ from apps.worker.collectors.verify_records import collect_shop_pois, collect_ver
 from apps.worker.collectors.windows import resolve_collection_window
 from apps.worker.repositories import finish_job_run, start_job_run
 from apps.worker.douyin_api_quota import DouyinApiQuotaLedger
-from apps.worker.settlement import rebuild_settlement
+from apps.worker.settlement import queue_settlement_publication_job, rebuild_settlement
 from src.dy_data.config import (
     douyin_account_id,
     douyin_api_limits,
@@ -246,7 +246,17 @@ def _run_job(
             runner = browser_export_runner or _run_browser_export_phase
             stats.add_phase(_coerce_browser_export_phase(runner(session, source_run_id)))
         if settlement_runner is not None:
-            stats.add_phase(_coerce_settlement_phase(settlement_runner(session, source_run_id)))
+            settlement_phase = _coerce_settlement_phase(
+                settlement_runner(session, source_run_id)
+            )
+            stats.add_phase(settlement_phase)
+            if settlement_phase.failed == 0:
+                queue_settlement_publication_job(
+                    session,
+                    source_run_id=source_run_id,
+                    trigger_id=source_run_id,
+                    trigger_source="collect_and_settle_completed",
+                )
             if include_clue_materialization:
                 master_refresh = stats.add_phase(
                     _run_clue_master_rebuild_phase(
