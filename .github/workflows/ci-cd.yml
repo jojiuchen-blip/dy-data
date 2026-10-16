@@ -9,6 +9,10 @@ name: DYDATA-102 scoped recovery operations
         options:
           - pg_rehearsal
           - production_compact
+          - production_recover_dry_run
+          - production_recover_apply
+          - production_scope_dry_run
+          - production_scope_apply
         description: Explicit operation; default uses disposable PostgreSQL only
 
 permissions:
@@ -16,7 +20,7 @@ permissions:
 
 jobs:
   scope-transaction:
-    if: github.event.inputs.mode != 'production_compact'
+    if: github.event.inputs.mode == 'pg_rehearsal' || github.event.inputs.mode == ''
     runs-on: ubuntu-latest
     timeout-minutes: 12
     services:
@@ -56,10 +60,10 @@ jobs:
           cd app
           python -m pytest "$GITHUB_WORKSPACE/ops/ops-preparation/test_scope_pg_acceptance.py" -q -p no:cacheprovider
 
-  production-compact:
-    if: github.event.inputs.mode == 'production_compact'
+  production-operation:
+    if: startsWith(github.event.inputs.mode, 'production_')
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     concurrency:
       group: dydata102-production-operations
       cancel-in-progress: false
@@ -69,6 +73,7 @@ jobs:
       TENCENT_SSH_USER: ${{ vars.TENCENT_SSH_USER }}
       TENCENT_SSH_KEY: ${{ secrets.TENCENT_SSH_KEY }}
       TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
+      OPERATION: ${{ github.event.inputs.mode }}
     steps:
       - uses: actions/checkout@v4
       - name: Configure pinned SSH connection
@@ -83,19 +88,47 @@ jobs:
           printf '%s\n' "$TENCENT_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
           ssh-keygen -F "$TENCENT_HOST" -f ~/.ssh/known_hosts >/dev/null
-      - name: Verify source and execute the authorized fenced compaction
+      - name: Execute the selected source-verified operation
         id: compact
         run: |
           set -euo pipefail
+          case "$OPERATION" in
+            production_compact)
+              script=ops-preparation/production_compaction.sh
+              payload=ops-preparation/compaction_snapshot.py
+              destination=/tmp/dydata102-compaction-snapshot.py
+              remote_command='bash -s'
+              ;;
+            production_recover_dry_run|production_recover_apply)
+              script=ops-preparation/production_day_recovery.sh
+              payload=ops-preparation/scoped_recovery_driver.py
+              destination=/tmp/dydata102-scoped-recovery-driver.py
+              if [ "$OPERATION" = production_recover_apply ]; then
+                remote_command='bash -s -- apply'
+              else
+                remote_command='bash -s -- dry-run'
+              fi
+              ;;
+            production_scope_dry_run|production_scope_apply)
+              script=ops-preparation/production_scope.sh
+              payload=ops-preparation/september_scope_config.py
+              destination=/tmp/dydata102-september-scope-config.py
+              if [ "$OPERATION" = production_scope_apply ]; then
+                remote_command='bash -s -- apply'
+              else
+                remote_command='bash -s -- dry-run'
+              fi
+              ;;
+            *) echo '::error::unsupported operation'; exit 2 ;;
+          esac
           scp -i ~/.ssh/tencent_lighthouse -P "${TENCENT_SSH_PORT:-22}" \
             -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
-            ops-preparation/compaction_snapshot.py \
-            "$TENCENT_SSH_USER@$TENCENT_HOST:/tmp/dydata102-compaction-snapshot.py"
+            "$payload" "$TENCENT_SSH_USER@$TENCENT_HOST:$destination"
           ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" \
             -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             -o ServerAliveInterval=30 -o ServerAliveCountMax=5 \
-            "$TENCENT_SSH_USER@$TENCENT_HOST" 'bash -s' \
-            < ops-preparation/production_compaction.sh > "$RUNNER_TEMP/report.txt" 2>&1
+            "$TENCENT_SSH_USER@$TENCENT_HOST" "$remote_command" \
+            < "$script" > "$RUNNER_TEMP/report.txt" 2>&1
       - name: Validate masked aggregate report
         if: always() && steps.compact.outcome != 'skipped'
         id: report
@@ -111,6 +144,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always() && steps.report.outcome == 'success'
         with:
-          name: dydata102-compaction-aggregate-evidence
+          name: dydata102-controlled-operation-evidence
           path: ${{ runner.temp }}/report.txt
           retention-days: 14

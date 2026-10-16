@@ -4,7 +4,15 @@ set -Eeuo pipefail
 export LC_ALL=C
 expected_revision=fe02e2a829f572cd91ed11e4815fd23a5e3504a0
 cd /opt/dy-dashboard/repo
-test "$(git rev-parse HEAD)" = "$expected_revision"
+# The standard deploy installs a git archive with SKIP_GIT_SYNC=true. The
+# retained .git HEAD is historical; use its completed deploy marker plus the
+# actual API/worker file hashes below, never reset Git to manufacture evidence.
+python3 - "$expected_revision" <<'PY'
+import json,sys
+with open('/opt/dy-dashboard/logs/last-deploy.json') as stream:record=json.load(stream)
+assert record.get('sha')==sys.argv[1] and record.get('environment')=='production' and record.get('worker_started') is True, 'completed_deployment_revision_mismatch'
+print('completed_deployment_revision='+record['sha'],flush=True)
+PY
 compose() { sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml "$@"; }
 worker="$(compose ps -q worker)"
 postgres="$(compose ps -q postgres)"

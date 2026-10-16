@@ -64,8 +64,9 @@ jobs:
             sudo docker stats --no-stream --format '{{.Name}} memory={{.MemUsage}} percent={{.MemPerc}} cpu={{.CPUPerc}}' "$container"
             sudo docker exec "$container" sh -c 'if test -r /sys/fs/cgroup/memory.events; then cat /sys/fs/cgroup/memory.events; fi'
           done
-          printf 'server_checkout_revision='
+          printf 'server_historical_git_head_not_deploy_revision='
           git rev-parse HEAD
+          python3 -c 'import json; r=json.load(open("/opt/dy-dashboard/logs/last-deploy.json")); print(json.dumps({"completed_deployment":{k:r.get(k) for k in ("ts","sha","environment","worker_started")}},sort_keys=True))'
           curl --fail --silent --show-error --max-time 15 --output /dev/null --write-out 'public_http_status=%{http_code}\n' https://dy-business-engine.com/finance/promotion
           compose exec -T worker python - <<'PY'
           import json,hashlib
