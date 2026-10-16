@@ -57,10 +57,25 @@ jobs:
           for service in api worker postgres; do
             container="$(compose ps -q "$service")"
             test -n "$container"
-            sudo docker inspect --format '{{.Name}} status={{.State.Status}} oom={{.State.OOMKilled}} exit={{.State.ExitCode}}' "$container"
+            sudo docker inspect --format '{{.Name}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} oom={{.State.OOMKilled}} exit={{.State.ExitCode}}' "$container"
             sudo docker stats --no-stream --format '{{.Name}} memory={{.MemUsage}} percent={{.MemPerc}} cpu={{.CPUPerc}}' "$container"
             sudo docker exec "$container" sh -c 'if test -r /sys/fs/cgroup/memory.events; then cat /sys/fs/cgroup/memory.events; fi'
           done
+          curl --fail --silent --show-error --max-time 15 --output /dev/null --write-out 'public_http_status=%{http_code}\n' https://dy-business-engine.com/finance/promotion
+          compose exec -T worker python - <<'PY'
+          import json
+          from sqlalchemy import select,func,text
+          from dy_api import models as M
+          from dy_api.pdca_readonly_access import _open_pdca_readonly_session
+          scope=_open_pdca_readonly_session()
+          session=next(scope)
+          try:
+              assert session.scalar(text('SHOW transaction_read_only'))=='on'
+              rows=session.execute(select(M.SettlementScopeRule.effective_month,M.SettlementScopeRule.is_active,func.count()).where(M.SettlementScopeRule.effective_month.in_(['2026-08','2026-09','2026-10'])).group_by(M.SettlementScopeRule.effective_month,M.SettlementScopeRule.is_active)).all()
+              print(json.dumps({'monthly_scope_rule_counts':[{'month':month,'active':active,'rows':count} for month,active,count in rows]}))
+          finally:
+              scope.close()
+          PY
           free -m
           df -B1 --output=size,avail,pcent /opt/dy-dashboard
           sudo journalctl -k --since '10 minutes ago' --no-pager | grep -Ei 'Out of memory|Killed process|oom-kill' | tail -8 || true
