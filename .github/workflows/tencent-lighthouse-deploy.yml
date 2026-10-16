@@ -57,10 +57,15 @@ jobs:
           for service in api worker postgres; do
             container="$(compose ps -q "$service")"
             test -n "$container"
-            sudo docker inspect --format '{{.Name}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} oom={{.State.OOMKilled}} exit={{.State.ExitCode}}' "$container"
+            sudo docker inspect --format '{{.Id}} name={{.Name}} started_at={{.State.StartedAt}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} oom={{.State.OOMKilled}} exit={{.State.ExitCode}}' "$container"
+            if [ "$service" != postgres ]; then
+              sudo docker exec "$container" sha256sum /app/apps/worker/projection_lineage.py /app/apps/worker/settlement.py
+            fi
             sudo docker stats --no-stream --format '{{.Name}} memory={{.MemUsage}} percent={{.MemPerc}} cpu={{.CPUPerc}}' "$container"
             sudo docker exec "$container" sh -c 'if test -r /sys/fs/cgroup/memory.events; then cat /sys/fs/cgroup/memory.events; fi'
           done
+          printf 'server_checkout_revision='
+          git rev-parse HEAD
           curl --fail --silent --show-error --max-time 15 --output /dev/null --write-out 'public_http_status=%{http_code}\n' https://dy-business-engine.com/finance/promotion
           compose exec -T worker python - <<'PY'
           import json,hashlib
