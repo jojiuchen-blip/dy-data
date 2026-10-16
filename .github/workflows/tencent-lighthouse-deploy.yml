@@ -97,6 +97,8 @@ jobs:
                   manifest=M.SettlementProjectionPartitionManifest
                   partitions=select(manifest.artifact,manifest.partition_key).where(manifest.generation_id.in_(ids)).distinct().subquery()
                   print(json.dumps({'compaction_observed_resources':{'distinct_manifest_rows':session.scalar(select(func.count()).select_from(partitions)),'closure_rows':len(ids)}}))
+                  negative=session.execute(select(manifest.artifact,func.count()).where(manifest.generation_id.in_(ids),manifest.amount_total_cent<0).group_by(manifest.artifact)).all()
+                  print(json.dumps({'negative_manifest_amount_counts':[{'artifact':artifact,'rows':count} for artifact,count in negative]}))
               print(json.dumps({'august_full_fact_hashes':facts,'active_head':{'generation_id':head.generation_id,'depth':head.lineage_depth,'state':head.state,'kind':head.generation_kind} if head else None},sort_keys=True))
               rows=session.execute(select(M.SettlementScopeRule.effective_month,M.SettlementScopeRule.is_active,func.count()).where(M.SettlementScopeRule.effective_month.in_(['2026-08','2026-09','2026-10'])).group_by(M.SettlementScopeRule.effective_month,M.SettlementScopeRule.is_active)).all()
               print(json.dumps({'monthly_scope_rule_counts':[{'month':month,'active':active,'rows':count} for month,active,count in rows]}))
