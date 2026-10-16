@@ -129,6 +129,7 @@ jobs:
             -o ServerAliveInterval=30 -o ServerAliveCountMax=5 \
             "$TENCENT_SSH_USER@$TENCENT_HOST" "$remote_command" \
             < "$script" > "$RUNNER_TEMP/report.txt" 2>&1
+          python3 ops-preparation/verify_operation_receipt.py "$OPERATION" "$RUNNER_TEMP/report.txt"
       - name: Validate masked aggregate report
         if: always() && steps.compact.outcome != 'skipped'
         id: report

@@ -43,7 +43,7 @@ print('real_resource_guard_enabled=true',flush=True)
 PY
 test -f /tmp/dydata102-compaction-snapshot.py
 sudo docker cp /tmp/dydata102-compaction-snapshot.py "$worker:/tmp/dydata102-compaction-snapshot.py"
-compose exec -T worker python /tmp/dydata102-compaction-snapshot.py > /tmp/dydata102-compaction-before.json
+compose exec -T worker python /tmp/dydata102-compaction-snapshot.py < /dev/null > /tmp/dydata102-compaction-before.json
 compose exec -T worker python - <<'PY' > /tmp/dydata102-compaction-resources.json
 import json
 from sqlalchemy import select,func,literal,text
@@ -94,8 +94,8 @@ compose exec -T worker python scripts/ops/compact_settlement_projection.py \
   --max-estimated-write-bytes "${resource_args[2]}" \
   --max-estimated-wal-bytes "${resource_args[3]}" \
   --observed-disk-headroom-bytes "$available" --min-disk-headroom-bytes "$minimum" \
-  --admission-wait-seconds 1200 > /tmp/dydata102-compaction-result.json
-compose exec -T worker python /tmp/dydata102-compaction-snapshot.py > /tmp/dydata102-compaction-after.json
+  --admission-wait-seconds 1200 < /dev/null > /tmp/dydata102-compaction-result.json
+compose exec -T worker python /tmp/dydata102-compaction-snapshot.py < /dev/null > /tmp/dydata102-compaction-after.json
 python3 - <<'PY'
 import json
 before=json.load(open('/tmp/dydata102-compaction-before.json'))
