@@ -56,14 +56,14 @@ PY
 config=/tmp/dydata102-september-scope-config.py
 test -s "$config"
 sudo docker cp "$config" "$worker:$config"
-compose exec -T worker test -s "$config"
+compose exec -T worker test -s "$config" < /dev/null
 set +e
 compose exec -T worker python "$config" \
   --actor 'dydata102-authorized-ops' \
   --idempotency-key 'dydata102-september-scope-20261016-v1' \
   --change-reason 'user confirmed September account and channel scope equals August' \
   --expected-august-scope-sha256 'fc7a3b42ef1b67a2400e8c95d4b2e0f7fbe3c179997bb216166d59ab3cb79c2f' \
-  "${apply_args[@]}"
+  "${apply_args[@]}" < /dev/null
 rc=$?
 set -e
 echo "september_scope_exit_code=$rc mode=$mode"

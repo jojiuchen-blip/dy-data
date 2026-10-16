@@ -54,14 +54,14 @@ PY
 driver=/tmp/dydata102-scoped-recovery-driver.py
 test -s "$driver"
 sudo docker cp "$driver" "$worker:$driver"
-compose exec -T worker test -s "$driver"
+compose exec -T worker test -s "$driver" < /dev/null
 set +e
 compose exec -T worker python "$driver" \
   --root-job-id 'range-sync-10562f3369ac7d31e9801d42d8db1d60' \
   --request-key 'dydata102-sep14-recovery-20261016-v2' \
   --actor 'dydata102-authorized-ops' \
   --reason 'explaining user-authorized Sep14 recovery after fenced compaction' \
-  --max-wait-seconds 7200 "${apply_args[@]}"
+  --max-wait-seconds 7200 "${apply_args[@]}" < /dev/null
 rc=$?
 set -e
 echo "recovery_driver_exit_code=$rc mode=$mode"

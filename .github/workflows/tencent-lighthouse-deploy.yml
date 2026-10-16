@@ -111,6 +111,10 @@ jobs:
               print(json.dumps({'august_full_fact_hashes':facts,'active_head':{'generation_id':head.generation_id,'depth':head.lineage_depth,'state':head.state,'kind':head.generation_kind} if head else None},sort_keys=True))
               rows=session.execute(select(M.SettlementScopeRule.effective_month,M.SettlementScopeRule.is_active,func.count()).where(M.SettlementScopeRule.effective_month.in_(['2026-08','2026-09','2026-10'])).group_by(M.SettlementScopeRule.effective_month,M.SettlementScopeRule.is_active)).all()
               print(json.dumps({'monthly_scope_rule_counts':[{'month':month,'active':active,'rows':count} for month,active,count in rows]}))
+              jobs=list(session.scalars(select(M.JobRun).where(M.JobRun.job_name=='settlement_compaction').order_by(M.JobRun.started_at.desc()).limit(3)))
+              print(json.dumps({'compaction_jobs':[{'job_id':j.job_id,'status':j.status,'attempt_count':j.attempt_count,'max_attempts':j.max_attempts,'stage':(j.metadata_json or {}).get('stage'),'result':(j.metadata_json or {}).get('result')} for j in jobs]},sort_keys=True))
+              heartbeats=list(session.scalars(select(M.ComponentHeartbeat).where(M.ComponentHeartbeat.component_type=='worker').order_by(M.ComponentHeartbeat.last_heartbeat_at.desc()).limit(5)))
+              print(json.dumps({'worker_resource_guards':[{'instance':h.component_instance_id,'sampled_at':str(h.last_heartbeat_at),'guard':{k:(h.activity_json or {}).get('resource_guard',{}).get(k) for k in ('state','allow_daily','allow_history','duration_seconds','reasons')}} for h in heartbeats]},sort_keys=True))
           finally:
               scope.close()
           PY
