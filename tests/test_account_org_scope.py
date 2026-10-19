@@ -77,20 +77,21 @@ def test_service_hierarchy_is_independent_of_group(client, db_session):
 
 
 def test_ranking_and_export_ignore_scope_and_a03_deny_but_require_login(client, db_session, monkeypatch):
+    from datetime import datetime, timezone
+    from apps.api.dy_api.dashboard_publications import lifecycle, ranking
     from dy_api.routes import dashboard
     db_session.add(UserPagePermissionOverride(user_id='store-user', page_key='A03', effect='deny', updated_by='test'))
     db_session.commit()
     seen = []
-    monkeypatch.setattr(dashboard, 'ensure_business_snapshot', lambda *a, **kw: 'snapshot')
     # This test isolates authorization from persistence; lifecycle behavior
-    # is verified against real snapshot rows in the ranking tests.
-    monkeypatch.setattr(dashboard, 'hold_snapshot_read', lambda *a, **kw: {'run_id': 'snapshot'})
-    monkeypatch.setattr(dashboard, 'resolve_static_snapshot', lambda *a, **kw: 'snapshot')
-    monkeypatch.setattr(dashboard, 'record_snapshot_access', lambda *a, **kw: None)
+    # is verified against real published rows in the ranking tests.
+    at = datetime.now(timezone.utc)
+    publication = lifecycle.Publication('published-ranking', 'douyin-ranking', at, None, at, None)
+    monkeypatch.setattr(lifecycle, 'resolve_publication', lambda *a, **kw: publication)
     def report(*args, **kwargs):
         seen.append(kwargs['scope_store_ids'])
         return {'rows': [{'name': 'Other Store'}]}
-    monkeypatch.setattr(dashboard, 'read_snapshot_report', report)
+    monkeypatch.setattr(ranking, 'read_report', report)
     def export(*args, **kwargs):
         seen.append(kwargs['scope_store_ids'])
         return b'workbook'

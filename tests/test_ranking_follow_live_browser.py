@@ -1,7 +1,7 @@
 """Real FastAPI + SQLite + Vite ranking regression; no intercepted API responses.
 
 Only authentication is injected, using the existing live-browser fixture pattern.
-The production route builds business snapshots from four isolated source orders.
+The fixture publishes four isolated source orders before serving static GETs.
 """
 from __future__ import annotations
 
@@ -38,6 +38,9 @@ from apps.api.dy_api.models import (
 )
 from apps.api.dy_api.ranking_configuration import DATA_START, publish_configuration
 from apps.api.dy_api.ranking_schema_v1 import metadata
+from apps.api.dy_api.dashboard_publications.ranking import build as build_ranking_publication
+from apps.api.dy_api.dashboard_publications.schema import metadata as publication_metadata
+from apps.api.dy_api.dashboard_publications.lifecycle import publish_module
 
 
 def seed_ranking_orders(session):
@@ -91,9 +94,12 @@ def live_admin_fastapi_base_url(tmp_path_factory):
     engine = create_engine(f"sqlite+pysqlite:///{database_path.as_posix()}", connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
     metadata.create_all(engine)
+    publication_metadata.create_all(engine)
     factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     with factory() as session:
         seed_ranking_orders(session)
+    publication = publish_module(factory, 'douyin-ranking', build_ranking_publication)
+    assert publication is not None
     with pytest.MonkeyPatch.context() as environment:
         environment.setenv("DY_API_CORS_ORIGINS", "*")
         environment.setenv("DY_API_TEST_MODE", "true")
@@ -142,7 +148,7 @@ def test_ranking_live_api_independent_follow_rates_and_empty_filter(
         assert response.status == 200, response.text()
         data = response.json()["data"]
         assert data["dataMode"] == "business"
-        assert data["snapshotId"].startswith("business-")
+        assert data["snapshotId"] == response.json()["meta"]["publication"]["id"]
         assert data["total"] == 1
         for metrics in (data["totals"], data["rows"][0]):
             assert (metrics["followNumerator"], metrics["followDenominator"]) == (1, 4)
