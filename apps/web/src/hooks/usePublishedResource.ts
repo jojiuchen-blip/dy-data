@@ -50,6 +50,7 @@ export function usePublishedResource<T>(
       try {
         result = await loadRef.current(id);
       } catch (error) {
+        if (cancelled || request !== requestRef.current) return;
         if (!(error instanceof ApiRequestError) || error.status !== 410 || !id) throw error;
         if (!leader) {
           setNotice("原结果版本已过期，正在重新读取完整发布结果。");
@@ -68,8 +69,13 @@ export function usePublishedResource<T>(
         throw new Error("结果版本不一致，请刷新后重试。");
       }
       if (publication) {
-        pin.current = publication;
-        show(publication, !announce);
+        // Explicit-ID data reads describe immutable contents as available; keep
+        // the matching leader metadata status about the latest background attempt.
+        const displayPublication = !leader && pin.current?.id === publication.id
+          ? { ...publication, status: pin.current.status, nextRefreshAt: pin.current.nextRefreshAt }
+          : publication;
+        pin.current = displayPublication;
+        show(displayPublication, !announce);
       }
       completedGeneration.current = generation;
       resolvedQuery.current = queryKey;
@@ -90,7 +96,8 @@ export function usePublishedResource<T>(
         : error instanceof TypeError ? "网络连接异常，请检查后重试。"
         : "发布结果或版本信息暂不可用，请读取最新结果。";
       setResolvedKey(wantedKey);
-      setState((current) => ({ data: sameQuery ? current.data : undefined, error: message, rawError: error, loading: false, refreshing: false }));
+      const mayKeepPrevious = sameQuery && !(error instanceof ApiRequestError && [401, 403, 410, 422].includes(error.status));
+      setState((current) => ({ data: mayKeepPrevious ? current.data : undefined, error: message, rawError: error, loading: false, refreshing: false }));
     });
     return () => { cancelled = true; };
     // The caller explicitly declares query dependencies; loadRef avoids callback loops.
