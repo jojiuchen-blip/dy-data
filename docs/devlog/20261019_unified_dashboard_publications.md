@@ -82,6 +82,10 @@ PR #50 的结算恢复属于既有依赖，其尚未完成的业务恢复没有�
 
 15:30 北京时间远端完整 CI 已成功结束，验证提交为 `b6c515c58719161b42ca40ec57b49b866e584659`：全仓 3,764 通过、236 跳过（1,184.31 秒）；静态发布 PostgreSQL 专项 48 通过、4 跳过；其他真实 PostgreSQL 发布门禁、前端生产构建及 API / Worker / Browser / Web 四个镜像构建全部通过。此前首轮失败记录保留，后续提交只新增运维与验证日志，未改变已验证的功能代码。CI 未启用 opt-in 大规模严格秒内断言，既有全年首读性能限制仍然成立。该 feature 分支运行未触发生产部署，来源就绪、生产限额性能及构建峰值容量仍待验收。
 
+15:42–15:56 采集浏览器恢复：用户报告 noVNC 连接后白屏，实际已进入远程 Chromium。通过 UI 打开抖音来客后复现 `Aw, Snap! / Error code: 9`；15:42:26 内核明确记录 browser 容器触及 2 GiB cgroup 限额并杀死 Chromium，重启前 `memory.events` 为 oom 63 / oom_kill 12。容器健康只验证连接与协议，不能代表业务网页渲染健康。
+
+15:48 在再次确认数据库无 queued/running job、无待执行 browser 运维指令、共享 active marker 不存在、无 browser heartbeat 活动记录后，仅重启现有 browser 容器一次。命令退出 0，容器身份及 profile/downloads/runtime 三个 volume 挂载前后一致；未修改内存限额、采集任务状态或配额冷却。重启后重新连接 noVNC，实际切换到抖音来客商家号管理页并看到业务列表，已有登录态有效；随后内存约 1.50 GiB / 2 GiB，oom / oom_kill 均为 0，CDP/VNC/WebSocket 健康检查通过。恢复截图及操作审计仅保留于未跟踪临时目录。此次恢复证明当前页面可用，不等于长期内存增长原因已经修复，也不代表来源任务已成功重试；正式发布仍遵守来源完整性与冷却门禁。
+
 ## Foundation 漂移
 
 新增发布元数据、过滤入口、错误状态及侧表属于 foundation 缺项，已登记 [待改请求](../plans/foundation-plans/foundation-change-requests-unified-dashboard-publications.md)。本任务不直接修改 foundation 文档。
