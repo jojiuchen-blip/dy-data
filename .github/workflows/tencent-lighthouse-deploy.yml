@@ -4,41 +4,34 @@ on:
 permissions:
   contents: read
 jobs:
-  memory:
-    name: Synthetic PostgreSQL snapshot memory comparison
+  inspect:
+    name: Read API health after PDCA acceptance
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    services:
-      postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_PASSWORD: fixture_only
-          POSTGRES_DB: fixture
-        ports:
-          - 5432:5432
-        options: --health-cmd "pg_isready -U postgres -d fixture" --health-interval 5s --health-timeout 3s --health-retries 15
+    timeout-minutes: 4
+    env:
+      TENCENT_HOST: ${{ vars.TENCENT_HOST }}
+      TENCENT_SSH_PORT: ${{ vars.TENCENT_SSH_PORT }}
+      TENCENT_SSH_USER: ${{ vars.TENCENT_SSH_USER }}
+      TENCENT_SSH_KEY: ${{ secrets.TENCENT_SSH_KEY }}
+      TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
     steps:
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: python -m pip install SQLAlchemy==2.0.52 'psycopg[binary]==3.3.5'
-      - name: Compare separate fresh processes using synthetic evidence only
+      - name: Read precise image, health and memory events
         run: |
-          cat > /tmp/bench.py <<'PY'
-          import sys,json,time,resource
-          from sqlalchemy import create_engine,MetaData,Table,Column,String,Integer,JSON,select,func
-          mode=sys.argv[1];size=100000
-          metadata=MetaData();table=Table('evidence_'+mode,metadata,Column('sample_key',String,primary_key=True),Column('run_id',String),Column('metric_key',String),Column('store_id',String),Column('mapping_version',String),Column('status',String),Column('reason_code',String),Column('numerator',Integer),Column('denominator',Integer),Column('evidence_json',JSON))
-          rows=[dict(sample_key=str(i),run_id='synthetic',metric_key='follow_24h',store_id='fixture-store',mapping_version='fixture',status='included',reason_code=None,numerator=i%2,denominator=1,evidence_json={'order_id':str(i),'round_id':'round-'+str(i),'follow_record_ids':['synthetic-'+str(i)+'-'+str(n) for n in range(8)]}) for i in range(size)]
-          engine=create_engine('postgresql+psycopg://postgres:fixture_only@127.0.0.1:5432/fixture');metadata.create_all(engine)
-          began=time.monotonic()
-          with engine.begin() as conn:
-              batch=size if mode=='original' else 500
-              for offset in range(0,size,batch):conn.execute(table.insert(),rows[offset:offset+batch])
-              count,total=conn.execute(select(func.count(),func.sum(table.c.numerator))).one()
-              assert (count,total)==(size,size//2)
-          print(json.dumps({'service':'synthetic-postgres-memory','mode':mode,'rows':count,'sum':total,'peak_rss_mb':round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024,1),'seconds':round(time.monotonic()-began,2)}),flush=True)
-          metadata.drop_all(engine);engine.dispose()
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$TENCENT_SSH_KEY" > ~/.ssh/tencent_lighthouse
+          chmod 600 ~/.ssh/tencent_lighthouse
+          printf '%s\n' "$TENCENT_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$TENCENT_SSH_USER@$TENCENT_HOST" 'sudo python3 -' <<'PY'
+          import subprocess,json,pathlib
+          def run(args):return subprocess.check_output(args,text=True).strip()
+          root=pathlib.Path('/opt/dy-dashboard')
+          report=json.loads((root/'logs/pdca-ranking-393e3dab.json').read_text())
+          cid=run(['docker','compose','--env-file',str(root/'env/production.env'),'-f',str(root/'repo/deploy/compose.yaml'),'ps','-q','api'])
+          state=json.loads(run(['docker','inspect',cid]))[0]
+          events=dict(line.split() for line in run(['docker','exec',cid,'cat','/sys/fs/cgroup/memory.events']).splitlines())
+          result={'service':'production-api-post-acceptance','image':state['Image'],'healthy':state['State'].get('Health',{}).get('Status'),'restart_count':state['RestartCount'],'oom_killed':state['State']['OOMKilled'],'memory_events':events,'started_at':state['State']['StartedAt']}
+          print(json.dumps(result))
+          assert state['Image']==report['new_image'] and result['healthy']=='healthy'
+          assert result['restart_count']==0 and int(events.get('oom_kill',0))==0 and not result['oom_killed']
           PY
-          python /tmp/bench.py original
-          python /tmp/bench.py fixed
