@@ -3,7 +3,7 @@ from bisect import bisect_right
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session, aliased, load_only
@@ -21,6 +21,13 @@ from apps.api.dy_api.ranking_snapshots import utc
 
 BATCH_SIZE = 500
 DIMENSION_LIMIT = 250000
+
+
+def _analyze_projection(session: Session) -> None:
+    """Publish usable planner statistics with the facts, before any first read."""
+    if session.get_bind().dialect.name == "postgresql":
+        for table in (frozen.orders, frozen.rounds, frozen.organizations, frozen.eligibility, frozen.info):
+            session.execute(text("ANALYZE " + table.name))
 
 
 def _dimensions(session, statement):
@@ -187,5 +194,6 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
         session.execute(frozen.rounds.insert(), values)
         round_count += len(values)
         last_round = rows[-1].assignment_round_id
+    _analyze_projection(session)
     return dict(row_count=order_count + round_count + org_count + eligibility_count,
         orders=order_count, rounds=round_count, organizations=org_count, eligibility=eligibility_count, data_as_of=None)
