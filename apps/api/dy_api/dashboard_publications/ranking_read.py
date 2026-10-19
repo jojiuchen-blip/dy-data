@@ -192,3 +192,43 @@ def read_levels(session: Session, publication_id: str, **filters: Any) -> dict[s
     """Return all export levels from the same frozen publication and filters."""
     filters = {key: value for key, value in filters.items() if key not in {"level", "page", "page_size"}}
     return {level: read_report(session, publication_id, level=level, page=1, page_size=None, **filters) for level in LEVEL_FIELDS}
+
+
+def read_filters(
+    session: Session, publication_id: str, *, scope_store_ids: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
+    """Read month and current organization choices from one frozen publication.
+
+    Organization choices use the mapping effective at the publication cutoff;
+    reports continue selecting historical mapping by their query start date.
+    Product types and verification dates are absent from this narrow projection
+    and are represented by empty choices, never read from mutable source data.
+    """
+    cutoff = session.scalar(select(info.c.cutoff).where(info.c.publication_id == publication_id))
+    if cutoff is None:
+        raise ValueError("该版本尚未生成指标数据")
+    version = session.scalar(select(organizations.c.mapping_version).where(
+        organizations.c.publication_id == publication_id, organizations.c.effective_from <= utc(cutoff)
+    ).order_by(organizations.c.effective_from.desc()).limit(1))
+    fields = ("store_id", "store_name", "service_store_code", "group_key", "group_name",
+        "service_center_key", "service_center_name", "district_key", "district_name", "area_key", "area_name")
+    org_query = select(*[organizations.c[field] for field in fields]).where(
+        organizations.c.publication_id == publication_id, organizations.c.mapping_version == version
+    ).order_by(organizations.c.store_name, organizations.c.store_id)
+    # Aggregate months in the database, including Shanghai's month boundary.
+    month = (func.to_char(func.timezone("Asia/Shanghai", orders.c.occurred_at), "YYYY-MM")
+        if session.bind.dialect.name == "postgresql" else func.strftime("%Y-%m", orders.c.occurred_at, "+8 hours"))
+    month_query = select(month.label("month")).where(orders.c.publication_id == publication_id).distinct().order_by(month.desc())
+    if scope_store_ids is not None:
+        org_query = org_query.where(organizations.c.store_id.in_(scope_store_ids))
+        month_query = month_query.where(orders.c.store_id.in_(scope_store_ids))
+    org_rows = [dict(row) for row in session.execute(org_query).mappings()]
+    months = [value for value in session.scalars(month_query) if value]
+    return dict(snapshot_id=publication_id, stores=[{field: row[field] for field in ("store_id", "store_name")} for row in org_rows],
+        organizations=org_rows,
+        **{field + "s": sorted({row[field] for row in org_rows if row[field]})
+            for field in ("group_name", "service_center_name", "district_name", "area_name")},
+        sale_months=months, years=sorted({int(value[:4]) for value in months}, reverse=True),
+        product_scopes=list(PRODUCT_SCOPE_LABELS), product_types=[],
+        product_scope_type_map={scope: [] for scope in PRODUCT_SCOPE_LABELS},
+        default_product_type="all", default_product_scope="all", verify_months=[], timezone="Asia/Shanghai")

@@ -112,6 +112,21 @@ def test_cascade_only_projection_and_persistent_first_binding(pg):
         assert session.scalar(select(frozen.lead_bindings.c.lead_key)) == "persistent"
 
 
+def test_filter_months_use_shanghai_not_postgres_session_timezone(pg):
+    from datetime import datetime, timezone
+
+    with Session(pg) as session:
+        seed_frozen(session, 2)
+        session.execute(text("SET TIME ZONE 'America/Los_Angeles'"))
+        session.execute(frozen.orders.insert(), [dict(publication_id="pub", order_id="boundary-" + str(number),
+            occurred_at=datetime(2025, 12, 31, 15 + number, tzinfo=timezone.utc), store_id="A",
+            is_jingcheng=True, reason=None, historical_unverified=False) for number in (0, 1)])
+        report = ranking.read_filters(session, "pub")
+        assert report["sale_months"] == ["2026-09", "2026-01", "2025-12"]
+        assert report["years"] == [2026, 2025]
+        assert report["snapshot_id"] == "pub"
+
+
 def test_real_builder_postgres_parity_rollback_and_source_independence(pg):
     from apps.api.dy_api.models import (
         Base, ClueAssignmentRound, ClueFollowUpRecord, DimAwemeAccount, DimSkuProductRule,

@@ -214,3 +214,48 @@ def test_all_history_exceeds_old_50000_row_batch_without_truncation(source):
     assert stats["orders"] == 50012
     result = ranking.read_report(source, "pub", period_start=START, period_end=END)
     assert result["totals"]["order_count"] == 50011
+
+
+def test_filter_choices_use_frozen_shanghai_months_and_cutoff_organization(source):
+    from datetime import datetime, timezone
+
+    history = [dict(row) for row in source.execute(select(org_history)).mappings()]
+    for row in history:
+        row.update(mapping_version="latest", effective_from=AT + timedelta(days=10), district_name="截止时大区")
+    source.execute(org_history.insert(), history)
+    source.add_all([
+        RawDouyinOrder(order_id="month-before", sku_id="TEST-JC", owner_account_id="A-store",
+            sale_time=datetime(2025, 12, 31, 15, 59, tzinfo=timezone.utc)),
+        RawDouyinOrder(order_id="month-after", sku_id="TEST-JC", owner_account_id="A-store",
+            sale_time=datetime(2025, 12, 31, 16, 0, tzinfo=timezone.utc)),
+    ])
+    source.commit()
+    freeze(source)
+    expected = ranking.read_filters(source, "pub")
+    assert expected["sale_months"] == ["2026-09", "2026-01", "2025-12"]
+    assert expected["years"] == [2026, 2025]
+    assert expected["district_names"] == ["截止时大区"]
+    assert expected["product_scopes"] == ["all", "jingcheng", "byd"]
+    assert expected["default_product_type"] == "all"
+    assert len(expected["stores"]) == 4
+    source.execute(delete(RawDouyinOrder))
+    source.execute(delete(org_history))
+    source.commit()
+    statements = []
+
+    def guard(connection, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+        assert statement.lstrip().upper().startswith("SELECT")
+        assert "raw_douyin" not in statement and "ranking_store_org_history" not in statement
+
+    event.listen(source.bind, "before_cursor_execute", guard)
+    try:
+        assert ranking.read_filters(source, "pub") == expected
+        assert ranking.read_filters(source, "pub", scope_store_ids=())["sale_months"] == []
+        assert ranking.read_filters(source, "pub", scope_store_ids=())["stores"] == []
+        assert len(ranking.read_filters(source, "pub", scope_store_ids=("A",))["stores"]) == 1
+        with pytest.raises(ValueError, match="尚未生成"):
+            ranking.read_filters(source, "missing")
+    finally:
+        event.remove(source.bind, "before_cursor_execute", guard)
+    assert statements
