@@ -38,6 +38,20 @@ jobs:
               container=subprocess.check_output(compose+['ps','-q',service],text=True).strip()
               state=json.loads(subprocess.check_output(['sudo','docker','inspect',container],text=True))[0]
               print(json.dumps({'service':service,'state':{k:state['State'].get(k) for k in ('Status','OOMKilled','StartedAt','Restarting')},'restarts':state['RestartCount']}))
+              print(json.dumps({'service':service,'limits':{k:state['HostConfig'].get(k) for k in ('Memory','MemorySwap','NanoCpus','RestartPolicy')}}))
+              if service=='api':
+                  cg=subprocess.run(['sudo','docker','exec',container,'cat','/sys/fs/cgroup/memory.events'],capture_output=True,text=True)
+                  print(json.dumps({'service':service,'memory_events':dict(line.split() for line in cg.stdout.splitlines() if len(line.split())==2)}))
+                  import datetime
+                  until=datetime.datetime.now(datetime.timezone.utc).isoformat()
+                  ev=subprocess.run(['sudo','docker','events','--since','120m','--until',until,'--filter','container='+container,'--format','{{json .}}'],capture_output=True,text=True,timeout=20)
+                  events=[]
+                  for line in ev.stdout.splitlines():
+                      item=json.loads(line)
+                      if item.get('Action') in ('die','oom','restart','start','kill'):
+                          attrs=item.get('Actor',{}).get('Attributes',{})
+                          events.append({'action':item.get('Action'),'time':item.get('time'),'exitCode':attrs.get('exitCode'),'signal':attrs.get('signal')})
+                  print(json.dumps({'service':service,'events':events[-60:]}))
               logs=subprocess.run(['sudo','docker','logs','--since','90m','--tail','15000',container],capture_output=True,text=True)
               content=logs.stdout+'\n'+logs.stderr
               print(json.dumps({'service':service,'error_counts':{p:content.count(p) for p in patterns}}))
