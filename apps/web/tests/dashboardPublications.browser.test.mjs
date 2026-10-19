@@ -132,6 +132,7 @@ test("expired fixed version recovers once, 422 never retries, and 503 refresh ke
   await invalid;
   await page.getByRole("button", { name: "导出排行", exact: true }).isDisabled().then((value) => assert.equal(value, true));
   assert.equal(requests.length, before + 1);
+  assert.equal(requests.at(-1).searchParams.get("publication_id"), "r2", "failed latest refresh must keep the previous version pinned");
 }));
 
 test("finance first summary pins list and export to same version", async () => withPage(async ({ page, requests, handle }) => {

@@ -84,6 +84,8 @@ export function usePublishedResource<T>(
     };
     void read().catch((error: unknown) => {
       if (cancelled || request !== requestRef.current) return;
+      // A failed latest refresh keeps the displayed version pinned for subsequent filters.
+      completedGeneration.current = generation;
       const statusMessages: Record<number, string> = {
         401: "登录状态已失效，请重新登录。",
         403: "当前账号没有查看此分析结果的权限。",
