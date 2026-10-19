@@ -112,6 +112,7 @@ def stop_process_tree(process: subprocess.Popen[str]) -> None:
             pass
 
 sys.path.insert(0, str(REPO_ROOT / "apps" / "api"))
+from publication_fixture_helpers import publish_fixture
 from dy_api.auth import AuthContext, get_current_user  # noqa: E402
 from dy_api.access_control import ALL_PAGE_KEYS, STORE_DEFAULT_PAGE_KEYS  # noqa: E402
 from dy_api.main import create_app  # noqa: E402
@@ -1087,6 +1088,8 @@ def live_admin_fastapi_base_url(tmp_path_factory) -> Generator[str]:
             ]
         )
         session.commit()
+        # Analytical browser reads share one explicit initial background publication.
+        publish_fixture(session, "finance")
 
     original_product_sync_job = admin_routes.run_product_sync_job
     sync_threads: list[threading.Thread] = []
