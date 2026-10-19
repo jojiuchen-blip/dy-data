@@ -18,7 +18,8 @@ from dy_api.models import (
     PromotionInvoice, PromotionInvoiceAllocation, SettlementProjectionActive,
     SettlementProjectionGeneration, SettlementProjectionPartitionManifest,
     SettlementMonthlyOverlay, SettlementRankingOverlay, SettlementStatement,
-    SettlementStatementConfirmation, StoreFinanceProfile,
+    SettlementStatementConfirmation, SettlementStatementLine, SettlementFeeResult,
+    SettlementFeeResultCurrent, SettlementFeeAdjustment, StoreFinanceProfile,
 )
 from dy_api.routes import dashboard as source
 from dy_api.routes._data import DashboardDataStore
@@ -124,7 +125,7 @@ def test_finance_parity_scope_filters_export_and_frozen_source(db_session, direc
     assert stats["invoice_rows"] > 0
     assert stats["data_as_of"] is None
     cases = []
-    for month, metric_scope in (("2026-09", "MONTH"), ("2026-10", "MONTH"),
+    for month, metric_scope in (("2026-07", "MONTH"), ("2026-09", "MONTH"), ("2026-10", "MONTH"),
                                 ("2026-10", "CUMULATIVE")):
         for extra in ({}, {"scope_store_ids": ("allowed",)}, {"scope_store_ids": ()},
                       {"q": "SAP-allowed"}, {"q": "Historical"}, {"q": "12345678901234567890"},
@@ -247,6 +248,10 @@ def test_settlement_parity_huge_integer_cent_scope_and_no_legacy_drift(db_sessio
     assert publication.read_filters(db_session, "settlement-v1", scope_store_ids=())["stores"] == []
     assert [row["store_id"] for row in publication.read_filters(db_session, "settlement-v1",
         scope_store_ids=("allowed",))["stores"]] == ["allowed"]
+    global_label = publication.read_store_ranking(db_session, "settlement-v1", dict(
+        period_type="MONTHLY", period_key="2026-08", scope_mode="GLOBAL",
+        scope_store_ids=("allowed",)))
+    assert [row["store_id"] for row in global_label["list"]] == ["allowed"]
     # The source generation may be a mutable legacy-root. Only the copied
     # projection, never a generation reference alone, provides immutability.
     model = AggStoreRanking if legacy_root else SettlementRankingOverlay
@@ -272,6 +277,49 @@ def test_failed_build_rolls_back_owned_projection_rows(db_session, monkeypatch):
     assert publication.read_finance_summary(db_session, "finance-old", **filters) == before
     assert db_session.scalar(select(func.count()).select_from(publication.invoices).where(
         publication.invoices.c.publication_id == "finance-failed")) == 0
+
+
+@pytest.mark.parametrize("locked", [False, True])
+def test_monthly_frozen_lines_match_multicoupon_refund_and_locked_facts(db_session, locked):
+    _seed_settlement(db_session)
+    for index, amount in enumerate((100, 200)):
+        fee_id = f"fee-{index}"
+        db_session.add(SettlementFeeResult(fee_result_id=fee_id, coupon_id=f"coupon-{index}",
+            order_id="multi-coupon-order", fee_direction=1, original_business_month="2026-08",
+            rule_match_date=date(2026, 8, 10), sale_store_id="allowed", verify_store_id="other",
+            sku_id="sku", product_scope="jingcheng", product_type="tyre",
+            sale_channel_normalized="LIVE", source_amount_cent=1000, fee_base_cent=1000,
+            fee_rate=str(amount / 1000), fee_amount_cent=amount, rule_version=f"rule-{index}",
+            scope_rule_version="scope-1", calculation_run_id="test", calculated_at=NOW))
+        db_session.add(SettlementFeeResultCurrent(coupon_id=f"coupon-{index}",
+            fee_direction=1, fee_result_id=fee_id))
+    db_session.add(SettlementFeeAdjustment(adjustment_id="cancel-september", original_fee_result_id="fee-0",
+        coupon_id="coupon-0", order_id="multi-coupon-order", fee_direction=1,
+        original_business_month="2026-08", adjustment_posting_month="2026-09", adjustment_type=3,
+        adjustment_base_cent=-1000, adjustment_fee_cent=-100, rule_version="cancel-rule",
+        adjustment_reason="verify cancelled", occurred_at=NOW, created_by="test"))
+    if locked:
+        _statement(db_session, "allowed", "2026-08", 177)
+        db_session.add(SettlementStatementLine(statement_line_id="locked-line",
+            statement_id="statement-allowed-2026-08", fee_direction=1,
+            product_scope="jingcheng", product_type="tyre", original_entry_count=2,
+            original_base_cent=2000, net_base_cent=2000, original_fee_cent=177, net_fee_cent=177))
+    db_session.commit()
+    _run(db_session, "settlement-lines", "settlement")
+    publication.build_settlement(db_session, "settlement-lines", NOW)
+    for month in ("2026-08", "2026-09"):
+        filters = dict(store_id="allowed", month=month, product_scope="all", product_type="all")
+        expected = DashboardDataStore(db_session).monthly_settlement_report(filters)
+        actual = publication.read_monthly_settlement(db_session, "settlement-lines", filters)
+        assert publication._json_value(actual.pop("publication_statement")) == publication._json_value(expected["statement"])
+        expected["statement"] = None
+        assert actual == publication._json_value(expected)
+    specific = publication.read_monthly_settlement(db_session, "settlement-lines", dict(
+        store_id="allowed", month="2026-08", product_scope="jingcheng", product_type="tyre"))
+    assert len(specific["lines"]) == 1
+    assert specific["lines"][0]["net_fee_cent"] == (177 if locked else 300)
+    if locked:
+        assert specific["metrics"]["promotion_net_fee_cent"] == 177
 
 
 def test_cleanup_cascades_only_analysis_projection(db_session):

@@ -8,6 +8,7 @@ eligibility must continue to be checked against current facts by the routes.
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -133,6 +134,8 @@ Index("ix_pub_finance_pending_filter", pending.c.publication_id,
 
 
 def _json_value(value):
+    if isinstance(value, Decimal):
+        return int(value) if value == value.to_integral_value() else str(value)
     if isinstance(value, (date, datetime)):
         return value.isoformat()
     if isinstance(value, dict):
@@ -194,8 +197,107 @@ def _build_dimensions(session, publication_id, store, months):
     }
     rows.append({"publication_id": publication_id, "kind": "filters", "key": "all",
                  "value": values})
+    rows.append({"publication_id": publication_id, "kind": "source", "key": "settlement",
+                 "value": {"has_generation": store._pinned_aggregate_generation() is not None}})
     _write(session, dimensions, rows)
     return len(rows)
+
+
+def _monthly_lines(session, store, month):
+    """Batch freeze statement headers, preview lines and rate/version summaries."""
+    from ..models import SettlementStatement, SettlementStatementLine
+
+    formal = list(session.scalars(select(SettlementStatement).where(
+        SettlementStatement.is_current.is_(True), SettlementStatement.statement_month == month)))
+    headers = {row.store_id: {
+        "statement_id": row.statement_id,
+        "statement_status": {1: "GENERATING", 2: "PENDING_CONFIRMATION", 3: "CONFIRMED", 4: "LOCKED"}[row.statement_status],
+        "confirmed_at": row.confirmed_at, "locked_at": row.locked_at, "lock_version": row.lock_version,
+    } for row in formal}
+    locked = {row.statement_id: row.store_id for row in formal if row.statement_status == 4}
+    # Business interpretation remains here in the builder. SQL groups current
+    # fee facts once per month instead of re-reading them for every store.
+    preview_sql = """
+        SELECT CASE WHEN r.fee_direction = 1 THEN r.sale_store_id ELSE r.verify_store_id END AS store_id,
+               NULL AS statement_line_id, r.fee_direction, r.product_scope, r.product_type,
+               SUM(CASE WHEN r.original_business_month = :month THEN 1 ELSE 0 END) AS original_entry_count,
+               SUM(COALESCE(a.entry_count, 0)) AS adjustment_entry_count,
+               SUM(CASE WHEN r.original_business_month = :month THEN r.fee_base_cent ELSE 0 END) AS original_base_cent,
+               SUM(COALESCE(a.base_cent, 0)) AS adjustment_base_cent,
+               SUM(CASE WHEN r.original_business_month = :month THEN r.fee_base_cent ELSE 0 END)
+                   + SUM(COALESCE(a.base_cent, 0)) AS net_base_cent,
+               SUM(CASE WHEN r.original_business_month = :month THEN r.fee_amount_cent ELSE 0 END) AS original_fee_cent,
+               SUM(COALESCE(a.fee_cent, 0)) AS adjustment_fee_cent,
+               SUM(CASE WHEN r.original_business_month = :month THEN r.fee_amount_cent ELSE 0 END)
+                   + SUM(COALESCE(a.fee_cent, 0)) AS net_fee_cent
+        FROM settlement_fee_result_current c
+        JOIN settlement_fee_result r ON r.fee_result_id = c.fee_result_id
+        LEFT JOIN (
+            SELECT original_fee_result_id, COUNT(*) AS entry_count,
+                   SUM(adjustment_base_cent) AS base_cent, SUM(adjustment_fee_cent) AS fee_cent
+            FROM settlement_fee_adjustment WHERE adjustment_posting_month = :month
+            GROUP BY original_fee_result_id
+        ) a ON a.original_fee_result_id = r.fee_result_id
+        WHERE r.original_business_month = :month OR COALESCE(a.entry_count, 0) > 0
+        GROUP BY CASE WHEN r.fee_direction = 1 THEN r.sale_store_id ELSE r.verify_store_id END,
+                 r.fee_direction, r.product_scope, r.product_type
+    """
+    preview = [dict(row) for row in session.execute(text(preview_sql), {"month": month}).mappings()]
+    locked_rows = []
+    if locked:
+        fields = ("statement_line_id", "fee_direction", "product_scope", "product_type",
+                  "original_entry_count", "adjustment_entry_count", "original_base_cent",
+                  "adjustment_base_cent", "net_base_cent", "original_fee_cent", "adjustment_fee_cent", "net_fee_cent")
+        locked_rows = [dict(row) for row in session.execute(select(
+            SettlementStatementLine.statement_id, *(getattr(SettlementStatementLine, key) for key in fields)
+        ).where(SettlementStatementLine.statement_id.in_(locked))).mappings()]
+    rate_sql = """
+        SELECT DISTINCT CASE WHEN r.fee_direction = 1 THEN r.sale_store_id ELSE r.verify_store_id END AS store_id,
+               r.fee_direction, r.product_scope, r.product_type, r.fee_rate, r.rule_version,
+               NULL AS statement_line_id
+        FROM settlement_fee_result_current c
+        JOIN settlement_fee_result r ON r.fee_result_id = c.fee_result_id
+        WHERE r.original_business_month = :month OR EXISTS (
+            SELECT 1 FROM settlement_fee_adjustment a
+            WHERE a.original_fee_result_id = r.fee_result_id AND a.adjustment_posting_month = :month)
+        UNION
+        SELECT DISTINCT CASE WHEN r.fee_direction = 1 THEN r.sale_store_id ELSE r.verify_store_id END AS store_id,
+               r.fee_direction, r.product_scope, r.product_type, r.fee_rate, r.rule_version,
+               e.statement_line_id
+        FROM settlement_statement s
+        JOIN settlement_statement_line line ON line.statement_id = s.statement_id
+        JOIN settlement_statement_entry e ON e.statement_line_id = line.statement_line_id
+        JOIN settlement_fee_result r ON r.fee_result_id = e.original_fee_result_id
+        WHERE s.is_current = TRUE AND s.statement_status = 4 AND s.statement_month = :month
+          AND line.fee_direction = r.fee_direction
+          AND line.product_scope = r.product_scope AND line.product_type = r.product_type
+    """
+    rate_groups = {}
+    for row in session.execute(text(rate_sql), {"month": month}).mappings():
+        key = (row["store_id"], row["fee_direction"], row["product_scope"], row["product_type"], row["statement_line_id"])
+        rates, versions = rate_groups.setdefault(key, (set(), set()))
+        rates.add(store._format_rate(row["fee_rate"]))
+        if row["rule_version"]:
+            versions.add(str(row["rule_version"]))
+    lines_by_store = {}
+    locked_stores = set(locked.values())
+    for row in preview:
+        if not row["store_id"] or row["store_id"] in locked_stores:
+            continue
+        lines_by_store.setdefault(row["store_id"], []).append(row)
+    for row in locked_rows:
+        row["store_id"] = locked[row.pop("statement_id")]
+        lines_by_store.setdefault(row["store_id"], []).append(row)
+    for store_id, lines in lines_by_store.items():
+        for line in lines:
+            key = (store_id, line["fee_direction"], line["product_scope"], line["product_type"], line["statement_line_id"])
+            rates, versions = rate_groups.get(key, (set(), set()))
+            line.update(min_fee_rate=min(rates) if rates else None, max_fee_rate=max(rates) if rates else None,
+                rule_version_count=len(versions), fee_rates=sorted(rates), rule_versions=sorted(versions))
+            line["fee_direction"] = "PROMOTION" if line["fee_direction"] == 1 else "MANAGEMENT"
+            line.pop("store_id", None)
+        lines.sort(key=lambda line: (line["fee_direction"] == "MANAGEMENT", line["product_scope"], line["product_type"]))
+    return headers, lines_by_store
 
 
 def build_settlement(session: Session, publication_id: str, cutoff: datetime) -> dict:
@@ -232,36 +334,27 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
                 "source.month = :month", {"month": month})
         else:
             source, condition, params = store._monthly_source_spec(month=month)
-        from ..models import SettlementStatement, SettlementStatementLine
-
         source_rows = {} if source is None else {
             (row["store_id"], row["product_scope"], row["product_type"]): dict(row)
             for row in session.execute(text("SELECT source.* "
                 f"FROM {source} WHERE {condition}"), params).mappings()}
         keys = set(source_rows)
-        formal = list(session.scalars(select(SettlementStatement).where(
-            SettlementStatement.is_current.is_(True), SettlementStatement.statement_month == month)))
-        keys.update((statement.store_id, "all", "all") for statement in formal)
-        for statement in formal:
-            keys.update((statement.store_id, scope, product_type) for scope, product_type in session.execute(
-                select(SettlementStatementLine.product_scope, SettlementStatementLine.product_type).where(
-                    SettlementStatementLine.statement_id == statement.statement_id)))
+        headers, lines_by_store = _monthly_lines(session, store, month)
+        keys.update((store_id, "all", "all") for store_id in headers)
+        for store_id, lines in lines_by_store.items():
+            for line in lines:
+                keys.update((store_id, scope, product_type)
+                    for scope in {"all", line["product_scope"]}
+                    for product_type in {"all", line["product_type"]})
         batch = []
-        reports = {}
         for store_id, product_scope, product_type in sorted(keys):
-            if store_id not in reports:
-                reports[store_id] = store.monthly_settlement_report({"store_id": store_id, "month": month,
-                    "product_scope": "all", "product_type": "all"})
-            report = reports[store_id]
-            # Resolve statement lines once per store/month. In addition to
-            # reducing work, this avoids the legacy line helper's SQL alias
-            # replacement corrupting named binds for concrete product filters.
-            lines = [line for line in report["lines"]
+            statement = headers.get(store_id)
+            lines = [line for line in lines_by_store.get(store_id, [])
                 if (product_scope == "all" or line["product_scope"] == product_scope)
                 and (product_type == "all" or line["product_type"] == product_type)]
             values = source_rows.get((store_id, product_scope, product_type), {})
             metrics = {key: int(values.get(key) or 0) for key in MONTH_METRICS}
-            if report["statement"] and report["statement"]["statement_status"] == "LOCKED":
+            if statement and statement["statement_status"] == "LOCKED":
                 for direction in ("PROMOTION", "MANAGEMENT"):
                     selected = [line for line in lines if line["fee_direction"] == direction]
                     for target, field in (("base_cent", "net_base_cent"),
@@ -274,7 +367,7 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
                 "store_id": store_id, "product_scope": product_scope,
                 "product_type": product_type,
                 **metrics,
-                "statement": _json_value(report["statement"]),
+                "statement": _json_value(statement),
                 "lines": _json_value(lines)})
         _write(session, monthly, batch)
         monthly_count += len(batch)
@@ -284,18 +377,61 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
             "source_generation_id": store._pinned_aggregate_generation(), "data_as_of": None}
 
 
-def _search_text(session, statement, item):
-    from ..models import DimStore, StoreFinanceProfile
+def _finance_display_context(session):
+    from ..models import DimStore, InvoiceStatusEvent, StoreFinanceProfile
 
-    current_name = session.scalar(select(DimStore.store_name).where(
-        DimStore.store_id == statement.store_id)) or ""
-    profile_saps = session.scalars(select(StoreFinanceProfile.sap_code).where(
-        StoreFinanceProfile.store_id == statement.store_id,
-        StoreFinanceProfile.is_current.is_(True),
-        StoreFinanceProfile.is_tombstone.is_(False)))
+    names = dict(session.execute(select(DimStore.store_id, DimStore.store_name)).all())
+    profiles = list(session.scalars(select(StoreFinanceProfile).where(StoreFinanceProfile.is_current.is_(True))))
+    saps, effective, candidates = {}, {}, {}
+    for profile in profiles:
+        if not profile.is_tombstone:
+            saps.setdefault(profile.store_id, []).append(profile.sap_code)
+        if profile.profile_type == 1:
+            effective[profile.store_id] = None if profile.is_tombstone else profile.sap_code
+        elif not profile.is_tombstone and profile.sap_code is not None:
+            candidates.setdefault(profile.store_id, []).append(profile)
+    for store_id, rows in candidates.items():
+        if store_id not in effective:
+            effective[store_id] = max(rows, key=lambda row: (row.version_no, row.updated_at)).sap_code
+    rejection_reasons = {}
+    for row in session.execute(select(InvoiceStatusEvent.invoice_id, InvoiceStatusEvent.result_reason).where(
+        InvoiceStatusEvent.to_status == 4).order_by(InvoiceStatusEvent.occurred_at.desc(), InvoiceStatusEvent.event_id.desc())):
+        rejection_reasons.setdefault(row.invoice_id, row.result_reason)
+    return {"names": names, "search_saps": saps, "effective_saps": effective, "rejections": rejection_reasons}
+
+
+def _search_text(context, statement, item):
     return "\n".join(str(value or "").lower() for value in (
         statement.store_id, statement.store_name_snapshot, statement.sap_code_snapshot,
-        item.get("invoice_number"), current_name, *profile_saps))
+        item.get("invoice_number"), context["names"].get(statement.store_id),
+        *context["search_saps"].get(statement.store_id, [])))
+
+
+def _formal_invoice_item(source, direction, invoice, allocation, statement, confirmations, context):
+    code = 1 if direction == "PROMOTION" else 2
+    confirmation = confirmations.get((statement.statement_id, code))
+    confirmed = confirmation is not None
+    if invoice is not None:
+        item = source._promotion_invoice_item(invoice, allocation) if code == 1 else {
+            **source._management_invoice_item(invoice), "status": "APPROVED_SETTLED"}
+    else:
+        item = {"invoice_id": None, "store_id": statement.store_id,
+            "statement_id": statement.statement_id, "statement_month": statement.statement_month,
+            "fee_direction": direction, "version_no": None, "is_current": None,
+            "invoice_number": None, "invoice_date": None, "invoice_amount_cent": None,
+            "status": "PENDING_INVOICE", "registered_at": None}
+        item.update({"settlement_batch_month": None, "allocated_amount_cent": 0} if code == 1 else {
+            "source_type": None, "import_batch_id": None, "factory_deduction_date": None,
+            "factory_deduction_amount_cent": None, "settled_at": None})
+    item.update(processing_status="SUBMITTED" if invoice is not None else
+        "PENDING_SUBMISSION" if confirmed else "PENDING_CONFIRMATION",
+        store_name=statement.store_name_snapshot,
+        effective_sap_code=context["effective_saps"].get(statement.store_id),
+        statement_amount_cent=getattr(statement, f"{direction.lower()}_net_fee_cent"),
+        confirmed_amount_cent=confirmation.confirmed_amount_cent if confirmed else None)
+    if code == 1:
+        item["rejection_reason"] = context["rejections"].get(invoice.invoice_id) if invoice else None
+    return item
 
 
 def build_finance(session: Session, publication_id: str, cutoff: datetime) -> dict:
@@ -313,6 +449,7 @@ def build_finance(session: Session, publication_id: str, cutoff: datetime) -> di
     confirmations = {(row.statement_id, row.fee_direction): row for row in session.scalars(
         select(SettlementStatementConfirmation).where(
             SettlementStatementConfirmation.confirmation_status == 1))}
+    display_context = _finance_display_context(session)
     totals = {}
     for statement in statement_rows:
         for direction, code in (("PROMOTION", 1), ("MANAGEMENT", 2)):
@@ -350,30 +487,40 @@ def build_finance(session: Session, publication_id: str, cutoff: datetime) -> di
             metric_scope="CUMULATIVE", store_id=None, q=None,
             invoice_status=None, scope_store_ids=None)
         for row in session.execute(query):
-            item = source._finance_unbilled_projection_item(session, row, direction)
+            item = {"invoice_id": None, "statement_id": None, "store_id": row.store_id,
+                "store_name": row.store_name or row.store_id, "statement_month": row.month,
+                "fee_direction": direction, "processing_status": "PENDING_STATEMENT",
+                "status": "PENDING_INVOICE", "invoice_number": None, "invoice_date": None,
+                "invoice_amount_cent": None, "confirmed_amount_cent": None, "registered_at": None,
+                "settlement_batch_month": None, "rejection_reason": None,
+                "effective_sap_code": display_context["effective_saps"].get(row.store_id),
+                "statement_amount_cent": int(getattr(row, f"{direction.lower()}_net_fee_cent") or 0)}
             position += 1
             collection_rows.append({"publication_id": publication_id, "position": position,
                 "fee_direction": direction, "store_id": row.store_id, "month": row.month,
                 "statement_id": None, "status_code": None, "confirmed": False,
                 "is_history": False, "is_projection": True,
                 "search_text": "\n".join(str(value or "").lower() for value in (
-                    row.store_id, row.store_name, item.get("effective_sap_code"))),
+                    row.store_id, row.store_name, *display_context["search_saps"].get(row.store_id, []))),
                 "amount_cent": item["statement_amount_cent"], "item": _json_value(item)})
-        queries = [(False, source._promotion_finance_collection_query(month=final_month,
-            metric_scope="CUMULATIVE", store_id=None, q=None, invoice_status=None))] if direction == "PROMOTION" else [
-                (history, source._management_invoice_collection_query(month=final_month,
-                    metric_scope="CUMULATIVE", store_id=None, q=None, invoice_status=None,
-                    include_history=history)) for history in (False, True)]
+        # Cumulative excludes test history, while an explicit monthly lookup
+        # retains its existing pre-formal statement contract.
+        periods = [("CUMULATIVE", final_month), *[("MONTH", month) for month in months if month < FORMAL_START]]
+        queries = [(False, source._promotion_finance_collection_query(month=month,
+            metric_scope=metric_scope, store_id=None, q=None, invoice_status=None))
+            for metric_scope, month in periods] if direction == "PROMOTION" else [
+                (history, source._management_invoice_collection_query(month=month,
+                    metric_scope=metric_scope, store_id=None, q=None, invoice_status=None,
+                    include_history=history)) for history in (False, True) for metric_scope, month in periods]
         for history, query in queries:
             for row in session.execute(query):
                 if direction == "PROMOTION":
                     invoice, allocation, statement = row
-                    item = source._admin_promotion_invoice_item(session, invoice, allocation, statement)
                 else:
                     invoice, statement = row
-                    # Current rows also occur in the history query; keep their
-                    # own ordering slots so each list mode is an exact snapshot.
-                    item = source._admin_management_invoice_item(session, invoice, statement)
+                    allocation = None
+                item = _formal_invoice_item(source, direction, invoice, allocation, statement,
+                    confirmations, display_context)
                 position += 1
                 collection_rows.append({"publication_id": publication_id, "position": position,
                     "fee_direction": direction, "store_id": statement.store_id,
@@ -381,7 +528,7 @@ def build_finance(session: Session, publication_id: str, cutoff: datetime) -> di
                     "status_code": invoice.invoice_status if invoice else None,
                     "confirmed": (statement.statement_id, 1 if direction == "PROMOTION" else 2) in confirmations,
                     "is_history": history, "is_projection": False,
-                    "search_text": _search_text(session, statement, item),
+                    "search_text": _search_text(display_context, statement, item),
                     "amount_cent": item["statement_amount_cent"], "item": _json_value(item)})
     _write(session, invoices, collection_rows)
     pending_rows, member_rows = [], []
@@ -445,6 +592,13 @@ def _ranking_conditions(publication_id, filters):
     return conditions
 
 
+def _has_source_generation(session, publication_id):
+    value = session.scalar(select(dimensions.c.value).where(
+        dimensions.c.publication_id == publication_id,
+        dimensions.c.kind == "source", dimensions.c.key == "settlement")) or {}
+    return value.get("has_generation", False)
+
+
 def read_store_ranking(session: Session, publication_id: str, filters: dict[str, Any]) -> dict:
     """Filter, sum and sort frozen ranking rows within the caller's current scope."""
     period_type = filters.get("period_type", "MONTHLY")
@@ -492,7 +646,7 @@ def read_store_ranking(session: Session, publication_id: str, filters: dict[str,
     else:
         conditions.append(ranking.c.period_type == (2 if period_type == "CUMULATIVE" else 1))
         read_month = month
-        if period_type == "CUMULATIVE":
+        if period_type == "CUMULATIVE" and _has_source_generation(session, publication_id):
             read_month = session.scalar(select(func.max(ranking.c.period_key)).where(
                 *conditions, ranking.c.period_key >= FORMAL_START, ranking.c.period_key <= month))
         conditions.append(ranking.c.period_key == read_month)
@@ -513,7 +667,9 @@ def read_store_ranking(session: Session, publication_id: str, filters: dict[str,
         "formal_period_start_month": FORMAL_START,
         "scope_mode": filters.get("scope_mode", "AUTHORIZED"),
         "totals": {key: int(totals[key]) for key in metric_columns},
-        "list": [{"rank": (page - 1) * page_size + index + 1, **dict(row)}
+        "list": [{"rank": (page - 1) * page_size + index + 1,
+                  "store_id": row["store_id"], "store_name": row["store_name"],
+                  **{key: int(row[key]) for key in metric_columns}}
                  for index, row in enumerate(rows)],
         "total": totals["total"], "page": page, "page_size": page_size}
 
@@ -532,13 +688,14 @@ def read_monthly_settlement(session: Session, publication_id: str, filters: dict
         dimensions.c.key == store_id, allowed)) or {"store_id": store_id, "store_name": store_id}
     cumulative = read_store_ranking(session, publication_id, {**filters,
         "period_type": "CUMULATIVE", "period_key": month, "scope_store_ids": (store_id,) if allowed else ()})
+    has_generation = _has_source_generation(session, publication_id)
     return {"store": store, "month": month,
         "product_scope": filters.get("product_scope") or "all",
         "product_type": filters.get("product_type") or "all",
         "is_formal_period": month >= FORMAL_START, "statement": None,
         "publication_statement": row["statement"] if row else None,
         "metrics": {key: int(row[key]) if row else 0 for key in MONTH_METRICS},
-        "computed_cumulative": {key: cumulative["totals"][key]
+        "computed_cumulative": {key: cumulative["totals"][key] if has_generation else 0
             for key in ("promotion_net_fee_cent", "management_net_fee_cent")},
         "lines": row["lines"] if row else []}
 
