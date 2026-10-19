@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
 from dy_api.auth import AuthContext, get_current_user  # noqa: E402
+from publication_fixture_helpers import publish_fixture
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes import dashboard as dashboard_routes  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
@@ -67,6 +68,7 @@ def test_finance_ignores_unpublished_legacy_projection(client, db_session, direc
     db_session.commit()
     _login(client)
     params = {"month": "2026-08", "feeDirection": direction, "metricScope": "MONTH"}
+    publish_fixture(db_session, "finance")
     response = client.get("/api/v1/admin/finance/invoices", params=params)
     assert response.status_code == 200
     assert response.json()["data"]["total"] == 0
@@ -89,6 +91,7 @@ def test_finance_exposes_projection_before_statement_creation(client, db_session
     db_session.commit()
     _login(client)
     params = {"month": "2026-08", "feeDirection": direction, "metricScope": "MONTH"}
+    publish_fixture(db_session, "finance")
     response = client.get("/api/v1/admin/finance/invoices", params=params)
     assert response.status_code == 200
     data = response.json()["data"]
@@ -119,6 +122,7 @@ def test_finance_projection_deduplicates_formal_statement_and_paginates(client, 
     db_session.commit()
     _login(client)
     params = {"month": "2026-08", "feeDirection": "MANAGEMENT", "metricScope": "MONTH", "pageSize": 1}
+    publish_fixture(db_session, "finance")
     first = client.get("/api/v1/admin/finance/invoices", params=params).json()["data"]
     second = client.get("/api/v1/admin/finance/invoices", params={**params, "page": 2}).json()["data"]
     assert first["total"] == second["total"] == 2
@@ -170,6 +174,7 @@ def test_store_computed_cumulative_uses_published_ranking_without_creating_bills
         ))
     db_session.commit()
     _act_as_store(client, "computed-store")
+    publish_fixture(db_session, "settlement")
     response = client.get("/api/v1/stores/computed-store/monthly-settlement", params={"month": "2026-08"})
     assert response.status_code == 200, response.text
     data = response.json()["data"]
@@ -193,6 +198,7 @@ def test_store_computed_cumulative_does_not_present_unpublished_fees(client, db_
     ))
     db_session.commit()
     _act_as_store(client, "computed-store")
+    publish_fixture(db_session, "settlement")
     response = client.get("/api/v1/stores/computed-store/monthly-settlement", params={"month": "2026-08"})
     assert response.status_code == 200, response.text
     assert response.json()["data"]["computedCumulative"] == {
@@ -217,6 +223,7 @@ def test_finance_summary_filters_preserve_prior_negative_carry(client, db_sessio
         db_session.commit()
     _login(client)
     params = {"month": "2026-09", "feeDirection": direction, "metricScope": "MONTH"}
+    publish_fixture(db_session, "finance")
     baseline = client.get("/api/v1/admin/finance/summary", params=params)
     filtered = client.get("/api/v1/admin/finance/summary", params={**params, **extra})
     assert baseline.status_code == filtered.status_code == 200
@@ -260,6 +267,7 @@ def test_finance_shows_computed_unconfirmed_statements_without_creating_facts(
     db_session.commit()
     _login(client)
     params = {"month": "2026-08", "feeDirection": direction, "metricScope": "MONTH"}
+    publish_fixture(db_session, "finance")
     response = client.get("/api/v1/admin/finance/invoices", params=params)
     assert response.status_code == 200
     data = response.json()["data"]
