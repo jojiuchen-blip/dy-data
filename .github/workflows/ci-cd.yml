@@ -57,6 +57,12 @@ jobs:
             bash -n "$script"
           done
           python -m pytest ops/ops-preparation/test_operation_receipt.py -q -p no:cacheprovider
+      - name: Verify actual recovery planner lifecycle
+        run: |
+          cp ops/ops-preparation/scoped_recovery_driver.py app/.dsh-scoped-recovery-driver.py
+          cp ops/ops-preparation/test_driver_lifecycle.py app/test_driver_lifecycle.py
+          cd app
+          python -m pytest test_driver_lifecycle.py --import-mode=importlib -q -p no:cacheprovider
       - name: Verify atomic visibility, rollback and replay on disposable PostgreSQL
         env:
           DY_RELEASE_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_release

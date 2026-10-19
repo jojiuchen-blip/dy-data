@@ -68,7 +68,13 @@ MAX_LINEAGE_DEPTH = 48
 ROUND_WAIT_SECONDS = 30
 MIN_CHILD_TIMEOUT_SECONDS = 1.0
 ADVISORY_TICKET = "dsh-dydata102-scoped-recovery-driver-v1"
-LEGAL_CHILD_SHAPE = sorted(DAILY_JOB_KINDS)
+# The official planner allocates parent_sync + date_sync first and creates
+# finalize later through enqueue_finalize_if_ready, so both the in-progress
+# two-child shape and the completed three-child shape are lawful.  Anything
+# else refuses: a finalize without both collection children, a duplicate, or an
+# unknown child kind.
+PROGRESS_CHILD_KINDS = frozenset(("parent_sync", "date_sync"))
+COMPLETE_CHILD_KINDS = frozenset(DAILY_JOB_KINDS)
 
 
 def _advisory_key() -> int:
@@ -168,21 +174,38 @@ def _root_ok(session, root_job_id: str):
 
 
 def _validated_children(children) -> tuple | None:
-    """Exactly one parent_sync + date_sync + finalize, or ``None`` (refuse)."""
+    """Exactly parent_sync + date_sync (+ at most one finalize), or ``None``.
+
+    The official planner allocates ``parent_sync`` and ``date_sync`` first and
+    creates ``finalize`` later through ``enqueue_finalize_if_ready``, so the
+    two-child shape is the lawful in-progress state and the three-child shape is
+    the completed chain.  Unknown kinds, duplicates and a missing required child
+    all refuse: the caller must inspect every child of the allocated parent, not
+    filter unknown kinds away.
+    """
 
     rows = tuple(children)
-    kinds = sorted(row.job_kind for row in rows)
-    if kinds != LEGAL_CHILD_SHAPE:
+    kinds = [row.job_kind for row in rows]
+    if any(kind not in DAILY_JOB_KINDS for kind in kinds):
         return None
-    return rows
+    if len(kinds) != len(set(kinds)):
+        return None
+    kind_set = set(kinds)
+    if kind_set == PROGRESS_CHILD_KINDS or kind_set == COMPLETE_CHILD_KINDS:
+        return rows
+    return None
 
 
 def _allocated_children(session, parent_job_id: str):
-    """Daily-chain children of exactly the allocated parent, nothing wider."""
+    """Children of exactly the allocated parent; unknown kinds refuse.
+
+    The selector inspects *every* row whose parent is the allocated recovery
+    parent instead of pre-filtering ``job_kind``: a stray unknown child must stop
+    the driver, never be silently ignored.
+    """
 
     rows = session.scalars(select(JobRun).where(
         JobRun.parent_job_id == parent_job_id,
-        JobRun.job_kind.in_(DAILY_JOB_KINDS),
     )).all()
     return _validated_children(rows)
 
@@ -291,7 +314,7 @@ def _drive(factory, *, expected_parent_id: str, deadline,
             rows = rows_provider()
             children = _validated_children(
                 row for row in rows
-                if row.parent_job_id == expected_parent_id and row.job_kind in DAILY_JOB_KINDS)
+                if row.parent_job_id == expected_parent_id)
             plan = _plan_round(rows, children, expected_parent_id=expected_parent_id,
                                select_candidate=select_candidate, session=None,
                                now=datetime_now())
