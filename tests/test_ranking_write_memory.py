@@ -5,6 +5,8 @@ from apps.api.dy_api.ranking_schema_v1 import metadata,runs,samples,lead_binding
 from apps.api.dy_api.ranking_snapshots import calculate_snapshot
 from apps.worker.ranking_preview_fixture import seed_preview,START,END,CUTOFF,ELIGIBILITY_VERSION
 import pytest
+from datetime import datetime,timedelta,timezone
+from types import SimpleNamespace
 
 @pytest.fixture
 def db():
@@ -48,3 +50,18 @@ def test_later_batch_failure_rolls_back_entire_snapshot(db):
     assert db.scalar(select(func.count()).select_from(samples).where(samples.c.run_id=='rollback'))==0
     assert db.scalar(select(func.count()).select_from(snapshots).where(snapshots.c.run_id=='rollback'))==0
     assert db.scalar(select(func.count()).select_from(lead_bindings))==before
+
+def test_refresh_terminal_payloads_are_loaded_in_bounded_batches(monkeypatch):
+    from apps.api.dy_api import clue_followup_metrics
+    from apps.api.dy_api.ranking_lifecycle import _future_terminal_payload_min
+    cutoff=datetime(2026,10,19,tzinfo=timezone.utc)
+    ids={f'ORDER-{i:04d}' for i in range(1201)};calls=[];seen=[]
+    def load(session,order_ids,**options):
+        batch=list(order_ids);calls.append(len(batch));seen.extend(batch)
+        assert options=={'observed_through':cutoff,'include_raw_clues':True}
+        return {key:SimpleNamespace(terminal_at=cutoff+timedelta(minutes=int(key.split('-')[1])+1)) for key in batch}
+    monkeypatch.setattr(clue_followup_metrics,'load_terminal_evidence',load)
+    result=_future_terminal_payload_min(object(),ids,cutoff=cutoff)
+    assert max(calls)<=500, f'raw JSON evidence for {max(calls)} orders retained at once'
+    assert len(seen)==len(ids) and set(seen)==ids
+    assert len(result)==len(ids) and min(result)==cutoff+timedelta(minutes=1)
