@@ -51,6 +51,7 @@ jobs:
           run(['docker','tag',state['Image'],base])
           (context/'Dockerfile').write_text('FROM '+base+'\nCOPY ranking_snapshots.py /app/apps/api/dy_api/ranking_snapshots.py\nCOPY ranking_lifecycle.py /app/apps/api/dy_api/ranking_lifecycle.py\nLABEL pdca.ranking.patch="393e3dab77f229840f6127e4d15fcd77939e471e"\n')
           subprocess.run(['docker','build','--pull=false','-t',image,str(context)],check=True,stdout=subprocess.DEVNULL)
+          image_id=run(['docker','image','inspect','--format','{{.Id}}',image])
           network=next(iter(state['NetworkSettings']['Networks']))
           program='''
           import json,resource,time,signal,sys,os
@@ -102,15 +103,25 @@ jobs:
               print(json.dumps({'service':'isolated-ranking-candidate','run_id':run_id,'levels':levels,'peak_rss_mb':round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024,1),'seconds':round(time.monotonic()-began,2)}),flush=True)
           '''
           import textwrap
-          completed=subprocess.run(['docker','run','--rm','-i','--name','pdca-ranking-candidate-393e3dab','--memory=768m','--memory-swap=768m','--network',network,'--env-file',str(env),image,'python','-'],input=textwrap.dedent(program),text=True,capture_output=True,timeout=210)
+          completed=subprocess.run(['docker','run','--rm','-i','--name','pdca-ranking-candidate-393e3dab','--memory=768m','--memory-swap=768m','--network',network,'--env-file',str(env),image_id,'python','-'],input=textwrap.dedent(program),text=True,capture_output=True,timeout=210)
           # Whitelist JSON result; never publish raw exceptions, SQL or parameters.
+          business_result=None
           for line in completed.stdout.splitlines():
               if line.startswith('{'):
                   value=json.loads(line)
                   if value.get('service') in ('isolated-ranking-candidate','candidate-memory-stage'):print(json.dumps(value))
+                  if value.get('service')=='isolated-ranking-candidate':business_result=value
           after=json.loads(run(['docker','inspect',cid]))[0]
           allowed=['指标数据正在更新，请稍后刷新','榜单计算期间源数据发生变化，请稍后刷新','该期间尚未生成指标快照，请等待数据处理完成或调整日期范围','所选期间数据量超过单批计算上限，请缩短时间范围','invalid snapshot row budget','invalid period, observation cutoff or roster date','no mapping version at roster date','指标维度或汇总数据量超过处理上限，请联系管理员分批处理']
           import re
           print(json.dumps({'service':'candidate-result','exit_code':completed.returncode,'production_api_restarts_before':original_restarts,'production_api_restarts_after':after['RestartCount'],'production_api_unchanged':after['Id']==cid,'error_classes':[kind for kind in ('MemoryGuard','MemoryError','OperationalError','ValueError','IntegrityError') if kind in completed.stderr],'known_errors':[message for message in allowed if message in completed.stderr],'frames':re.findall(r'File "(/app/[^"\n]+\.py)", line ([0-9]+)',completed.stderr)}))
           assert completed.returncode==0,'Candidate did not pass; production API unchanged'
+          assert business_result and all(v['all_pages_verified'] for v in business_result['levels'].values())
+          assert after['Id']==cid and after['Image']==state['Image'],'Production changed during validation'
+          proof={'service':'candidate-image-proof','patch_sha':'393e3dab77f229840f6127e4d15fcd77939e471e','image_id':image_id,'base_image':state['Image'],'all_pages_verified':True,'business_result':business_result}
+          proof_path=root/'logs/pdca-ranking-candidate-393e3dab.json'
+          temporary=proof_path.with_suffix('.tmp')
+          with temporary.open('w') as handle:json.dump(proof,handle)
+          os.chmod(temporary,0o600);os.replace(temporary,proof_path)
+          print(json.dumps(proof))
           PY
