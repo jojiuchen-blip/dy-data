@@ -145,7 +145,7 @@ def test_data_as_of_is_only_explicit_source_evidence(factory):
         publish_module(factory, "sales", lambda *_: {"data_as_of": datetime.now(UTC) + timedelta(days=1)})
 
 
-def test_retention_keeps_two_unpinned_plus_pin_active_and_minimum_age(factory):
+def test_retention_keeps_two_unpinned_plus_pin_active(factory):
     publications = [publish_module(factory, "sales", build) for _ in range(5)]
     old = datetime.now(UTC) - timedelta(hours=2)
     with factory.begin() as session:
@@ -173,9 +173,42 @@ def test_retention_keeps_two_unpinned_plus_pin_active_and_minimum_age(factory):
 def test_retention_never_relaxes_minimum_safety(factory):
     with factory() as session:
         with pytest.raises(ValueError):
-            cleanup_publications(session, min_age=timedelta(seconds=1))
+            cleanup_publications(session, min_age=timedelta(seconds=-1))
         with pytest.raises(ValueError):
             cleanup_publications(session, keep=1)
+
+
+def test_three_fresh_successes_immediately_keep_only_latest_two(factory):
+    publications = [publish_module(factory, "sales", build) for _ in range(3)]
+    with factory.begin() as session:
+        assert cleanup_publications(session)["publication_ids"] == [publications[0].id]
+        assert session.scalar(select(func.count()).select_from(facts)) == 2
+        assert resolve_publication(session, "sales").id == publications[-1].id
+    with factory.begin() as session:
+        with pytest.raises(PublicationError) as caught:
+            resolve_publication(session, "sales", publications[0].id)
+        assert caught.value.http_status == 410
+
+
+def test_explicit_nonnegative_grace_remains_available(factory):
+    publications = [publish_module(factory, "sales", build) for _ in range(3)]
+    with factory.begin() as session:
+        assert cleanup_publications(session, min_age=timedelta(hours=1))["deleted"] == 0
+        assert cleanup_publications(session, min_age=timedelta(0))["deleted"] == 1
+
+
+def test_latest_failed_attempt_is_preserved_per_module_but_old_failures_are_removed(factory):
+    head = publish_module(factory, "sales", build)
+    def broken(*args):
+        raise RuntimeError("not logged")
+    for module in ("sales", "sales", "clue-overview"):
+        with pytest.raises(PublicationError):
+            publish_module(factory, module, broken)
+    with factory.begin() as session:
+        assert cleanup_publications(session)["deleted"] == 1
+        assert resolve_publication(session, "sales").id == head.id
+        assert resolve_publication(session, "sales").status == "failed"
+        assert session.scalar(select(func.count()).select_from(runs).where(runs.c.status == "failed")) == 2
 
 
 def test_source_guard_ignores_old_failures_but_defers_active_materialization(factory):
@@ -204,6 +237,17 @@ def test_runtime_registry_and_injected_builder_tick(factory, monkeypatch):
     assert caught.value.code == "PUBLICATION_MODULE_UNKNOWN"
     results = run_tick(factory, {"sales": build}, guarded=False)
     assert results == {"sales": "published"}
+
+
+def test_worker_cleanup_does_not_erase_its_latest_failure(factory):
+    from apps.worker.dashboard_publications import run_tick
+    publication = publish_module(factory, "sales", build)
+    def broken(*args):
+        raise RuntimeError("not logged")
+    assert run_tick(factory, {"sales": broken}, guarded=False) == {"sales": "PUBLICATION_BUILD_FAILED"}
+    with factory() as session:
+        current = resolve_publication(session, "sales")
+        assert current.id == publication.id and current.status == "failed"
 
 
 def test_read_only_ready_gate_and_busy_first_build_exit_codes(factory, monkeypatch):

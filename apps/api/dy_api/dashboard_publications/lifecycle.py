@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from .schema import heads, runs
 
 REFRESH_INTERVAL = timedelta(minutes=5)
-MIN_DELETE_AGE = timedelta(hours=1)
+MIN_DELETE_AGE = timedelta(0)
 Builder = Callable[[Session, str, datetime], dict[str, Any]]
 SessionFactory = Callable[[], Session]
 
@@ -281,10 +281,13 @@ def cleanup_publications(
     """Delete complete sidecar versions only; protect heads, pins and readers.
 
     Domain projection FKs cascade; no settlement lineage or business tables
-    are traversed. Failed/abandoned attempts also have bounded retention.
+    are traversed. There is no default grace period: PostgreSQL reader locks
+    protect active requests, and expired browser IDs receive HTTP 410.
+    Preserve each module's latest attempt so its failure/refresh status remains
+    visible even when that attempt owns no analytical facts.
     """
     if keep < 2 or not 0 <= limit <= 100 or min_age < MIN_DELETE_AGE:
-        raise ValueError("retention requires two versions, age >=1h, limit <=100")
+        raise ValueError("retention requires two versions, nonnegative age, limit <=100")
     cutoff = utc(now or datetime.now(UTC)) - min_age
     newer = runs.alias("newer")
     newer_count = select(func.count()).select_from(newer).where(
@@ -292,9 +295,16 @@ def cleanup_publications(
         (newer.c.published_at > runs.c.published_at)
         | ((newer.c.published_at == runs.c.published_at) & (newer.c.id > runs.c.id)),
     ).correlate(runs).scalar_subquery()
+    newer_attempt = runs.alias("newer_attempt")
+    has_newer_attempt = select(newer_attempt.c.id).where(
+        newer_attempt.c.module == runs.c.module,
+        (newer_attempt.c.created_at > runs.c.created_at)
+        | ((newer_attempt.c.created_at == runs.c.created_at) & (newer_attempt.c.id > runs.c.id)),
+    ).correlate(runs).exists()
     statement = select(runs.c.id).where(
         runs.c.pinned_at.is_(None), runs.c.created_at < cutoff,
         ~select(heads.c.module).where(heads.c.publication_id == runs.c.id).exists(),
+        has_newer_attempt,
         ((runs.c.status == "success") & (newer_count >= keep)) | (runs.c.status == "failed"),
     )
     if module:
@@ -303,7 +313,11 @@ def cleanup_publications(
     if session.get_bind().dialect.name == "postgresql":
         statement = statement.with_for_update(skip_locked=True)
     identifiers = list(session.scalars(statement))
+    deleted_ids = []
     for identifier in identifiers:
-        session.execute(delete(runs).where(runs.c.id == identifier, runs.c.pinned_at.is_(None),
+        result = session.execute(delete(runs).where(runs.c.id == identifier, runs.c.pinned_at.is_(None),
+                         has_newer_attempt,
                          ~select(heads.c.module).where(heads.c.publication_id == runs.c.id).exists()))
-    return {"deleted": len(identifiers), "publication_ids": identifiers}
+        if result.rowcount:
+            deleted_ids.append(identifier)
+    return {"deleted": len(deleted_ids), "publication_ids": deleted_ids}

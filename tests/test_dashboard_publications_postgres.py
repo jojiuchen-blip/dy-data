@@ -96,12 +96,6 @@ def test_reader_sees_old_version_until_complete_commit_and_builder_mutex(pg_fact
 
 def test_cleanup_skips_read_lock_then_cascades_only_analytical_rows(pg_factory):
     publications = [publish_module(pg_factory, "sales", pg_build) for _ in range(3)]
-    old = datetime.now(UTC) - timedelta(hours=2)
-    with pg_factory.begin() as session:
-        for index, publication in enumerate(publications):
-            session.execute(update(runs).where(runs.c.id == publication.id).values(
-                created_at=old + timedelta(seconds=index), published_at=old + timedelta(seconds=index),
-            ))
     with pg_factory() as reader:
         resolve_publication(reader, "sales", publications[0].id)
         with pg_factory.begin() as cleaner:
@@ -112,6 +106,25 @@ def test_cleanup_skips_read_lock_then_cascades_only_analytical_rows(pg_factory):
     with pg_factory() as session:
         assert session.scalar(text("SELECT count(*) FROM test_projection")) == 2
         assert session.scalar(text("SELECT value FROM test_source")) == 1
+
+
+def test_three_fresh_postgres_versions_immediately_delete_first_and_preserve_failed_status(pg_factory):
+    publications = [publish_module(pg_factory, "sales", pg_build) for _ in range(3)]
+    with pg_factory.begin() as session:
+        assert cleanup_publications(session)["publication_ids"] == [publications[0].id]
+        assert session.scalar(text("SELECT count(*) FROM test_projection")) == 2
+    def broken(*args):
+        raise RuntimeError("not logged")
+    for _ in range(2):
+        with pytest.raises(PublicationError):
+            publish_module(pg_factory, "sales", broken)
+    with pg_factory.begin() as session:
+        failures = session.execute(select(runs.c.id).where(runs.c.status == "failed")
+                                   .order_by(runs.c.created_at, runs.c.id)).scalars().all()
+        assert cleanup_publications(session)["publication_ids"] == [failures[0]]
+        assert resolve_publication(session, "sales").status == "failed"
+        assert session.scalar(select(func.count()).select_from(runs).where(runs.c.status == "failed")) == 1
+        assert session.scalar(text("SELECT count(*) FROM test_projection")) == 2
 
 
 def test_source_commit_during_repeatable_read_is_detected_by_observer(pg_factory):
