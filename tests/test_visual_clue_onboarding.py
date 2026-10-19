@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Generator
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event, Thread
 from urllib.parse import urlsplit
@@ -10,6 +11,10 @@ import pytest
 import uvicorn
 from fastapi import HTTPException, Request
 from playwright.sync_api import Browser, Page, Route, expect
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker
+
+from publication_fixture_helpers import publish_fixture
 
 from test_visual_smoke import (
     AuthContext,
@@ -22,6 +27,7 @@ from test_visual_smoke import (
     wait_for_url,
 )
 from dy_api.auth import _enforce_page_permission
+from dy_api.models import Base, ClueAssignmentRound, ClueCenterOrder, DimStore
 
 
 class TourDataStore:
@@ -29,7 +35,7 @@ class TourDataStore:
 
     available = True
 
-    def __init__(self) -> None:
+    def __init__(self, session) -> None:
         self.mode = "normal"
         self.username = "tour-store-a"
         self.page_keys = ("A01", "A02")
@@ -38,7 +44,7 @@ class TourDataStore:
         self.queries: list[dict] = []
         self.records: list[dict] = []
         self.commits = 0
-        self.session = self
+        self.session = session
 
     def commit(self):
         self.commits += 1
@@ -67,8 +73,8 @@ class TourDataStore:
             "verification_statuses": [],
         }
 
-    def clue_overview(self, filters):
-        return {"total_clues": 2, "active_clues": 2}
+    def _visible_product_types(self):
+        return ("保养",)
 
     def clue_assignment_rounds(self, filters, actor):
         self.queries.append(dict(filters))
@@ -105,9 +111,35 @@ class TourDataStore:
 
 
 @pytest.fixture()
-def tour_backend() -> Generator[tuple[str, TourDataStore]]:
+def tour_backend(tmp_path) -> Generator[tuple[str, TourDataStore]]:
+    # Publish the same two synthetic leads before the browser starts. Analytical
+    # routes use a real read-only SQL session; operational scenarios stay synthetic.
+    engine = create_engine(f"sqlite+pysqlite:///{(tmp_path / 'tour.sqlite').as_posix()}",
+                           connect_args={"check_same_thread": False})
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False)
+    with factory() as session:
+        session.add(DimStore(store_id="tour-store", store_name="引导演示门店", is_active=True))
+        assigned_at = datetime(2026, 9, 1, 8, tzinfo=timezone.utc)
+        for order in ("tour-followed", "tour-pending"):
+            followed = order == "tour-followed"
+            status = "active_followed" if followed else "active_unfollowed"
+            session.add(ClueCenterOrder(order_id=order, lead_status="active",
+                current_assignment_round_id=f"{order}-1", current_round_status=status,
+                assigned_at=assigned_at, assigned_store_id="tour-store",
+                assigned_store_name="引导演示门店", product_type="保养"))
+            session.add(ClueAssignmentRound(assignment_round_id=f"{order}-1", order_id=order,
+                round_no=1, round_status=status, execution_mode="formal", assigned_at=assigned_at,
+                assigned_store_id="tour-store", assigned_store_name="引导演示门店", is_followed=followed))
+        publish_fixture(session, "clue-overview")
+    publication_session = factory()
     app = create_app()
-    store = TourDataStore()
+    store = TourDataStore(publication_session)
+    # Fixture setup commits are excluded; count every commit during browser use,
+    # preserving both the zero-write tour and the explicit manual-save assertions.
+    def record_commit(_session):
+        store.commit()
+    event.listen(publication_session, "after_commit", record_commit)
 
     def current_user(request: Request):
         user = AuthContext(
@@ -137,6 +169,9 @@ def tour_backend() -> Generator[tuple[str, TourDataStore]]:
         store.release_detail.set()
         server.should_exit = True
         thread.join(timeout=10)
+        event.remove(publication_session, "after_commit", record_commit)
+        publication_session.close()
+        engine.dispose()
 
 
 def connect_backend(page: Page, base: str) -> None:
