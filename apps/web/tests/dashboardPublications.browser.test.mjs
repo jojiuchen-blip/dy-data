@@ -647,3 +647,91 @@ test("mobile published pending V1 locates live V2, and absent current stays a no
   assert.equal(requests.filter((url) => url.pathname.endsWith("/corrections")).length, 0);
   assert.equal(requests.filter((url) => url.pathname.endsWith("/finance/summary")).length, 1);
 }));
+
+
+const authorizationInvoice = { storeId: "s1", storeName: "权限测试门店", statementMonth: "2026-09", statementAmountCent: 10000, confirmedAmountCent: 10000, feeDirection: "MANAGEMENT", status: "APPROVED_SETTLED", processingStatus: "SETTLED", invoiceId: "live2", invoiceNumber: "2".repeat(20), invoiceDate: "2026-10-01", invoiceAmountCent: 20000, factoryDeductionDate: "2026-10-01", factoryDeductionAmountCent: 20000, versionNo: 2, isCurrent: true };
+
+for (const action of ["reread", "submit"]) {
+  for (const status of [401, 403]) {
+    test(`management ${action} ${status} clears loaded invoice fields and prevents another submit`, async () => withPage(async ({ page, requests, handle }) => {
+      let reads = 0;
+      handle(async (route, url) => {
+        if (url.pathname.endsWith("/finance/summary")) {
+          await route.fulfill({ json: payload({ metrics: {} }, "finance", "f1") }); return true;
+        }
+        if (url.pathname.endsWith("/finance/invoices")) {
+          await route.fulfill({ json: payload({ list: [authorizationInvoice], total: 1 }, "finance", "f1") }); return true;
+        }
+        if (url.pathname.endsWith("/management-invoices/s1/2026-09/current")) {
+          reads++;
+          await route.fulfill(action === "reread" && reads > 1
+            ? { status, json: { detail: { message: "authorization revoked" } } }
+            : { json: payload(authorizationInvoice) }); return true;
+        }
+        if (!url.pathname.endsWith("/management-invoices/s1/2026-09/corrections")) return false;
+        await route.fulfill({ status, json: { detail: { message: "authorization revoked" } } }); return true;
+      });
+      await page.goto(`${baseUrl}/finance/management?month=2026-09`);
+      await page.locator("tbody").getByText("权限测试门店", { exact: true }).waitFor();
+      await page.locator("tbody tr").first().dblclick();
+      const panel = page.locator(".finance-correction-panel");
+      await panel.getByText("已读取实时当前记录。", { exact: false }).waitFor();
+      await panel.getByLabel("更正原因", { exact: true }).fill("撤权前已核对");
+      assert.equal(await panel.getByLabel("发票号码", { exact: true }).inputValue(), "2".repeat(20));
+      assert.equal(await panel.getByRole("button", { name: "确认更正", exact: true }).isEnabled(), true);
+      await panel.getByRole("button", { name: action === "reread" ? "读取当前记录" : "确认更正", exact: true }).click();
+      await panel.getByRole("alert").filter({ hasText: "旧表单已清除" }).waitFor();
+      for (const label of ["发票号码", "发票金额（分）", "厂家扣款金额（分）", "更正原因"]) {
+        assert.equal(await panel.getByLabel(label, { exact: true }).count(), 0);
+      }
+      assert.doesNotMatch(await panel.innerText(), /22222222222222222222|输入已保留/);
+      assert.equal(await panel.getByRole("button", { name: "确认更正", exact: true }).isDisabled(), true);
+      assert.equal(requests.filter((url) => url.pathname.endsWith("/corrections")).length, action === "submit" ? 1 : 0);
+      await panel.getByRole("button", { name: "关闭", exact: true }).click();
+      await panel.waitFor({ state: "hidden" });
+    }));
+  }
+}
+
+for (const status of [401, 403]) {
+  test(`finance analysis ${status} clears the open correction and invalidates an inflight current read`, async () => withPage(async ({ page, requests, handle }) => {
+    let denied = false;
+    let reads = 0;
+    let release;
+    const pending = new Promise((resolve) => { release = resolve; });
+    handle(async (route, url) => {
+      if (url.pathname.endsWith("/finance/summary")) {
+        await route.fulfill(denied ? { status, json: { detail: { message: "authorization revoked" } } }
+          : { json: payload({ metrics: {} }, "finance", "f1") }); return true;
+      }
+      if (url.pathname.endsWith("/finance/invoices")) {
+        await route.fulfill({ json: payload({ list: [authorizationInvoice], total: 1 }, "finance", "f1") }); return true;
+      }
+      if (!url.pathname.endsWith("/management-invoices/s1/2026-09/current")) return false;
+      reads++;
+      if (reads > 1) await pending;
+      await route.fulfill({ json: payload(authorizationInvoice) }); return true;
+    });
+    await page.goto(`${baseUrl}/finance/management?month=2026-09`);
+    await page.locator("tbody").getByText("权限测试门店", { exact: true }).waitFor();
+    await page.locator("tbody tr").first().dblclick();
+    const panel = page.locator(".finance-correction-panel");
+    await panel.getByText("已读取实时当前记录。", { exact: false }).waitFor();
+    const reread = page.waitForRequest((request) => request.url().includes("/management-invoices/s1/2026-09/current"));
+    await panel.getByRole("button", { name: "读取当前记录", exact: true }).click();
+    await reread;
+    denied = true;
+    await page.getByRole("button", { name: "读取最新结果", exact: true }).click();
+    await panel.getByRole("alert").filter({ hasText: "旧表单已清除" }).waitFor();
+    assert.equal(await panel.getByLabel("发票号码", { exact: true }).count(), 0);
+    const lateResponse = page.waitForResponse((response) => response.url().includes("/management-invoices/s1/2026-09/current"));
+    release();
+    await lateResponse;
+    await page.waitForTimeout(100);
+    assert.equal(await panel.getByLabel("发票号码", { exact: true }).count(), 0, "late current responses cannot restore revoked invoice fields");
+    assert.equal(await panel.getByRole("button", { name: "确认更正", exact: true }).isDisabled(), true);
+    assert.equal(requests.filter((url) => url.pathname.endsWith("/corrections")).length, 0);
+    await panel.getByRole("button", { name: "关闭", exact: true }).click();
+    await panel.waitFor({ state: "hidden" });
+  }));
+}

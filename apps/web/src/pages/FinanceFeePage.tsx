@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiRequestError,
   correctManagementInvoice,
@@ -111,7 +111,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
   const [exportBusy, setExportBusy] = useState(false);
   const correctionRead = useRef(0);
   const [correctionReady, setCorrectionReady] = useState(false);
-  const [correctionTarget, setCorrectionTarget] = useState<FinanceInvoiceRow | null>(null);
+  const [correctionTarget, setCorrectionTarget] = useState<Pick<FinanceInvoiceRow, "storeId" | "statementMonth"> | null>(null);
   const [correction, setCorrection] = useState<CorrectionDraft | null>(null);
   const [correctionState, setCorrectionState] = useState<"idle" | "reading" | "loading" | "success" | "error" | "conflict">("idle");
   const [correctionMessage, setCorrectionMessage] = useState("");
@@ -155,12 +155,29 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
     || invoiceResource.loading
     || invoiceResource.refreshing;
 
-  const openCorrection = async (target: FinanceInvoiceRow, preserveDraft = false) => {
+  const clearCorrectionAuthorization = useCallback((status: number) => {
+    correctionRead.current += 1;
+    setCorrectionReady(false);
+    setCorrection(null);
+    setCorrectionState("error");
+    setCorrectionMessage(status === 401
+      ? "登录状态已失效，旧表单已清除，请重新登录。"
+      : "当前账号没有更正此记录的权限，旧表单已清除。请关闭面板或重新读取当前记录。");
+  }, []);
+
+  useEffect(() => {
+    const error = financeResource.rawError;
+    if (error instanceof ApiRequestError && [401, 403].includes(error.status)) {
+      clearCorrectionAuthorization(error.status);
+    }
+  }, [financeResource.rawError, clearCorrectionAuthorization]);
+
+  const openCorrection = async (target: Pick<FinanceInvoiceRow, "storeId" | "statementMonth">, preserveDraft = false) => {
     if (feeDirection !== "MANAGEMENT" || !target.storeId || !target.statementMonth) return;
     const request = ++correctionRead.current;
     if (!preserveDraft) setCorrection(null);
     setCorrectionReady(false);
-    setCorrectionTarget(target);
+    setCorrectionTarget({ storeId: target.storeId, statementMonth: target.statementMonth });
     setCorrectionState("reading");
     setCorrectionMessage("正在读取当前记录；重新读取会用当前值替换表单内容。");
     try {
@@ -180,6 +197,10 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
       setCorrectionMessage("已读取实时当前记录。提交时校验版本；分析汇总和列表仍展示已发布版本。");
     } catch (error) {
       if (request !== correctionRead.current) return;
+      if (error instanceof ApiRequestError && [401, 403].includes(error.status)) {
+        clearCorrectionAuthorization(error.status);
+        return;
+      }
       setCorrectionState("error");
       setCorrectionMessage(userFacingError(error, "当前记录读取失败，请重试或关闭。"));
     }
@@ -187,6 +208,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
 
   const closeCorrection = () => {
     correctionRead.current += 1;
+    setCorrectionReady(false);
     setCorrectionTarget(null);
     setCorrection(null);
   };
@@ -301,6 +323,10 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
       setCorrectionMessage("更正已保存并保留历史版本，经营结果随后台发布更新。");
     } catch (error) {
       if (request !== correctionRead.current) return;
+      if (error instanceof ApiRequestError && [401, 403].includes(error.status)) {
+        clearCorrectionAuthorization(error.status);
+        return;
+      }
       const conflict = error instanceof ApiRequestError && error.status === 409;
       if (conflict) setCorrectionReady(false);
       setCorrectionState(conflict ? "conflict" : "error");
