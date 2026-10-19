@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from sqlalchemy import Column, ForeignKey, Integer, String, Table, create_engine, event, func, select, text, update
+from sqlalchemy import Column, ForeignKey, Integer, MetaData, String, Table, create_engine, event, func, select, text, update
 from sqlalchemy.orm import sessionmaker
 
 from apps.api.dy_api.dashboard_publications.lifecycle import (
@@ -13,8 +13,10 @@ from apps.api.dy_api.dashboard_publications.lifecycle import (
 )
 from apps.api.dy_api.dashboard_publications.schema import heads, metadata, runs
 
+test_metadata = MetaData()
+runs.to_metadata(test_metadata)
 facts = Table(
-    "dashboard_publication_test_facts", metadata,
+    "dashboard_publication_test_facts", test_metadata,
     Column("publication_id", String(64), ForeignKey("dashboard_publication_runs.id", ondelete="CASCADE"), primary_key=True),
     Column("value", Integer, nullable=False),
 )
@@ -25,6 +27,7 @@ def factory(tmp_path):
     engine = create_engine("sqlite+pysqlite:///" + str(tmp_path / "publications.db"))
     event.listen(engine, "connect", lambda connection, _: connection.execute("PRAGMA foreign_keys=ON"))
     metadata.create_all(engine)
+    facts.create(engine)
     yield sessionmaker(engine, expire_on_commit=False)
     engine.dispose()
 
