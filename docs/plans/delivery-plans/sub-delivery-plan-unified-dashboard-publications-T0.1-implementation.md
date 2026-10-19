@@ -44,7 +44,11 @@
 
 **前置**：用户已审阅方向并确认开发；代码基线处理完成
 
-**状态**：进行中
+**状态**：已完成
+
+**完成日期**：2026-10-19
+
+**收尾事实**：五模块窄投影、生命周期、静态 API/导出、统一前端版本、实时操作表单和 0063 迁移已集成。定向 HTTP、真实 PostgreSQL、口径对照及 35 项浏览器场景通过；foundation 缺项登记 S4-FCR-001/002，不直接改写 foundation。主入口承接 T1.1 全仓、规模、容量及发布验收，未宣称生产完成。
 
 **完成收尾：状态同步**：
 完成实现、验证和 foundation 漂移判断后，将 Task 完成事实、验证证据、日期、漂移结论与建议下一 Task 提交 ai-project-manager；由其调度 delivery-planner 同步主计划、看板和子计划。重跑 `node .agent/project-manager-suite/tools/route-check.mjs . --target-stage S4 --json`；未完成同步不得标记完成。

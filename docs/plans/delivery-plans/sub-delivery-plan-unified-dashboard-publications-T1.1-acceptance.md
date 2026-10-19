@@ -28,7 +28,9 @@
 
 **前置**：T0.1
 
-**状态**：待开发
+**状态**：进行中
+
+**当前边界**：实现定向验证已通过，继续冻结代码全仓验证、最终规模测量及可审阅 PR。生产存在来源 retry_wait 和构建峰值容量缺口；本地验证与生产上线分别记录，不绕过来源或磁盘门禁。
 
 **完成收尾：状态同步**：
 向 ai-project-manager 提交实现和验证事实、日期、foundation 漂移结论，由其调度 delivery-planner 同步主计划、看板与子计划；重跑 `node .agent/project-manager-suite/tools/route-check.mjs . --target-stage S4 --json`，未完成同步不标记完成。

@@ -20,6 +20,8 @@
 
 线索明细跟进、账单确认/争议、发票登记/生命周期、财务工作队列、采集运行状态、配置计数继续即时读取。混合页面分开表达分析版本和当前操作状态，不能冻结写入资格或授权。
 
+FIN04 门店基础资料与 SAP 异议页属于实时工作队列；其编码、确认状态、更正详情金额和基础资料导出继续读取当前业务状态。本契约中的财务分析指财务经营汇总及费用分析，不能据此声称所有财务 GET 均已静态化。
+
 ## 发布与读取协议
 
 - 独立 publication sidecar；不改结算 generation 协议，不删除其 lineage。
@@ -45,6 +47,8 @@
 模块标识为 `douyin-ranking`、`sales`、`clue-overview`、`settlement`、`finance`。
 统一筛选元数据入口为 `GET /api/v1/dashboard/publications/{module}/filters`，同样接受 `publication_id`。
 既有分析路由保持 data 字段形状，在 `meta.publication` 返回版本信息；文件导出使用 `X-Publication-ID` 标明版本。
+管理费更正的当前记录使用 `GET /api/v1/admin/finance/management-invoices/{store_id}/{statement_month}/current` 实时读取，返回既有更正成功响应的记录形状。它执行 FIN02、管理员及当前门店范围检查，不产生分析版本。提交仍执行实时版本校验；409 后由用户显式重新读取当前记录，不能自动覆盖或重复提交更正。
+管理费分析行只提供门店和月份定位；是否存在可更正记录由实时 GET 判断，不能依赖冻结行的发票 ID 或 current 标志。读取、提交或同页分析请求明确返回 401/403 后，清除已打开的更正表单并使在途响应失效；409 和普通暂时失败仍保留用户输入。
 
 | 状态 | HTTP | 行为 |
 |---|---|---|

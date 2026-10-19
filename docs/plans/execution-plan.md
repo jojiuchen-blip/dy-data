@@ -1,8 +1,8 @@
 # 当前增量：统一静态看板（2026-10-19，独立工作树）
 
 - 用户已确认开发、无需 Linear，并要求先对齐代码基线；原工作区未提交改动已备份且保留，当前分支基于实际已部署的 `fe02e2a8`。
-- 当前正式计划：[统一静态看板](delivery-plans/main-delivery-plan-unified-dashboard-publications.md)；当前 S4 / T0.1 进行中。
-- 五模块发布、固定版本 API/导出、前端时间展示、迁移和部署预热已集成，正在全仓、真实 PostgreSQL、浏览器和容量验证；全年核销筛选性能与新版本失败时完整页面保留仍在收敛。
+- 当前正式计划：[统一静态看板](delivery-plans/main-delivery-plan-unified-dashboard-publications.md)；T0.1 已完成，当前 S4 / [T1.1 验收](delivery-plans/sub-delivery-plan-unified-dashboard-publications-T1.1-acceptance.md) 进行中。
+- 五模块发布、固定版本 API/导出、前端时间展示、迁移和部署预热已集成；35 项浏览器及真实 PostgreSQL 定向验证通过，继续冻结代码全仓与最终规模验收。生产来源 retry_wait 和构建峰值容量缺口仍须在发布前闭合。
 - 当前无生产写入或部署；PR #50 的结算恢复依赖与原工作区修改保持独立。证据见 [开发日志](../devlog/20261019_unified_dashboard_publications.md)。
 
 # 2026-10-16 继续执行：DYDATA-102/103

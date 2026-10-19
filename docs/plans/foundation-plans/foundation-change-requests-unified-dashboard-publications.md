@@ -11,3 +11,11 @@
 | 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-api-dy-data.md` 看板与筛选；`docs/prd/foundation/foundation-schema-dy-data.md` 分析发布侧表 |
 | 严重度 | 建议 |
 | 状态 | 待评审 |
+
+## S4-FCR-002：操作表单的实时管理费记录
+
+- 来源 Task：unified-dashboard-publications / T0.1；分类：GAP。
+- 新增 GET `/api/v1/admin/finance/management-invoices/{store_id}/{statement_month}/current`，沿用更正成功响应形状及 FIN02/管理员/当前门店权限。
+- 原因：静态分析行不能作为更正表单的当前版本；打开表单和冲突恢复需要实时记录，提交继续保持现有并发控制。
+- 目标：财务 API foundation 的管理费更正章节；严重度：建议；状态：待评审。
+- 证据：`get_current_management_invoice`、`tests/test_api_management_invoice_current.py`。

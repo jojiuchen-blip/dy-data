@@ -1,3 +1,6 @@
+<!-- Unified dashboard publications: 2026-10-19 -->
+> 当前增量为用户已确认且免 Linear 的统一静态看板，保持 S4；T0.1 实现与定向验证已完成，T1.1 全仓、规模和发布准备进行中。基于已部署的 `fe02e2a8` 在独立工作树开发，原目录未提交改动保留。当前计划见 [统一静态看板](docs/plans/delivery-plans/main-delivery-plan-unified-dashboard-publications.md)，证据见 [开发日志](docs/devlog/20261019_unified_dashboard_publications.md)。本轮未生产部署，下方其他增量保留各自历史上下文。
+
 <!-- PDCA independent increment: 2026-09-28 -->
 > 本工作区当前增量：用户已明确免建票的PDCA独立只读事件契约。本任务负责API源码、合成测试和衔接文档；不修改原PDCA目录，不改采集/指标，不回填、迁移或部署。当前S4，本地专项88通过/6跳过，PostgreSQL隔离CI94通过/0跳过；全仓2905通过/517跳过，缺依赖项补齐后定向19通过，Web build通过；[草稿PR #42](https://github.com/jojiuchen-blip/dy-data/pull/42)常规CI运行中。正式指标仍受水位、历史和实收语义缺口阻断；见 [当前计划](docs/plans/delivery-plans/main-delivery-plan-pdca-events.md) 与 [契约/最小下一步](docs/api/pdca-event-snapshot.md)。以下既有任务状态保留各自历史上下文，不作为本次部署授权。
 
