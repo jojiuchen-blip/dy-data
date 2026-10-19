@@ -360,14 +360,17 @@ def calculate_snapshot(
             run_id=run_id, period_start=start, period_end=end, observed_through=cutoff,
             roster_at=roster, eligibility_version=eligibility_version, metric_version=version_key,
             data_mode=data_mode, status="building", quality_json=dict(quality), created_at=datetime.now(timezone.utc)))
-        if new_bindings:
-            session.execute(lead_bindings.insert(), new_bindings)
-        if pending:
-            session.execute(samples.insert(), pending)
-        if counters:
-            session.execute(snapshots.insert(), [dict(run_id=run_id, store_id=store,
+        # Bound DB-driver parameter/JSON adaptation memory. All chunks remain
+        # inside the same savepoint, so a failed chunk publishes nothing.
+        for offset in range(0, len(new_bindings), 500):
+            session.execute(lead_bindings.insert(), new_bindings[offset:offset + 500])
+        for offset in range(0, len(pending), 500):
+            session.execute(samples.insert(), pending[offset:offset + 500])
+        summary_rows = [dict(run_id=run_id, store_id=store,
                 mapping_version=version, metric_key=metric, numerator=counts[0], denominator=counts[1])
-                for (store, version, metric), counts in counters.items()])
+                for (store, version, metric), counts in counters.items()]
+        for offset in range(0, len(summary_rows), 500):
+            session.execute(snapshots.insert(), summary_rows[offset:offset + 500])
         session.execute(runs.update().where(runs.c.run_id == run_id).values(status="success"))
     return run_id
 
