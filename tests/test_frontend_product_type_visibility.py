@@ -89,7 +89,10 @@ def test_sales_dashboard_has_product_scope_filter_before_product_type() -> None:
     )
     assert "productScopeOptions(meta, activeProductScope)" in page_source
     assert "productOptionsForScope(" in page_source
-    assert "productScope: activeProductScope" in page_source
+    # The publication loader derives request values from current filter state.
+    assert "const scope = productScope || ALL_MONTHS;" in page_source
+    assert "productScope: scope," in page_source
+    assert "[storeId, month, year, productScope, productType]" in page_source
     assert "product_scope: productScope" in client_source
     assert "product_scopes?: string[]" in types_source
     assert "product_scope_type_map?: Record<string, string[]>" in types_source

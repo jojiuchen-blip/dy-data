@@ -8,6 +8,7 @@ import uvicorn
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from playwright.sync_api import expect
+from publication_fixture_helpers import publish_fixture
 from apps.api.dy_api.models import AggStoreMonthlySettlement
 
 from test_visual_smoke import (
@@ -40,6 +41,8 @@ def live_admin_fastapi_base_url(tmp_path_factory):
             created_at=datetime(2026, 8, 5, tzinfo=timezone.utc),
         ))
         session.commit()
+        # Freeze seeded analytical facts before any browser read; billing stays live.
+        publish_fixture(session, "settlement")
     app = create_app()
     def user():
         return AuthContext(user_id="r87-user", username="r87-user", display_name="R87",
@@ -73,6 +76,12 @@ def test_confirm_register_conflict_and_query_context(browser, vite_live_admin_ap
     context = browser.new_context(viewport={"width": 1440, "height": 1000})
     page = context.new_page()
     try:
+        filters = context.request.get(
+            f"{live_admin_fastapi_base_url}/api/v1/dashboard/publications/settlement/filters"
+        )
+        assert filters.status == 200, filters.text()
+        assert filters.json()["meta"]["publication"]["module"] == "settlement"
+        assert filters.json()["meta"]["publication"]["id"]
         page.goto(f"{vite_live_admin_api_base_url}/settlement?storeId=r87-store&month=2026-08")
         confirm = page.get_by_role("button", name="确认推广服务费", exact=True)
         expect(confirm).to_be_enabled(timeout=20000)
