@@ -81,10 +81,24 @@ jobs:
               start=datetime.fromisoformat('2026-09-01T00:00:00+08:00');end=datetime.fromisoformat('2026-10-20T00:00:00+08:00')
               run_id=ensure_business_snapshot(session,period_start=start,period_end=end)
               session.commit()
-              levels={}
+              levels={}; reference_totals=None
               for level in ('group','service_center','district','area','store'):
-                  data=read_snapshot_report(session,period_start=start,period_end=end,level=level,run_id=run_id,data_mode='business',page_size=200)
-                  levels[level]={'response_keys':list(data),'rows':len(data.get('rows',[]))}
+                  rows=[];page=1
+                  while True:
+                      data=read_snapshot_report(session,period_start=start,period_end=end,level=level,run_id=run_id,data_mode='business',page_size=200,page=page)
+                      assert data['snapshot_id']==run_id
+                      rows.extend(data['rows'])
+                      if len(rows)>=data['total']:break
+                      assert data['rows'];page+=1
+                  assert len(rows)==data['total'] and len({r['key'] for r in rows})==len(rows)
+                  for field in ('order_count','follow_numerator','follow_denominator','follow_any_numerator','follow_any_denominator','verification_numerator','verification_denominator'):
+                      assert sum(r[field] for r in rows)==data['totals'][field]
+                  for r in rows:
+                      for rate,num,den in [('follow_24h_rate','follow_numerator','follow_denominator'),('verification_rate','verification_numerator','verification_denominator'),('follow_rate','follow_any_numerator','follow_any_denominator')]:
+                          assert r[rate]==(round(r[num]/r[den],6) if r[den] else None)
+                  if reference_totals is None:reference_totals=data['totals']
+                  else:assert reference_totals==data['totals']
+                  levels[level]={'rows':len(rows),'pages':page,'all_pages_verified':True,'rates_verified':True}
               print(json.dumps({'service':'isolated-ranking-candidate','run_id':run_id,'levels':levels,'peak_rss_mb':round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024,1),'seconds':round(time.monotonic()-began,2)}),flush=True)
           '''
           import textwrap
