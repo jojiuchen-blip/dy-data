@@ -45,6 +45,10 @@ jobs:
           chmod 600 ~/.ssh/known_hosts
           ssh-keygen -F "$TENCENT_HOST" -f ~/.ssh/known_hosts >/dev/null \
             || { echo "::error::pinned host key does not cover TENCENT_HOST"; exit 1; }
+      - uses: actions/checkout@v4
+      - name: Upload reviewed read-only preflight
+        run: |
+          scp -i ~/.ssh/tencent_lighthouse -P "${TENCENT_SSH_PORT:-22}" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes ops-preparation/recovery_preflight.py "$TENCENT_SSH_USER@$TENCENT_HOST:/tmp/dydata102-recovery-preflight.py"
       - name: Collect masked read-only evidence
         run: |
           ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" \
@@ -120,6 +124,9 @@ jobs:
           finally:
               scope.close()
           PY
+          worker_container="$(compose ps -q worker)"
+          sudo docker cp /tmp/dydata102-recovery-preflight.py "$worker_container:/tmp/dydata102-recovery-preflight.py"
+          compose exec -T worker python /tmp/dydata102-recovery-preflight.py < /dev/null
           pg_container="$(compose ps -q postgres)"
           pg_mount="$(sudo docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql"}}{{.Type}}|{{.Source}}{{end}}{{end}}' "$pg_container")"
           IFS='|' read -r pg_type pg_source <<< "$pg_mount"
