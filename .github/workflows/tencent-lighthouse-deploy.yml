@@ -4,101 +4,41 @@ on:
 permissions:
   contents: read
 jobs:
-  diagnose:
-    name: PDCA ranking bounded read-only diagnostics
+  memory:
+    name: Synthetic PostgreSQL snapshot memory comparison
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    env:
-      TENCENT_HOST: ${{ vars.TENCENT_HOST }}
-      TENCENT_SSH_PORT: ${{ vars.TENCENT_SSH_PORT }}
-      TENCENT_SSH_USER: ${{ vars.TENCENT_SSH_USER }}
-      TENCENT_SSH_KEY: ${{ secrets.TENCENT_SSH_KEY }}
-      TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: fixture_only
+          POSTGRES_DB: fixture
+        ports:
+          - 5432:5432
+        options: --health-cmd "pg_isready -U postgres -d fixture" --health-interval 5s --health-timeout 3s --health-retries 15
     steps:
-      - name: Configure pinned SSH
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install SQLAlchemy==2.0.52 'psycopg[binary]==3.3.5'
+      - name: Compare separate fresh processes using synthetic evidence only
         run: |
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$TENCENT_SSH_KEY" > ~/.ssh/tencent_lighthouse
-          chmod 600 ~/.ssh/tencent_lighthouse
-          printf '%s\n' "$TENCENT_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-      - name: Read technical status and classified errors
-        run: |
-          ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$TENCENT_SSH_USER@$TENCENT_HOST" 'bash -s' <<'REMOTE'
-          set -euo pipefail
-          cd /opt/dy-dashboard/repo
-          c() { sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml "$@"; }
-          python3 - <<'PY'
-          import json,subprocess,collections
-          r=json.load(open('/opt/dy-dashboard/logs/last-deploy.json'))
-          print(json.dumps({'deployment':{k:r.get(k) for k in ('ts','sha')}}))
-          patterns=['WORKER TIMEOUT','SIGKILL','Killed','Shutting down','Finished server process','Started server process','MemoryError','OutOfMemory','out of memory','statement timeout','QueryCanceled','OperationalError','IntegrityError','deadlock detected','could not serialize','No space left','connection reset','Connection reset','upstream prematurely closed','upstream timed out']
-          for service in ('api','postgres'):
-              compose=['sudo','docker','compose','--env-file','/opt/dy-dashboard/env/production.env','-f','deploy/compose.yaml']
-              container=subprocess.check_output(compose+['ps','-q',service],text=True).strip()
-              state=json.loads(subprocess.check_output(['sudo','docker','inspect',container],text=True))[0]
-              print(json.dumps({'service':service,'state':{k:state['State'].get(k) for k in ('Status','OOMKilled','StartedAt','Restarting')},'restarts':state['RestartCount']}))
-              print(json.dumps({'service':service,'limits':{k:state['HostConfig'].get(k) for k in ('Memory','MemorySwap','NanoCpus','RestartPolicy')}}))
-              if service=='api':
-                  import re
-                  journal=subprocess.run(['sudo','journalctl','-k','--since','120 minutes ago','--no-pager'],capture_output=True,text=True,timeout=20)
-                  lines=[line for line in journal.stdout.splitlines() if any(p in line.lower() for p in ('oom','killed process','out of memory'))]
-                  print(json.dumps({'service':service,'kernel_memory_events':{'lines':len(lines),'mentions_this_container':sum(container[:12] in line for line in lines),'killed_python':sum('Killed process' in line and ('python' in line or 'uvicorn' in line) for line in lines)},'killed_rss_kb':[int(n) for line in lines for n in re.findall(r'anon-rss:([0-9]+)kB',line)]}))
-                  cg=subprocess.run(['sudo','docker','exec',container,'cat','/sys/fs/cgroup/memory.events'],capture_output=True,text=True)
-                  print(json.dumps({'service':service,'memory_events':dict(line.split() for line in cg.stdout.splitlines() if len(line.split())==2)}))
-                  import datetime
-                  until=datetime.datetime.now(datetime.timezone.utc).isoformat()
-                  ev=subprocess.run(['sudo','docker','events','--since','120m','--until',until,'--filter','container='+container,'--format','{{json .}}'],capture_output=True,text=True,timeout=20)
-                  events=[]
-                  for line in ev.stdout.splitlines():
-                      item=json.loads(line)
-                      if item.get('Action') in ('die','oom','restart','start','kill'):
-                          attrs=item.get('Actor',{}).get('Attributes',{})
-                          events.append({'action':item.get('Action'),'time':item.get('time'),'exitCode':attrs.get('exitCode'),'signal':attrs.get('signal')})
-                  print(json.dumps({'service':service,'events':events[-60:]}))
-              logs=subprocess.run(['sudo','docker','logs','--since','90m','--tail','15000',container],capture_output=True,text=True)
-              content=logs.stdout+'\n'+logs.stderr
-              print(json.dumps({'service':service,'error_counts':{p:content.count(p) for p in patterns}}))
-              # Only source-code frame paths and line numbers, never log text/SQL/parameters.
-              import re
-              frames=collections.Counter(re.findall(r'File "(/app/[^"\n]+\.py)", line ([0-9]+)',content))
-              print(json.dumps({'service':service,'frames':[{'path':p,'line':n,'count':v} for (p,n),v in frames.most_common(18)]}))
+          cat > /tmp/bench.py <<'PY'
+          import sys,json,time,resource
+          from sqlalchemy import create_engine,MetaData,Table,Column,String,Integer,JSON,select,func
+          mode=sys.argv[1];size=100000
+          metadata=MetaData();table=Table('evidence_'+mode,metadata,Column('sample_key',String,primary_key=True),Column('run_id',String),Column('metric_key',String),Column('store_id',String),Column('mapping_version',String),Column('status',String),Column('reason_code',String),Column('numerator',Integer),Column('denominator',Integer),Column('evidence_json',JSON))
+          rows=[dict(sample_key=str(i),run_id='synthetic',metric_key='follow_24h',store_id='fixture-store',mapping_version='fixture',status='included',reason_code=None,numerator=i%2,denominator=1,evidence_json={'order_id':str(i),'round_id':'round-'+str(i),'follow_record_ids':['synthetic-'+str(i)+'-'+str(n) for n in range(8)]}) for i in range(size)]
+          engine=create_engine('postgresql+psycopg://postgres:fixture_only@127.0.0.1:5432/fixture');metadata.create_all(engine)
+          began=time.monotonic()
+          with engine.begin() as conn:
+              batch=size if mode=='original' else 500
+              for offset in range(0,size,batch):conn.execute(table.insert(),rows[offset:offset+batch])
+              count,total=conn.execute(select(func.count(),func.sum(table.c.numerator))).one()
+              assert (count,total)==(size,size//2)
+          print(json.dumps({'service':'synthetic-postgres-memory','mode':mode,'rows':count,'sum':total,'peak_rss_mb':round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024,1),'seconds':round(time.monotonic()-began,2)}),flush=True)
+          metadata.drop_all(engine);engine.dispose()
           PY
-          c exec -T worker python - <<'PY'
-          import sys,json,resource,signal,time,os
-          from datetime import datetime,timezone
-          resource.setrlimit(resource.RLIMIT_AS,(900*1024*1024,900*1024*1024))
-          signal.alarm(120)
-          from sqlalchemy import select,text
-          from dy_api.pdca_readonly_access import _open_pdca_readonly_session
-          from apps.api.dy_api.ranking_schema_v1 import eligibility
-          from apps.api.dy_api.ranking_snapshots import calculate_snapshot
-          scope=_open_pdca_readonly_session(); session=next(scope)
-          assert session.scalar(text('SHOW transaction_read_only'))=='on'
-          start=datetime.fromisoformat('2026-09-01T00:00:00+08:00'); end=datetime.fromisoformat('2026-10-20T00:00:00+08:00')
-          version=session.scalar(select(eligibility.c.eligibility_version).where(eligibility.c.product_scope=='精诚养车',eligibility.c.effective_from<=start).order_by(eligibility.c.effective_from.desc()).limit(1))
-          points={};ticks=0;last={};began=time.monotonic()
-          class ProbeStop(Exception): pass
-          def trace(frame,event,arg):
-              global ticks,last
-              name=frame.f_code.co_name; file=frame.f_code.co_filename.rsplit('/',1)[-1]
-              if file not in ('ranking_snapshots.py','clue_followup_metrics.py'): return None
-              if event=='line':
-                  ticks+=1
-                  if name=='calculate_snapshot' and frame.f_lineno>=358: raise ProbeStop('before_write')
-                  if ticks%1000==1:
-                      rss=int(open('/proc/self/statm').read().split()[1])*os.sysconf('SC_PAGE_SIZE')//1024
-                      last={'function':name,'line':frame.f_lineno,'rss_kb':rss,'seconds':round(time.monotonic()-began,2)}
-                      if rss>points.get(name,{}).get('rss_kb',0): points[name]=last
-                      if rss>450*1024: raise ProbeStop('memory_guard')
-              return trace
-          result={}
-          try:
-              sys.settrace(trace)
-              calculate_snapshot(session,run_id='readonly-memory-probe-20261019',period_start=start,period_end=end,observed_through=datetime.now(timezone.utc),roster_at=start,eligibility_version=version,data_mode='business',max_period_rows=50000)
-          except Exception as e: result={'exception_type':type(e).__name__,'reason':str(e) if isinstance(e,ProbeStop) else 'withheld'}
-          finally:
-              sys.settrace(None);scope.close();signal.alarm(0)
-          print(json.dumps({'service':'ranking-readonly-probe','result':result,'last':last,'peaks':points},sort_keys=True))
-          PY
-          REMOTE
+          python /tmp/bench.py original
+          python /tmp/bench.py fixed
