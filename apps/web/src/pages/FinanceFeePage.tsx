@@ -156,7 +156,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
     || invoiceResource.refreshing;
 
   const openCorrection = async (target: FinanceInvoiceRow, preserveDraft = false) => {
-    if (feeDirection !== "MANAGEMENT") return;
+    if (feeDirection !== "MANAGEMENT" || !target.storeId || !target.statementMonth) return;
     const request = ++correctionRead.current;
     if (!preserveDraft) setCorrection(null);
     setCorrectionReady(false);
@@ -390,7 +390,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
           emptyText="当前筛选下暂无记录"
           onRowAction={feeDirection === "MANAGEMENT" ? openCorrection : undefined}
           onRowDoubleClick={feeDirection === "MANAGEMENT" ? (row) => { void openCorrection(row); } : undefined}
-          rowActionLabel={(row) => row.invoiceId ? "更正" : undefined}
+          rowActionLabel={(row) => feeDirection === "MANAGEMENT" && row.storeId && row.statementMonth ? "更正" : undefined}
           rows={rows}
           state={!invoiceResource.data && resourceBusy ? "loading" : !invoiceResource.data && invoiceResource.error ? "error" : "ready"}
           tableClassName="finance-fee-table"

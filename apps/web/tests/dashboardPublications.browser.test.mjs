@@ -601,3 +601,49 @@ for (const status of [403, 404, 503]) {
     assert.match(await page.locator("tbody").innerText(), /定位门店/);
   }));
 }
+
+
+test("mobile published pending V1 locates live V2, and absent current stays a non-submitting 404", async () => withPage(async ({ page, requests, handle }) => {
+  let missing = false;
+  const pendingRow = { storeId: "s1", storeName: "静态待开票门店", statementMonth: "2026-09", statementAmountCent: 10000, confirmedAmountCent: null, feeDirection: "MANAGEMENT", status: "PENDING_INVOICE", processingStatus: "PENDING_INVOICE", invoiceId: null, invoiceNumber: null, invoiceDate: null, invoiceAmountCent: null, versionNo: null, isCurrent: null };
+  handle(async (route, url) => {
+    if (url.pathname.endsWith("/finance/summary")) {
+      await route.fulfill({ json: payload({ metrics: {} }, "finance", "f1") }); return true;
+    }
+    if (url.pathname.endsWith("/finance/invoices")) {
+      await route.fulfill({ json: payload({ list: [pendingRow], total: 1 }, "finance", "f1") }); return true;
+    }
+    if (!url.pathname.endsWith("/management-invoices/s1/2026-09/current")) return false;
+    await route.fulfill(missing ? { status: 404, json: { detail: { message: "current not found" } } }
+      : { json: payload({ ...pendingRow, invoiceId: "live2", versionNo: 2, isCurrent: true, invoiceNumber: "2".repeat(20), invoiceDate: "2026-10-01", invoiceAmountCent: 20000, factoryDeductionDate: "2026-10-01", factoryDeductionAmountCent: 20000 }) }); return true;
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${baseUrl}/finance/management?month=2026-09`);
+  const card = page.locator(".data-table-mobile-card").filter({ hasText: "静态待开票门店" });
+  await card.getByRole("button", { name: "更正", exact: true }).click();
+  const panel = page.locator(".finance-correction-panel");
+  await panel.getByText("已读取实时当前记录。", { exact: false }).waitFor();
+  assert.equal(await panel.getByLabel("发票号码", { exact: true }).inputValue(), "2".repeat(20));
+  assert.match(await panel.innerText(), /当前 V2/);
+  assert.equal(requests.filter((url) => url.pathname.endsWith("/current")).length, 1);
+  assert.equal(requests.filter((url) => url.pathname.endsWith("/corrections")).length, 0);
+  await panel.getByRole("button", { name: "关闭", exact: true }).click();
+  missing = true;
+  await card.getByRole("button", { name: "更正", exact: true }).click();
+  await panel.getByRole("alert").waitFor();
+  assert.equal(await panel.getByLabel("发票号码", { exact: true }).count(), 0);
+  assert.equal(await panel.getByRole("button", { name: "确认更正", exact: true }).isDisabled(), true);
+  await panel.getByRole("button", { name: "关闭", exact: true }).click();
+  await panel.waitFor({ state: "hidden" });
+  // The same pending row remains keyboard reachable on desktop, using only store/month.
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const row = page.locator("tbody tr").first();
+  assert.equal(await row.getAttribute("role"), "button");
+  await row.focus();
+  await row.press("Enter");
+  await panel.getByRole("alert").waitFor();
+  assert.equal(await panel.getByRole("button", { name: "确认更正", exact: true }).isDisabled(), true);
+  assert.equal(requests.filter((url) => url.pathname.endsWith("/current")).length, 3);
+  assert.equal(requests.filter((url) => url.pathname.endsWith("/corrections")).length, 0);
+  assert.equal(requests.filter((url) => url.pathname.endsWith("/finance/summary")).length, 1);
+}));
