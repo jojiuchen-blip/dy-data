@@ -4233,6 +4233,42 @@ def export_admin_finance_invoices(
     return response
 
 
+@router.get(
+    "/admin/finance/management-invoices/{store_id}/{statement_month}/current"
+)
+def get_current_management_invoice(
+    store_id: str,
+    statement_month: str,
+    request: Request,
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    """Read the live management invoice version used by correction commands."""
+
+    _require_finance_admin(current_user, request, page_key="FIN02")
+    _validate_month(statement_month, "statementMonth", request)
+    session = _billing_session(store, request)
+    _require_billing_store(session, store_id, request)
+    _require_finance_store_scope(current_user, store_id, request)
+    current = session.scalar(
+        select(InvoiceRecord).where(
+            InvoiceRecord.store_id == store_id,
+            InvoiceRecord.statement_month == statement_month,
+            InvoiceRecord.fee_direction == 2,
+            InvoiceRecord.is_current.is_(True),
+            InvoiceRecord.is_tombstone.is_(False),
+        )
+    )
+    if current is None:
+        _raise_reporting_error(
+            request,
+            status.HTTP_404_NOT_FOUND,
+            "RESOURCE_NOT_FOUND",
+            "当前管理服务费发票记录不存在",
+        )
+    return _reporting_success(request, _management_invoice_item(current))
+
+
 @router.post(
     "/admin/finance/management-invoices/{store_id}/{statement_month}/corrections"
 )
