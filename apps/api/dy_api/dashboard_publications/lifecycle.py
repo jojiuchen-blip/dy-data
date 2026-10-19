@@ -121,13 +121,26 @@ def _publisher_connection(
         acquired: list[tuple[int, bool]] = []
         try:
             if connection.dialect.name == "postgresql":
-                for key, shared in [(_lock_key(module), False), *[(key, True) for key in sorted(set(shared_lock_keys))]]:
-                    function = "pg_try_advisory_lock_shared" if shared else "pg_try_advisory_lock"
-                    if not connection.scalar(text(f"SELECT {function}(:key)"), {"key": key}):
+                key = _lock_key(module)
+                if not connection.scalar(text("SELECT pg_try_advisory_lock(:key)"), {"key": key}):
+                    connection.rollback()
+                    yield None
+                    return
+                acquired.append((key, False))
+                connection.commit()
+            # The module-exclusive lock proves a previous building attempt no
+            # longer owns a live builder. Commit its failure BEFORE source
+            # locks/readiness: a busy writer must not leave it refreshing forever.
+            connection.execute(update(runs).where(runs.c.module == module, runs.c.status == "building")
+                               .values(status="failed", error_code="PUBLICATION_INTERRUPTED"))
+            connection.commit()
+            if connection.dialect.name == "postgresql":
+                for key in sorted(set(shared_lock_keys)):
+                    if not connection.scalar(text("SELECT pg_try_advisory_lock_shared(:key)"), {"key": key}):
                         connection.rollback()
                         yield None
                         return
-                    acquired.append((key, shared))
+                    acquired.append((key, True))
                 connection.commit()
             yield connection
         finally:
@@ -190,10 +203,6 @@ def publish_module(
                                         .values(next_refresh_at=cutoff + REFRESH_INTERVAL))
                         session.commit()
                     return None
-            # The module lock proves that any abandoned building attempt no
-            # longer has a live publisher. Mark it safely for retention.
-            session.execute(update(runs).where(runs.c.module == module, runs.c.status == "building")
-                            .values(status="failed", error_code="PUBLICATION_INTERRUPTED"))
             session.execute(runs.insert().values(
                 id=publication_id, module=module, status="building", cutoff=cutoff,
                 created_at=cutoff, stats_json={}, source_fingerprint=token,

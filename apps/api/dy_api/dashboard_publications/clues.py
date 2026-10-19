@@ -9,7 +9,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import (Boolean, Column, DateTime, ForeignKey, Index, Integer,
-                        String, Table, Text, and_, case, exists, func, insert,
+                        String, Table, Text, and_, case, exists, false, func, insert,
                         literal, or_, select)
 from sqlalchemy.orm import Session
 
@@ -53,8 +53,9 @@ def _bind_time(session, value):
 def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, Any]:
     """Freeze formal rounds and business interpretation without phones or JSON."""
     from ..models import (ClueAssignmentRound, ClueCenterOrder, ClueMasterLead,
-                          DimSkuProductRule, DimStore, RawDouyinClue, RawDouyinOrder)
-    from ..account_scope import _current_organization_source
+                          DimSkuProductRule, DimStore, DimStoreOrgAssignment, RawDouyinClue, RawDouyinOrder)
+    from ..ranking_schema_v1 import org_history
+    from .sources import effective_organization_version
 
     source = ClueAssignmentRound.__table__
     center = ClueCenterOrder.__table__
@@ -89,7 +90,15 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
     ).select_from(source.join(center, source.c.order_id == center.c.order_id)).where(
         source.c.execution_mode == "formal", source.c.assigned_at >= _bind_time(session, VISIBLE_START))
     session.execute(insert(rounds).from_select(list(rounds.c.keys()), query))
-    organization_source, organization_join = _current_organization_source(session)
+    organization_mode, organization_version = effective_organization_version(session, cutoff)
+    if organization_mode == "history":
+        organization_source = select(org_history).where(
+            org_history.c.mapping_version == organization_version if organization_version is not None else false()
+        ).subquery()
+        organization_join = organization_source.c.store_id == DimStore.store_id
+    else:
+        organization_source = select(DimStoreOrgAssignment).where(DimStoreOrgAssignment.is_active.is_(True)).subquery()
+        organization_join = organization_source.c.service_store_code == DimStore.service_store_code
     store = DimStore.__table__
     session.execute(insert(organizations).from_select(list(organizations.c.keys()), select(
         literal(publication_id), store.c.store_id, store.c.store_name,

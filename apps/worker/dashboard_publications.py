@@ -7,7 +7,7 @@ source exception messages are written to its logs.
 
 import argparse
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 import importlib
 import logging
 import os
@@ -63,10 +63,14 @@ def run_tick(
     """
     result: dict[str, str] = {}
     for module, builder in registry.items():
+        # Use one observation instant for the time token and builder. If a
+        # boundary passes during hydration, the next tick changes the token;
+        # this build cannot claim a new roster while freezing the old cutoff.
+        cutoff = now or datetime.now(UTC)
         try:
             publication = publish_module(
-                factory, module, builder, now=now,
-                fingerprint=(lambda session, module=module: source_fingerprint(session, module)) if guarded else None,
+                factory, module, builder, now=cutoff,
+                fingerprint=(lambda session, module=module: source_fingerprint(session, module, now=cutoff)) if guarded else None,
                 readiness_check=assert_sources_ready if guarded else None,
                 shared_lock_keys=writer_lock_keys() if guarded else (),
                 refresh_on_interval=module == "douyin-ranking",

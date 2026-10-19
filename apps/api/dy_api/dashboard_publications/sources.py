@@ -7,6 +7,8 @@ it cannot certify an uninstrumented writer or repair a partially failed job.
 
 import hashlib
 import json
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
 
@@ -46,8 +48,30 @@ MODULE_SOURCE_TABLES: dict[str, tuple[str, ...]] = {
 SOURCE_TABLES = tuple(sorted({name for names in MODULE_SOURCE_TABLES.values() for name in names}))
 
 
-def source_fingerprint(session: Session, module: str | None = None) -> str:
-    """Read only small migration-owned counters; never fingerprint fact rows."""
+def effective_organization_version(session: Session, cutoff: datetime) -> tuple[str, str | None]:
+    """Select the same one-roster boundary used by frozen clue organizations.
+
+    No effective roster while future history exists means an empty historical
+    catalog, not a revival of the compatibility roster. The token changes only
+    at an actual effective version transition, not on every polling interval.
+    """
+    from ..ranking_schema_v1 import org_history
+
+    if inspect(session.connection()).has_table(org_history.name):
+        cutoff = cutoff.replace(tzinfo=UTC) if cutoff.tzinfo is None else cutoff.astimezone(UTC)
+        bound = cutoff.replace(tzinfo=None) if session.get_bind().dialect.name == "sqlite" else cutoff
+        version = session.scalar(select(org_history.c.mapping_version).where(
+            org_history.c.effective_from <= bound,
+        ).order_by(org_history.c.effective_from.desc(), org_history.c.mapping_version.desc()).limit(1))
+        if version is not None:
+            return "history", version
+        if session.scalar(select(org_history.c.mapping_version).limit(1)) is not None:
+            return "history", None
+    return "legacy", None
+
+
+def source_fingerprint(session: Session, module: str | None = None, *, now: datetime | None = None) -> str:
+    """Read small counters and explicit time boundaries, never fact-row hashes."""
     required = set(SOURCE_TABLES if module is None else MODULE_SOURCE_TABLES[module])
     rows = session.execute(select(source_counters.c.source_name, source_counters.c.generation)
                            .where(source_counters.c.source_name.in_(required))
@@ -56,7 +80,15 @@ def source_fingerprint(session: Session, module: str | None = None) -> str:
         # A half-installed tracker must never look like an unchanged source.
         from .lifecycle import PublicationError
         raise PublicationError("PUBLICATION_SOURCE_TRACKING_INCOMPLETE", "来源变化跟踪不完整，暂缓更新", 503)
-    return hashlib.sha256(json.dumps([tuple(row) for row in rows], separators=(",", ":")).encode()).hexdigest()
+    cutoff = now or datetime.now(UTC)
+    cutoff = cutoff.replace(tzinfo=UTC) if cutoff.tzinfo is None else cutoff.astimezone(UTC)
+    time_token = {}
+    if module in {None, "clue-overview"}:
+        time_token["clue_organization"] = effective_organization_version(session, cutoff)
+    if module in {None, "finance", "settlement"}:
+        time_token["shanghai_month"] = cutoff.astimezone(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m")
+    payload = {"sources": [tuple(row) for row in rows], "time": time_token}
+    return hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode()).hexdigest()
 
 
 def assert_sources_ready(session: Session) -> None:

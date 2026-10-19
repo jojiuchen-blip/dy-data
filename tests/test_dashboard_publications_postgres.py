@@ -3,7 +3,10 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 import os
+import subprocess
+import sys
 from threading import Event
+import time
 from uuid import uuid4
 
 import pytest
@@ -200,3 +203,156 @@ def test_statement_tracking_covers_mutation_rollback_and_missing_counter(pg_fact
         publish_module(pg_factory, "sales", pg_build, fingerprint=lambda session: source_fingerprint(session, "sales"))
     with pg_factory() as session:
         assert resolve_publication(session, "sales").id == previous.id
+
+
+def _prepare_timed_sources(factory):
+    from apps.api.dy_api.models import Base
+    from apps.api.dy_api.ranking_schema_v1 import metadata as ranking_metadata
+    from apps.api.dy_api.dashboard_publications.schema import source_counters
+    from apps.api.dy_api.dashboard_publications.sources import SOURCE_TABLES
+    with factory() as session:
+        engine = session.get_bind()
+    # Create this reproduction's real source relations and their FK closure,
+    # rather than rebuilding unrelated billing/admin schemas for every case.
+    names = {"dim_stores", "dim_sku_product_rules", "raw_douyin_orders", "raw_douyin_clues",
+             "clue_center_orders", "clue_master_leads", "clue_assignment_rounds",
+             "dim_store_org_assignments", "job_runs"}
+    pending = list(names)
+    while pending:
+        table = Base.metadata.tables[pending.pop()]
+        for foreign_key in table.foreign_keys:
+            target = foreign_key.column.table.name
+            if target not in names:
+                names.add(target)
+                pending.append(target)
+    Base.metadata.create_all(engine, tables=[Base.metadata.tables[name] for name in names])
+    ranking_metadata.tables["ranking_store_org_history"].create(engine)
+    metadata.create_all(engine)
+    with factory.begin() as session:
+        session.execute(source_counters.insert(), [
+            {"source_name": name, "generation": 0, "changed_at": datetime.now(UTC)} for name in SOURCE_TABLES
+        ])
+
+
+def test_future_clue_organization_becomes_effective_without_source_dml(pg_factory):
+    from apps.api.dy_api.dashboard_publications import clues
+    from apps.api.dy_api.dashboard_publications.schema import source_counters
+    from apps.api.dy_api.models import DimStore
+    from apps.api.dy_api.ranking_schema_v1 import org_history
+    from apps.worker.dashboard_publications import run_tick
+    _prepare_timed_sources(pg_factory)
+    before = datetime(2026, 10, 19, 15, tzinfo=UTC)
+    after = datetime(2026, 10, 20, 15, tzinfo=UTC)
+    with pg_factory.begin() as session:
+        session.add(DimStore(store_id="timed-store", store_name="Timed Store"))
+        session.execute(org_history.insert(), [
+            {"mapping_version": "old", "store_id": "timed-store", "service_store_code": "timed-store",
+             "store_name": "Timed Store", "group_name": "Old Group", "source_hash": "old",
+             "effective_from": datetime(2026, 10, 1, tzinfo=UTC)},
+            {"mapping_version": "future", "store_id": "timed-store", "service_store_code": "timed-store",
+             "store_name": "Timed Store", "group_name": "New Group", "source_hash": "future",
+             "effective_from": datetime(2026, 10, 20, tzinfo=UTC)},
+        ])
+    assert run_tick(pg_factory, {"clue-overview": clues.build}, now=before) == {"clue-overview": "published"}
+    with pg_factory() as session:
+        first_id = resolve_publication(session, "clue-overview").id
+        assert session.scalar(select(clues.organizations.c.group_name).where(clues.organizations.c.publication_id == first_id)) == "Old Group"
+        counter_values = session.execute(select(source_counters.c.source_name, source_counters.c.generation)).all()
+    # Arbitrarily many polling ticks before the actual boundary reuse the head.
+    assert run_tick(pg_factory, {"clue-overview": clues.build}, now=before + timedelta(hours=1)) == {"clue-overview": "unchanged_or_busy"}
+    assert run_tick(pg_factory, {"clue-overview": clues.build}, now=after) == {"clue-overview": "published"}
+    with pg_factory() as session:
+        second_id = resolve_publication(session, "clue-overview").id
+        assert second_id != first_id
+        assert session.scalar(select(clues.organizations.c.group_name).where(clues.organizations.c.publication_id == second_id)) == "New Group"
+        assert session.scalar(select(clues.organizations.c.group_name).where(clues.organizations.c.publication_id == first_id)) == "Old Group"
+        assert session.execute(select(source_counters.c.source_name, source_counters.c.generation)).all() == counter_values
+
+
+@pytest.mark.parametrize("module", ["finance", "settlement"])
+def test_shanghai_month_boundary_rebuilds_without_source_changes(pg_factory, module):
+    from apps.api.dy_api.dashboard_publications.finance import _months_through
+    from apps.api.dy_api.dashboard_publications.schema import source_counters
+    from apps.worker.dashboard_publications import run_tick
+    _prepare_timed_sources(pg_factory)
+    before = datetime(2026, 10, 31, 15, 59, tzinfo=UTC)
+    after = datetime(2026, 10, 31, 16, 6, tzinfo=UTC)
+    def builder(session, publication_id, cutoff):
+        pg_build(session, publication_id, cutoff)
+        return {"last_month": _months_through({"2026-08"}, cutoff)[-1]}
+    assert run_tick(pg_factory, {module: builder}, now=before) == {module: "published"}
+    with pg_factory() as session:
+        first_id = resolve_publication(session, module).id
+        assert session.scalar(select(runs.c.stats_json).where(runs.c.id == first_id))["last_month"] == "2026-10"
+        before_counters = session.execute(select(source_counters.c.source_name, source_counters.c.generation)).all()
+    assert run_tick(pg_factory, {module: builder}, now=before + timedelta(seconds=30)) == {module: "unchanged_or_busy"}
+    assert run_tick(pg_factory, {module: builder}, now=after) == {module: "published"}
+    with pg_factory() as session:
+        second_id = resolve_publication(session, module).id
+        assert second_id != first_id
+        assert session.scalar(select(runs.c.stats_json).where(runs.c.id == second_id))["last_month"] == "2026-11"
+        assert session.execute(select(source_counters.c.source_name, source_counters.c.generation)).all() == before_counters
+
+
+def test_killed_real_builder_is_failed_before_busy_source_check(pg_factory):
+    previous = publish_module(pg_factory, "sales", pg_build)
+    with pg_factory() as session:
+        engine = session.get_bind()
+        schema = session.scalar(text("SELECT current_schema()"))
+    # A real subprocess owns the module advisory lock and commits a visible
+    # building attempt, then sleeps while its uncommitted projection exists.
+    child = r'''
+import sys, time
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+from apps.api.dy_api.dashboard_publications.lifecycle import publish_module
+engine = create_engine(sys.argv[1])
+factory = sessionmaker(engine)
+def builder(session, publication_id, cutoff):
+    session.execute(text("INSERT INTO test_projection VALUES (:id, 99)"), {"id": publication_id})
+    time.sleep(120)
+    return {}
+publish_module(factory, "sales", builder)
+'''
+    child_url = engine.url.update_query_dict({"options": "-csearch_path=" + schema})
+    process = subprocess.Popen([sys.executable, "-c", child, child_url.render_as_string(hide_password=False)],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+    abandoned = None
+    try:
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            with pg_factory() as session:
+                abandoned = session.scalar(select(runs.c.id).where(runs.c.module == "sales", runs.c.status == "building"))
+            if abandoned:
+                break
+            time.sleep(0.05)
+        assert abandoned is not None and process.poll() is None
+    finally:
+        process.kill()
+        process.wait(timeout=5)
+    def busy(session):
+        raise PublicationError("PUBLICATION_SOURCE_BUSY", "busy", 503)
+    with pytest.raises(PublicationError) as caught:
+        publish_module(pg_factory, "sales", pg_build, readiness_check=busy)
+    assert caught.value.code == "PUBLICATION_SOURCE_BUSY"
+    with pg_factory.begin() as session:
+        assert session.scalar(select(runs.c.status).where(runs.c.id == abandoned)) == "failed"
+        assert session.scalar(select(runs.c.error_code).where(runs.c.id == abandoned)) == "PUBLICATION_INTERRUPTED"
+        cleanup_publications(session)
+        current = resolve_publication(session, "sales")
+        assert current.id == previous.id and current.status == "failed"
+        assert session.scalar(text("SELECT count(*) FROM test_projection")) == 1
+
+
+def test_abandoned_status_repaired_even_when_writer_advisory_lock_is_busy(pg_factory):
+    publication = publish_module(pg_factory, "sales", pg_build)
+    with pg_factory.begin() as session:
+        session.execute(runs.insert().values(id="abandoned", module="sales", status="building",
+                        cutoff=datetime.now(UTC), created_at=datetime.now(UTC), stats_json={}))
+    with pg_factory() as writer:
+        writer.execute(text("SELECT pg_advisory_xact_lock(543219876)"))
+        assert publish_module(pg_factory, "sales", pg_build, shared_lock_keys=(543219876,)) is None
+    with pg_factory() as session:
+        current = resolve_publication(session, "sales")
+        assert current.id == publication.id and current.status == "failed"
