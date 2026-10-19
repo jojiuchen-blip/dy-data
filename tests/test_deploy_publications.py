@@ -112,3 +112,24 @@ def test_migration_warm_and_publisher_health_precede_api_cutover():
     assert source.index("wait_for_healthy_service publication-worker") < source.index("compose up -d --no-deps --force-recreate api")
     assert "for service in api migrate worker publication-worker web" in source
     assert "compose logs --tail=80 api web proxy ops-agent worker publication-worker" in source
+
+
+def test_every_release_workflow_runs_publication_postgres_gate_before_deploy():
+    import yaml
+
+    for name in ("ci-cd.yml", "tencent-lighthouse-deploy.yml"):
+        workflow = yaml.safe_load((ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8"))
+        verify = workflow["jobs"]["verify"]
+        gates = [step for step in verify["steps"]
+                 if "DYDATA_PUBLICATION_TEST_DATABASE_URL" in step.get("env", {})]
+        assert len(gates) == 1, name
+        gate = gates[0]
+        assert "test" in gate["env"]["DYDATA_PUBLICATION_TEST_DATABASE_URL"].rsplit("/", 1)[-1]
+        assert "CREATE DATABASE dydata_publication_test" in gate["run"]
+        assert "tests/test_dashboard_publications_postgres.py" in gate["run"]
+        assert "tests/test_dashboard_publication_*_postgres.py" in gate["run"]
+        assert "tests/test_dashboard_publication_migration.py" in gate["run"]
+        assert not gate.get("continue-on-error") and not gate.get("if"), name
+        assert not verify.get("continue-on-error"), name
+        dependencies = workflow["jobs"]["deploy"]["needs"]
+        assert "verify" in ([dependencies] if isinstance(dependencies, str) else dependencies), name
