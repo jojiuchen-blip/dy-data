@@ -79,6 +79,14 @@ jobs:
           sys.settrace(trace)
           with get_session_factory()() as session:
               session.execute(text("SET LOCAL lock_timeout = '2s'"))
+              session.execute(text("SET LOCAL statement_timeout = '15s'"))
+              from sqlalchemy import select,func
+              from apps.api.dy_api.models import RawDouyinOrderCoupon,RawDouyinVerifyRecord,SettlementOrderDetail
+              coupon_conflicts=session.scalar(select(func.count()).select_from(SettlementOrderDetail).join(RawDouyinOrderCoupon,SettlementOrderDetail.coupon_id==RawDouyinOrderCoupon.coupon_id).where(SettlementOrderDetail.order_id!=RawDouyinOrderCoupon.order_id))
+              verify_conflicts=session.scalar(select(func.count()).select_from(SettlementOrderDetail).join(RawDouyinVerifyRecord,SettlementOrderDetail.verify_id==RawDouyinVerifyRecord.verify_id).join(RawDouyinOrderCoupon,RawDouyinVerifyRecord.coupon_id==RawDouyinOrderCoupon.coupon_id).where(SettlementOrderDetail.order_id!=RawDouyinOrderCoupon.order_id))
+              print(json.dumps({'service':'candidate-evidence-ownership','coupon_order_conflicts':coupon_conflicts,'verification_order_conflicts':verify_conflicts}),flush=True)
+              assert coupon_conflicts==0 and verify_conflicts==0,'Cross-order evidence ownership requires review'
+              session.execute(text("SET LOCAL statement_timeout = '120s'"))
               start=datetime.fromisoformat('2026-09-01T00:00:00+08:00');end=datetime.fromisoformat('2026-10-20T00:00:00+08:00')
               run_id=ensure_business_snapshot(session,period_start=start,period_end=end)
               session.commit()
@@ -109,7 +117,7 @@ jobs:
           for line in completed.stdout.splitlines():
               if line.startswith('{'):
                   value=json.loads(line)
-                  if value.get('service') in ('isolated-ranking-candidate','candidate-memory-stage'):print(json.dumps(value))
+                  if value.get('service') in ('isolated-ranking-candidate','candidate-memory-stage','candidate-evidence-ownership'):print(json.dumps(value))
                   if value.get('service')=='isolated-ranking-candidate':business_result=value
           after=json.loads(run(['docker','inspect',cid]))[0]
           allowed=['指标数据正在更新，请稍后刷新','榜单计算期间源数据发生变化，请稍后刷新','该期间尚未生成指标快照，请等待数据处理完成或调整日期范围','所选期间数据量超过单批计算上限，请缩短时间范围','invalid snapshot row budget','invalid period, observation cutoff or roster date','no mapping version at roster date','指标维度或汇总数据量超过处理上限，请联系管理员分批处理']
