@@ -267,7 +267,9 @@ function AuthGate({ children, isDemoMode, pathname }: AuthGateProps) {
     );
   }
 
-  return <DashboardPublicationProvider key={`${user.user_id ?? user.username}:${user.store_scope_mode}:${user.store_ids.join(",")}:${user.page_keys.join(",")}:${pathname}`}>{children({ user, onLogout: handleLogout })}</DashboardPublicationProvider>;
+  // Both clue routes render one workflow; keep its in-progress tour mounted.
+  const publicationRoute = pathname === "/clues/details" ? "/clues" : pathname;
+  return <DashboardPublicationProvider key={`${user.user_id ?? user.username}:${user.store_scope_mode}:${user.store_ids.join(",")}:${user.page_keys.join(",")}:${publicationRoute}`}>{children({ user, onLogout: handleLogout })}</DashboardPublicationProvider>;
 }
 
 function PageForbiddenPage() {

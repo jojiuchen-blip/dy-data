@@ -735,3 +735,46 @@ for (const status of [401, 403]) {
     await panel.waitFor({ state: "hidden" });
   }));
 }
+
+
+test("clue route family retains its pin while other modules get independent publications", async () => withPage(async ({ page, requests, handle }) => {
+  let latest = "c1";
+  handle(async (route, url) => {
+    if (url.pathname.endsWith("/publications/clue-overview/filters")) {
+      await route.fulfill({ json: payload(clueFilters, "clue-overview", url.searchParams.get("publication_id") ?? latest) }); return true;
+    }
+    if (url.pathname.endsWith("/clues/overview")) {
+      await route.fulfill({ json: payload(clueOverview, "clue-overview", url.searchParams.get("publication_id")) }); return true;
+    }
+    if (url.pathname.endsWith("/clues/filters")) {
+      await route.fulfill({ json: payload(clueFilters) }); return true;
+    }
+    if (url.pathname.endsWith("/clues/assignment-rounds")) {
+      assert.equal(url.searchParams.has("publication_id"), false);
+      await route.fulfill({ json: payload({ rows: [], pagination: { page: 1, page_size: 50, total: 0, total_pages: 0 } }) }); return true;
+    }
+    if (url.pathname.endsWith("/publications/sales/filters")) {
+      await route.fulfill({ json: payload(filterMeta, "sales", "s1") }); return true;
+    }
+    if (!url.pathname.endsWith("/dashboard/sales")) return false;
+    await route.fulfill({ json: payload(sales, "sales", url.searchParams.get("publication_id")) }); return true;
+  });
+  await page.goto(`${baseUrl}/clues`);
+  await page.locator(".publication-time").waitFor();
+  latest = "c2";
+  await page.locator('a[href="/clues/details"]').first().click();
+  await page.getByRole("heading", { name: "线索跟进列表", exact: true }).waitFor();
+  await page.locator(".page-publication-time").waitFor({ state: "hidden" });
+  const sameFamily = page.waitForResponse((response) => response.url().includes("/clues/overview?") && response.url().includes("publication_id=c1"));
+  await page.locator('a[href="/clues"]').first().click();
+  await sameFamily;
+  assert.equal(requests.filter((url) => url.pathname.endsWith("/publications/clue-overview/filters")).at(-1).searchParams.get("publication_id"), "c1");
+  await page.locator('a[href="/sales"]').first().click();
+  await page.locator(".metric-grid--sales").waitFor();
+  assert.equal(requests.filter((url) => url.pathname.endsWith("/publications/sales/filters")).at(-1).searchParams.has("publication_id"), false);
+  assert.equal(requests.filter((url) => url.pathname.endsWith("/dashboard/sales")).at(-1).searchParams.get("publication_id"), "s1");
+  const freshFamily = page.waitForResponse((response) => response.url().includes("/clues/overview?") && response.url().includes("publication_id=c2"));
+  await page.locator('a[href="/clues"]').first().click();
+  await freshFamily;
+  assert.equal(requests.filter((url) => url.pathname.endsWith("/publications/clue-overview/filters")).at(-1).searchParams.has("publication_id"), false);
+}));
