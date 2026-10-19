@@ -331,6 +331,16 @@ publish_module(factory, "sales", builder)
     finally:
         process.kill()
         process.wait(timeout=5)
+    # Waiting for the OS process is not a PostgreSQL disconnect barrier,
+    # especially across Windows/Docker networking. Wait on the actual module
+    # lock, with database-enforced bounds, before testing abandoned recovery.
+    # Otherwise publish_module may correctly return None for a still-held lock.
+    from apps.api.dy_api.dashboard_publications.lifecycle import _lock_key
+    with pg_factory() as disconnect_barrier:
+        disconnect_barrier.execute(text("SET LOCAL lock_timeout = '10s'"))
+        disconnect_barrier.execute(text("SET LOCAL statement_timeout = '12s'"))
+        disconnect_barrier.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _lock_key("sales")})
+        disconnect_barrier.rollback()
     def busy(session):
         raise PublicationError("PUBLICATION_SOURCE_BUSY", "busy", 503)
     with pytest.raises(PublicationError) as caught:
