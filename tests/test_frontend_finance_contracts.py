@@ -462,6 +462,6 @@ def test_finance_fee_month_control_updates_state_url_and_request_params() -> Non
     assert "onChange={(event) => setMonth(event.target.value)}" not in fees
     # The summary, the list and the export all read the same state value.
     assert "month," in fees
-    assert "() => fetchFinanceSummary(commonQuery)" in fees
-    assert "fetchFinanceInvoices({ ...invoiceQuery, pageSize: 50 })" in fees
-    assert "downloadFinanceInvoices(invoiceQuery)" in fees
+    assert "fetchFinanceSummary({ ...commonQuery, publication_id })" in fees
+    assert "fetchFinanceInvoices({ ...invoiceQuery, pageSize: 50, publication_id: id })" in fees
+    assert "downloadFinanceInvoices({ ...invoiceQuery, publication_id: financeResource.data?.meta.publication?.id })" in fees

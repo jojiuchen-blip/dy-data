@@ -1,3 +1,4 @@
+import { PagePublicationTime } from "./PublicationTime";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { changeCurrentUserPassword, submitFeedback } from "../api/client";
 import type { AdminUser, FeedbackCategory } from "../types/dashboard";
@@ -541,7 +542,7 @@ export function Shell({
           </div>
         ) : null}
 
-        <main className={pageFrameClassName}>{children}</main>
+        <main className={pageFrameClassName}><PagePublicationTime />{children}</main>
       </div>
 
       <nav className="mobile-bottom-nav" aria-label="一级导航">

@@ -10,6 +10,7 @@ import { RANKING_LEVEL_OPTIONS, RANKING_METRIC_OPTIONS, type RankingMetric } fro
 import type { DouyinRankingLevel } from "../types/dashboard";
 
 interface Props {
+  publicationId?: string;
   productScope: string;
   periodStart: string;
   periodEnd: string;
@@ -19,7 +20,7 @@ interface Props {
   onClose: () => void;
 }
 
-export function DouyinRankingExportDialog({ productScope, periodStart, periodEnd, today, level, filters, onClose }: Props) {
+export function DouyinRankingExportDialog({ publicationId, productScope, periodStart, periodEnd, today, level, filters, onClose }: Props) {
   const [start, setStart] = useState(periodStart);
   const [end, setEnd] = useState(periodEnd);
   const [levels, setLevels] = useState<DouyinRankingLevel[]>([level]);
@@ -33,7 +34,7 @@ export function DouyinRankingExportDialog({ productScope, periodStart, periodEnd
     setBusy(true);
     setError("");
     try {
-      await downloadDouyinRanking({ ...filters, productScope, periodStart: start, periodEnd: end, levels: levels.join(","), metrics: metrics.join(",") });
+      await downloadDouyinRanking({ publication_id: publicationId, ...filters, productScope, periodStart: start, periodEnd: end, levels: levels.join(","), metrics: metrics.join(",") });
       onClose();
     } catch (reason) {
       setError(apiErrorText(reason, "导出失败，请稍后重试。"));
@@ -47,8 +48,8 @@ export function DouyinRankingExportDialog({ productScope, periodStart, periodEnd
     actions={<><Button onClick={onClose} disabled={busy}>取消</Button><Button variant="primary" onClick={submit} loading={busy} disabled={!valid || busy}>{busy ? "正在生成…" : "导出 Excel"}</Button></>}>
     <div className="page-stack">
       <p>商品范围：{({all: "全部商品", jingcheng: "精诚养车商品", byd: "比亚迪本品"} as Record<string, string>)[productScope]}</p>
-      <TextField label="导出开始日期" type="date" min={RANKING_EARLIEST_DATE} max={today} value={start} disabled={busy} onChange={(event) => setStart(event.target.value)} />
-      <TextField label="导出结束日期" type="date" min={start} max={today} value={end} disabled={busy} onChange={(event) => setEnd(event.target.value)} />
+      <TextField label="导出开始日期" type="date" min={RANKING_EARLIEST_DATE} max={today} value={start} disabled onChange={(event) => setStart(event.target.value)} />
+      <TextField label="导出结束日期" type="date" min={start} max={today} value={end} disabled onChange={(event) => setEnd(event.target.value)} />
       <fieldset disabled={busy}><legend>导出层级（可多选）</legend>
         {RANKING_LEVEL_OPTIONS.map((item) => <CheckboxField key={item.value} label={item.label} checked={levels.includes(item.value)} onChange={(event) => setLevels(event.target.checked ? [...levels, item.value] : levels.filter((value) => value !== item.value))} />)}
       </fieldset>

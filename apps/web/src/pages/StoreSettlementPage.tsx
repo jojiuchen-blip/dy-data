@@ -1,3 +1,4 @@
+import { usePublishedResource } from "../hooks/usePublishedResource";
 import { useRef, useState } from "react";
 import {
   ApiRequestError,
@@ -92,7 +93,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
   const confirmationRequest = useRef(createPendingRequestKey());
   const disputeRequest = useRef(createPendingRequestKey());
 
-  const metaResource = useApiResource(fetchSettlementFilterMeta, []);
+  const metaResource = usePublishedResource((id) => fetchSettlementFilterMeta("settlement", id), [], { announce: false });
   const meta = metaResource.data?.data;
   const activeMonth = month || meta?.statementMonths[0] || "";
   const accountStoreIds = new Set(currentUser.store_ids);
@@ -105,15 +106,16 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
   const productScope = searchParams.get("productScope") ?? "all";
   const activeProductType = searchParams.get("productType") ?? meta?.defaultProductType ?? "all";
 
-  const settlementResource = useApiResource(
-    () => fetchSettlementMonthly({
+  const settlementResource = usePublishedResource(
+    (publication_id) => fetchSettlementMonthly({
+      publication_id,
       storeId: activeStoreId,
       month: activeMonth,
       productScope,
       productType: activeProductType,
     }),
     [activeStoreId, activeMonth, productScope, activeProductType],
-    { enabled: Boolean(meta && activeStoreId && activeMonth) },
+    { enabled: Boolean(meta && activeStoreId && activeMonth), publicationId: metaResource.data?.meta.publication?.id, leader: false },
   );
   const billingResource = useApiResource(
     () => fetchStoreBillingStatements({
@@ -304,7 +306,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
           <p>推广服务费与管理服务费按同一门店、账期分别确认。</p>
         </div>
       </section>
-      <ResourceNotice
+      <ResourceNotice analysis
         loading={metaResource.loading || settlementResource.loading || billingResource.loading}
         error={metaError ?? settlementError ?? billingError}
       />

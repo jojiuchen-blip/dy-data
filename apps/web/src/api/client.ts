@@ -1,3 +1,4 @@
+import type { PublicationModule } from "../types/dashboard";
 import {
   defaultMonth,
   defaultStore,
@@ -236,6 +237,8 @@ interface SalesDashboardQuery {
   productScope: string;
   productType: string;
   trendMonths?: string[];
+  year?: number;
+  publication_id?: string;
 }
 
 interface ClueRoundQuery {
@@ -713,10 +716,7 @@ const SALES_DASHBOARD_DEFINITIONS = [
 ];
 
 function salesTrendMonths(month: string, trendMonths: string[] = []): string[] {
-  const months = [
-    ...new Set([month, ...trendMonths].filter((value) => value && value !== ALL_MONTHS)),
-  ];
-  return months.length > 0 ? months : [month];
+  return [...new Set([month, ...trendMonths].filter((value) => /^\d{4}-\d{2}$/.test(value)))];
 }
 
 function mockSalesDashboardResponse({
@@ -725,6 +725,8 @@ function mockSalesDashboardResponse({
   productScope,
   productType,
   trendMonths = [],
+  year,
+  publication_id,
 }: SalesDashboardQuery): ApiResponse<SalesDashboardData> {
   const scopeProductTypes =
     mockMetaResponse().data.product_scope_type_map?.[productScope] ?? [];
@@ -794,6 +796,8 @@ async function requestSalesDashboard({
   productScope,
   productType,
   trendMonths = [],
+  year,
+  publication_id,
 }: SalesDashboardQuery): Promise<ApiResponse<SalesDashboardData>> {
   return requestJson<SalesDashboardData>("/dashboard/sales", {
     store_id: store.store_id,
@@ -801,6 +805,8 @@ async function requestSalesDashboard({
     product_scope: productScope,
     product_type: productType,
     trend_months: salesTrendMonths(month, trendMonths),
+    year,
+    publication_id,
   });
 }
 
@@ -1190,10 +1196,10 @@ function mockClueOrderPhoneResponse(orderId: string): ApiResponse<CluePhoneRevea
   };
 }
 
-export function fetchFilterMeta(): Promise<ApiLoadResult<FilterMetaData>> {
+export function fetchFilterMeta(module?: PublicationModule, publication_id?: string): Promise<ApiLoadResult<FilterMetaData>> {
   return withMockFallback(
     async () => {
-      const response = await requestJson<SettlementFilterMetaData>("/meta/filters");
+      const response = await requestJson<SettlementFilterMetaData>(module ? `/dashboard/publications/${module}/filters` : "/meta/filters", { publication_id });
       return {
         ...response,
         data: {
@@ -1270,11 +1276,11 @@ function mockSettlementFilterMetaResponse(): ApiResponse<SettlementFilterMetaDat
   };
 }
 
-export function fetchSettlementFilterMeta(): Promise<
+export function fetchSettlementFilterMeta(module?: PublicationModule, publication_id?: string): Promise<
   ApiLoadResult<SettlementFilterMetaData>
 > {
   return withMockFallback(
-    () => requestJson<SettlementFilterMetaData>("/meta/filters"),
+    () => requestJson<SettlementFilterMetaData>(module ? `/dashboard/publications/${module}/filters` : "/meta/filters", { publication_id }),
     mockSettlementFilterMetaResponse,
     { fallbackOnError: false },
   );
@@ -1291,7 +1297,9 @@ export function fetchSettlementStoreRanking({
   sortOrder,
   page,
   pageSize,
+  publication_id,
 }: {
+  publication_id?: string;
   periodType: PeriodType;
   periodKey: string;
   productScope: string;
@@ -1306,6 +1314,7 @@ export function fetchSettlementStoreRanking({
   return withMockFallback(
     () =>
       requestJson<SettlementStoreRankingData>("/dashboard/store-ranking", {
+        publication_id,
         periodType,
         periodKey,
         productScope,
@@ -1369,6 +1378,7 @@ export function fetchSettlementStoreRanking({
 }
 
 export function downloadDouyinRanking(query: {
+  publication_id?: string;
   periodStart: string; periodEnd: string; levels: string; metrics: string; productScope?: string;
   groupName?: string; serviceCenterName?: string; districtName?: string; areaName?: string;
 }): Promise<void> {
@@ -1389,7 +1399,9 @@ export function fetchDouyinRanking({
   pageSize,
   sortBy = "order_count",
   sortOrder = "DESC",
+  publication_id,
 }: {
+  publication_id?: string;
   productScope?: string;
   periodStart: string;
   periodEnd: string;
@@ -1431,6 +1443,7 @@ export function fetchDouyinRanking({
   });
   return withMockFallback(
     () => requestJson<DouyinRankingData>("/dashboard/douyin-ranking", {
+      publication_id,
       productScope,
       periodStart,
       periodEnd,
@@ -1455,7 +1468,9 @@ export function fetchSettlementMonthly({
   month,
   productScope,
   productType,
+  publication_id,
 }: {
+  publication_id?: string;
   storeId: string;
   month: string;
   productScope: string;
@@ -1465,7 +1480,7 @@ export function fetchSettlementMonthly({
     () =>
       requestJson<SettlementMonthlyData>(
         `/stores/${encodeURIComponent(storeId)}/monthly-settlement`,
-        { month, productScope, productType },
+        { month, productScope, productType, publication_id },
       ),
     () => ({
       data: {
@@ -1684,6 +1699,15 @@ export function fetchClueFilters(
   );
 }
 
+export function fetchPublishedClueFilters(publication_id?: string): Promise<ApiLoadResult<ClueFilterMetadata>> {
+  if (isClueDemoRuntime()) return demoLoad(() => clueDemoRepository.getFilters());
+  return withMockFallback(
+    () => requestJson<ClueFilterMetadata>("/dashboard/publications/clue-overview/filters", { publication_id }),
+    mockClueFiltersResponse,
+    { fallbackOnError: false },
+  );
+}
+
 export function fetchClueStoreOptions(
   query: ClueStoreOptionQuery,
 ): Promise<ApiLoadResult<ClueStoreOptionsData>> {
@@ -1721,6 +1745,7 @@ export function fetchClueStoreOptions(
       requestJson<ClueStoreOptionsData>(
         "/clues/filter-options/stores",
         {
+          publication_id: query.publication_id,
           city: query.city,
           limit: query.limit ?? 50,
           province: query.province,
@@ -1745,12 +1770,13 @@ export function fetchClueStoreOptions(
 
 export function fetchClueOverview(
   filters: ClueOverviewFilters,
+  publication_id?: string,
 ): Promise<ApiLoadResult<ClueOverviewMetrics>> {
   if (isClueDemoRuntime()) {
     return demoLoad(() => clueDemoRepository.getOverview(filters));
   }
   return withMockFallback(
-    () => requestJson<ClueOverviewMetrics>("/clues/overview", { ...filters }),
+    () => requestJson<ClueOverviewMetrics>("/clues/overview", { ...filters, publication_id }),
     () => mockClueOverviewResponse(filters),
     { fallbackOnError: false },
   );
@@ -3113,6 +3139,7 @@ export function fetchPromotionInvoiceReplacementCandidates(
 }
 
 export interface FinanceQuery extends QueryParams {
+  publication_id?: string;
   month: string;
   feeDirection: FeeDirection;
   metricScope?: BillingMetricScope;
@@ -3125,7 +3152,7 @@ export interface FinanceQuery extends QueryParams {
 
 export function fetchFinanceSummary(
   query: Required<Pick<FinanceQuery, "month" | "feeDirection">> &
-    Pick<FinanceQuery, "metricScope" | "storeId" | "q" | "invoiceStatus">,
+    Pick<FinanceQuery, "metricScope" | "storeId" | "q" | "invoiceStatus" | "publication_id">,
 ): Promise<ApiLoadResult<FinanceSummaryData>> {
   return requestJson<FinanceSummaryData>("/admin/finance/summary", query).then(
     (response) => ({ ...response, usingMock: false }),

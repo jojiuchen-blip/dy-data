@@ -1,3 +1,4 @@
+import { PublicationTime } from "../components/PublicationTime";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   ApiRequestError,
@@ -2024,7 +2025,7 @@ export function AdminClueAllocationPage({
                 <p>综合评分由已配置的核销转化能力、24 小时有效跟进率与门店权重计算，分配决策保留当时快照。</p>
               </div>
               {scoreData?.run ? (
-                <span className="source-pill">{formatDateTime(scoreData.run.computed_at)}</span>
+                <PublicationTime publication={{ id: scoreData.run.snapshot_run_id, module: "allocation-score", dataAsOf: null, publishedAt: scoreData.run.computed_at, status: "available", nextRefreshAt: null }} />
               ) : null}
             </div>
             <DataTable

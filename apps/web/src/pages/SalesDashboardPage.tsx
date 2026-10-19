@@ -14,7 +14,8 @@ import {
   CycleJitterChart,
   MonthlyRainfallChart,
 } from "../components/charts/SalesCharts";
-import { useApiResource } from "../hooks/useApiResource";
+import { usePublishedResource } from "../hooks/usePublishedResource";
+import { getBeijingDate } from "../utils/douyinRankingDates";
 import type {
   AdminUser,
   FilterMetaData,
@@ -40,6 +41,7 @@ interface SalesDashboardPageProps {
 }
 
 const ALL_MONTHS = "all";
+const ALL_HISTORY = "history";
 const ALL_STORES_OPTION: StoreOption = {
   store_id: "",
   store_name: "全部门店",
@@ -57,15 +59,16 @@ function availableSaleMonths(meta: FilterMetaData | undefined): string[] {
   return [...new Set(meta?.sale_months ?? [])].filter(Boolean).sort();
 }
 
-function monthOptions(meta: FilterMetaData | undefined, activeMonth: string) {
-  const months = availableMonths(meta).reverse();
+function monthOptions(meta: FilterMetaData | undefined, activeMonth: string, year: number) {
+  const months = availableMonths(meta).filter((month) => month.startsWith(`${year}-`)).reverse();
   const options = [
-    { value: ALL_MONTHS, label: "全年" },
+    { value: ALL_MONTHS, label: `${year}年全年` },
+    { value: ALL_HISTORY, label: "全部历史" },
     ...months.map((month) => ({ value: month, label: month })),
   ];
   if (
     activeMonth &&
-    activeMonth !== ALL_MONTHS &&
+    activeMonth !== ALL_MONTHS && activeMonth !== ALL_HISTORY &&
     !options.some((option) => option.value === activeMonth)
   ) {
     options.splice(1, 0, { value: activeMonth, label: activeMonth });
@@ -76,11 +79,12 @@ function monthOptions(meta: FilterMetaData | undefined, activeMonth: string) {
 function trendMonthsForPeriod(
   meta: FilterMetaData | undefined,
   activeMonth: string,
+  year: number,
 ): string[] {
-  if (activeMonth && activeMonth !== ALL_MONTHS) {
+  if (activeMonth && activeMonth !== ALL_MONTHS && activeMonth !== ALL_HISTORY) {
     return [activeMonth];
   }
-  return availableSaleMonths(meta);
+  return availableSaleMonths(meta).filter((month) => activeMonth === ALL_HISTORY || month.startsWith(`${year}-`));
 }
 
 function selectedStore(
@@ -163,6 +167,11 @@ export function SalesDashboardPage({
 }: SalesDashboardPageProps) {
   const [storeId, setStoreId] = useState(searchParams.get("store_id") ?? "");
   const [month, setMonth] = useState(searchParams.get("month") ?? ALL_MONTHS);
+  const currentYear = Number(getBeijingDate().slice(0, 4));
+  const [year, setYear] = useState(() => {
+    const requested = Number(searchParams.get("year"));
+    return Number.isInteger(requested) && requested >= 2000 && requested <= currentYear ? requested : currentYear;
+  });
   const [productScope, setProductScope] = useState(
     searchParams.get("product_scope") ?? "",
   );
@@ -170,7 +179,7 @@ export function SalesDashboardPage({
     searchParams.get("product_type") ?? "",
   );
 
-  const metaResource = useApiResource(fetchFilterMeta, []);
+  const metaResource = usePublishedResource((id) => fetchFilterMeta("sales", id), [], { announce: false });
   const meta = metaResource.data?.data;
   const allowAllStores = canViewAllStores(currentUser);
   const activeStoreId = storeId || defaultStoreIdForUser(meta, currentUser);
@@ -180,7 +189,7 @@ export function SalesDashboardPage({
       ? ALL_STORES_OPTION
       : undefined;
   const activeMonth = month || ALL_MONTHS;
-  const periodLabel = activeMonth === ALL_MONTHS ? "全年" : activeMonth;
+  const periodLabel = activeMonth === ALL_MONTHS ? `${year}年全年` : activeMonth === ALL_HISTORY ? "全部历史" : activeMonth;
   const activeProductScope = productScope || ALL_MONTHS;
   const activeProductType =
     productType ||
@@ -190,12 +199,14 @@ export function SalesDashboardPage({
     setProductType(ALL_MONTHS);
   };
   const trendMonths = useMemo(
-    () => trendMonthsForPeriod(meta, activeMonth),
-    [meta, activeMonth],
+    () => trendMonthsForPeriod(meta, activeMonth, year),
+    [meta, activeMonth, year],
   );
-  const salesResource = useApiResource(
-    () =>
+  const salesResource = usePublishedResource(
+    (publication_id) =>
       fetchSalesDashboard({
+        publication_id,
+        year: activeMonth === ALL_MONTHS ? year : undefined,
         store: activeStore as StoreOption,
         month: activeMonth,
         productScope: activeProductScope,
@@ -205,11 +216,12 @@ export function SalesDashboardPage({
     [
       activeStore?.store_id,
       activeMonth,
+      year,
       activeProductScope,
       activeProductType,
       trendMonths.join("|"),
     ],
-    { enabled: Boolean(activeStore) },
+    { enabled: Boolean(meta && activeStore), publicationId: metaResource.data?.meta.publication?.id, leader: false },
   );
 
   const dashboard = salesResource.data?.data;
@@ -236,7 +248,7 @@ export function SalesDashboardPage({
         </span>
       </section>
 
-      <ResourceNotice
+      <ResourceNotice analysis
         fallbackReason={
           salesResource.data?.fallbackReason ?? metaResource.data?.fallbackReason
         }
@@ -245,6 +257,7 @@ export function SalesDashboardPage({
       />
 
       <FilterBar>
+        <SelectField label="年度" value={String(year)} onChange={(value) => { setYear(Number(value)); setMonth(ALL_MONTHS); }} options={[...new Set([currentYear, ...availableMonths(meta).map((value) => Number(value.slice(0, 4)))])].sort((a, b) => b - a).map((value) => ({ value: String(value), label: `${value}年` }))} />
         <FilterField label="门店搜索">
           <SearchableStoreSelect
             allowEmpty={allowAllStores}
@@ -261,7 +274,7 @@ export function SalesDashboardPage({
         <SelectField
           label="月份"
           onChange={setMonth}
-          options={monthOptions(meta, activeMonth)}
+          options={monthOptions(meta, activeMonth, year)}
           value={activeMonth}
         />
         <SelectField

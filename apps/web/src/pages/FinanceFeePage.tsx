@@ -13,7 +13,7 @@ import { FinanceImportActionPanel } from "../components/FinanceImportActionPanel
 import { SelectField, TextField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import { ResourceNotice } from "../components/ResourceState";
-import { useApiResource } from "../hooks/useApiResource";
+import { usePublishedResource } from "../hooks/usePublishedResource";
 import type {
   BillingMetricScope,
   FeeDirection,
@@ -135,14 +135,15 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
     ...commonQuery,
     includeHistory: feeDirection === "MANAGEMENT" && showHistory,
   };
-  const summaryResource = useApiResource(
-    () => fetchFinanceSummary(commonQuery),
-    [month, feeDirection, metricScope, search, invoiceStatus],
-  );
-  const invoiceResource = useApiResource(
-    () => fetchFinanceInvoices({ ...invoiceQuery, pageSize: 50 }),
-    [month, feeDirection, metricScope, search, invoiceStatus, showHistory],
-  );
+  const financeResource = usePublishedResource(async (publication_id) => {
+    const summary = await fetchFinanceSummary({ ...commonQuery, publication_id });
+    const id = summary.meta.publication?.id;
+    const invoices = await fetchFinanceInvoices({ ...invoiceQuery, pageSize: 50, publication_id: id });
+    if (id && invoices.meta.publication?.id !== id) throw new Error("财务汇总与列表版本不一致，请刷新后重试。");
+    return { ...summary, data: { summary: summary.data, invoices: invoices.data } };
+  }, [month, feeDirection, metricScope, search, invoiceStatus, showHistory]);
+  const summaryResource = { ...financeResource, data: financeResource.data ? { ...financeResource.data, data: financeResource.data.data.summary } : undefined };
+  const invoiceResource = { ...financeResource, data: financeResource.data ? { ...financeResource.data, data: financeResource.data.data.invoices } : undefined };
   const metrics = summaryResource.data?.data.metrics;
   const rows = invoiceResource.data?.data.list ?? [];
   const resourceBusy = summaryResource.loading
@@ -237,7 +238,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
     setNotice("");
     setNoticeIsError(false);
     try {
-      const result = await downloadFinanceInvoices(invoiceQuery);
+      const result = await downloadFinanceInvoices({ ...invoiceQuery, publication_id: financeResource.data?.meta.publication?.id });
       setNotice(result.result === "EMPTY" ? "当前筛选无记录，已下载仅含表头的文件。" : `已导出当前筛选结果：${result.fileName}`);
     } catch (error) {
       setNoticeIsError(true);
@@ -280,9 +281,8 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
         idempotencyKey: crypto.randomUUID(),
       } : current);
       setCorrectionState("success");
-      setCorrectionMessage("更正已立即生效，并保留原历史版本。");
-      summaryResource.reload();
-      invoiceResource.reload();
+      setCorrectionMessage("更正已保存并保留历史版本，经营结果随后台发布更新。");
+      financeResource.reload();
     } catch (error) {
       const conflict = error instanceof ApiRequestError && error.status === 409;
       setCorrectionState(conflict ? "conflict" : "error");
@@ -321,7 +321,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
         </div>
       </section>
 
-      <ResourceNotice loading={resourceBusy} error={summaryResource.error ?? invoiceResource.error} />
+      <ResourceNotice analysis loading={resourceBusy} error={summaryResource.error ?? invoiceResource.error} />
       <section className={`metric-grid finance-metric-grid ${feeDirection === "MANAGEMENT" ? "finance-metric-grid--four" : ""}`}>
         <MetricCard label={feeDirection === "PROMOTION" ? "推广费总额" : "管理费总额"} value={currencyMetric(metrics?.statementTotalCent)} />
         <MetricCard label="已确认金额" value={currencyMetric(metrics?.confirmedAmountCent)} />
@@ -335,8 +335,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
           fixedImportType={importType}
           month={month}
           onCommitted={() => {
-            summaryResource.reload();
-            invoiceResource.reload();
+            financeResource.reload();
           }}
           scope={feeDirection}
         />
@@ -354,7 +353,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
         </div>
         <div className="finance-workbench__actions">
           <Button onClick={() => navigateTo(`${feeDirection === "PROMOTION" ? "/finance/orders/promotion" : "/finance/orders/management"}?month=${encodeURIComponent(month)}`)} variant="secondary">查看{title}订单明细</Button>
-          <Button loading={exportBusy} onClick={handleExport} variant="secondary">导出当前筛选结果</Button>
+          <Button disabled={!financeResource.data} loading={exportBusy} onClick={handleExport} variant="secondary">导出当前筛选结果</Button>
           <Button onClick={resetFilters} variant="text">重置筛选</Button>
           {feeDirection === "MANAGEMENT" ? <Button onClick={() => setShowHistory((value) => !value)} variant="text">{showHistory ? "仅看当前版本" : "查看历史版本"}</Button> : null}
         </div>

@@ -6,6 +6,7 @@ interface ResourceNoticeProps {
   error?: string;
   fallbackReason?: string;
   loading?: boolean;
+  analysis?: boolean;
 }
 
 interface ResourcePanelProps {
@@ -23,13 +24,14 @@ export function resourceSourceLabel<T>(
   if (!resource) {
     return "暂无数据";
   }
-  return resource.usingMock ? "演示数据" : "实时数据";
+  return resource.usingMock ? "演示数据" : resource.meta.publication ? "已发布数据" : "实时数据";
 }
 
 export function ResourceNotice({
   error,
   fallbackReason,
   loading = false,
+  analysis = false,
 }: ResourceNoticeProps) {
   if (!loading && !fallbackReason && !error) {
     return null;
@@ -47,9 +49,9 @@ export function ResourceNotice({
         .join(" ")}
       role={error ? "alert" : "status"}
     >
-      {loading ? <span>正在加载最新数据...</span> : null}
+      {loading ? <span>{analysis ? "正在读取所选范围的已发布结果..." : "正在加载最新数据..."}</span> : null}
       {fallbackReason ? <span>{fallbackReason}</span> : null}
-      {error ? <span>{userFacingError(error, "数据加载失败，请稍后重试。")}</span> : null}
+      {error ? <span>{analysis ? error : userFacingError(error, "数据加载失败，请稍后重试。")}</span> : null}
     </div>
   );
 }

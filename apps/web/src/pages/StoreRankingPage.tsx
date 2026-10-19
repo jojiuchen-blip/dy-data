@@ -9,7 +9,7 @@ import { FieldInput, SelectField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
 import { TablePagination } from "../components/TablePagination";
-import { useApiResource } from "../hooks/useApiResource";
+import { usePublishedResource } from "../hooks/usePublishedResource";
 import type {
   PeriodType,
   RankingSortBy,
@@ -83,13 +83,14 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
   const sortBy = rankingSortByForBasis(rankingBasis);
   const sortOrder: SortOrder = "DESC";
 
-  const metaResource = useApiResource(fetchSettlementFilterMeta, []);
+  const metaResource = usePublishedResource((id) => fetchSettlementFilterMeta("settlement", id), [], { announce: false });
   const meta = metaResource.data?.data;
   const activePeriodKey = periodKey || meta?.saleMonths[0] || "";
   const activeProductType = productType || meta?.defaultProductType || "all";
-  const rankingResource = useApiResource(
-    () =>
+  const rankingResource = usePublishedResource(
+    (publication_id) =>
       fetchSettlementStoreRanking({
+        publication_id,
         periodType,
         periodKey: activePeriodKey,
         productScope,
@@ -102,7 +103,7 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
         pageSize: PAGE_SIZE,
       }),
     [periodType, activePeriodKey, productScope, activeProductType, query, sortBy, rankingBasis, page],
-    { enabled: Boolean(meta && activePeriodKey) },
+    { enabled: Boolean(meta && activePeriodKey), publicationId: metaResource.data?.meta.publication?.id, leader: false },
   );
   const ranking = rankingResource.data?.data;
   const metaError = metaResource.rawError ? apiErrorText(metaResource.rawError, "筛选条件暂不可用，请稍后重试。") : metaResource.error;
@@ -133,7 +134,7 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
           <h1>全国门店月度榜单</h1>
         </div>
       </section>
-      <ResourceNotice loading={metaResource.loading || rankingResource.loading} error={metaError ?? rankingError} />
+      <ResourceNotice analysis loading={metaResource.loading || rankingResource.loading} error={metaError ?? rankingError} />
       <FilterBar>
         <SelectField label="统计方式" value={periodType} onChange={(value) => {
           const nextPeriodType = value as PeriodType;
