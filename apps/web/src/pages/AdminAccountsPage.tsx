@@ -139,6 +139,16 @@ interface AdminAccountsPageProps {
 export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
   const [activeTab, setActiveTab] = useState<"accounts" | "roles">("accounts");
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
+  const [accountQuery, setAccountQuery] = useState("");
+  const normalizedAccountQuery = accountQuery.trim().toLowerCase();
+  const filteredAccounts = useMemo(
+    () => accounts.filter((account) =>
+      [account.display_name, account.username, account.external_account_id].some(
+        (value) => (value ?? "").toLowerCase().includes(normalizedAccountQuery),
+      ),
+    ),
+    [accounts, normalizedAccountQuery],
+  );
   const [accessControl, setAccessControl] = useState<AccessControlData | null>(null);
   const [auditRows, setAuditRows] = useState<AccountPermissionAuditRow[]>([]);
   const [auditOpen, setAuditOpen] = useState(false);
@@ -751,15 +761,38 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
           <div className="section-title">
             <div>
               <h2>账号列表</h2>
-              <p>共 {accounts.length} 个本地账号。</p>
+              <p role="status" aria-live="polite">
+                {normalizedAccountQuery
+                  ? `匹配 ${filteredAccounts.length} 个，共 ${accounts.length} 个本地账号。`
+                  : `共 ${accounts.length} 个本地账号。`}
+              </p>
             </div>
             {loading ? <span className="source-pill">加载中</span> : null}
           </div>
-          <div className="account-admin-main__scroll">
+          <div className="filter-bar filter-bar--compact">
+            <label className="filter-field">
+              <span>搜索账号</span>
+              <FieldInput
+                type="search"
+                placeholder="输入姓名、登录账号或所属账户编号"
+                value={accountQuery}
+                onChange={(event) => setAccountQuery(event.target.value)}
+              />
+            </label>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={!accountQuery}
+              onClick={() => setAccountQuery("")}
+            >
+              清空搜索
+            </Button>
+          </div>
+          <div className="account-admin-main__scroll" key={normalizedAccountQuery}>
             <DataTable
               columns={accountColumns}
-              emptyText={loading ? "正在加载账号..." : "暂无账号"}
-              rows={accounts}
+              emptyText={loading ? "正在加载账号..." : normalizedAccountQuery ? "没有匹配的账号，请更换关键词或清空搜索" : "暂无账号"}
+              rows={filteredAccounts}
               state={loading ? "loading" : "ready"}
               tableClassName="account-table"
             />
