@@ -1,4 +1,4 @@
-import { usePublishedResource } from "../hooks/usePublishedResource";
+import { usePublishedView } from "../hooks/usePublishedView";
 import { useRef, useState } from "react";
 import {
   ApiRequestError,
@@ -93,7 +93,26 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
   const confirmationRequest = useRef(createPendingRequestKey());
   const disputeRequest = useRef(createPendingRequestKey());
 
-  const metaResource = usePublishedResource((id) => fetchSettlementFilterMeta("settlement", id), [], { announce: false });
+  const productScope = searchParams.get("productScope") ?? "all";
+  const requestedProductType = searchParams.get("productType");
+  const settlementResource = usePublishedView(
+    (id) => fetchSettlementFilterMeta("settlement", id),
+    (filters, publication_id) => {
+      const accountStoreIds = new Set(currentUser.store_ids);
+      const selectedStoreId = currentUser.role === "store"
+        ? (accountStoreIds.has(storeId) ? storeId : currentUser.store_ids[0] ?? "")
+        : storeId || filters.stores[0]?.storeId || "";
+      return fetchSettlementMonthly({
+        publication_id,
+        storeId: selectedStoreId,
+        month: month || filters.statementMonths[0] || "",
+        productScope,
+        productType: requestedProductType ?? filters.defaultProductType ?? "all",
+      });
+    },
+    [storeId, month, productScope, requestedProductType],
+  );
+  const metaResource = { ...settlementResource, data: settlementResource.filters };
   const meta = metaResource.data?.data;
   const activeMonth = month || meta?.statementMonths[0] || "";
   const accountStoreIds = new Set(currentUser.store_ids);
@@ -103,20 +122,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
   const activeStoreId = currentUser.role === "store"
     ? (accountStoreIds.has(storeId) ? storeId : currentUser.store_ids[0] ?? "")
     : storeId || storeOptions[0]?.storeId || "";
-  const productScope = searchParams.get("productScope") ?? "all";
-  const activeProductType = searchParams.get("productType") ?? meta?.defaultProductType ?? "all";
-
-  const settlementResource = usePublishedResource(
-    (publication_id) => fetchSettlementMonthly({
-      publication_id,
-      storeId: activeStoreId,
-      month: activeMonth,
-      productScope,
-      productType: activeProductType,
-    }),
-    [activeStoreId, activeMonth, productScope, activeProductType],
-    { enabled: Boolean(meta && activeStoreId && activeMonth), publicationId: metaResource.data?.meta.publication?.id, leader: false },
-  );
+  const activeProductType = requestedProductType ?? meta?.defaultProductType ?? "all";
   const billingResource = useApiResource(
     () => fetchStoreBillingStatements({
       storeId: activeStoreId,
@@ -307,7 +313,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
         </div>
       </section>
       <ResourceNotice analysis
-        loading={metaResource.loading || settlementResource.loading || billingResource.loading}
+        loading={metaResource.loading || settlementResource.loading || settlementResource.refreshing || billingResource.loading}
         error={metaError ?? settlementError ?? billingError}
       />
       <FilterBar>

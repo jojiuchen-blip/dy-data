@@ -101,6 +101,7 @@ test("sales metadata prevents duplicate first data request and separates selecte
   await history;
   assert.equal(dataRequests().at(-1).searchParams.has("year"), false);
   assert.equal(dataRequests().at(-1).searchParams.get("publication_id"), "s1");
+  assert.equal(requests.filter((url) => url.pathname.endsWith("/publications/sales/filters")).length, 1, "ordinary filters reuse committed metadata");
 }));
 
 test("expired fixed version recovers once, 422 never retries, and 503 refresh keeps same-scope result", async () => withPage(async ({ page, requests, handle }) => {
@@ -252,4 +253,116 @@ test("a permission denial removes previously displayed analytical rows immediate
   assert.equal(await page.locator("tbody tr").count(), 0);
   assert.equal(await page.getByRole("button", { name: "导出排行", exact: true }).isDisabled(), true);
   assert.equal(requests.filter((url) => url.pathname.endsWith("/douyin-ranking")).length, before + 1);
+}));
+
+test("sales commits refreshed filters, data and time only after the complete candidate succeeds", async () => withPage(async ({ page, requests, handle }) => {
+  let latest = "s1";
+  let fail = true;
+  let release;
+  let pending = new Promise((resolve) => { release = resolve; });
+  const versioned = (data, id) => {
+    const response = payload(data, "sales", id);
+    if (id === "s2") response.meta.publication.publishedAt = "2026-10-19T03:00:00Z";
+    return response;
+  };
+  handle(async (route, url) => {
+    if (url.pathname.endsWith("/publications/sales/filters")) {
+      await route.fulfill({ json: versioned(filterMeta, url.searchParams.get("publication_id") ?? latest) }); return true;
+    }
+    if (!url.pathname.endsWith("/dashboard/sales")) return false;
+    const id = url.searchParams.get("publication_id");
+    if (id === "s2") await pending;
+    await route.fulfill(id === "s2" && fail
+      ? { status: 503, json: { detail: { message: "candidate unavailable" } } }
+      : { json: versioned({ ...sales, metrics: { ...sales.metrics, total_sales_order_count: id === "s1" ? 23 : 99 } }, id) });
+    return true;
+  });
+  await page.goto(`${baseUrl}/sales?year=2026`);
+  const total = page.locator(".metric-card").filter({ has: page.getByText("总销售订单量", { exact: true }) });
+  await total.getByText("23", { exact: true }).waitFor();
+  latest = "s2";
+  const candidate = page.waitForRequest((request) => request.url().includes("/dashboard/sales?") && request.url().includes("publication_id=s2"));
+  await page.getByRole("button", { name: "读取最新结果", exact: true }).click();
+  await candidate;
+  assert.equal(await total.count(), 1, "the previous complete sales view must remain during candidate loading");
+  assert.match(await total.innerText(), /23/);
+  assert.match(await page.locator(".publication-time").innerText(), /10:00/);
+  release();
+  await page.getByText("发布结果暂不可用", { exact: false }).waitFor();
+  assert.match(await total.innerText(), /23/);
+  assert.match(await page.locator(".publication-time").innerText(), /10:00/);
+  fail = false;
+  pending = new Promise((resolve) => { release = resolve; });
+  const retry = page.waitForRequest((request) => request.url().includes("/dashboard/sales?") && request.url().includes("publication_id=s2"));
+  await page.getByRole("button", { name: "读取最新结果", exact: true }).click();
+  await retry;
+  assert.match(await total.innerText(), /23/);
+  release();
+  await total.getByText("99", { exact: true }).waitFor();
+  assert.match(await page.locator(".publication-time").innerText(), /11:00/);
+  assert.equal(requests.filter((url) => url.pathname.endsWith("/dashboard/sales") && url.searchParams.get("publication_id") === "s1").length, 1);
+}));
+
+test("finance keeps complete old cards, rows, time and export while a new list is delayed or fails", async () => withPage(async ({ page, requests, handle }) => {
+  let latest = "f1";
+  let fail = true;
+  let release;
+  let pending = new Promise((resolve) => { release = resolve; });
+  const versioned = (data, id) => {
+    const response = payload(data, "finance", id);
+    if (id === "f2") response.meta.publication.publishedAt = "2026-10-19T03:00:00Z";
+    return response;
+  };
+  handle(async (route, url) => {
+    const id = url.searchParams.get("publication_id") ?? latest;
+    if (url.pathname.endsWith("/finance/summary")) {
+      await route.fulfill({ json: versioned({ month: "2026-09", feeDirection: "PROMOTION", metricScope: "MONTH", metrics: { statementTotalCent: id === "f1" ? 10000 : 20000 } }, id) }); return true;
+    }
+    if (url.pathname.endsWith("/finance/invoices/export")) {
+      await route.fulfill({ contentType: "text/csv", headers: { "Content-Disposition": "attachment; filename=finance.csv" }, body: "store\n" }); return true;
+    }
+    if (!url.pathname.endsWith("/finance/invoices")) return false;
+    if (id === "f2") await pending;
+    await route.fulfill(id === "f2" && fail
+      ? { status: 503, json: { detail: { message: "candidate unavailable" } } }
+      : { json: versioned({ list: [{ storeId: "s1", storeName: id === "f1" ? "旧版本门店" : "新版本门店", statementMonth: "2026-09", statementAmountCent: id === "f1" ? 10000 : 20000, confirmedAmountCent: 0, feeDirection: "PROMOTION", status: "PENDING_STATEMENT", processingStatus: "PENDING_STATEMENT", invoiceId: null, invoiceNumber: null, versionNo: null, isCurrent: null }], total: 1, page: 1, pageSize: 50 }, id) });
+    return true;
+  });
+  await page.goto(`${baseUrl}/finance/promotion?month=2026-09`);
+  const total = page.locator(".metric-card").filter({ hasText: "推广费总额" });
+  await page.locator("tbody").getByText("旧版本门店", { exact: true }).waitFor();
+  latest = "f2";
+  const candidate = page.waitForRequest((request) => request.url().includes("/finance/invoices?") && request.url().includes("publication_id=f2"));
+  await page.getByRole("button", { name: "读取最新结果", exact: true }).click();
+  await candidate;
+  assert.match(await total.innerText(), /100\.00/);
+  assert.match(await page.locator("tbody").innerText(), /旧版本门店/);
+  assert.match(await page.locator(".publication-time").innerText(), /10:00/);
+  const exportOld = async () => {
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "导出当前筛选结果", exact: true }).click();
+    await download;
+    assert.equal(requests.filter((url) => url.pathname.endsWith("/finance/invoices/export")).at(-1).searchParams.get("publication_id"), "f1");
+  };
+  await exportOld();
+  release();
+  await page.getByText("发布结果暂不可用", { exact: false }).waitFor();
+  assert.match(await total.innerText(), /100\.00/);
+  assert.match(await page.locator("tbody").innerText(), /旧版本门店/);
+  assert.match(await page.locator(".publication-time").innerText(), /10:00/);
+  await exportOld();
+  fail = false;
+  pending = new Promise((resolve) => { release = resolve; });
+  const retry = page.waitForRequest((request) => request.url().includes("/finance/invoices?") && request.url().includes("publication_id=f2"));
+  await page.getByRole("button", { name: "读取最新结果", exact: true }).click();
+  await retry;
+  assert.match(await total.innerText(), /100\.00/);
+  release();
+  await page.locator("tbody").getByText("新版本门店", { exact: true }).waitFor();
+  assert.match(await total.innerText(), /200\.00/);
+  assert.match(await page.locator(".publication-time").innerText(), /11:00/);
+  const exportNew = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出当前筛选结果", exact: true }).click();
+  await exportNew;
+  assert.equal(requests.filter((url) => url.pathname.endsWith("/finance/invoices/export")).at(-1).searchParams.get("publication_id"), "f2");
 }));

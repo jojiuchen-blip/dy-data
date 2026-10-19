@@ -374,7 +374,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
           onRowDoubleClick={feeDirection === "MANAGEMENT" ? openCorrection : undefined}
           rowActionLabel={(row) => row.invoiceId && row.isCurrent ? "更正" : undefined}
           rows={rows}
-          state={resourceBusy ? "loading" : invoiceResource.error ? "error" : "ready"}
+          state={!invoiceResource.data && resourceBusy ? "loading" : !invoiceResource.data && invoiceResource.error ? "error" : "ready"}
           tableClassName="finance-fee-table"
         />
       </section>

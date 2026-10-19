@@ -1217,6 +1217,7 @@ export function fetchFilterMeta(module?: PublicationModule, publication_id?: str
       };
     },
     mockMetaResponse,
+    { fallbackOnError: module ? false : undefined },
   );
 }
 
@@ -1664,6 +1665,7 @@ export function fetchSalesDashboard(
   return withMockFallback(
     () => requestSalesDashboard(query),
     () => mockSalesDashboardResponse(query),
+    { fallbackOnError: false },
   );
 }
 

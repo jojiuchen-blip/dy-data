@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { fetchFilterMeta, fetchSalesDashboard } from "../api/client";
 import { DefinitionList } from "../components/DefinitionList";
 import { FilterBar, FilterField } from "../components/Filters";
@@ -14,7 +14,7 @@ import {
   CycleJitterChart,
   MonthlyRainfallChart,
 } from "../components/charts/SalesCharts";
-import { usePublishedResource } from "../hooks/usePublishedResource";
+import { usePublishedView } from "../hooks/usePublishedView";
 import { getBeijingDate } from "../utils/douyinRankingDates";
 import type {
   AdminUser,
@@ -179,50 +179,39 @@ export function SalesDashboardPage({
     searchParams.get("product_type") ?? "",
   );
 
-  const metaResource = usePublishedResource((id) => fetchFilterMeta("sales", id), [], { announce: false });
+  const salesResource = usePublishedView(
+    (id) => fetchFilterMeta("sales", id),
+    (filters, publication_id) => {
+      const scope = productScope || ALL_MONTHS;
+      const type = productType || (scope === ALL_MONTHS ? defaultProductType(filters) : ALL_MONTHS);
+      const period = month || ALL_MONTHS;
+      const selectedId = storeId || defaultStoreIdForUser(filters, currentUser);
+      const store = selectedId ? selectedStore(filters, selectedId) : ALL_STORES_OPTION;
+      return fetchSalesDashboard({
+        publication_id,
+        year: period === ALL_MONTHS ? year : undefined,
+        store: store as StoreOption,
+        month: period,
+        productScope: scope,
+        productType: type,
+        trendMonths: trendMonthsForPeriod(filters, period, year),
+      });
+    },
+    [storeId, month, year, productScope, productType],
+  );
+  const metaResource = { ...salesResource, data: salesResource.filters };
   const meta = metaResource.data?.data;
   const allowAllStores = canViewAllStores(currentUser);
   const activeStoreId = storeId || defaultStoreIdForUser(meta, currentUser);
-  const activeStore = activeStoreId
-    ? selectedStore(meta, activeStoreId)
-    : allowAllStores
-      ? ALL_STORES_OPTION
-      : undefined;
+  const activeStore = activeStoreId ? selectedStore(meta, activeStoreId) : allowAllStores ? ALL_STORES_OPTION : undefined;
   const activeMonth = month || ALL_MONTHS;
   const periodLabel = activeMonth === ALL_MONTHS ? `${year}年全年` : activeMonth === ALL_HISTORY ? "全部历史" : activeMonth;
   const activeProductScope = productScope || ALL_MONTHS;
-  const activeProductType =
-    productType ||
-    (activeProductScope === ALL_MONTHS ? defaultProductType(meta) : ALL_MONTHS);
+  const activeProductType = productType || (activeProductScope === ALL_MONTHS ? defaultProductType(meta) : ALL_MONTHS);
   const handleProductScopeChange = (value: string) => {
     setProductScope(value);
     setProductType(ALL_MONTHS);
   };
-  const trendMonths = useMemo(
-    () => trendMonthsForPeriod(meta, activeMonth, year),
-    [meta, activeMonth, year],
-  );
-  const salesResource = usePublishedResource(
-    (publication_id) =>
-      fetchSalesDashboard({
-        publication_id,
-        year: activeMonth === ALL_MONTHS ? year : undefined,
-        store: activeStore as StoreOption,
-        month: activeMonth,
-        productScope: activeProductScope,
-        productType: activeProductType,
-        trendMonths,
-      }),
-    [
-      activeStore?.store_id,
-      activeMonth,
-      year,
-      activeProductScope,
-      activeProductType,
-      trendMonths.join("|"),
-    ],
-    { enabled: Boolean(meta && activeStore), publicationId: metaResource.data?.meta.publication?.id, leader: false },
-  );
 
   const dashboard = salesResource.data?.data;
   const definitions = salesResource.data?.definitions ?? [];
@@ -252,7 +241,7 @@ export function SalesDashboardPage({
         fallbackReason={
           salesResource.data?.fallbackReason ?? metaResource.data?.fallbackReason
         }
-        loading={salesResource.loading || metaResource.loading}
+        loading={salesResource.loading || salesResource.refreshing || metaResource.loading}
         error={salesResource.error ?? metaResource.error}
       />
 
