@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   ApiRequestError,
   correctManagementInvoice,
   downloadFinanceImportTemplate,
   downloadFinanceInvoices,
   fetchFinanceInvoices,
+  fetchCurrentManagementInvoice,
   fetchFinanceSummary,
 } from "../api/client";
 import { Button } from "../components/Button";
@@ -108,14 +109,17 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
   const [noticeIsError, setNoticeIsError] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
+  const correctionRead = useRef(0);
+  const [correctionReady, setCorrectionReady] = useState(false);
+  const [correctionTarget, setCorrectionTarget] = useState<FinanceInvoiceRow | null>(null);
   const [correction, setCorrection] = useState<CorrectionDraft | null>(null);
-  const [correctionState, setCorrectionState] = useState<"idle" | "loading" | "success" | "error" | "conflict">("idle");
+  const [correctionState, setCorrectionState] = useState<"idle" | "reading" | "loading" | "success" | "error" | "conflict">("idle");
   const [correctionMessage, setCorrectionMessage] = useState("");
   const correctionValidationError = correction
     ? managementCorrectionValidationError(correction)
     : "";
   const canSubmitCorrection = Boolean(
-    correction && !correctionValidationError && correctionState !== "loading",
+    correctionReady && correction && !correctionValidationError && !["loading", "reading", "conflict"].includes(correctionState),
   );
   const title = feeDirection === "PROMOTION" ? "推广服务费" : "管理服务费";
   const importType = feeDirection === "PROMOTION"
@@ -151,29 +155,40 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
     || invoiceResource.loading
     || invoiceResource.refreshing;
 
-  const openCorrection = (row: FinanceInvoiceRow) => {
-    if (
-      feeDirection !== "MANAGEMENT"
-      || !row.invoiceId
-      || !row.isCurrent
-      || !row.invoiceNumber
-      || !row.invoiceDate
-      || row.invoiceAmountCent === null
-      || row.versionNo === null
-    ) return;
-    setCorrection({
-      row,
-      readVersion: row.versionNo,
-      invoiceNumber: row.invoiceNumber,
-      invoiceDate: row.invoiceDate,
-      invoiceAmountCent: String(row.invoiceAmountCent),
-      deductionDate: row.factoryDeductionDate ?? row.invoiceDate,
-      deductionAmountCent: String(row.factoryDeductionAmountCent ?? row.invoiceAmountCent),
-      changeReason: "",
-      idempotencyKey: crypto.randomUUID(),
-    });
-    setCorrectionState("idle");
-    setCorrectionMessage("");
+  const openCorrection = async (target: FinanceInvoiceRow, preserveDraft = false) => {
+    if (feeDirection !== "MANAGEMENT") return;
+    const request = ++correctionRead.current;
+    if (!preserveDraft) setCorrection(null);
+    setCorrectionReady(false);
+    setCorrectionTarget(target);
+    setCorrectionState("reading");
+    setCorrectionMessage("正在读取当前记录；重新读取会用当前值替换表单内容。");
+    try {
+      const { data: row } = await fetchCurrentManagementInvoice(target.storeId, target.statementMonth);
+      if (request !== correctionRead.current) return;
+      if (!row.invoiceId || !row.isCurrent || !row.invoiceNumber || !row.invoiceDate
+        || row.invoiceAmountCent == null || row.versionNo == null) {
+        throw new Error("当前记录不完整，暂不能更正。");
+      }
+      setCorrection({ row, readVersion: row.versionNo, invoiceNumber: row.invoiceNumber,
+        invoiceDate: row.invoiceDate, invoiceAmountCent: String(row.invoiceAmountCent),
+        deductionDate: row.factoryDeductionDate ?? row.invoiceDate,
+        deductionAmountCent: String(row.factoryDeductionAmountCent ?? row.invoiceAmountCent),
+        changeReason: "", idempotencyKey: crypto.randomUUID() });
+      setCorrectionReady(true);
+      setCorrectionState("idle");
+      setCorrectionMessage("已读取实时当前记录。提交时校验版本；分析汇总和列表仍展示已发布版本。");
+    } catch (error) {
+      if (request !== correctionRead.current) return;
+      setCorrectionState("error");
+      setCorrectionMessage(userFacingError(error, "当前记录读取失败，请重试或关闭。"));
+    }
+  };
+
+  const closeCorrection = () => {
+    correctionRead.current += 1;
+    setCorrectionTarget(null);
+    setCorrection(null);
   };
 
   const updateCorrection = (updates: Partial<Omit<CorrectionDraft, "row" | "readVersion" | "idempotencyKey">>) => {
@@ -256,7 +271,8 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
   };
 
   const submitCorrection = async () => {
-    if (!correction || managementCorrectionValidationError(correction)) return;
+    if (!canSubmitCorrection || !correction || managementCorrectionValidationError(correction)) return;
+    const request = correctionRead.current;
     setCorrectionState("loading");
     setCorrectionMessage("");
     try {
@@ -274,6 +290,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
         },
         correction.idempotencyKey,
       );
+      if (request !== correctionRead.current) return;
       setCorrection((current) => current ? {
         ...current,
         row: response.data,
@@ -282,11 +299,12 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
       } : current);
       setCorrectionState("success");
       setCorrectionMessage("更正已保存并保留历史版本，经营结果随后台发布更新。");
-      financeResource.reload();
     } catch (error) {
+      if (request !== correctionRead.current) return;
       const conflict = error instanceof ApiRequestError && error.status === 409;
+      if (conflict) setCorrectionReady(false);
       setCorrectionState(conflict ? "conflict" : "error");
-      setCorrectionMessage(conflict ? "版本已变化，请刷新当前版本后重新提交。" : userFacingError(error, "更正失败，请重试。"));
+      setCorrectionMessage(conflict ? "版本已变化，输入已保留。请点击“读取当前记录”重新加载当前值，再核对并提交。" : userFacingError(error, "更正失败，请重试。"));
     }
   };
 
@@ -364,37 +382,39 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
         <div className="section-title">
           <div>
             <h2>{feeDirection === "PROMOTION" ? "推广费发票明细" : "管理服务费发票与扣款明细"}</h2>
-            <p>{feeDirection === "MANAGEMENT" ? "双击当前版本可发起更正，历史版本永久保留。" : "厂家审核原因、归属月和结算状态均由正式接口返回。"}</p>
+            <p>{feeDirection === "MANAGEMENT" ? "打开更正时会读取实时当前记录，历史版本永久保留。" : "厂家审核原因、归属月和结算状态均由正式接口返回。"}</p>
           </div>
         </div>
         <DataTable
           columns={feeDirection === "PROMOTION" ? promotionColumns : managementColumns}
           emptyText="当前筛选下暂无记录"
           onRowAction={feeDirection === "MANAGEMENT" ? openCorrection : undefined}
-          onRowDoubleClick={feeDirection === "MANAGEMENT" ? openCorrection : undefined}
-          rowActionLabel={(row) => row.invoiceId && row.isCurrent ? "更正" : undefined}
+          onRowDoubleClick={feeDirection === "MANAGEMENT" ? (row) => { void openCorrection(row); } : undefined}
+          rowActionLabel={(row) => row.invoiceId ? "更正" : undefined}
           rows={rows}
           state={!invoiceResource.data && resourceBusy ? "loading" : !invoiceResource.data && invoiceResource.error ? "error" : "ready"}
           tableClassName="finance-fee-table"
         />
       </section>
 
-      {feeDirection === "MANAGEMENT" && correction ? (
+      {feeDirection === "MANAGEMENT" && correctionTarget ? (
         <section className="content-section finance-correction-panel">
           <div className="section-title">
-            <div><h2>更正管理服务费记录</h2><p>{correction.row.storeId} · {correction.row.statementMonth} · 当前 V{correction.row.versionNo}；金额可编辑，提交时校验版本并保留历史。</p></div>
-            <Button onClick={() => setCorrection(null)} variant="text">关闭</Button>
+            <div><h2>更正管理服务费记录</h2><p>{correctionTarget.storeId} · {correctionTarget.statementMonth} · 当前 V{correction?.row.versionNo ?? "—"}；金额可编辑，提交时校验版本并保留历史。</p></div>
+            <Button onClick={closeCorrection} variant="text">关闭</Button>
           </div>
-          <div className="finance-form-grid">
+          {correction ? <div className="finance-form-grid">
             <TextField label="发票号码" onChange={(event) => updateCorrection({ invoiceNumber: event.target.value })} value={correction.invoiceNumber} />
             <TextField label="发票日期" onChange={(event) => updateCorrection({ invoiceDate: event.target.value })} type="date" value={correction.invoiceDate} />
             <TextField label="厂家扣款日期" onChange={(event) => updateCorrection({ deductionDate: event.target.value })} type="date" value={correction.deductionDate} />
             <TextField label="发票金额（分）" min="1" onChange={(event) => updateCorrection({ invoiceAmountCent: event.target.value })} step="1" type="number" value={correction.invoiceAmountCent} />
             <TextField label="厂家扣款金额（分）" min="1" onChange={(event) => updateCorrection({ deductionAmountCent: event.target.value })} step="1" type="number" value={correction.deductionAmountCent} />
             <TextField label="更正原因" onChange={(event) => updateCorrection({ changeReason: event.target.value })} value={correction.changeReason} />
-          </div>
+          </div> : null}
           {correctionValidationError ? <p role="alert">{correctionValidationError}</p> : null}
           {correctionMessage ? <p role={correctionState === "error" || correctionState === "conflict" ? "alert" : "status"}>{correctionMessage}</p> : null}
+          <p>读取当前记录会重新加载当前值，并替换尚未提交的表单内容。</p>
+          <Button disabled={correctionState === "loading"} loading={correctionState === "reading"} onClick={() => openCorrection(correctionTarget, true)} variant="secondary">读取当前记录</Button>
           <Button disabled={!canSubmitCorrection} loading={correctionState === "loading"} onClick={submitCorrection} variant="primary">确认更正</Button>
         </section>
       ) : null}

@@ -3184,6 +3184,15 @@ export function downloadFinanceImportTemplate(importType: string): Promise<void>
   );
 }
 
+export function fetchCurrentManagementInvoice(
+  storeId: string,
+  statementMonth: string,
+): Promise<ApiLoadResult<FinanceInvoiceRow>> {
+  return requestJson<FinanceInvoiceRow>(
+    `/admin/finance/management-invoices/${encodeURIComponent(storeId)}/${encodeURIComponent(statementMonth)}/current`,
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
 export function correctManagementInvoice(
   storeId: string,
   statementMonth: string,

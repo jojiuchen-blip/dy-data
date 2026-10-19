@@ -69,7 +69,9 @@ def test_clue_store_options_load_lazily_with_debounce_and_user_cache_scope() -> 
     assert "fetchClueStoreOptions" in page
     assert "useDebouncedValue(storeOptionQuery, 200)" in page
     assert "storeOptionsEnabled" in page
-    assert "storeOptionsResource.data?.data.stores" in page
+    assert "publishedStoreOptionsResource.data?.data.stores" in page
+    assert "publicationId: overviewResource.data?.meta.publication?.id" in page
+    assert "overviewResource.revision" in page
     assert "cacheScope: currentUser.user_id ?? currentUser.username" in page
     assert "onOpen={() => setStoreOptionsEnabled(true)}" in page
     assert "onSearch={setStoreOptionQuery}" in page

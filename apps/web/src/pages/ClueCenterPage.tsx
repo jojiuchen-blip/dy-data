@@ -1,3 +1,4 @@
+import { usePublishedResource } from "../hooks/usePublishedResource";
 import { usePublishedView } from "../hooks/usePublishedView";
 import { fetchClueOrganizationOptions } from "../api/client";
 import {
@@ -441,31 +442,26 @@ export function ClueCenterPage({
   const filterResource = isDetailsView ? liveFilterResource : { ...overviewResource, data: overviewResource.filters };
   const meta = filterResource.data?.data;
   const activeProductType = productType || clueDefaultProductType(meta);
-  const storeOptionsResource = useApiResource(
-    () =>
-      fetchClueStoreOptions({
-        cacheScope: currentUser.user_id ?? currentUser.username,
-        publication_id: isDetailsView ? undefined : overviewResource.data?.meta.publication?.id,
-        city,
-        limit: 50,
-        province,
-        q: debouncedStoreOptionQuery,
-        selected_store_id: assignedStoreId,
-      }),
-    [
-      assignedStoreId,
-      overviewResource.data?.meta.publication?.id,
-      isDetailsView,
-      city,
-      currentUser.user_id,
-      currentUser.username,
-      debouncedStoreOptionQuery,
-      province,
-    ],
-    { enabled: showStoreLocationFilters && storeOptionsEnabled && Boolean(isDetailsView || overviewResource.data) },
+  const liveStoreOptionsResource = useApiResource(
+    () => fetchClueStoreOptions({ cacheScope: currentUser.user_id ?? currentUser.username,
+      city, limit: 50, province, q: debouncedStoreOptionQuery, selected_store_id: assignedStoreId }),
+    [assignedStoreId, city, currentUser.user_id, currentUser.username, debouncedStoreOptionQuery, province],
+    { enabled: isDetailsView && showStoreLocationFilters && storeOptionsEnabled },
   );
-  const storeOptions =
-    storeOptionsResource.data?.data.stores ?? meta?.assigned_stores ?? [];
+  const publishedStoreOptionsResource = usePublishedResource(
+    (publication_id) => fetchClueStoreOptions({
+      // Each completed overview must recheck the current permission scope.
+      cacheScope: `${currentUser.user_id ?? currentUser.username}:${crypto.randomUUID()}`,
+      publication_id, city, limit: 50, province, q: debouncedStoreOptionQuery, selected_store_id: assignedStoreId,
+    }),
+    [assignedStoreId, city, debouncedStoreOptionQuery, province, overviewResource.revision],
+    { leader: false, publicationId: overviewResource.data?.meta.publication?.id,
+      enabled: !isDetailsView && showStoreLocationFilters && storeOptionsEnabled && Boolean(overviewResource.data) },
+  );
+  const storeOptionsResource = isDetailsView ? liveStoreOptionsResource : publishedStoreOptionsResource;
+  const storeOptions = isDetailsView
+    ? liveStoreOptionsResource.data?.data.stores ?? meta?.assigned_stores ?? []
+    : publishedStoreOptionsResource.data?.data.stores ?? [];
 
   const filters: ClueOverviewFilters = useMemo(
     () => ({
@@ -1282,6 +1278,7 @@ export function ClueCenterPage({
                   setAssignedStoreId(value);
                 }}
               />
+              {storeOptionsResource.error ? <p role="alert">{storeOptionsResource.error}</p> : null}
             </FilterField>
           </>
         ) : null}

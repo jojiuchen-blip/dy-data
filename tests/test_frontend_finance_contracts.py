@@ -319,9 +319,11 @@ def test_management_pending_rows_keep_nullable_invoice_fields_read_only() -> Non
     assert "row.effectiveSapCode" in fees
     assert "row.statementAmountCent" in fees
     assert "row.settlementBatchMonth" in fees
-    assert 'row.invoiceId && row.isCurrent ? "更正" : undefined' in fees
+    assert 'row.invoiceId ? "更正" : undefined' in fees
     assert "!row.invoiceId" in fees
     assert "!row.isCurrent" in fees
+    assert "await fetchCurrentManagementInvoice(target.storeId, target.statementMonth)" in fees
+    assert "setCorrectionReady(false)" in fees
 
 
 def test_imports_page_keeps_uploads_out_and_matches_the_frozen_log_order() -> None:
@@ -403,7 +405,7 @@ def test_finance_row_actions_remain_available_in_mobile_cards_and_by_keyboard() 
     assert "rowActionLabel" in table
     assert "data-table-mobile-card__action" in table
     assert 'event.key === "Enter" || event.key === " "' in table
-    assert 'rowActionLabel={(row) => row.invoiceId && row.isCurrent ? "更正" : undefined}' in fees
+    assert 'rowActionLabel={(row) => row.invoiceId ? "更正" : undefined}' in fees
     assert 'rowActionLabel={() => "查看完整字段"}' in orders
 
 

@@ -16,7 +16,7 @@ export function usePublishedResource<T>(
   dependencies: DependencyList,
   options: { enabled?: boolean; publicationId?: string; leader?: boolean; announce?: boolean } = {},
 ) {
-  const { pin, refreshIndex, refreshLatest, show, setNotice, setAnalysisActive } = useDashboardPublication();
+  const { pin, refreshIndex, refreshLatest, claimRecovery, recoverLatest, finishRecovery, show, setNotice, setAnalysisActive } = useDashboardPublication();
   const enabled = options.enabled ?? true;
   const leader = options.leader ?? true;
   const announce = options.announce ?? true;
@@ -25,6 +25,7 @@ export function usePublishedResource<T>(
   const completedGeneration = useRef(generation);
   const loadRef = useRef(load);
   loadRef.current = load;
+  const [revision, setRevision] = useState(0);
   const [retryIndex, setRetryIndex] = useState(0);
   const [state, setState] = useState<PublishedState<T>>({ loading: enabled, refreshing: false });
   const requestRef = useRef(0);
@@ -51,12 +52,14 @@ export function usePublishedResource<T>(
         result = await loadRef.current(id);
       } catch (error) {
         if (cancelled || request !== requestRef.current) return;
-        if (!(error instanceof ApiRequestError) || error.status !== 410 || !id) throw error;
+        if (!(error instanceof ApiRequestError) || error.status !== 410) throw error;
         if (!leader) {
-          setNotice("原结果版本已过期，正在重新读取完整发布结果。");
-          refreshLatest();
+          setNotice(recoverLatest()
+            ? "原结果版本已过期，正在重新读取完整发布结果。"
+            : "自动恢复已停止，请手动读取最新结果。");
           throw error;
         }
+        if (!claimRecovery()) throw error;
         // One explicit recovery, never retry 422/503 or loop on a second 410.
         setNotice("原结果版本已过期，正在重新读取完整发布结果。");
         result = await loadRef.current(undefined);
@@ -68,15 +71,12 @@ export function usePublishedResource<T>(
       if (explicitId && publication && publication.id !== explicitId && !latest) {
         throw new Error("结果版本不一致，请刷新后重试。");
       }
-      if (publication) {
-        // Explicit-ID data reads describe immutable contents as available; keep
-        // the matching leader metadata status about the latest background attempt.
-        const displayPublication = !leader && pin.current?.id === publication.id
-          ? { ...publication, status: pin.current.status, nextRefreshAt: pin.current.nextRefreshAt }
-          : publication;
-        pin.current = displayPublication;
-        show(displayPublication, !announce);
+      if (publication && leader) {
+        pin.current = publication;
+        show(publication, !announce);
+        finishRecovery();
       }
+      setRevision((value) => value + 1);
       completedGeneration.current = generation;
       resolvedQuery.current = queryKey;
       setResolvedKey(wantedKey);
@@ -86,6 +86,9 @@ export function usePublishedResource<T>(
       if (cancelled || request !== requestRef.current) return;
       // A failed latest refresh keeps the displayed version pinned for subsequent filters.
       completedGeneration.current = generation;
+      if (leader && error instanceof ApiRequestError && error.status === 410) {
+        setNotice("自动恢复已停止，请手动读取最新结果。");
+      }
       const statusMessages: Record<number, string> = {
         401: "登录状态已失效，请重新登录。",
         403: "当前账号没有查看此分析结果的权限。",
@@ -103,7 +106,7 @@ export function usePublishedResource<T>(
     });
     return () => { cancelled = true; };
     // The caller explicitly declares query dependencies; loadRef avoids callback loops.
-  }, [wantedKey, queryKey, enabled, explicitId, generation, leader, announce, pin, show, setNotice, refreshLatest]);
+  }, [wantedKey, queryKey, enabled, explicitId, generation, leader, announce, pin, show, setNotice, refreshLatest, claimRecovery, recoverLatest, finishRecovery]);
 
   const reload = useCallback(() => {
     if (leader) refreshLatest();
@@ -121,5 +124,5 @@ export function usePublishedResource<T>(
 
   const current = resolvedKey === wantedKey;
   const sameQuery = resolvedQuery.current === queryKey;
-  return { ...state, data: current || sameQuery ? state.data : undefined, loading: enabled && ((!current && !sameQuery) || state.loading), reload };
+  return { ...state, revision, data: current || sameQuery ? state.data : undefined, loading: enabled && ((!current && !sameQuery) || state.loading), reload };
 }
