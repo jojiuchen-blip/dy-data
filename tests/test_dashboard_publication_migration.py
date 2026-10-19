@@ -43,6 +43,10 @@ def test_frozen_migration_has_no_runtime_import_and_matches_final_schema():
     frozen = migration().frozen_metadata_0063()
     assert set(frozen.tables) == set(metadata.tables)
     assert migration().SOURCE_TABLES_0063 == SOURCE_TABLES
+    cycle_sort = frozen.tables["dashboard_publication_sales_coupons"].c.cycle_sort_days
+    assert cycle_sort.nullable and cycle_sort.default is None and cycle_sort.server_default is None
+    assert (cycle_sort.type.precision, cycle_sort.type.scale) == (24, 2)
+    assert not any("cycle_sort_days" in index.columns for index in cycle_sort.table.indexes)
     for dialect in (postgresql.dialect(), sqlite.dialect()):
         for name, table in metadata.tables.items():
             assert _ddl_lines(table, dialect) == _ddl_lines(frozen.tables[name], dialect), name
@@ -129,3 +133,6 @@ def test_clean_and_populated_full_postgres_chain_upgrade(full_pg_stack, populate
     command.downgrade(config, "20261009_0062")
     command.upgrade(config, "head")
     assert set(metadata.tables) <= set(inspect(engine).get_table_names())
+    columns = {column["name"]: column for column in inspect(engine).get_columns("dashboard_publication_sales_coupons")}
+    assert columns["cycle_sort_days"]["nullable"] and columns["cycle_sort_days"]["default"] is None
+    assert (columns["cycle_sort_days"]["type"].precision, columns["cycle_sort_days"]["type"].scale) == (24, 2)

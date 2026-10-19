@@ -216,6 +216,7 @@ def frozen_metadata_0063() -> sa.MetaData:
         sa.Column('verify_month', sa.String(length=7), nullable=True),
         sa.Column('paid_amount_cent', sa.Integer(), nullable=False),
         sa.Column('cycle_days', sa.Float(), nullable=True),
+        sa.Column('cycle_sort_days', sa.Numeric(precision=24, scale=2), nullable=True),
         sa.ForeignKeyConstraint(['publication_id'], ['dashboard_publication_runs.id'], ondelete='CASCADE'),
     )
     sa.Index('ix_pub_sales_product', table_dashboard_publication_sales_coupons.c['publication_id'], table_dashboard_publication_sales_coupons.c['product_type'], unique=False)
