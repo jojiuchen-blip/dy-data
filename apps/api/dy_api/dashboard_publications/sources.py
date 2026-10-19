@@ -12,32 +12,50 @@ from sqlalchemy.orm import Session
 
 from .schema import source_counters
 
-SOURCE_TABLES = (
-    "raw_douyin_orders", "raw_douyin_order_coupons", "raw_douyin_verify_records",
-    "raw_douyin_refund_records", "douyin_refund_event", "raw_douyin_clues",
-    "raw_aweme_bindings", "dim_aweme_accounts", "dim_store_poi_mappings",
-    "dim_sku_product_rules", "dim_stores", "dim_store_org_assignments",
-    "dim_non_commission_owner_accounts", "settlement_order_details",
-    "clue_center_orders", "clue_assignment_rounds", "clue_follow_up_records",
-    "clue_master_leads", "ranking_store_org_history", "ranking_store_eligibility",
-    "settlement_projection_active", "settlement_monthly_overlay", "settlement_ranking_overlay",
-    "agg_store_ranking", "agg_store_monthly_settlement", "settlement_fee_result",
-    "settlement_fee_result_current", "settlement_fee_adjustment", "settlement_statement",
-    "settlement_statement_line", "settlement_statement_entry", "settlement_statement_confirmation",
-    "settlement_carryforward_source", "settlement_carryforward_application",
-    "finance_import_batch", "finance_import_row",
+_FINANCE_SHARED = (
+    "dim_stores", "dim_sku_product_rules", "clue_center_orders", "raw_douyin_orders",
+    "raw_douyin_verify_records", "settlement_order_details", "agg_store_ranking",
+    "agg_store_monthly_settlement", "settlement_ranking_overlay", "settlement_monthly_overlay",
+    "settlement_projection_active", "settlement_projection_generation",
+    "settlement_projection_partition_manifest", "settlement_projection_compaction_closure",
+    "settlement_statement",
 )
+MODULE_SOURCE_TABLES: dict[str, tuple[str, ...]] = {
+    "douyin-ranking": (
+        "raw_douyin_orders", "raw_douyin_clues", "clue_center_orders", "clue_assignment_rounds",
+        "clue_follow_up_records", "raw_douyin_order_coupons", "raw_douyin_verify_records",
+        "dim_aweme_accounts", "raw_aweme_bindings", "dim_store_poi_mappings", "dim_sku_product_rules",
+        "ranking_store_org_history", "ranking_store_eligibility", "ranking_lead_org_bindings",
+    ),
+    "sales": ("settlement_order_details", "dim_stores", "dim_sku_product_rules"),
+    "clue-overview": (
+        "clue_assignment_rounds", "clue_center_orders", "clue_master_leads", "dim_sku_product_rules",
+        "raw_douyin_orders", "raw_douyin_clues", "dim_stores", "dim_store_org_assignments",
+        "ranking_store_org_history",
+    ),
+    "settlement": _FINANCE_SHARED + (
+        "settlement_statement_line", "settlement_statement_entry", "settlement_fee_result",
+        "settlement_fee_result_current", "settlement_fee_adjustment",
+    ),
+    "finance": _FINANCE_SHARED + (
+        "settlement_statement_confirmation", "promotion_invoice", "promotion_invoice_allocation",
+        "invoice_record", "invoice_status_event", "store_finance_profile",
+        "management_carryforward_application", "sap_suggestion", "finance_operation_audit", "finance_import_batch",
+    ),
+}
+SOURCE_TABLES = tuple(sorted({name for names in MODULE_SOURCE_TABLES.values() for name in names}))
 
 
-def source_fingerprint(session: Session) -> str:
+def source_fingerprint(session: Session, module: str | None = None) -> str:
     """Read only small migration-owned counters; never fingerprint fact rows."""
+    required = set(SOURCE_TABLES if module is None else MODULE_SOURCE_TABLES[module])
     rows = session.execute(select(source_counters.c.source_name, source_counters.c.generation)
+                           .where(source_counters.c.source_name.in_(required))
                            .order_by(source_counters.c.source_name)).all()
-    existing = set(inspect(session.connection()).get_table_names())
-    required = set(SOURCE_TABLES) & existing
     if not required.issubset({row.source_name for row in rows}):
         # A half-installed tracker must never look like an unchanged source.
-        raise RuntimeError("dashboard publication source tracking is incomplete")
+        from .lifecycle import PublicationError
+        raise PublicationError("PUBLICATION_SOURCE_TRACKING_INCOMPLETE", "来源变化跟踪不完整，暂缓更新", 503)
     return hashlib.sha256(json.dumps([tuple(row) for row in rows], separators=(",", ":")).encode()).hexdigest()
 
 
@@ -81,7 +99,9 @@ def tracking_ddl(table_name: str) -> tuple[str, ...]:
         "CREATE OR REPLACE FUNCTION dashboard_publication_track_change() RETURNS trigger "
         "LANGUAGE plpgsql AS $$ BEGIN UPDATE dashboard_publication_source_counters "
         "SET generation = generation + 1, changed_at = clock_timestamp() "
-        "WHERE source_name = TG_TABLE_NAME; RETURN NULL; END $$",
+        "WHERE source_name = TG_TABLE_NAME; "
+        "IF NOT FOUND THEN RAISE EXCEPTION 'dashboard publication source counter missing'; END IF; "
+        "RETURN NULL; END $$",
         f"INSERT INTO dashboard_publication_source_counters (source_name, generation, changed_at) "
         f"VALUES ('{table_name}', 0, clock_timestamp()) ON CONFLICT (source_name) DO NOTHING",
         f'CREATE TRIGGER dashboard_publication_change AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE '

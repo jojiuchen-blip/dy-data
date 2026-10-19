@@ -89,7 +89,10 @@ def resolve_publication(
     publication = _publication(row)
     # A historical successful version remains readable even after a failed
     # replacement. Status describes freshness, never changes its identity.
-    if publication_id is None:
+    is_active = publication_id is None or session.scalar(
+        select(heads.c.publication_id).where(heads.c.module == module)
+    ) == publication.id
+    if is_active:
         latest = session.execute(select(runs.c.status).where(runs.c.module == module)
                                  .order_by(runs.c.created_at.desc(), runs.c.id.desc()).limit(1)).scalar()
         if latest == "building":
@@ -152,7 +155,7 @@ def publish_module(
     fingerprint: Callable[[Session], str] | None = None,
     readiness_check: Callable[[Session], None] | None = None,
     shared_lock_keys: tuple[int, ...] = (), force: bool = False,
-    statement_timeout_ms: int = 120000,
+    statement_timeout_ms: int = 120000, refresh_on_interval: bool = False,
 ) -> Publication | None:
     """Build in REPEATABLE READ; commit facts, success and head atomically.
 
@@ -174,9 +177,19 @@ def publish_module(
             token = fingerprint(session) if fingerprint else None
             current = session.execute(select(runs).join(heads, heads.c.publication_id == runs.c.id)
                                       .where(heads.c.module == module)).mappings().first()
+            latest_status = session.scalar(select(runs.c.status).where(runs.c.module == module)
+                                           .order_by(runs.c.created_at.desc(), runs.c.id.desc()).limit(1))
             if (not force and current and fingerprint and current["source_fingerprint"] == token
-                    and utc(current["next_refresh_at"]) and cutoff < utc(current["next_refresh_at"])):
-                return None
+                    and latest_status == "success"):
+                due = utc(current["next_refresh_at"]) is None or cutoff >= utc(current["next_refresh_at"])
+                if not refresh_on_interval or not due:
+                    if due:
+                        # A successful unchanged-source check advances only the
+                        # next check. Coverage and publication times stay true.
+                        session.execute(update(runs).where(runs.c.id == current["id"])
+                                        .values(next_refresh_at=cutoff + REFRESH_INTERVAL))
+                        session.commit()
+                    return None
             # The module lock proves that any abandoned building attempt no
             # longer has a live publisher. Mark it safely for retention.
             session.execute(update(runs).where(runs.c.module == module, runs.c.status == "building")
@@ -193,9 +206,11 @@ def publish_module(
                 if connection.dialect.name == "postgresql":
                     session.execute(text("SELECT set_config('statement_timeout', :value, true)"),
                                     {"value": str(statement_timeout_ms)})
+                    session.execute(text("SET LOCAL work_mem = '16MB'"))
                 if readiness_check:
                     readiness_check(session)
                 initial_token = fingerprint(session) if fingerprint else None
+                session.connection()  # Establish a root tx even for an empty/injected builder.
                 build_transaction = session.get_transaction()
                 session.info["publication_builder"] = True
 

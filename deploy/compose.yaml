@@ -157,6 +157,42 @@ services:
     networks:
       - app
 
+  publication-worker:
+    build:
+      context: ..
+      dockerfile: apps/worker/Dockerfile
+      args:
+        APT_MIRROR: ${APT_MIRROR:-}
+    image: ${WORKER_IMAGE:-dy-dashboard-worker:local}
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: ["python", "-m", "apps.worker.dashboard_publications"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://dy_dashboard:CHANGE_ME_POSTGRES_PASSWORD@postgres:5432/dy_dashboard}
+      PUBLICATION_POLL_SECONDS: ${PUBLICATION_POLL_SECONDS:-15}
+      PUBLICATION_BUILD_TIMEOUT_SECONDS: ${PUBLICATION_BUILD_TIMEOUT_SECONDS:-180}
+      PUBLICATION_STATEMENT_TIMEOUT_MS: ${PUBLICATION_STATEMENT_TIMEOUT_MS:-120000}
+      PUBLICATION_MAX_CONCURRENCY: ${PUBLICATION_MAX_CONCURRENCY:-1}
+      TZ: Asia/Shanghai
+    mem_limit: ${PUBLICATION_MEMORY_LIMIT:-768m}
+    cpus: ${PUBLICATION_CPUS:-0.5}
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: ${LOG_MAX_SIZE:-10m}
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - app
+
   web:
     build:
       context: ../apps/web
