@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
+from publication_fixture_helpers import publish_fixture
 from dy_api.auth import AuthContext, get_current_user  # noqa: E402
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
@@ -501,8 +502,9 @@ def test_store_settlement_reads_current_list_and_version_history(
     assert historical_detail.json()["data"]["storeName"] == "Store One Historical"
 
 
-def test_monthly_report_references_current_statement_not_historical_version(client: TestClient) -> None:
+def test_monthly_report_references_current_statement_not_historical_version(client: TestClient, db_session: Session) -> None:
     _login(client)
+    publish_fixture(db_session, "settlement")
     response = client.get("/api/v1/stores/store-1/monthly-settlement", params={"month": "2026-08"})
     assert response.status_code == 200, response.text
     assert response.json()["data"]["statement"]["statementId"] == "statement-1-v2"
@@ -1092,6 +1094,7 @@ def test_promotion_carryforward_projection_offsets_late_negative_against_earlies
     assert projected["2027-01"]["promotionInvoiceableAmountCent"] == 200
     assert projected["2027-01"]["promotionInvoiceGroupId"] != carry_group_id
 
+    publish_fixture(db_session, "finance")
     monthly_summary = client.get(
         "/api/v1/admin/finance/summary",
         params={
@@ -1194,6 +1197,7 @@ def test_promotion_projection_excludes_effective_store_month_allocation_across_s
             "feeDirection": "PROMOTION",
         },
     )
+    publish_fixture(db_session, "finance")
     summary = client.get(
         "/api/v1/admin/finance/summary",
         params={
@@ -2509,10 +2513,11 @@ def test_replacement_detail_deduplicates_factory_versions_by_physical_invoice(
 
 
 def test_admin_finance_summary_reads_current_monthly_fee_facts(
-    client: TestClient,
+    client: TestClient, db_session: Session,
 ) -> None:
     _login(client)
 
+    publish_fixture(db_session, "finance")
     response = client.get(
         "/api/v1/admin/finance/summary",
         params={
@@ -2537,6 +2542,7 @@ def test_admin_finance_queries_read_current_invoices_orders_and_stores(
     _login(client)
     _seed_finance_query_facts(db_session)
 
+    publish_fixture(db_session, "finance")
     promotion_invoices = client.get(
         "/api/v1/admin/finance/invoices",
         params={"month": "2026-08", "feeDirection": "PROMOTION"},
@@ -2636,6 +2642,7 @@ def test_admin_finance_summary_keeps_confirmations_monthly_and_pending_nonnegati
     )
     db_session.commit()
 
+    publish_fixture(db_session, "finance")
     cumulative = client.get(
         "/api/v1/admin/finance/summary",
         params={
@@ -2667,7 +2674,7 @@ def test_admin_finance_summary_keeps_confirmations_monthly_and_pending_nonnegati
     assert negative.json()["data"]["metrics"]["pendingInvoiceAmountCent"] == 0
 
 
-def test_admin_finance_queries_reject_store_role(client: TestClient) -> None:
+def test_admin_finance_queries_reject_store_role(client: TestClient, db_session: Session) -> None:
     client.app.dependency_overrides[get_current_user] = lambda: AuthContext(
         user_id="admin-user",
         username="admin-user",
@@ -2678,6 +2685,7 @@ def test_admin_finance_queries_reject_store_role(client: TestClient) -> None:
         store_scope_mode="all",
         page_keys=("FIN01",),
     )
+    publish_fixture(db_session, "finance")
     admin_response = client.get(
         "/api/v1/admin/finance/summary",
         params={
@@ -4236,6 +4244,7 @@ def test_admin_finance_queries_and_order_export_share_scope(
     _login(client)
     _seed_finance_query_facts(db_session)
 
+    publish_fixture(db_session, "finance")
     promotion_summary = client.get(
         "/api/v1/admin/finance/summary",
         params={
