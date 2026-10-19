@@ -32,7 +32,7 @@ jobs:
           import json,subprocess,collections
           r=json.load(open('/opt/dy-dashboard/logs/last-deploy.json'))
           print(json.dumps({'deployment':{k:r.get(k) for k in ('ts','sha')}}))
-          patterns=['WORKER TIMEOUT','SIGKILL','MemoryError','OutOfMemory','out of memory','statement timeout','QueryCanceled','OperationalError','IntegrityError','deadlock detected','could not serialize','No space left','connection reset','Connection reset','upstream prematurely closed','upstream timed out']
+          patterns=['WORKER TIMEOUT','SIGKILL','Killed','Shutting down','Finished server process','Started server process','MemoryError','OutOfMemory','out of memory','statement timeout','QueryCanceled','OperationalError','IntegrityError','deadlock detected','could not serialize','No space left','connection reset','Connection reset','upstream prematurely closed','upstream timed out']
           for service in ('api','postgres'):
               compose=['sudo','docker','compose','--env-file','/opt/dy-dashboard/env/production.env','-f','deploy/compose.yaml']
               container=subprocess.check_output(compose+['ps','-q',service],text=True).strip()
@@ -40,6 +40,10 @@ jobs:
               print(json.dumps({'service':service,'state':{k:state['State'].get(k) for k in ('Status','OOMKilled','StartedAt','Restarting')},'restarts':state['RestartCount']}))
               print(json.dumps({'service':service,'limits':{k:state['HostConfig'].get(k) for k in ('Memory','MemorySwap','NanoCpus','RestartPolicy')}}))
               if service=='api':
+                  import re
+                  journal=subprocess.run(['sudo','journalctl','-k','--since','120 minutes ago','--no-pager'],capture_output=True,text=True,timeout=20)
+                  lines=[line for line in journal.stdout.splitlines() if any(p in line.lower() for p in ('oom','killed process','out of memory'))]
+                  print(json.dumps({'service':service,'kernel_memory_events':{'lines':len(lines),'mentions_this_container':sum(container[:12] in line for line in lines),'killed_python':sum('Killed process' in line and ('python' in line or 'uvicorn' in line) for line in lines)},'killed_rss_kb':[int(n) for line in lines for n in re.findall(r'anon-rss:([0-9]+)kB',line)]}))
                   cg=subprocess.run(['sudo','docker','exec',container,'cat','/sys/fs/cgroup/memory.events'],capture_output=True,text=True)
                   print(json.dumps({'service':service,'memory_events':dict(line.split() for line in cg.stdout.splitlines() if len(line.split())==2)}))
                   import datetime
