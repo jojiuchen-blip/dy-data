@@ -1227,17 +1227,15 @@ def browser() -> Generator[Browser]:
             browser.close()
 
 
-def api_payload(data: object) -> str:
-    return json.dumps(
-        {
-            "data": data,
-            "meta": {
-                "generated_at": "2026-06-25T00:00:00Z",
-                "source": "visual-smoke",
-            },
-        },
-        ensure_ascii=False,
-    )
+def api_payload(data: object, *, publication_module: str | None = None) -> str:
+    meta = {"generated_at": "2026-06-25T00:00:00Z", "source": "visual-smoke"}
+    if publication_module is not None:
+        meta["publication"] = {
+            "id": f"visual-{publication_module}", "module": publication_module,
+            "dataAsOf": None, "publishedAt": "2026-06-25T00:00:00Z",
+            "status": "available", "nextRefreshAt": None,
+        }
+    return json.dumps({"data": data, "meta": meta}, ensure_ascii=False)
 
 
 def record_console_error(message: object, errors: list[str]) -> None:
@@ -1704,14 +1702,14 @@ def install_api_routes(page: Page) -> None:
             "month": "2026-08", "store_id": None, "fee_direction": "PROMOTION",
             "metric_scope": "MONTHLY", "metrics": billing_metrics,
             "storeId": None, "feeDirection": "PROMOTION", "metricScope": "MONTH",
-        })),
+        }, publication_module="finance")),
     )
     page.route(
         "**/api/v1/admin/finance/invoices?*",
         lambda route: route.fulfill(status=200, content_type="application/json", body=api_payload({
             "list": [invoice], "total": 1, "page": 1, "page_size": 50,
             "pageSize": 50,
-        })),
+        }, publication_module="finance")),
     )
     page.route(
         "**/api/v1/admin/finance/order-details?*",
