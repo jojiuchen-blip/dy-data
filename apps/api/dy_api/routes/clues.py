@@ -5,9 +5,12 @@ from urllib.parse import quote
 from apps.api.dy_api.clue_organization import organization_options, organization_filter_store_ids
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import select
+from apps.api.dy_api.models import ClueMasterLead
 
 from dy_api.auth import AuthContext, get_current_user
 from dy_api.routes._data import get_data_store, generated_at, with_utf8_bom
+from dy_api.routes._publications import attach_publication, publication_read
 from dy_api.schemas import (
     ClueAssignmentRoundData,
     ClueFilterMetadata,
@@ -38,6 +41,19 @@ def _scope_store_ids(current_user: AuthContext) -> tuple[str, ...] | None:
     if current_user.has_global_data_access and current_user.is_admin:
         return None
     return current_user.store_ids if current_user.store_scope_mode == "specified" else ()
+
+
+def _published_clue_access(store) -> dict:
+    # These are current access restrictions, deliberately not frozen with the
+    # analytical facts: returning a lead to headquarters revokes access now.
+    return {
+        "visible_product_types": store._visible_product_types(),
+        "current_headquarters_order_ids": select(ClueMasterLead.order_id).where(
+            ClueMasterLead.lifecycle_status == "active",
+            ClueMasterLead.pool_location == "headquarters_pool",
+            ClueMasterLead.order_id.is_not(None),
+        ),
+    }
 
 
 def _operation_actor(current_user: AuthContext) -> dict:
@@ -78,10 +94,19 @@ def clue_store_filter_options(
     city: str | None = None,
     selected_store_id: str | None = None,
     limit: int = Query(default=50, ge=1, le=100),
+    publication_id: str | None = Query(default=None, max_length=64),
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
+    if publication_id is not None:
+        from apps.api.dy_api.dashboard_publications.clues import read_store_options
+        with publication_read(store.session, "clue-overview", publication_id) as publication:
+            result = read_store_options(store.session, publication.id,
+                q=q, province=province, city=city, selected_store_id=selected_store_id,
+                limit=limit, scope_store_ids=_scope_store_ids(current_user), **_published_clue_access(store))
+        return attach_publication({"data": dump_model(ClueStoreOptionsData(**result)),
+            "meta": {"generated_at": generated_at(), "source": "postgres"}}, publication)
     data = ClueStoreOptionsData(
         stores=store.clue_store_options(
             _scope_store_ids(current_user),
@@ -111,10 +136,18 @@ def _organization_scope(store, user, org_level, org_key):
 def clue_organization_options(
     level: str, q: str = "", selected_key: str = "",
     limit: int = Query(default=50, ge=1, le=100),
+    publication_id: str | None = Query(default=None, max_length=64),
     current_user: AuthContext = Depends(get_current_user), store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
     try:
+        if publication_id is not None:
+            from apps.api.dy_api.dashboard_publications.clues import read_organization_options
+            with publication_read(store.session, "clue-overview", publication_id) as publication:
+                options = read_organization_options(store.session, publication.id, _scope_store_ids(current_user),
+                    level=level, q=q.strip(), selected_key=selected_key, limit=limit)
+            return attach_publication({"data": dump_model(ClueOrganizationOptionsData(options=options)),
+                "meta": {"generated_at": generated_at(), "source": "postgres"}}, publication)
         options = organization_options(store.session, _scope_store_ids(current_user),
             level=level, q=q.strip(), selected_key=selected_key, limit=limit)
     except ValueError as exc:
@@ -136,13 +169,19 @@ def clue_overview(
     province: str | None = None,
     city: str | None = None,
     verification_status: str | None = None,
+    publication_id: str | None = Query(default=None, max_length=64),
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
-    data = ClueOverviewMetrics(
-        **store.clue_overview(
-            {
+    from apps.api.dy_api.dashboard_publications.clues import read, organization_scope_store_ids
+    with publication_read(store.session, "clue-overview", publication_id) as publication:
+        try:
+            org_scope = organization_scope_store_ids(store.session, publication.id, _scope_store_ids(current_user),
+                level=org_level, key=org_key)
+        except ValueError as exc:
+            raise HTTPException(422, detail=str(exc)) from exc
+        data = ClueOverviewMetrics(**read(store.session, publication.id, {
                 "assigned_store_id": assigned_store_id,
                 "assigned_date_start": assigned_date_start,
                 "assigned_date_end": assigned_date_end,
@@ -154,14 +193,12 @@ def clue_overview(
                 "city": city,
                 "verification_status": verification_status,
                 "scope_store_ids": _scope_store_ids(current_user),
-                "organization_store_ids": _organization_scope(store, current_user, org_level, org_key),
-            }
-        )
-    )
-    return {
+                "organization_store_ids": org_scope,
+            }, **_published_clue_access(store)))
+    return attach_publication({
         "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "postgres"},
-    }
+    }, publication)
 
 
 @router.get("/clues/assignment-rounds")

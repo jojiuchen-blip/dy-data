@@ -311,6 +311,15 @@ def account_permission_snapshot(session: Any, user: User) -> dict[str, Any]:
 
 
 def required_page_keys_for_api_path(path: str, method: str = "GET") -> tuple[str, ...] | None:
+    if path.startswith("/api/v1/dashboard/publications/"):
+        module = path.removeprefix("/api/v1/dashboard/publications/").split("/", 1)[0]
+        return {
+            "douyin-ranking": ("A03",),
+            "sales": ("C01",),
+            "clue-overview": ("A01",),
+            "settlement": ("B01", "B02"),
+            "finance": ("FIN01", "FIN02"),
+        }.get(module, ("__UNREGISTERED__",))
     if path.startswith("/api/v1/auth/") or path.startswith("/api/v1/meta/") or path == "/api/v1/feedback":
         return None
     if path.startswith("/api/v1/admin/account") or path.startswith("/api/v1/admin/access-control"):

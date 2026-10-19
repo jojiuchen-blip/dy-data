@@ -31,11 +31,15 @@ def parse_export_choices(value: str, labels: dict[str, str]) -> list[str]:
     return [key for key in labels if key in choices]
 
 
-def build_ranking_workbook(session, *, levels: list[str], metrics: list[str], **report_args) -> bytes:
+def build_ranking_workbook(session, *, levels: list[str], metrics: list[str],
+                           report_reader=None, **report_args) -> bytes:
     reports = {}
     for level in levels:
-        report = read_snapshot_report(session, level=level, page_size=None, **report_args)
-        report_args["run_id"] = report["snapshot_id"]  # Pin even preview reads to a single batch.
+        reader = report_reader or read_snapshot_report
+        report = reader(session, level=level, page_size=None, **report_args)
+        if report_reader is None:
+            # Preview callers still use the existing immutable snapshot path.
+            report_args["run_id"] = report["snapshot_id"]
         reports[level] = report
     book = Workbook()
     book.remove(book.active)
