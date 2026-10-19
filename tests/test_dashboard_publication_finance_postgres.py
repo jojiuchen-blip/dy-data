@@ -20,6 +20,8 @@ from test_dashboard_publication_finance import (
     test_finance_parity_scope_filters_export_and_frozen_source as _assert_finance_parity,
     test_settlement_parity_huge_integer_cent_scope_and_no_legacy_drift as _assert_settlement_parity,
     test_monthly_frozen_lines_match_multicoupon_refund_and_locked_facts as _assert_monthly_lines,
+    test_selector_months_follow_cutoff_without_empty_current_month as _assert_selector_months,
+    test_selector_keeps_real_current_month_period as _assert_current_month_period,
 )
 from dy_api.dashboard_publications.schema import metadata, runs
 from dy_api.db import normalize_database_url
@@ -96,6 +98,17 @@ def test_postgres_delete_cascades_only_analysis(postgres_session):
 @pytest.mark.parametrize("locked", [False, True])
 def test_postgres_multicoupon_adjustment_lines(postgres_session, locked):
     _assert_monthly_lines(postgres_session, locked)
+
+
+@pytest.mark.parametrize("module", ["settlement", "finance"])
+def test_postgres_selector_month_boundary(postgres_session, module):
+    _assert_selector_months(postgres_session, module)
+
+
+@pytest.mark.parametrize("module", ["settlement", "finance"])
+@pytest.mark.parametrize("source_kind", ["projection", "statement"])
+def test_postgres_real_current_month_period(postgres_session, module, source_kind):
+    _assert_current_month_period(postgres_session, module, source_kind)
 
 
 def _peak_memory_mib():

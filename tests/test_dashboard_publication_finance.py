@@ -28,10 +28,10 @@ from dy_api.routes._data import DashboardDataStore
 NOW = datetime(2026, 10, 19, 4, tzinfo=UTC)
 
 
-def _run(session, publication_id, module):
+def _run(session, publication_id, module, cutoff=NOW):
     metadata.create_all(session.get_bind())
     session.execute(insert(runs).values(id=publication_id, module=module,
-        status="building", cutoff=NOW, created_at=NOW, stats_json={}))
+        status="building", cutoff=cutoff, created_at=cutoff, stats_json={}))
 
 
 def _statement(session, store_id, month, amount):
@@ -338,3 +338,43 @@ def test_cleanup_cascades_only_analysis_projection(db_session):
     db_session.execute(delete(runs).where(runs.c.id == "finance-v1"))
     assert db_session.scalar(select(func.count()).select_from(SettlementStatement)) == 5
     assert db_session.scalar(select(func.count()).select_from(PromotionInvoice)) == 1
+
+
+@pytest.mark.parametrize("module", ["settlement", "finance"])
+def test_selector_months_follow_cutoff_without_empty_current_month(db_session, module):
+    _seed_settlement(db_session)
+    builder = publication.build_settlement if module == "settlement" else publication.build_finance
+    cutoffs = (
+        ("october", datetime(2026, 10, 19, tzinfo=UTC), ["2026-09", "2026-08"]),
+        ("before", datetime(2026, 10, 31, 15, 59, 59, tzinfo=UTC), ["2026-09", "2026-08"]),
+        ("after", datetime(2026, 10, 31, 16, tzinfo=UTC), ["2026-10", "2026-08"]),
+    )
+    for publication_id, cutoff, expected in cutoffs:
+        _run(db_session, publication_id, module, cutoff)
+        builder(db_session, publication_id, cutoff)
+        db_session.commit()
+        assert publication.read_filters(db_session, publication_id, module)["statement_months"] == expected
+        # Calculation may cover the unfinished month without advertising it as
+        # the period the operator should see first on the billing page.
+        horizon = publication._months_through(["2026-08"], cutoff)
+        assert horizon[-1] == ("2026-11" if publication_id == "after" else "2026-10")
+    assert publication.read_filters(db_session, "before", module)["statement_months"] == ["2026-09", "2026-08"]
+
+
+@pytest.mark.parametrize("module", ["settlement", "finance"])
+@pytest.mark.parametrize("source_kind", ["projection", "statement"])
+def test_selector_keeps_real_current_month_period(db_session, module, source_kind):
+    _seed_settlement(db_session)
+    if source_kind == "projection":
+        db_session.add(SettlementProjectionPartitionManifest(generation_id="published", artifact="monthly",
+            partition_key="2026-10", source_kind="overlay", data_generation_id="published"))
+        db_session.add(SettlementMonthlyOverlay(generation_id="published", partition_key="2026-10",
+            month="2026-10", store_id="allowed", product_scope="all", product_type="all"))
+    else:
+        _statement(db_session, "allowed", "2026-10", 101)
+    db_session.commit()
+    _run(db_session, "actual-current", module)
+    builder = publication.build_settlement if module == "settlement" else publication.build_finance
+    builder(db_session, "actual-current", NOW)
+    assert publication.read_filters(db_session, "actual-current", module)["statement_months"] == [
+        "2026-10", "2026-09", "2026-08"]

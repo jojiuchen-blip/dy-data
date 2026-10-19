@@ -170,16 +170,23 @@ def _source_context(session, cutoff):
     # Formal statements may already exist for a month with no computed rows.
     # Ranking-only partitions must also survive independently of monthly data.
     from ..models import SettlementStatement, AggStoreRanking, SettlementRankingOverlay
+    from apps.worker.month_close import previous_business_month
 
-    month_keys = set(store.list_statement_months())
-    month_keys.update(session.scalars(select(SettlementStatement.statement_month)))
+    source_months = set(store.list_statement_months())
+    month_keys = set(source_months)
+    selectable_months = source_months | {previous_business_month(cutoff)}
+    for month, is_current in session.execute(select(
+        SettlementStatement.statement_month, SettlementStatement.is_current)):
+        month_keys.add(month)
+        if is_current:
+            selectable_months.add(month)
     month_keys.update(session.scalars(select(AggStoreRanking.period_key)))
     month_keys.update(session.scalars(select(SettlementRankingOverlay.period_key)))
     months = _months_through({key for key in month_keys if key}, cutoff)
-    return store, months
+    return store, months, sorted(selectable_months, reverse=True)
 
 
-def _build_dimensions(session, publication_id, store, months):
+def _build_dimensions(session, publication_id, store, statement_months):
     rows = [{"publication_id": publication_id, "kind": "store",
              "key": item["store_id"], "value": item}
             for item in store.list_stores(scope_store_ids=None)]
@@ -190,7 +197,10 @@ def _build_dimensions(session, publication_id, store, months):
         "default_product_type": store.default_product_type(),
         "sale_months": store.list_sale_months(),
         "verify_months": store.list_verify_months(),
-        "statement_months": sorted(months, reverse=True),
+        # The internal carry-forward horizon includes the unfinished current
+        # month. Selectors retain actual source periods plus the last completed
+        # Shanghai month, so an empty current month cannot become the default.
+        "statement_months": sorted(statement_months, reverse=True),
         "period_types": ["MONTHLY", "CUMULATIVE"],
         "fee_directions": ["PROMOTION", "MANAGEMENT"],
         "formal_period_start_month": FORMAL_START, "timezone": "Asia/Shanghai",
@@ -302,7 +312,7 @@ def _monthly_lines(session, store, month):
 
 def build_settlement(session: Session, publication_id: str, cutoff: datetime) -> dict:
     """Freeze resolved ranking partitions and monthly display facts; never commit."""
-    store, months = _source_context(session, cutoff)
+    store, months, selectable_months = _source_context(session, cutoff)
     ranking_count = monthly_count = 0
     for month in months:
         for period_type in (1, 2):
@@ -371,7 +381,7 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
                 "lines": _json_value(lines)})
         _write(session, monthly, batch)
         monthly_count += len(batch)
-    dimension_count = _build_dimensions(session, publication_id, store, months)
+    dimension_count = _build_dimensions(session, publication_id, store, selectable_months)
     return {"row_count": ranking_count + monthly_count + dimension_count,
             "ranking_rows": ranking_count, "monthly_rows": monthly_count,
             "source_generation_id": store._pinned_aggregate_generation(), "data_as_of": None}
@@ -442,7 +452,7 @@ def build_finance(session: Session, publication_id: str, cutoff: datetime) -> di
     )
     from ..routes import dashboard as source
 
-    store, months = _source_context(session, cutoff)
+    store, months, selectable_months = _source_context(session, cutoff)
     final_month = months[-1]
     statement_rows = list(session.scalars(select(SettlementStatement).where(
         SettlementStatement.is_current.is_(True))))
@@ -553,7 +563,7 @@ def build_finance(session: Session, publication_id: str, cutoff: datetime) -> di
                 "statement_id": period["statement_id"]})
     _write(session, pending, pending_rows)
     _write(session, pending_members, member_rows)
-    dimension_count = _build_dimensions(session, publication_id, store, months)
+    dimension_count = _build_dimensions(session, publication_id, store, selectable_months)
     return {"row_count": len(totals) + len(collection_rows) + len(pending_rows) + dimension_count,
             "invoice_rows": len(collection_rows), "statement_rows": len(totals),
             "pending_rows": len(pending_rows), "data_as_of": None}
