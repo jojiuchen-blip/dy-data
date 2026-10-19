@@ -120,6 +120,7 @@ from dy_api.routes import admin as admin_routes  # noqa: E402
 from dy_api.routes._data import get_data_store, get_session_dependency  # noqa: E402
 from apps.api.dy_api.models import (  # noqa: E402
     Base,
+    AggStoreRanking,
     DimSkuProductRule,
     DimStore,
     FinanceImportBatch,
@@ -501,12 +502,38 @@ def vite_clue_demo_base_url() -> Generator[str]:
 
 
 @pytest.fixture(scope="session")
-def live_fastapi_base_url() -> Generator[str]:
+def live_fastapi_base_url(tmp_path_factory) -> Generator[str]:
     port = find_free_port()
     previous_cors = os.environ.get("DY_API_CORS_ORIGINS")
     os.environ["DY_API_CORS_ORIGINS"] = "*"
     app = create_app()
-    live_store = LiveSettlementStore()
+    database_path = tmp_path_factory.mktemp("live-settlement-api") / "settlement.sqlite3"
+    engine = create_engine(
+        f"sqlite+pysqlite:///{database_path.as_posix()}",
+        connect_args={"check_same_thread": False}, future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False)
+    seed_store = LiveSettlementStore()
+    with factory() as session:
+        session.add_all([DimStore(**row) for row in seed_store.stores])
+        session.add(DimSkuProductRule(sku_id="sku-live", product_scope="精诚养车", product_type="basic_service"))
+        for period_type, code in (("MONTHLY", 1), ("CUMULATIVE", 2)):
+            report = seed_store.store_ranking_report({"period_type": period_type,
+                "period_key": "2026-08", "product_scope": "all", "product_type": "all",
+                "scope_mode": "AUTHORIZED", "page": 1, "page_size": 20})
+            session.add_all([AggStoreRanking(
+                period_type=code, period_key="2026-08", month="2026-08",
+                product_scope="all", product_type="all",
+                **{key: value for key, value in row.items() if key != "rank"},
+            ) for row in report["list"]])
+        publish_fixture(session, "settlement")
+
+    def data_store():
+        with factory() as session:
+            store = LiveSettlementStore()
+            store.session = session
+            yield store
 
     def current_user(request: Request):
         role = request.cookies.get("dy_e2e_role", "admin")
@@ -526,7 +553,7 @@ def live_fastapi_base_url() -> Generator[str]:
         )
 
     app.dependency_overrides[get_current_user] = current_user
-    app.dependency_overrides[get_data_store] = lambda: live_store
+    app.dependency_overrides[get_data_store] = data_store
     config = uvicorn.Config(app, host=HOST, port=port, log_level="warning")
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, daemon=True)
@@ -539,6 +566,7 @@ def live_fastapi_base_url() -> Generator[str]:
         server.should_exit = True
         thread.join(timeout=10)
         app.dependency_overrides.clear()
+        engine.dispose()
         if previous_cors is None:
             os.environ.pop("DY_API_CORS_ORIGINS", None)
         else:
@@ -1090,6 +1118,7 @@ def live_admin_fastapi_base_url(tmp_path_factory) -> Generator[str]:
         session.commit()
         # Analytical browser reads share one explicit initial background publication.
         publish_fixture(session, "finance")
+        publish_fixture(session, "settlement")
 
     original_product_sync_job = admin_routes.run_product_sync_job
     sync_threads: list[threading.Thread] = []
@@ -2423,11 +2452,11 @@ def test_settlement_does_not_offer_stale_statement_while_filter_refresh_is_pendi
         ]
         meta["statementMonths"] = ["2026-08", "2026-09"]
         page.route(
-            "**/api/v1/meta/filters",
+            "**/api/v1/dashboard/publications/settlement/filters*",
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
-                body=api_payload(meta),
+                body=api_payload(meta, publication_module="settlement"),
             ),
         )
 
@@ -2438,7 +2467,7 @@ def test_settlement_does_not_offer_stale_statement_while_filter_refresh_is_pendi
             route.fulfill(
                 status=200,
                 content_type="application/json",
-                body=api_payload(settlement_monthly_data(store_id, store_name, month)),
+                body=api_payload(settlement_monthly_data(store_id, store_name, month), publication_module="settlement"),
             )
 
         def fulfill_billing(route) -> None:
@@ -2515,11 +2544,11 @@ def test_settlement_version_conflict_closes_dialog_and_refreshes_statement(
     try:
         install_settlement_user_route(page, "admin")
         page.route(
-            "**/api/v1/meta/filters",
+            "**/api/v1/dashboard/publications/settlement/filters*",
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
-                body=api_payload(settlement_filter_meta()),
+                body=api_payload(settlement_filter_meta(), publication_module="settlement"),
             ),
         )
         page.route(
@@ -2527,7 +2556,7 @@ def test_settlement_version_conflict_closes_dialog_and_refreshes_statement(
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
-                body=api_payload(settlement_monthly_data("store_001", "上海浦东体验中心")),
+                body=api_payload(settlement_monthly_data("store_001", "上海浦东体验中心"), publication_module="settlement"),
             ),
         )
 
@@ -2713,7 +2742,7 @@ def test_douyin_board_dates_levels_and_auxiliary_follow(browser, vite_real_api_b
                 periodStart=query["periodStart"][0], periodEnd=query["periodEnd"][0], level=query["level"][0],
                 total=51, page=int(query["page"][0]), pageSize=50, totals=metrics,
                 rows=[dict(metrics, key="visual-group", name="第二页门店" if query["page"] == ["2"] else "测试集团", rank=51 if query["page"] == ["2"] else 1)],
-                latestObservedAt="2026-09-11T06:00:00Z", metricDefinitions={})))
+                latestObservedAt="2026-09-11T06:00:00Z", metricDefinitions={}), publication_module="douyin-ranking"))
 
         page.route("**/api/v1/dashboard/douyin-ranking?*", ranking_response)
         page.goto(f"{vite_real_api_base_url}/metrics/douyin-ranking?periodStart=2026-09-07&periodEnd=2026-09-10",
@@ -2757,7 +2786,11 @@ def test_douyin_board_dates_levels_and_auxiliary_follow(browser, vite_real_api_b
         dialog.get_by_role("checkbox", name="区域", exact=True).check()
         dialog.get_by_role("checkbox", name="门店", exact=True).uncheck()
         expect(dialog.get_by_text("将生成 3 个工作表，每个工作表包含 2 张层级排行附表。", exact=False)).to_be_visible()
-        dialog.get_by_label("导出结束日期", exact=True).fill("2026-09-06")
+        # Published exports keep the page period immutable; an empty level selection is invalid.
+        expect(dialog.get_by_label("导出开始日期", exact=True)).to_be_disabled()
+        expect(dialog.get_by_label("导出结束日期", exact=True)).to_be_disabled()
+        dialog.get_by_role("checkbox", name="大区", exact=True).uncheck()
+        dialog.get_by_role("checkbox", name="区域", exact=True).uncheck()
         expect(dialog.get_by_role("button", name="导出 Excel", exact=True)).to_be_disabled()
         dialog.get_by_role("button", name="取消", exact=True).click()
         assert page.locator(".metric-card").evaluate_all(
@@ -2782,11 +2815,11 @@ def test_ranking_uses_backend_enum_contract_and_latest_sale_month(
         meta["saleMonths"] = ["2026-07"]
         meta["statementMonths"] = ["2026-08"]
         page.route(
-            "**/api/v1/meta/filters",
+            "**/api/v1/dashboard/publications/settlement/filters*",
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
-                body=api_payload(meta),
+                body=api_payload(meta, publication_module="settlement"),
             ),
         )
 
@@ -2826,7 +2859,8 @@ def test_ranking_uses_backend_enum_contract_and_latest_sale_month(
                         "total": 0,
                         "page": 1,
                         "pageSize": 20,
-                    }
+                    },
+                    publication_module="settlement",
                 ),
             )
 
@@ -5476,10 +5510,11 @@ def test_dydata_81_single_sap_correction_updates_effective_value_via_real_api(
         context.close()
 
 
-def test_management_pending_invoice_row_is_visible_but_cannot_open_correction(
+def test_management_pending_invoice_row_rechecks_live_record_and_cannot_submit_after_404(
     browser: Browser,
     vite_base_url: str,
 ) -> None:
+    """A pending analytical row rechecks live facts; 404 never enables correction."""
     context = browser.new_context(viewport={"width": 1440, "height": 900})
     page = context.new_page()
     install_api_routes(page)
@@ -5525,7 +5560,7 @@ def test_management_pending_invoice_row_is_visible_but_cannot_open_correction(
                     "issuedAmountCent": 0,
                     "settledOrDeductedAmountCent": 0,
                 },
-            }),
+            }, publication_module="finance"),
         ),
     )
     page.route(
@@ -5538,9 +5573,18 @@ def test_management_pending_invoice_row_is_visible_but_cannot_open_correction(
                 "total": 1,
                 "page": 1,
                 "pageSize": 50,
-            }),
+            }, publication_module="finance"),
         ),
     )
+    current_reads: list[str] = []
+
+    def missing_current_record(route) -> None:
+        current_reads.append(route.request.url)
+        route.fulfill(status=404, content_type="application/json", body=json.dumps({
+            "detail": {"code": "RESOURCE_NOT_FOUND", "message": "当前没有管理费发票记录"},
+        }, ensure_ascii=False))
+
+    page.route("**/api/v1/admin/finance/management-invoices/store-pending-001/2026-08/current", missing_current_record)
     try:
         page.goto(
             f"{vite_base_url}/finance/management?month=2026-08",
@@ -5552,7 +5596,11 @@ def test_management_pending_invoice_row_is_visible_but_cannot_open_correction(
         expect(page.locator("table").get_by_text("待开票", exact=True)).to_be_visible()
         assert page.get_by_role("button", name="更正", exact=True).count() == 0
         pending_store.dblclick()
-        assert page.get_by_role("heading", name="更正管理服务费记录").count() == 0
+        expect(page.get_by_role("alert").filter(has_text="未找到相关数据，请刷新后重试。")).to_be_visible()
+        assert len(current_reads) == 1
+        expect(page.get_by_label("发票号码", exact=True)).to_have_count(0)
+        expect(page.get_by_label("发票金额（分）", exact=True)).to_have_count(0)
+        expect(page.get_by_role("button", name="确认更正", exact=True)).to_be_disabled()
     finally:
         context.close()
 
@@ -5645,7 +5693,7 @@ def test_dydata_97_management_history_filter_matches_list_and_export(
                 "total": len(rows),
                 "page": 1,
                 "pageSize": 50,
-            }),
+            }, publication_module="finance"),
         )
 
     page.route(
@@ -5665,7 +5713,7 @@ def test_dydata_97_management_history_filter_matches_list_and_export(
                     "issuedAmountCent": 620000,
                     "settledOrDeductedAmountCent": 620000,
                 },
-            }),
+            }, publication_module="finance"),
         ),
     )
     page.route(
@@ -5702,7 +5750,11 @@ def test_dydata_97_management_history_filter_matches_list_and_export(
         assert "SAP-HISTORY-097" in history_csv
         assert "SAP-CURRENT-097" in history_csv
 
-        page.get_by_role("button", name="仅看当前版本", exact=True).click()
+        with page.expect_response(lambda response: "/admin/finance/invoices?" in response.url
+                                  and query_param_value(response.url, "includeHistory") == "false") as current_response:
+            page.get_by_role("button", name="仅看当前版本", exact=True).click()
+        assert current_response.value.status == 200
+        expect(page.get_by_text("SAP-CURRENT-097", exact=True).first).to_be_visible()
         expect(page.get_by_text("SAP-HISTORY-097", exact=True)).to_have_count(0)
         assert query_param_value(list_requests[-1], "includeHistory") == "false"
 
