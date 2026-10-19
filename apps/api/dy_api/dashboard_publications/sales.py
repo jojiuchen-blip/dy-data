@@ -9,8 +9,8 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import (Boolean, Column, DateTime, Float, ForeignKey, Index, Integer,
-                        Numeric, String, Table, Text, and_, case, cast, distinct, extract,
-                        func, insert, literal, or_, select)
+                        Numeric, String, Table, Text, and_, case, cast, extract,
+                        func, insert, literal, or_, select, union_all)
 from sqlalchemy.orm import Session
 
 from .schema import metadata
@@ -115,60 +115,109 @@ def _conditions(store_id, month, year, scope_store_ids=None):
     return sale, verified, self_verified
 
 
-def _metrics(session, clauses, sale, verified, self_verified, *, by_product=False):
+def _metric_groups(session, clauses, sale, verified, self_verified):
+    """Reduce coupons to orders before producing global/product aggregates."""
     col = coupons.c
-    fields = [func.count(distinct(case((sale, col.order_id)))).label("total_sales_order_count"),
-              func.count(distinct(case((self_verified, col.order_id)))).label("self_verify_order_count"),
-              func.count(distinct(case((verified, col.order_id)))).label("total_verify_order_count"),
-              func.coalesce(func.sum(case((verified, col.paid_amount_cent), else_=0)), 0).label("actual_verify_amount_cent")]
-    if by_product:
-        fields.insert(0, col.product_type)
-    query = select(*fields).where(*clauses)
-    best = select(col.order_id, func.min(col.cycle_days).label("days")).where(*clauses, verified, col.cycle_days.is_not(None))
-    if by_product:
-        query = query.where(or_(sale, verified)).group_by(col.product_type)
-        best = best.add_columns(col.product_type).group_by(col.product_type, col.order_id).subquery()
-        averages = dict(session.execute(select(best.c.product_type, func.avg(best.c.days)).group_by(best.c.product_type)).all())
-    else:
-        best = best.group_by(col.order_id).subquery()
-        averages = {None: session.scalar(select(func.avg(best.c.days)))}
-    result = []
+    pg = session.get_bind().dialect.name == "postgresql"
+    product_type = col.product_type.collate("C") if pg else col.product_type
+    order_id = col.order_id.collate("C") if pg else col.order_id
+    grouped_query = select(product_type.label("product_type"), order_id.label("order_id"),
+        func.max(case((sale, 1), else_=0)).label("sale"),
+        func.max(case((self_verified, 1), else_=0)).label("self_verified"),
+        func.max(case((verified, 1), else_=0)).label("verified"),
+        func.sum(case((verified, col.paid_amount_cent), else_=0)).label("amount"),
+        func.min(case((verified, col.cycle_days))).label("days"),
+        func.count().label("source_rows")
+    ).where(*clauses, or_(sale, verified))
+    grouped = grouped_query.group_by(product_type, order_id).cte("sales_order_products")
+    orders = select(grouped.c.order_id, *(func.max(grouped.c[name]).label(name) for name in ("sale", "self_verified", "verified")),
+        func.sum(grouped.c.amount).label("amount"), func.min(grouped.c.days).label("days"),
+        func.sum(grouped.c.source_rows).label("source_rows")).group_by(grouped.c.order_id).subquery()
+    def aggregates(source):
+        return [func.coalesce(func.sum(source.c.sale), 0).label("total_sales_order_count"),
+                func.coalesce(func.sum(source.c.self_verified), 0).label("self_verify_order_count"),
+                func.coalesce(func.sum(source.c.verified), 0).label("total_verify_order_count"),
+                func.coalesce(func.sum(source.c.amount), 0).label("actual_verify_amount_cent"),
+                func.avg(source.c.days).label("avg_verify_cycle_days"),
+                func.coalesce(func.sum(source.c.source_rows), 0).label("source_row_count")]
+    query = union_all(select(literal(True).label("is_global"), literal("").label("product_type"), *aggregates(orders)),
+        select(literal(False).label("is_global"), grouped.c.product_type, *aggregates(grouped)).group_by(grouped.c.product_type))
+    products = []
+    metrics = {"total_sales_order_count": 0, "self_verify_order_count": 0, "total_verify_order_count": 0,
+               "actual_verify_amount_cent": 0, "self_verify_rate": 0, "avg_verify_cycle_days": None}
+    source_row_count = 0
     for value in session.execute(query).mappings():
         row = dict(value)
+        is_global = row.pop("is_global")
+        source_count = row.pop("source_row_count")
+        for field in ("total_sales_order_count", "self_verify_order_count", "total_verify_order_count", "actual_verify_amount_cent"):
+            row[field] = int(row[field])
         total, self_count = row["total_sales_order_count"], row["self_verify_order_count"]
         row["self_verify_rate"] = round(self_count / total, 4) if total else 0
-        average = averages.get(row.get("product_type"))
-        row["avg_verify_cycle_days"] = round(average, 2) if average is not None else None
-        result.append(row)
-    return result
+        average = row["avg_verify_cycle_days"]
+        row["avg_verify_cycle_days"] = round(float(average), 2) if average is not None else None
+        if is_global:
+            row.pop("product_type")
+            metrics, source_row_count = row, int(source_count)
+        else:
+            products.append(row)
+    return metrics, sorted(products, key=lambda row: row["product_type"]), source_row_count
 
 
 def _cycles(session, clauses, verified):
     col = coupons.c
     product = func.coalesce(func.nullif(col.product_type, ""), "未映射")
-    best_rank = select(product.label("product_type"), col.order_id, col.cycle_days, col.sale_time, col.verify_time,
-                       func.row_number().over(partition_by=(product, col.order_id), order_by=(func.round(cast(col.cycle_days, Numeric(24, 10)), 2), col.sale_time, col.coupon_id)).label("choice")
-                       ).where(*clauses, verified, col.cycle_days.is_not(None)).subquery()
-    best = select(best_rank).where(best_rank.c.choice == 1).subquery()
+    pg = session.get_bind().dialect.name == "postgresql"
+    # Binary ordering matches the legacy Python string ordering and avoids
+    # expensive locale comparisons while ranking opaque business identifiers.
+    if pg:
+        product = product.collate("C")
+    order_id = col.order_id.collate("C") if pg else col.order_id
+    coupon_id = col.coupon_id.collate("C") if pg else col.coupon_id
+    choice_order = (func.round(cast(col.cycle_days, Numeric(24, 10)), 2), col.sale_time, coupon_id)
+    candidates = select(product.label("product_type"), order_id.label("order_id"), col.cycle_days, col.sale_time, col.verify_time).where(
+        *clauses, verified, col.cycle_days.is_not(None))
+    if pg:
+        best = candidates.distinct(product, order_id).order_by(product, order_id, *choice_order).subquery()
+    else:
+        best_rank = candidates.add_columns(func.row_number().over(
+            partition_by=(product, order_id), order_by=choice_order).label("choice")).subquery()
+        best = select(best_rank).where(best_rank.c.choice == 1).subquery()
     # The existing contract rounds each point before computing box plot statistics.
     rounded_days = func.round(cast(best.c.cycle_days, Numeric(24, 10)), 2)
     ranked = select(best.c.product_type, best.c.order_id, rounded_days.label("days"),
                     best.c.sale_time, best.c.verify_time,
-                    func.row_number().over(partition_by=best.c.product_type, order_by=(rounded_days, best.c.order_id)).label("position")).subquery()
-    summary = session.execute(select(ranked.c.product_type, func.count().label("count"), func.min(ranked.c.days).label("min_days"),
-                                     func.max(ranked.c.days).label("max_days"), func.avg(ranked.c.days).label("avg_days"))
-                              .group_by(ranked.c.product_type).order_by(func.count().desc(), ranked.c.product_type)).mappings()
+                    func.row_number().over(partition_by=best.c.product_type, order_by=(rounded_days, best.c.order_id)).label("position"),
+                    func.count().over(partition_by=best.c.product_type).label("count"),
+                    func.min(rounded_days).over(partition_by=best.c.product_type).label("min_days"),
+                    func.max(rounded_days).over(partition_by=best.c.product_type).label("max_days"),
+                    func.avg(rounded_days).over(partition_by=best.c.product_type).label("avg_days")).subquery()
+    # Select sample/quantile ranks in SQL after computing each window once.
+    # The 90-point grid has odd denominator 89, so nearest rounding cannot
+    # encounter the Python/SQL half-to-even versus half-away tie difference.
+    last_position = ranked.c.count - 1
+    zero_position = ranked.c.position - 1
+    denominator = func.nullif(last_position, 0)
+    grid_index = func.round(cast(zero_position * 89, Numeric) / denominator)
+    on_grid = zero_position == func.round(grid_index * last_position / 89)
+    wanted = [ranked.c.count <= 90, on_grid]
+    for ratio in (.25, .5, .75):
+        quantile_position = last_position * ratio
+        wanted.extend([zero_position == func.floor(quantile_position), zero_position == func.ceil(quantile_position)])
+    grouped_points: dict[str, list[Any]] = {}
+    for point in session.execute(select(ranked).where(or_(*wanted)).order_by(ranked.c.product_type, ranked.c.position)).mappings():
+        grouped_points.setdefault(point["product_type"], []).append(point)
     result = []
-    for item in summary:
-        row = dict(item)
+    for product_type, points in grouped_points.items():
+        item = points[0]
+        row = {field: item[field] for field in ("count", "min_days", "max_days", "avg_days")}
+        row["product_type"] = product_type
         count = row["count"]
         positions = {round(index * (count - 1) / 89) + 1 for index in range(90)} if count > 90 else set(range(1, count + 1))
         quantile_positions = {}
         for key, ratio in (("q1_days", .25), ("median_days", .5), ("q3_days", .75)):
             point = (count - 1) * ratio
             quantile_positions[key] = (math.floor(point) + 1, math.ceil(point) + 1, point % 1)
-        needed = positions | {value for low, high, weight in quantile_positions.values() for value in (low, high)}
-        points = session.execute(select(ranked).where(ranked.c.product_type == row["product_type"], ranked.c.position.in_(needed)).order_by(ranked.c.position)).mappings().all()
         by_position = {point["position"]: float(point["days"]) for point in points}
         for key, (low, high, weight) in quantile_positions.items():
             row[key] = round(by_position[low] * (1 - weight) + by_position[high] * weight, 2)
@@ -176,7 +225,7 @@ def _cycles(session, clauses, verified):
         row["min_days"], row["max_days"] = float(row["min_days"]), float(row["max_days"])
         row["sample_points"] = [{"order_id": point["order_id"], "cycle_days": float(point["days"]), "sale_time": point["sale_time"], "verify_time": point["verify_time"]} for point in points if point["position"] in positions]
         result.append(row)
-    return result
+    return sorted(result, key=lambda row: (-row["count"], row["product_type"]))
 
 
 def read(session: Session, publication_id: str, *, store_id: str | None = None,
@@ -206,19 +255,21 @@ def read(session: Session, publication_id: str, *, store_id: str | None = None,
     if scope_store_ids is not None:
         sale_store = and_(sale_store, coupons.c.sale_store_id.in_(scope_store_ids))
         verify_store = and_(verify_store, coupons.c.verify_store_id.in_(scope_store_ids))
-    grouped_trend = {row[0]: row[1:] for row in session.execute(select(coupons.c.sale_month,
-        func.count(distinct(case((sale_store, coupons.c.order_id)))),
-        func.count(distinct(case((and_(coupons.c.is_verified.is_(True), verify_store), coupons.c.order_id)))))
-        .where(*clauses, coupons.c.sale_month.in_(periods)).group_by(coupons.c.sale_month))}
+    trend_orders = (select(coupons.c.sale_month, coupons.c.order_id,
+        func.max(case((sale_store, 1), else_=0)).label("sale"),
+        func.max(case((and_(coupons.c.is_verified.is_(True), verify_store), 1), else_=0)).label("verified"))
+        .where(*clauses, coupons.c.sale_month.in_(periods)).group_by(coupons.c.sale_month, coupons.c.order_id).subquery())
+    grouped_trend = {row[0]: row[1:] for row in session.execute(select(trend_orders.c.sale_month,
+        func.sum(trend_orders.c.sale), func.sum(trend_orders.c.verified)).group_by(trend_orders.c.sale_month))}
     trend = [{"month": period, "order_count": grouped_trend.get(period, (0, 0))[0],
               "verify_order_count": grouped_trend.get(period, (0, 0))[1]} for period in periods]
     store = session.execute(select(stores.c.store_id, stores.c.store_name).where(stores.c.publication_id == publication_id, stores.c.store_id == store_id)).mappings().first() if store_id else None
+    metrics, product_rows, source_row_count = _metric_groups(session, clauses, sale, verified, self_verified)
     return {"store": dict(store) if store else {"store_id": store_id or "", "store_name": store_id or "全部门店"},
             "month": month, "product_scope": product_scope, "product_type": product_type,
-            "metrics": _metrics(session, clauses, sale, verified, self_verified)[0],
-            "product_rows": _metrics(session, clauses, sale, verified, self_verified, by_product=True),
+            "metrics": metrics, "product_rows": product_rows,
             "trend_rows": trend, "cycle_rows": _cycles(session, clauses, verified),
-            "source_row_count": session.scalar(select(func.count()).select_from(coupons).where(*clauses, or_(sale, verified)))}
+            "source_row_count": source_row_count}
 
 
 def read_filters(session: Session, publication_id: str, *, visible_product_types: Sequence[str] | None = None,

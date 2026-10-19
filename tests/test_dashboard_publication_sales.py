@@ -99,7 +99,7 @@ def test_sales_versions_and_read_only_queries(db_session, monkeypatch):
         event.remove(db_session.get_bind(), "before_cursor_execute", record)
     assert filters["years"] == [2026, 2025, 2024]
     assert filters["stores"] == [{"store_id": "A", "store_name": "Alpha"}]
-    assert all(statement.lstrip().upper().startswith("SELECT") for statement in statements)
+    assert all(statement.lstrip().upper().startswith(("SELECT", "WITH")) for statement in statements)
     assert all("settlement_order_details" not in statement and "dim_stores" not in statement for statement in statements)
 
 
@@ -119,3 +119,27 @@ def test_cycle_quantiles_and_sample_cap_are_order_based(db_session):
     for field in ("min_days", "q1_days", "median_days", "q3_days", "max_days", "avg_days"):
         assert actual[field] == expected[field]
     assert [point["order_id"] for point in actual["sample_points"]] == [point["order_id"] for point in expected["sample_points"]]
+
+
+def assert_cross_product_order_aggregation(session):
+    """One order in two products still counts once globally, with shortest cycle."""
+    session.add(SettlementOrderDetail(coupon_id="cross-product", order_id="o1", product_type="Q", sale_store_id="A",
+        verify_store_id="A", sale_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        verify_time=datetime(2026, 2, 5, tzinfo=timezone.utc), is_verified=True, paid_amount_cent=50))
+    for number, order in enumerate(("éclair", "E", "中", "Å")):
+        session.add(SettlementOrderDetail(coupon_id=f"unicode-{number}", order_id=order, product_type="Unicode",
+            sale_store_id="A", verify_store_id="A", sale_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            verify_time=datetime(2026, 1, 2, tzinfo=timezone.utc), is_verified=True, paid_amount_cent=1))
+    session.flush()
+    sales.build(session, "s2", CUTOFF)
+    actual = sales.read(session, "s2", month="history")
+    expected = DashboardDataStore(session).sales_dashboard(store_id=None, month="all", product_type="all")
+    assert actual["metrics"] == expected["metrics"]
+    assert actual["product_rows"] == expected["product_rows"]
+    actual_points = next(row for row in actual["cycle_rows"] if row["product_type"] == "Unicode")["sample_points"]
+    assert [point["order_id"] for point in actual_points] == sorted(("éclair", "E", "中", "Å"))
+
+
+def test_cross_product_order_deduplication(db_session):
+    prepare_sales(db_session)
+    assert_cross_product_order_aggregation(db_session)
