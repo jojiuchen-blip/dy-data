@@ -656,7 +656,8 @@ def export_douyin_ranking(
             from apps.api.dy_api.dashboard_publications.ranking import read_report
             with publication_read(session, "douyin-ranking", publication_id) as publication:
                 def published_reader(read_session, **filters):
-                    return read_report(read_session, publication.id, **filters)
+                    return {**read_report(read_session, publication.id, **filters),
+                            "publication": publication.meta()}
                 content = build_ranking_workbook(
                     session, levels=selected_levels, metrics=selected_metrics,
                     report_reader=published_reader, **report_filters,
