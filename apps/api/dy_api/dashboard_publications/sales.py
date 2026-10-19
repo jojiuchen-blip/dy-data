@@ -8,9 +8,9 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import (Boolean, Column, DateTime, Float, ForeignKey, Index, Integer,
+from sqlalchemy import (BigInteger, Boolean, Column, DateTime, Float, ForeignKey, Index, Integer,
                         Numeric, String, Table, Text, and_, case, cast, extract,
-                        func, insert, literal, or_, select, union_all)
+                        func, insert, literal, literal_column, or_, select, union_all)
 from sqlalchemy.orm import Session
 
 from .schema import metadata
@@ -25,6 +25,7 @@ coupons = Table(
     Column("is_verified", Boolean, nullable=False), Column("verify_store_id", Text),
     Column("verify_time", DateTime(timezone=True)), Column("verify_month", String(7)),
     Column("paid_amount_cent", Integer, nullable=False), Column("cycle_days", Float),
+    Column("cycle_sort_days", Numeric(24, 2)),
     Index("ix_pub_sales_sale", "publication_id", "sale_store_id", "sale_month", "product_type"),
     Index("ix_pub_sales_verify", "publication_id", "verify_store_id", "verify_month", "product_type"),
     Index("ix_pub_sales_product", "publication_id", "product_type"),
@@ -60,7 +61,7 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
         source.c.sale_time, month(source.c.sale_time),
         func.coalesce(source.c.is_verified, False), source.c.verify_store_id,
         source.c.verify_time, month(source.c.verify_time),
-        func.coalesce(source.c.paid_amount_cent, 0), cycle,
+        func.coalesce(source.c.paid_amount_cent, 0), cycle, func.round(cast(cycle, Numeric(24, 10)), 2),
     ).where(func.coalesce(source.c.is_refund_excluded, False).is_(False))
     session.execute(insert(coupons).from_select(list(coupons.c.keys()), query))
     store = DimStore.__table__
@@ -129,7 +130,7 @@ def _metric_groups(session, clauses, sale, verified, self_verified):
         func.min(case((verified, col.cycle_days))).label("days"),
         func.count().label("source_rows")
     ).where(*clauses, or_(sale, verified))
-    grouped = grouped_query.group_by(product_type, order_id).cte("sales_order_products")
+    grouped = grouped_query.group_by(order_id, product_type).cte("sales_order_products")
     orders = select(grouped.c.order_id, *(func.max(grouped.c[name]).label(name) for name in ("sale", "self_verified", "verified")),
         func.sum(grouped.c.amount).label("amount"), func.min(grouped.c.days).label("days"),
         func.sum(grouped.c.source_rows).label("source_rows")).group_by(grouped.c.order_id).subquery()
@@ -166,7 +167,7 @@ def _metric_groups(session, clauses, sale, verified, self_verified):
 
 def _cycles(session, clauses, verified):
     col = coupons.c
-    product = func.coalesce(func.nullif(col.product_type, ""), "未映射")
+    product = func.coalesce(func.nullif(col.product_type, literal_column("''")), literal_column("'未映射'"))
     pg = session.get_bind().dialect.name == "postgresql"
     # Binary ordering matches the legacy Python string ordering and avoids
     # expensive locale comparisons while ranking opaque business identifiers.
@@ -174,38 +175,56 @@ def _cycles(session, clauses, verified):
         product = product.collate("C")
     order_id = col.order_id.collate("C") if pg else col.order_id
     coupon_id = col.coupon_id.collate("C") if pg else col.coupon_id
-    choice_order = (func.round(cast(col.cycle_days, Numeric(24, 10)), 2), col.sale_time, coupon_id)
-    candidates = select(product.label("product_type"), order_id.label("order_id"), col.cycle_days, col.sale_time, col.verify_time).where(
-        *clauses, verified, col.cycle_days.is_not(None))
+    choice_order = (col.cycle_sort_days, col.sale_time, coupon_id)
+    candidates = select(product.label("product_type"), order_id.label("order_id"), col.cycle_sort_days, col.sale_time, col.verify_time).where(
+        *clauses, verified, col.cycle_sort_days.is_not(None))
     if pg:
-        best = candidates.distinct(product, order_id).order_by(product, order_id, *choice_order).subquery()
+        # Timestamps are fetched only for the bounded sample set below. Carry
+        # just the shortest rounded value through the order/product windows.
+        best = select(product.label("product_type"), order_id.label("order_id"),
+            func.min(col.cycle_sort_days).label("cycle_sort_days")).where(*clauses, verified,
+            col.cycle_sort_days.is_not(None)).group_by(product, order_id).subquery()
     else:
         best_rank = candidates.add_columns(func.row_number().over(
             partition_by=(product, order_id), order_by=choice_order).label("choice")).subquery()
         best = select(best_rank).where(best_rank.c.choice == 1).subquery()
     # The existing contract rounds each point before computing box plot statistics.
-    rounded_days = func.round(cast(best.c.cycle_days, Numeric(24, 10)), 2)
-    ranked = select(best.c.product_type, best.c.order_id, rounded_days.label("days"),
-                    best.c.sale_time, best.c.verify_time,
-                    func.row_number().over(partition_by=best.c.product_type, order_by=(rounded_days, best.c.order_id)).label("position"),
-                    func.count().over(partition_by=best.c.product_type).label("count"),
-                    func.min(rounded_days).over(partition_by=best.c.product_type).label("min_days"),
-                    func.max(rounded_days).over(partition_by=best.c.product_type).label("max_days"),
-                    func.avg(rounded_days).over(partition_by=best.c.product_type).label("avg_days")).subquery()
+    rounded_days = best.c.cycle_sort_days
+    time_columns = [] if pg else [best.c.sale_time, best.c.verify_time]
+    cycle_window = {"partition_by": best.c.product_type, "order_by": (rounded_days, best.c.order_id), "rows": (None, None)}
+    ranked = select(best.c.product_type, best.c.order_id, rounded_days.label("days"), *time_columns,
+                    func.row_number().over(**cycle_window).label("position"),
+                    func.count().over(**cycle_window).label("count"),
+                    func.min(rounded_days).over(**cycle_window).label("min_days"),
+                    func.max(rounded_days).over(**cycle_window).label("max_days"),
+                    func.avg(rounded_days).over(**cycle_window).label("avg_days")).subquery()
     # Select sample/quantile ranks in SQL after computing each window once.
     # The 90-point grid has odd denominator 89, so nearest rounding cannot
     # encounter the Python/SQL half-to-even versus half-away tie difference.
     last_position = ranked.c.count - 1
     zero_position = ranked.c.position - 1
-    denominator = func.nullif(last_position, 0)
-    grid_index = func.round(cast(zero_position * 89, Numeric) / denominator)
-    on_grid = zero_position == func.round(grid_index * last_position / 89)
+    # Both operands are integers. Use the SQL integer operator explicitly so
+    # SQLAlchemy does not promote this bounded rank arithmetic to Numeric.
+    denominator = func.nullif(last_position * 2, 0)
+    grid_index = (zero_position * 178 + last_position).op("/", precedence=8, return_type=BigInteger)(denominator)
+    on_grid = zero_position == (grid_index * last_position * 2 + 89).op("/", precedence=8, return_type=BigInteger)(178)
     wanted = [ranked.c.count <= 90, on_grid]
-    for ratio in (.25, .5, .75):
-        quantile_position = last_position * ratio
-        wanted.extend([zero_position == func.floor(quantile_position), zero_position == func.ceil(quantile_position)])
+    for numerator in (1, 2, 3):
+        quantile_position = last_position * numerator
+        wanted.extend([zero_position == quantile_position.op("/", precedence=8, return_type=BigInteger)(4),
+                       zero_position == (quantile_position + 3).op("/", precedence=8, return_type=BigInteger)(4)])
+    selected = select(ranked).where(or_(*wanted)).subquery()
+    if pg:
+        matches = select(selected, col.sale_time, col.verify_time,
+            func.row_number().over(partition_by=(selected.c.product_type, selected.c.position),
+                order_by=(col.sale_time, coupon_id)).label("sample_choice")).select_from(selected.join(coupons, and_(
+                    *clauses, verified, col.cycle_sort_days == selected.c.days,
+                    product == selected.c.product_type, order_id == selected.c.order_id))).subquery()
+        query = select(matches).where(matches.c.sample_choice == 1).order_by(matches.c.product_type, matches.c.position)
+    else:
+        query = select(selected).order_by(selected.c.product_type, selected.c.position)
     grouped_points: dict[str, list[Any]] = {}
-    for point in session.execute(select(ranked).where(or_(*wanted)).order_by(ranked.c.product_type, ranked.c.position)).mappings():
+    for point in session.execute(query).mappings():
         grouped_points.setdefault(point["product_type"], []).append(point)
     result = []
     for product_type, points in grouped_points.items():

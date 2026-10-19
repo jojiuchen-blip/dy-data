@@ -130,12 +130,25 @@ def assert_cross_product_order_aggregation(session):
         session.add(SettlementOrderDetail(coupon_id=f"unicode-{number}", order_id=order, product_type="Unicode",
             sale_store_id="A", verify_store_id="A", sale_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
             verify_time=datetime(2026, 1, 2, tzinfo=timezone.utc), is_verified=True, paid_amount_cent=1))
+    for coupon, order, hours, days in (("precise-1", "precise-1", 0, 1.0049),
+        ("precise-1b", "precise-1", 1, 1.0048), ("precise-2", "precise-2", 0, 1.0049),
+        ("precise-3", "precise-3", 0, 1.0149)):
+        sale_at = datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(hours=hours)
+        session.add(SettlementOrderDetail(coupon_id=coupon, order_id=order, product_type="Precision",
+            sale_store_id="A", verify_store_id="A", sale_time=sale_at,
+            verify_time=sale_at + timedelta(days=days), is_verified=True, paid_amount_cent=1))
     session.flush()
     sales.build(session, "s2", CUTOFF)
     actual = sales.read(session, "s2", month="history")
     expected = DashboardDataStore(session).sales_dashboard(store_id=None, month="all", product_type="all")
     assert actual["metrics"] == expected["metrics"]
     assert actual["product_rows"] == expected["product_rows"]
+    precision_metrics = next(row for row in actual["product_rows"] if row["product_type"] == "Precision")
+    precision_cycle = next(row for row in actual["cycle_rows"] if row["product_type"] == "Precision")
+    assert precision_metrics["avg_verify_cycle_days"] == 1.01
+    assert precision_cycle["avg_days"] == 1.0
+    tie_point = next(point for point in precision_cycle["sample_points"] if point["order_id"] == "precise-1")
+    assert tie_point["sale_time"].hour == 0
     actual_points = next(row for row in actual["cycle_rows"] if row["product_type"] == "Unicode")["sample_points"]
     assert [point["order_id"] for point in actual_points] == sorted(("éclair", "E", "中", "Å"))
 
