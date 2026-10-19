@@ -80,6 +80,8 @@ PR #50 的结算恢复属于既有依赖，其尚未完成的业务恢复没有�
 
 草稿 [PR #51](https://github.com/jojiuchen-blip/dy-data/pull/51) 基于已部署的 PR #50 分支，GitHub 判定无合并冲突。功能代码在 `b6c515c5` 冻结，其 [完整 CI](https://github.com/jojiuchen-blip/dy-data/actions/runs/39213666162) 独立运行；之后仅补充本段运维记录。原主工作区的 10 个未提交/未跟踪文件已按初始备份清单逐个 SHA-256 校验，全部保持原样。旧页面测试文件在隔离树另有完整 266 项通过；主树的 12 项关键交互也已复验通过。
 
+15:30 北京时间远端完整 CI 已成功结束，验证提交为 `b6c515c58719161b42ca40ec57b49b866e584659`：全仓 3,764 通过、236 跳过（1,184.31 秒）；静态发布 PostgreSQL 专项 48 通过、4 跳过；其他真实 PostgreSQL 发布门禁、前端生产构建及 API / Worker / Browser / Web 四个镜像构建全部通过。此前首轮失败记录保留，后续提交只新增运维与验证日志，未改变已验证的功能代码。CI 未启用 opt-in 大规模严格秒内断言，既有全年首读性能限制仍然成立。该 feature 分支运行未触发生产部署，来源就绪、生产限额性能及构建峰值容量仍待验收。
+
 ## Foundation 漂移
 
 新增发布元数据、过滤入口、错误状态及侧表属于 foundation 缺项，已登记 [待改请求](../plans/foundation-plans/foundation-change-requests-unified-dashboard-publications.md)。本任务不直接修改 foundation 文档。
