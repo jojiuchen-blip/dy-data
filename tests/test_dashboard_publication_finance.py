@@ -144,9 +144,11 @@ def test_finance_parity_scope_filters_export_and_frozen_source(db_session, direc
             assert [row for page in pages for row in page] == expected_items
             cases.append((filters, actual, expected_items))
     if direction == "MANAGEMENT":
-        filters = cases[9][0]
-        assert publication.export_finance_invoices(db_session, "finance-v1", include_history=True,
-            **filters) == _legacy_invoices(db_session, include_history=True, **filters)
+        filters = dict(month="2026-10", metric_scope="MONTH", fee_direction=direction,
+            store_id=None, q=None, invoice_status=None, scope_store_ids=None)
+        history = publication.export_finance_invoices(db_session, "finance-v1", include_history=True, **filters)
+        assert len(history) == 2
+        assert history == _legacy_invoices(db_session, include_history=True, **filters)
     db_session.commit()
     # A subsequent invoice correction, current SAP/name edit and projection edit
     # cannot change the old published operating figures or its export.
