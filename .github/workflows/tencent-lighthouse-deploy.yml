@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: aeaf885fb45eb7e06632bb90da3fd8d9528e2951
+          ref: 393e3dab77f229840f6127e4d15fcd77939e471e
       - name: Configure pinned SSH
         run: |
           install -m 700 -d ~/.ssh
@@ -25,7 +25,8 @@ jobs:
           chmod 600 ~/.ssh/tencent_lighthouse
           printf '%s\n' "$TENCENT_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-          scp -i ~/.ssh/tencent_lighthouse -P "${TENCENT_SSH_PORT:-22}" -o BatchMode=yes -o StrictHostKeyChecking=yes apps/api/dy_api/ranking_snapshots.py "$TENCENT_SSH_USER@$TENCENT_HOST:/tmp/pdca-ranking-aeaf885f.py"
+          scp -i ~/.ssh/tencent_lighthouse -P "${TENCENT_SSH_PORT:-22}" -o BatchMode=yes -o StrictHostKeyChecking=yes apps/api/dy_api/ranking_snapshots.py "$TENCENT_SSH_USER@$TENCENT_HOST:/tmp/pdca-ranking-393e3dab.py"
+          scp -i ~/.ssh/tencent_lighthouse -P "${TENCENT_SSH_PORT:-22}" -o BatchMode=yes -o StrictHostKeyChecking=yes apps/api/dy_api/ranking_lifecycle.py "$TENCENT_SSH_USER@$TENCENT_HOST:/tmp/pdca-ranking-lifecycle-393e3dab.py"
       - name: Build isolated candidate and validate normal derived snapshot
         run: |
           ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$TENCENT_SSH_USER@$TENCENT_HOST" 'sudo python3 -' <<'PY'
@@ -37,14 +38,18 @@ jobs:
           cid=run(c+['ps','-q','api']);state=json.loads(run(['docker','inspect',cid]))[0]
           original_restarts=state['RestartCount']
           assert run(['docker','exec',cid,'sha256sum','/app/apps/api/dy_api/ranking_snapshots.py']).split()[0]=='0f1fcc5427fb1df082e0e438320e46e6b4e860824b8e713c20a42c53ef5738d4'
-          source=pathlib.Path('/tmp/pdca-ranking-aeaf885f.py')
+          assert run(['docker','exec',cid,'sha256sum','/app/apps/api/dy_api/ranking_lifecycle.py']).split()[0]=='e85cb7c05c32c79d5b0f1d3c96af2def3161d1edca80d6c53d02ff3f4162adf3'
+          source=pathlib.Path('/tmp/pdca-ranking-393e3dab.py')
           assert hashlib.sha256(source.read_bytes()).hexdigest()=='38d17e1d3f5c4474e4ae53bcdc48ee26c44abc0a6ada8206c079e3b4a5d2a2bf'
+          lifecycle=pathlib.Path('/tmp/pdca-ranking-lifecycle-393e3dab.py')
+          assert hashlib.sha256(lifecycle.read_bytes()).hexdigest()=='999aba3e6c60613cc3d2d8800ed002cc906d9494d49f2f2273ff06794b823f1f'
           fs=os.statvfs(root);assert fs.f_bavail*fs.f_frsize>=10*1024**3 and fs.f_bavail/fs.f_blocks>=.15
-          context=pathlib.Path('/tmp/pdca-ranking-aeaf885f');context.mkdir(exist_ok=True)
+          context=pathlib.Path('/tmp/pdca-ranking-393e3dab');context.mkdir(exist_ok=True)
           (context/'ranking_snapshots.py').write_bytes(source.read_bytes());os.chmod(context/'ranking_snapshots.py',0o644)
-          base='dy-dashboard-api:pdca-before-aeaf885f';image='dy-dashboard-api:pdca-ranking-aeaf885f'
+          (context/'ranking_lifecycle.py').write_bytes(lifecycle.read_bytes());os.chmod(context/'ranking_lifecycle.py',0o644)
+          base='dy-dashboard-api:pdca-before-393e3dab';image='dy-dashboard-api:pdca-ranking-393e3dab'
           run(['docker','tag',state['Image'],base])
-          (context/'Dockerfile').write_text('FROM '+base+'\nCOPY ranking_snapshots.py /app/apps/api/dy_api/ranking_snapshots.py\nLABEL pdca.ranking.patch="aeaf885fb45eb7e06632bb90da3fd8d9528e2951"\n')
+          (context/'Dockerfile').write_text('FROM '+base+'\nCOPY ranking_snapshots.py /app/apps/api/dy_api/ranking_snapshots.py\nCOPY ranking_lifecycle.py /app/apps/api/dy_api/ranking_lifecycle.py\nLABEL pdca.ranking.patch="393e3dab77f229840f6127e4d15fcd77939e471e"\n')
           subprocess.run(['docker','build','--pull=false','-t',image,str(context)],check=True,stdout=subprocess.DEVNULL)
           network=next(iter(state['NetworkSettings']['Networks']))
           program='''
@@ -83,7 +88,7 @@ jobs:
               print(json.dumps({'service':'isolated-ranking-candidate','run_id':run_id,'levels':levels,'peak_rss_mb':round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024,1),'seconds':round(time.monotonic()-began,2)}),flush=True)
           '''
           import textwrap
-          completed=subprocess.run(['docker','run','--rm','-i','--name','pdca-ranking-candidate-aeaf885f','--memory=768m','--memory-swap=768m','--network',network,'--env-file',str(env),image,'python','-'],input=textwrap.dedent(program),text=True,capture_output=True,timeout=210)
+          completed=subprocess.run(['docker','run','--rm','-i','--name','pdca-ranking-candidate-393e3dab','--memory=768m','--memory-swap=768m','--network',network,'--env-file',str(env),image,'python','-'],input=textwrap.dedent(program),text=True,capture_output=True,timeout=210)
           # Whitelist JSON result; never publish raw exceptions, SQL or parameters.
           for line in completed.stdout.splitlines():
               if line.startswith('{'):
