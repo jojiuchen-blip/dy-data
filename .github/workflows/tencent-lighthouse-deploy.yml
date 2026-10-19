@@ -64,4 +64,41 @@ jobs:
               frames=collections.Counter(re.findall(r'File "(/app/[^"\n]+\.py)", line ([0-9]+)',content))
               print(json.dumps({'service':service,'frames':[{'path':p,'line':n,'count':v} for (p,n),v in frames.most_common(18)]}))
           PY
+          c exec -T worker python - <<'PY'
+          import sys,json,resource,signal,time,os
+          from datetime import datetime,timezone
+          resource.setrlimit(resource.RLIMIT_AS,(900*1024*1024,900*1024*1024))
+          signal.alarm(120)
+          from sqlalchemy import select,text
+          from dy_api.pdca_readonly_access import _open_pdca_readonly_session
+          from apps.api.dy_api.ranking_schema_v1 import eligibility
+          from apps.api.dy_api.ranking_snapshots import calculate_snapshot
+          scope=_open_pdca_readonly_session(); session=next(scope)
+          assert session.scalar(text('SHOW transaction_read_only'))=='on'
+          start=datetime.fromisoformat('2026-09-01T00:00:00+08:00'); end=datetime.fromisoformat('2026-10-20T00:00:00+08:00')
+          version=session.scalar(select(eligibility.c.eligibility_version).where(eligibility.c.product_scope=='精诚养车',eligibility.c.effective_from<=start).order_by(eligibility.c.effective_from.desc()).limit(1))
+          points={};ticks=0;last={};began=time.monotonic()
+          class ProbeStop(Exception): pass
+          def trace(frame,event,arg):
+              global ticks,last
+              name=frame.f_code.co_name; file=frame.f_code.co_filename.rsplit('/',1)[-1]
+              if file not in ('ranking_snapshots.py','clue_followup_metrics.py'): return None
+              if event=='line':
+                  ticks+=1
+                  if name=='calculate_snapshot' and frame.f_lineno>=358: raise ProbeStop('before_write')
+                  if ticks%1000==1:
+                      rss=int(open('/proc/self/statm').read().split()[1])*os.sysconf('SC_PAGE_SIZE')//1024
+                      last={'function':name,'line':frame.f_lineno,'rss_kb':rss,'seconds':round(time.monotonic()-began,2)}
+                      if rss>points.get(name,{}).get('rss_kb',0): points[name]=last
+                      if rss>450*1024: raise ProbeStop('memory_guard')
+              return trace
+          result={}
+          try:
+              sys.settrace(trace)
+              calculate_snapshot(session,run_id='readonly-memory-probe-20261019',period_start=start,period_end=end,observed_through=datetime.now(timezone.utc),roster_at=start,eligibility_version=version,data_mode='business',max_period_rows=50000)
+          except Exception as e: result={'exception_type':type(e).__name__,'reason':str(e) if isinstance(e,ProbeStop) else 'withheld'}
+          finally:
+              sys.settrace(None);scope.close();signal.alarm(0)
+          print(json.dumps({'service':'ranking-readonly-probe','result':result,'last':last,'peaks':points},sort_keys=True))
+          PY
           REMOTE
