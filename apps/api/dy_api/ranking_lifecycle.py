@@ -576,17 +576,23 @@ def _future_terminal_payload_min(
         return []
     from apps.api.dy_api.clue_followup_metrics import load_terminal_evidence
 
-    evidence_by_order = load_terminal_evidence(
-        session,
-        order_ids,
-        observed_through=cutoff,
-        include_raw_clues=True,
-    )
     boundaries: list[datetime] = []
-    for evidence in evidence_by_order.values():
-        terminal_at = utc(evidence.terminal_at)
-        if terminal_at is not None and terminal_at > cutoff:
-            boundaries.append(terminal_at)
+    # The loader batches SQL but retains raw JSON for every requested order.
+    # Bound its whole working set, not just each SQL IN list. Terminal facts
+    # are order-local; retain only the resulting future timestamps per chunk.
+    values = tuple(sorted(order_ids))
+    for offset in range(0, len(values), 500):
+        evidence_by_order = load_terminal_evidence(
+            session,
+            values[offset:offset + 500],
+            observed_through=cutoff,
+            include_raw_clues=True,
+        )
+        for evidence in evidence_by_order.values():
+            terminal_at = utc(evidence.terminal_at)
+            if terminal_at is not None and terminal_at > cutoff:
+                boundaries.append(terminal_at)
+        del evidence_by_order
     return boundaries
 
 
