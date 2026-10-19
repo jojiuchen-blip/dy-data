@@ -22,6 +22,7 @@ from test_dashboard_publication_finance import (
     test_monthly_frozen_lines_match_multicoupon_refund_and_locked_facts as _assert_monthly_lines,
     test_selector_months_follow_cutoff_without_empty_current_month as _assert_selector_months,
     test_selector_keeps_real_current_month_period as _assert_current_month_period,
+    test_finance_retired_statement_allocation_keeps_period_totals_and_filter_parity as _assert_retired_allocation,
 )
 from dy_api.dashboard_publications.schema import metadata, runs
 from dy_api.db import normalize_database_url
@@ -70,6 +71,18 @@ def postgres_session():
 @pytest.mark.parametrize("direction", ["PROMOTION", "MANAGEMENT"])
 def test_postgres_finance_parity(postgres_session, direction, monkeypatch):
     _assert_finance_parity(postgres_session, direction, monkeypatch)
+
+
+@pytest.mark.parametrize("invoice_status,allocation_current,invoice_current,tombstone", [
+    (2, True, True, False), (3, True, True, False),
+    (3, False, True, False), (3, True, False, False),
+    (3, True, True, True), (4, True, True, False),
+])
+def test_postgres_retired_statement_allocation(
+    postgres_session, invoice_status, allocation_current, invoice_current, tombstone,
+):
+    _assert_retired_allocation(postgres_session, invoice_status, allocation_current,
+        invoice_current, tombstone)
 
 
 @pytest.mark.parametrize("legacy_root", [False, True])

@@ -477,8 +477,16 @@ def build_finance(session: Session, publication_id: str, cutoff: datetime) -> di
     ).where(PromotionInvoiceAllocation.is_current.is_(True),
             PromotionInvoice.is_current.is_(True), PromotionInvoice.is_tombstone.is_(False)))
     for allocation, invoice in allocations:
-        values = totals.get((allocation.statement_id, "PROMOTION"))
-        if values is not None and invoice.invoice_status in (2, 3):
+        if invoice.invoice_status in (2, 3):
+            # An effective store/month allocation can outlive the statement
+            # version it references. Retain that identity for row-filter parity,
+            # while current statements alone contribute statement/confirmed fees.
+            values = totals.setdefault((allocation.statement_id, "PROMOTION"), {
+                "publication_id": publication_id, "statement_id": allocation.statement_id,
+                "fee_direction": "PROMOTION", "store_id": allocation.store_id,
+                "month": allocation.statement_month, "amount_cent": 0, "confirmed_cent": 0,
+                "issued_cent": 0, "settled_cent": 0,
+            })
             values["issued_cent"] += int(allocation.allocated_amount_cent)
             if invoice.invoice_status == 3:
                 values["settled_cent"] += int(allocation.allocated_amount_cent)

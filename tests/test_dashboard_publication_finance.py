@@ -117,6 +117,61 @@ def _legacy_invoices(session, *, include_history=False, **filters):
     return publication._json_value(items)
 
 
+@pytest.mark.parametrize("invoice_status,allocation_current,invoice_current,tombstone", [
+    (2, True, True, False), (3, True, True, False),
+    (3, False, True, False), (3, True, False, False),
+    (3, True, True, True), (4, True, True, False),
+])
+def test_finance_retired_statement_allocation_keeps_period_totals_and_filter_parity(
+    db_session, invoice_status, allocation_current, invoice_current, tombstone,
+):
+    _seed_finance(db_session)
+    old_id = "statement-allowed-2026-10"
+    db_session.execute(update(SettlementStatement).where(
+        SettlementStatement.statement_id == old_id).values(is_current=False))
+    db_session.add(SettlementStatement(statement_id="statement-allowed-oct-v2", store_id="allowed",
+        statement_month="2026-10", version_no=2, is_current=True, statement_status=4,
+        supersedes_statement_id=old_id, promotion_original_fee_cent=1203,
+        promotion_net_fee_cent=1203, store_name_snapshot="Historical allowed",
+        sap_code_snapshot="HIST-allowed"))
+    db_session.add(SettlementStatementConfirmation(confirmation_id="oct-v2-confirmation",
+        statement_id="statement-allowed-oct-v2", fee_direction=1, confirmation_status=1,
+        confirmed_amount_cent=1203, confirmed_by="allowed", confirmed_at=NOW))
+    db_session.execute(update(PromotionInvoice).values(invoice_status=invoice_status,
+        is_current=invoice_current, is_tombstone=tombstone))
+    db_session.execute(update(PromotionInvoiceAllocation).values(is_current=allocation_current))
+    db_session.commit()
+    _run(db_session, "finance-retired", "finance")
+    publication.build_finance(db_session, "finance-retired", NOW)
+    filters = dict(month="2026-10", metric_scope="MONTH", fee_direction="PROMOTION",
+        store_id="allowed", q=None, invoice_status=None, scope_store_ids=None)
+    issued = 1203 if allocation_current and invoice_current and not tombstone and invoice_status in (2, 3) else 0
+    result = publication.read_finance_summary(db_session, "finance-retired", **filters)
+    assert result["metrics"]["statement_total_cent"] == 1203
+    assert result["metrics"]["confirmed_amount_cent"] == 1203
+    assert result["metrics"]["issued_amount_cent"] == issued
+    assert result["metrics"]["settled_or_deducted_amount_cent"] == (issued if invoice_status == 3 else 0)
+    snapshots = []
+    for metric_scope in ("MONTH", "CUMULATIVE"):
+        for extra in ({}, {"q": "SAP-allowed"}, {"q": "12345678901234567890"},
+                {"invoice_status": 1}, {"invoice_status": 2}, {"invoice_status": 3},
+                {"scope_store_ids": ("allowed",)}, {"scope_store_ids": ()},
+                {"scope_store_ids": ("other",)}):
+            selected = filters | {"metric_scope": metric_scope} | extra
+            metrics = publication.read_finance_summary(db_session, "finance-retired", **selected)
+            assert metrics["metrics"] == _legacy_summary(db_session, **selected), selected
+            exported = publication.export_finance_invoices(db_session, "finance-retired", **selected)
+            assert exported == _legacy_invoices(db_session, **selected), selected
+            assert publication.read_finance_invoices(db_session, "finance-retired", **selected)["list"] == exported
+            snapshots.append((selected, metrics, exported))
+    db_session.execute(update(PromotionInvoiceAllocation).values(is_current=False))
+    db_session.execute(update(PromotionInvoice).values(invoice_status=4))
+    db_session.commit()
+    for selected, metrics, exported in snapshots:
+        assert publication.read_finance_summary(db_session, "finance-retired", **selected) == metrics
+        assert publication.export_finance_invoices(db_session, "finance-retired", **selected) == exported
+
+
 @pytest.mark.parametrize("direction", ["PROMOTION", "MANAGEMENT"])
 def test_finance_parity_scope_filters_export_and_frozen_source(db_session, direction, monkeypatch):
     _seed_finance(db_session)
