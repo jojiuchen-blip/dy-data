@@ -259,3 +259,58 @@ def test_filter_choices_use_frozen_shanghai_months_and_cutoff_organization(sourc
     finally:
         event.remove(source.bind, "before_cursor_execute", guard)
     assert statements
+
+
+def test_builder_round_evidence_does_not_trigger_per_round_lazy_sql(source):
+    source.expunge_all()
+
+    def reject_lazy_load(state):
+        assert not state.is_column_load, "round evidence must be batch loaded, never one SELECT per field per round"
+
+    event.listen(source, "do_orm_execute", reject_lazy_load)
+    try:
+        add_publication(source)
+        ranking.build(source, "pub", CUTOFF)
+    finally:
+        event.remove(source, "do_orm_execute", reject_lazy_load)
+
+
+def test_outside_eligibility_quality_is_unique_null_safe_and_matches_old_report(source):
+    from apps.api.dy_api.models import DimAwemeAccount
+
+    source.execute(eligibility.insert(), [dict(eligibility_version="older-" + str(number),
+        service_store_code="TEST-A", product_scope="精诚养车", effective_from=START - timedelta(days=number + 1),
+        source_hash="test") for number in range(3)])
+    source.add(DimAwemeAccount(account_id="no-historical-org", store_id="NO-ORG", binding_status="active"))
+    source.add_all([
+        RawDouyinOrder(order_id="null-owner", sku_id="TEST-JC", owner_account_id=None, sale_time=AT),
+        RawDouyinOrder(order_id="unknown-owner", sku_id="TEST-JC", owner_account_id="unknown", sale_time=AT),
+        RawDouyinOrder(order_id="missing-org", sku_id="TEST-JC", owner_account_id="no-historical-org", sale_time=AT),
+        RawDouyinOrder(order_id="outside", sku_id="TEST-JC", owner_account_id="D-store", sale_time=AT),
+    ])
+    source.commit()
+    freeze(source)
+    result = compare(source, level="store")
+    assert result["totals"]["order_count"] == 11
+    assert result["quality_json"]["orders_outside_eligibility"] == 1
+    assert result["quality_json"]["missing_account_binding"] == 2
+    assert result["quality_json"]["missing_historical_store_mapping"] == 1
+
+
+def test_empty_eligibility_remains_explicit_configuration_error(source):
+    source.execute(eligibility.delete())
+    source.commit()
+    freeze(source)
+    with pytest.raises(ValueError, match="名单"):
+        ranking.read_report(source, "pub", period_start=START, period_end=END)
+
+
+def test_sales_preaggregation_preserves_null_organization_names_and_counts(source):
+    source.execute(org_history.update().values(group_key=None, group_name=None))
+    source.commit()
+    freeze(source)
+    result = compare(source, level="group")
+    assert result["total"] == 1
+    assert result["rows"][0]["key"] == "unmapped:group"
+    assert result["rows"][0]["name"] == "未映射组织"
+    assert result["totals"]["order_count"] == 10

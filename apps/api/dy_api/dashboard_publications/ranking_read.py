@@ -59,7 +59,7 @@ def read_report(
     if eligible_version is None:
         raise ValueError("所选日期缺少精诚养车适用门店名单，请先由管理员导入")
     eligible = select(eligibility.c.service_store_code).where(eligibility.c.publication_id == publication_id,
-        eligibility.c.eligibility_version == eligible_version).subquery("eligible_codes")
+        eligibility.c.eligibility_version == eligible_version).distinct().subquery("eligible_codes")
     roster = select(organizations).where(pub_org, organizations.c.mapping_version == version).subquery("sales_roster")
     # Reject incomplete configuration rather than return partial denominators.
     invalid_eligibility = session.scalar(select(func.count()).select_from(eligibility).where(
@@ -96,7 +96,10 @@ def read_report(
         orders.c.occurred_at >= start, orders.c.occurred_at < end,
         scope_predicate(product_scope, orders.c.is_jingcheng)).cte("selected_orders")
     sales_source = selected_orders.join(roster, selected_orders.c.store_id == roster.c.store_id)
-    sales_fragment = fragment(sales_source, roster, {"order_count": literal(1)}).where(selected_orders.c.reason.is_(None))
+    # Sales are unique frozen orders. Fold additive counts before the UNION so
+    # global rankings do not sort a wide fragment once for every source order.
+    sales_fragment = fragment(sales_source, roster, {"order_count": func.count()}).where(
+        selected_orders.c.reason.is_(None)).group_by(roster.c[key_field], roster.c[name_field])
 
     # All rounds remain available. Query-dependent earliest responsibility is
     # selected after date/product filtering, never by adding daily distincts.
@@ -130,15 +133,16 @@ def read_report(
             *[values.get(field, literal(0)).label(field) for field in FIELDS]).select_from(source)
 
     if scope_store_ids is None:
-        orders_with_org = selected_orders.outerjoin(roster, selected_orders.c.store_id == roster.c.store_id)
+        orders_with_org = selected_orders.outerjoin(roster, selected_orders.c.store_id == roster.c.store_id).outerjoin(
+            eligible, roster.c.service_store_code == eligible.c.service_store_code)
         quality_reason = case((selected_orders.c.reason.is_not(None), selected_orders.c.reason),
             (roster.c.store_id.is_(None), literal("missing_historical_store_mapping")))
         statements.append(quality_statement("order_quality", orders_with_org, {
             "order_count": func.count(),
             "follow_numerator": func.sum(case((selected_orders.c.historical_unverified, 1), else_=0)),
             "follow_denominator": func.sum(case((and_(selected_orders.c.reason.is_(None), roster.c.store_id.is_not(None),
-                roster.c.service_store_code.not_in(select(eligible))), 1), else_=0)),
-        }, key=quality_reason).group_by(quality_reason))
+                eligible.c.service_store_code.is_(None)), 1), else_=0)),
+        }, key=quality_reason).group_by(selected_orders.c.reason, roster.c.store_id.is_(None)))
         missing_org = responsibility_org.c.store_id.is_(None)
         uniform = selected_rounds.c.min_version == selected_rounds.c.max_version
         earliest = selected_rounds.c.position == 1

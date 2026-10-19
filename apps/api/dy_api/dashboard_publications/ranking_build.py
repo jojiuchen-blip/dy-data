@@ -133,7 +133,9 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
         ).order_by(ClueAssignmentRound.assignment_round_id).limit(BATCH_SIZE).options(load_only(
             ClueAssignmentRound.assignment_round_id, ClueAssignmentRound.order_id, ClueAssignmentRound.lead_key,
             ClueAssignmentRound.assigned_at, ClueAssignmentRound.assigned_store_id, ClueAssignmentRound.execution_mode,
-            ClueAssignmentRound.metric_follow_24h_start_at))
+            ClueAssignmentRound.metric_follow_24h_start_at, ClueAssignmentRound.round_no,
+            ClueAssignmentRound.verified_store_id, ClueAssignmentRound.verified_at, ClueAssignmentRound.updated_at,
+            raiseload=True))
         if last_round is not None:
             statement = statement.where(ClueAssignmentRound.assignment_round_id > last_round)
         batch = list(session.execute(statement))
