@@ -4,7 +4,7 @@ from time import perf_counter
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, event, func, select, text
+from sqlalchemy import create_engine, event, func, literal_column, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
@@ -179,3 +179,81 @@ def test_real_builder_postgres_parity_rollback_and_source_independence(pg):
         session.execute(ClueFollowUpRecord.__table__.delete())
         session.commit()
         assert ranking.read_report(session, "pub", period_start=START, period_end=END) == new
+
+
+def test_round_membership_is_batch_bounded_and_uses_source_indexes(pg, monkeypatch):
+    from apps.api.dy_api.dashboard_publications import ranking_build
+    from apps.api.dy_api.models import Base, ClueAssignmentRound, ClueCenterOrder, RawDouyinClue, RawDouyinOrder
+    from apps.api.dy_api.ranking_schema_v1 import metadata as old_metadata
+    from test_dashboard_publication_ranking import old_membership, seed_membership_cases
+
+    Base.metadata.create_all(pg)
+    old_metadata.create_all(pg)
+    with Session(pg) as session:
+        expected = seed_membership_cases(session)
+        # Unlike the original scale fixture, all membership sources are large
+        # and overlap. Unrelated rows must never be hydrated as membership.
+        for table, key, product_column in (
+            (RawDouyinOrder.__table__, "order_id", "sku_id"),
+            (RawDouyinClue.__table__, "clue_row_key", "product_id"),
+            (ClueCenterOrder.__table__, "order_id", "product_id"),
+        ):
+            columns = [key, product_column]
+            expressions = ["'noise-' || number", "'member-sku'"]
+            if key != "order_id":
+                columns.append("order_id")
+                expressions.append("'noise-' || number")
+            if table is ClueCenterOrder.__table__:
+                columns.extend(("lead_status", "current_round_status"))
+                expressions.extend(("'assigned'", "'active'"))
+            session.execute(table.insert().from_select(columns, select(*(
+                literal_column(value) for value in expressions)).select_from(text("generate_series(1,20000) AS number"))))
+            session.execute(text("ANALYZE " + table.name))
+        session.commit()
+        assert old_membership(session, expected) == expected
+        queries = []
+
+        def capture(connection, cursor, statement, parameters, context, executemany):
+            if statement.lstrip().startswith("SELECT DISTINCT") and any(
+                "FROM " + model.__tablename__ in statement for model in (RawDouyinOrder, RawDouyinClue, ClueCenterOrder)
+            ):
+                queries.append((statement, parameters))
+
+        monkeypatch.setattr(ranking_build, "BATCH_SIZE", 2)
+        session.execute(text("SET LOCAL work_mem = '16MB'"))
+        session.execute(runs.insert().values(id="pub", module="douyin-ranking", status="building",
+            cutoff=CUTOFF, created_at=CUTOFF, stats_json={}))
+        event.listen(pg, "before_cursor_execute", capture)
+        try:
+            ranking.build(session, "pub", CUTOFF)
+        finally:
+            event.remove(pg, "before_cursor_execute", capture)
+        actual = dict(session.execute(select(frozen.rounds.c.order_id, frozen.rounds.c.is_jingcheng).where(
+            frozen.rounds.c.publication_id == "pub")).all())
+        assert actual == expected
+        assert len(queries) == 12  # Four round batches, three membership sources each.
+        evidence = []
+        for statement, parameters in queries:
+            batch_parameters = [value for key, value in parameters.items() if key.startswith("order_id_")]
+            assert 1 <= len(batch_parameters) <= 2
+            assert set(batch_parameters).issubset(expected)
+            plan = session.connection().exec_driver_sql(
+                "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + statement, parameters).scalar_one()[0]
+
+            def nodes(node):
+                yield node
+                for child in node.get("Plans", []):
+                    yield from nodes(child)
+
+            source_nodes = [node for node in nodes(plan["Plan"]) if node.get("Relation Name")]
+            assert source_nodes
+            assert all(node["Node Type"] in {"Index Scan", "Index Only Scan", "Bitmap Heap Scan"} for node in source_nodes)
+            assert plan["Plan"]["Actual Rows"] <= len(batch_parameters)
+            # One requested order deliberately has two raw-clue rows.
+            assert sum(node["Actual Rows"] for node in source_nodes) <= len(batch_parameters) + 1
+            assert not any("SubPlan" in node.get("Parent Relationship", "") for node in nodes(plan["Plan"]))
+            evidence.append({"relation": source_nodes[0]["Relation Name"], "batch": len(batch_parameters),
+                "node": source_nodes[0]["Node Type"], "execution_ms": plan["Execution Time"],
+                "source_rows": sum(node["Actual Rows"] for node in source_nodes)})
+        print("ROUND_MEMBERSHIP_BATCH_PLANS=" + str(evidence))
+        session.rollback()
