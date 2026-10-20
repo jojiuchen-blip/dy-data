@@ -32,3 +32,14 @@
 - Codex 完全权限独立综合验收：13 个相关测试文件，首次 `205 passed, 8 skipped, 1 failed`（282.17 秒）。唯一失败是旧 scheduler 测试未模拟新增月结依赖；修正测试夹具后独立重跑 `tests/test_worker_subprocess_recovery.py`，`12 passed, 8 skipped`（9.20 秒），退出码 0。综合范围内的全部失败已消除，合计 206 个用例通过、8 个跳过。
 - 生产连接复核：结算页 HTTPS 返回 200；SSH 在 banner exchange 阶段超时。网页可访问不代表具备部署或历史补跑通道。
 - 原始 `worker_exit_1` 的具体异常仍需生产完整日志核验；本轮修复恢复机制与错误证据保留，不声称已证实原始崩溃原因。
+
+## 2026-10-20：PR #50 恢复请求回执复核修复
+
+- 归属既有 DYDATA-102 T0.1 完成标准第 4 项（同源重试幂等），并按 `docs/plans/dydata-102-103-production-release-plan.md` §6 的“同一 Idempotency-Key 返回同一代”合同修复；不增加恢复预算或新的任务范围，T0.1 仍为进行中。
+- 根因：控制事件已存在时，`operations._replayed_recovery` 使用原计划会随第二代更新的 `recovered_by` 字段，导致重放第一代请求返回第二代任务。真实应用路由可复现：请求 A 创建第一代，将第一代置为失败后请求 B 创建第二代，再重放 A，错误返回第二代 ID。
+- 修复：控制事件重放按当前请求键查找原恢复代，重验原计划、窗口、数据源，以及恢复元数据和代际记录中的请求键、序号与配置；已有恢复代但尚无控制事件的路径复用同一校验。缺失或冲突的代际证据返回 409，不回退到最新代，也不重新派发任务。原计划的 `recovered_by` 仍可指向最新代。
+- 回归验证：真实 API 覆盖 A→第一代、B→第二代，重放前后 JobRun、JobEvent 和原计划恢复元数据不增加或改变；缺失代、未知配置、不同 root、窗口、数据源、缺少代际记录、非法记录条目及元数据/记录内请求键、序号、配置冲突等 12 项场景均被拒绝。
+- 失败前证据：`python -m pytest tests/test_job_recovery_and_evidence.py -q -k 'requested_generation_after_second or replay_rejects_invalid_generation' -p no:cacheprovider`，旧实现 **6 failed / 30 deselected，EXIT=1**；修复后同命令 **6 passed / 30 deselected，EXIT=0**，随后补充缺失代场景并纳入下述回归。
+- 元数据加强验证前证据：`python -m pytest tests/test_job_recovery_and_evidence.py -q -k 'replay_rejects_invalid_generation and (request_key or ordinal or ledger_config)' -p no:cacheprovider` → **5 failed / 37 deselected，EXIT=1**，随后由下述最终回归验证修复。
+- 完成验证：`python -m pytest tests/test_job_recovery_and_evidence.py tests/test_api_admin_sync_control_plane.py tests/test_month_close.py tests/test_settlement_month_scoped_rebuild.py -q -p no:cacheprovider` → **72 passed，EXIT=0**；治理套包 `npm --prefix .agent/project-manager-suite run test:ai-pm` → **122 passed，EXIT=0**。套包锁、全局文件、S4 路由、计划一致性、T0.1 envReady/canExecute 及 `git diff --check` 均通过。
+- 本任务无 foundation 漂移；现有 common-contract §5.3 已要求同键同请求返回首次结果。全仓与真实 PostgreSQL 发布门禁由父任务在最终集成提交继续核验；本节不声明全仓、生产数据恢复或用户业务验收完成，未执行生产写入、推送或合并。

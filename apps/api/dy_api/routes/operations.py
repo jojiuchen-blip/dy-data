@@ -483,13 +483,19 @@ def _control_job(
         session, job_id=job_id, idempotency_key=key, request_sha=request_sha
     )
     if existing is not None:
+        recovery = _replayed_recovery(
+            job,
+            session,
+            action=action,
+            request_key=_idempotency_hash(idempotency_key),
+        )
         session.commit()
         return {
             **_job_summary(job),
             "replayed": True,
             "intent": action,
             **_recovery_snapshot(job, session),
-            **_replayed_recovery(job, session, action=action),
+            **recovery,
         }
     before = job.status
     now = _now()
@@ -590,15 +596,9 @@ def _recover_day_plan(
                 status_code=409,
                 detail="Idempotency-Key already scheduled recovery for another job",
             )
-        return {
-            "recovered": {
-                **_job_summary(recorded),
-                "ordinal": _recorded_ordinal(job, recorded.job_id),
-                "replayed": True,
-                "generation_budget": MAX_RECOVERY_GENERATIONS,
-                "generations_recorded": len(recovery_generations(job)),
-            }
-        }
+        return _replayed_recovery(
+            job, session, action="recover", request_key=request_key
+        )
     try:
         plan, replayed = plan_day_recovery(
             session,
@@ -626,7 +626,7 @@ def _recover_day_plan(
 
 
 def _replayed_recovery(
-    job: JobRun, session: Session, *, action: str
+    job: JobRun, session: Session, *, action: str, request_key: str
 ) -> dict[str, Any]:
     """Re-state the recovery generation a replayed control request refers to.
 
@@ -638,18 +638,45 @@ def _replayed_recovery(
         return {}
     from apps.worker.day_recovery import (
         MAX_RECOVERY_GENERATIONS,
-        RECOVERED_BY_KEY,
+        RECOVERY_ROOT_KEY,
+        generation_ordinal,
+        recovery_generation_by_request_key,
         recovery_generations,
     )
 
-    recovered_by = (job.metadata_json or {}).get(RECOVERED_BY_KEY)
-    parent = session.get(JobRun, recovered_by) if recovered_by else None
-    if parent is None:
-        return {}
+    # recovered_by names the latest generation and changes after another
+    # recovery. A control-event replay must resolve its own immutable key.
+    parent = recovery_generation_by_request_key(session, request_key)
+    entry = next(
+        (
+            item for item in recovery_generations(job)
+            if isinstance(item, dict)
+            and parent is not None
+            and item.get("parent_job_id") == parent.job_id
+            and item.get("request_key") == request_key
+        ),
+        {},
+    )
+    ordinal = entry.get("ordinal")
+    if (
+        parent is None
+        or (parent.metadata_json or {}).get(RECOVERY_ROOT_KEY) != job.job_id
+        or (parent.metadata_json or {}).get("recovery_request_key") != request_key
+        or entry.get("config_version") != parent.config_version
+        or not _same_day_window(job, parent)
+        or isinstance(ordinal, bool)
+        or not isinstance(ordinal, int)
+        or ordinal < 1
+        or generation_ordinal(parent) != ordinal
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Recovery request generation evidence is missing or conflicts",
+        )
     return {
         "recovered": {
             **_job_summary(parent),
-            "ordinal": _recorded_ordinal(job, parent.job_id),
+            "ordinal": ordinal,
             "replayed": True,
             "generation_budget": MAX_RECOVERY_GENERATIONS,
             "generations_recorded": len(recovery_generations(job)),
