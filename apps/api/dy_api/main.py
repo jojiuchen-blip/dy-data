@@ -21,6 +21,10 @@ from dy_api.cli_audit import (
 from dy_api.cli_contract import install_cli_exception_handlers
 from dy_api.mcp_oauth import DatabaseMcpOAuthProvider
 from dy_api.mcp_server import create_mcp_server, install_mcp_public_routes
+from dy_api.request_resource_observation import (
+    RequestResourceObservationMiddleware,
+    configure_request_resource_logging,
+)
 from dy_api.routes import (
     agent,
     admin,
@@ -49,6 +53,7 @@ def create_app(
 ) -> FastAPI:
     validate_agent_environment()
     configure_cli_audit_logging()
+    configure_request_resource_logging()
     oauth_provider = mcp_provider or DatabaseMcpOAuthProvider()
     mcp_server = create_mcp_server(
         oauth_provider, data_store_factory=mcp_data_store_factory
@@ -178,6 +183,7 @@ def create_app(
         name="mcp",
         include_in_schema=False,
     )
+    app.add_middleware(RequestResourceObservationMiddleware, router=app.router)
     return app
 
 
