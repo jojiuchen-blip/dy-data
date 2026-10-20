@@ -49,7 +49,11 @@ def prepare_marker(directory: Path) -> Path:
     """Create only our marker; reject unexpected contents or non-regular paths."""
 
     marker = directory / MARKER_NAME
-    if any(char in str(marker) for char in "\r\n|$"):
+    # The deployment writer uses a sed replacement and an unquoted dotenv
+    # value. Reject their metacharacters before creating any file. as_posix
+    # preserves literal backslashes on Linux without rejecting Windows test
+    # path separators.
+    if any(char.isspace() or char in "|$&#\\'\"`" for char in marker.as_posix()):
         raise ValueError("Capacity marker path is not safe for the deployment environment")
     try:
         descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o444)

@@ -60,6 +60,8 @@ python scripts/backup_retention.py --backup-dir /path/to/backups --apply \
 
 容量必须读取真实 PostgreSQL 数据目录所在文件系统。部署先由 `scripts/prepare_postgres_capacity_probe.py --container-id <当前数据库容器 ID>` 读取 `SHOW data_directory` 并匹配最深持久挂载，只在该目录创建固定内容的 `.dydata-capacity-probe` 普通文件。将输出设置为部署环境的 `SETTLEMENT_COMPACTION_DISK_PROBE_SOURCE`，Compose 只向 worker 只读挂载该文件到 `/run/dydata/postgres-capacity`，禁止暴露数据库整卷或 Docker socket。迁移到其他主机或卷时必须重新推导来源，不能复制旧绝对路径。
 
+当前部署环境写入器仅接受不含空白和 `| $ & #`、引号、反引号、Linux 字面反斜杠的来源路径。探针工具会在创建文件前拒绝这些字符，避免升级时环境变量替换或 Compose 解析改变真实路径。自定义 bind 目录须满足此限制，不能忽略错误后沿用默认探针。
+
 运行时核对 marker 的类型、内容与文件身份，再用该文件所在文件系统的可用空间计算余量：保留至少 15% 或 10 GiB，并为估计写入和 WAL 另留预算。当前自动准入上限是 100,000 条 manifest、512 MiB 估计写入和 1 GiB WAL；这些是保守策略上限，不是生产容量测量结果。缺失或不匹配的 marker（包括默认 `/dev/null`）会拒绝维护，不能回退使用 worker 根文件系统。每次恢复执行都重新读取真实余量，恢复 checkpoint 的固定会计预算不能替代最新容量准入。
 
 维护日志的 deferred/blocked 原因、固定任务尝试数与发布收据分别留作证据。当前共享 heavy 槽覆盖日期同步、finalize、结算重建和压缩；旧产品同步入口尚未全部接入，不得宣称全部后台任务已全局互斥。部署前后须分别核验 marker 挂载、实际卷余量和服务健康；本地测试不能替代生产挂载验证。

@@ -48,3 +48,18 @@ def test_probe_rejects_directory_marker(tmp_path):
     (tmp_path / MARKER_NAME).mkdir()
     with pytest.raises(ValueError, match="regular, unlinked"):
         prepare_marker(tmp_path)
+
+
+@pytest.mark.parametrize("unsafe", ["&", "#", "$", "|", "'", '"', "`", " ", "\t", "\n", "\r"])
+def test_probe_rejects_environment_metacharacters_before_writing(tmp_path, unsafe):
+    directory = tmp_path / f"pg{unsafe}archive"
+    with pytest.raises(ValueError, match="not safe"):
+        prepare_marker(directory)
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Backslash is a path separator on Windows")
+def test_probe_rejects_literal_linux_backslash(tmp_path):
+    with pytest.raises(ValueError, match="not safe"):
+        prepare_marker(tmp_path / "pg\\archive")
+    assert list(tmp_path.iterdir()) == []
