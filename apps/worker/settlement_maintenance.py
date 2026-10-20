@@ -204,7 +204,7 @@ def _existing_job_blocks(session: Session, job: JobRun) -> bool:
     return False
 
 
-def _reconcile_pending(factory: sessionmaker, current_base: str | None) -> bool:
+def _reconcile_pending(factory: sessionmaker) -> bool:
     """Recover publish receipts before marking expired/queued old bases stale."""
     busy = False
     with session_scope(factory) as session:
@@ -228,14 +228,30 @@ def _reconcile_pending(factory: sessionmaker, current_base: str | None) -> bool:
             receipt = runner._find_publication_evidence(session, job_id=job.job_id, base_generation_id=base)
             if receipt is not None:
                 runner._finish_in_session(session, job, outcome="already_published", generation_id=receipt)
-            elif base != current_base:
+                continue
+            # The caller's cheap head read may predate a newer publication and
+            # its queued job. Re-read the actual pointer after locking the job,
+            # in the same JobRun -> active order used by the publisher. NOWAIT
+            # makes a conflicting publisher yield this entire transaction to
+            # the caller's safe-defer path instead of waiting in a lock cycle.
+            active_statement = select(SettlementProjectionActive.generation_id).where(
+                SettlementProjectionActive.projection_name == "settlement"
+            )
+            if session.get_bind().dialect.name == "postgresql":
+                active_statement = active_statement.with_for_update(nowait=True)
+            current_base = session.scalar(active_statement)
+            if base != current_base:
                 runner._stale_in_session(session, job, current_base=current_base)
-            elif int(job.attempt_count or 0) >= min(int(job.max_attempts or 3), 3):
-                job.status = "failed"
-                job.finished_at = now
-                job.claim_token = None
-                job.lease_expires_at = None
-                _record_blocked(session, job, "attempts_exhausted")
+            else:
+                # Even if the caller observed depth 47, a newer queued job may
+                # now require maintenance. Reserve this tick for that work.
+                busy = True
+                if int(job.attempt_count or 0) >= min(int(job.max_attempts or 3), 3):
+                    job.status = "failed"
+                    job.finished_at = now
+                    job.claim_token = None
+                    job.lease_expires_at = None
+                    _record_blocked(session, job, "attempts_exhausted")
     return busy
 
 
@@ -294,7 +310,7 @@ def process_automatic_settlement_maintenance(factory: sessionmaker) -> bool:
     """
     try:
         head = _active_head(factory)
-        busy = _reconcile_pending(factory, head[0] if head is not None else None)
+        busy = _reconcile_pending(factory)
         if head is None or head[2] == "compact" or head[1] < AUTOMATIC_MAINTENANCE_DEPTH:
             return busy
         if os.getenv("SETTLEMENT_AUTOMATIC_MAINTENANCE_ENABLED", "true").strip().lower() in {

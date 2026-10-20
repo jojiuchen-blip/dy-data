@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 import os
 from types import SimpleNamespace
+from threading import Event
 from uuid import uuid4
 
 import pytest
@@ -411,6 +413,21 @@ def test_manual_identity_is_not_automatically_taken_over(db_session, real_probe)
     assert "trigger" not in job.metadata_json
 
 
+def test_old_head_snapshot_does_not_stale_new_active_queued_job(db_session, real_probe, monkeypatch):
+    current = _seed_depth(db_session)
+    factory = _factory(db_session)
+    job_id = runner.enqueue_settlement_compaction_job(factory, base_generation_id=current,
+        batch_size=400, resource_limits=maintenance.disk_capacity_limits(),
+        trigger=maintenance.AUTOMATIC_MAINTENANCE_TRIGGER)
+    old = db_session.get(SettlementProjectionGeneration, current).base_generation_id
+    monkeypatch.setattr(maintenance, "_active_head", lambda factory: (old, 47, "lineage"))
+    assert maintenance.process_automatic_settlement_maintenance(factory) is True
+    db_session.expire_all()
+    job = db_session.get(JobRun, job_id)
+    assert job.status == "queued" and job.attempt_count == 0 and job.error_code is None
+    assert db_session.scalar(select(func.count()).select_from(JobEvent)) == 0
+
+
 @pytest.fixture
 def maintenance_pg():
     """Explicit disposable DB only; every invocation owns a unique schema."""
@@ -502,3 +519,100 @@ def test_pg_manifest_aggregate_stops_at_first_over_budget_key(maintenance_pg):
     assert estimate.manifest_rows == 100_001 and estimate.closure_rows == 1
     with pytest.raises(maintenance.MaintenanceAdmissionError, match="manifest_rows"):
         maintenance._check_estimate(estimate, _limits(rows=maintenance.MAX_MANIFEST_ROWS))
+
+
+def _seed_pg_reconcile_head(factory, *, generation_id="pg-reconcile-old", depth=47):
+    with session_scope(factory) as session:
+        session.add(SettlementProjectionGeneration(
+            generation_id=generation_id, generation_kind="lineage", state="published",
+            lineage_depth=depth, input_fingerprint=sha256(generation_id.encode()).hexdigest(),
+            manifest_checksum=bootstrap._manifest_checksum([]),
+        ))
+        session.flush()
+        session.add(SettlementProjectionActive(projection_name="settlement", generation_id=generation_id))
+    return generation_id
+
+
+def test_pg_head_advances_between_snapshot_and_reconciliation(maintenance_pg, monkeypatch):
+    """Two physical connections reproduce the reviewed publication interleave."""
+    factory = maintenance_pg
+    old = _seed_pg_reconcile_head(factory)
+    current = "pg-reconcile-current"
+    snapshot_read = Event()
+    publication_committed = Event()
+    original_head = maintenance._active_head
+    backend_ids = {}
+
+    def pause_after_head(thread_factory):
+        head = original_head(thread_factory)
+        with thread_factory() as session:
+            backend_ids["snapshot"] = session.scalar(select(func.pg_backend_pid()))
+        snapshot_read.set()
+        assert publication_committed.wait(10), "publication interleave did not complete"
+        return head
+
+    monkeypatch.setattr(maintenance, "_active_head", pause_after_head)
+
+    def reconcile_on_held_connection():
+        # Keep A's physical connection checked out while B commits the pointer
+        # and new job, so this cannot accidentally be a one-connection test.
+        with factory.kw["bind"].connect() as connection:
+            thread_factory = sessionmaker(bind=connection, autoflush=False, expire_on_commit=False)
+            return maintenance.process_automatic_settlement_maintenance(thread_factory)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(reconcile_on_held_connection)
+        try:
+            assert snapshot_read.wait(10), "old snapshot was not read"
+            with session_scope(factory) as session:
+                backend_ids["publisher"] = session.scalar(select(func.pg_backend_pid()))
+                session.get(SettlementProjectionGeneration, old).state = "superseded"
+                session.add(SettlementProjectionGeneration(
+                    generation_id=current, base_generation_id=old,
+                    generation_kind="lineage", state="published", lineage_depth=48,
+                    input_fingerprint=sha256(current.encode()).hexdigest(),
+                    manifest_checksum=bootstrap._manifest_checksum([]),
+                ))
+                session.flush()
+                session.get(SettlementProjectionActive, "settlement").generation_id = current
+            job_id = runner.enqueue_settlement_compaction_job(factory, base_generation_id=current,
+                batch_size=400, resource_limits=_limits(),
+                trigger=maintenance.AUTOMATIC_MAINTENANCE_TRIGGER)
+        finally:
+            publication_committed.set()
+        assert future.result(timeout=10) is True
+    assert backend_ids["snapshot"] != backend_ids["publisher"]
+    with factory() as session:
+        assert session.get(SettlementProjectionActive, "settlement").generation_id == current
+        job = session.get(JobRun, job_id)
+        assert job.status == "queued" and job.attempt_count == 0 and job.error_code is None
+        assert session.scalar(select(func.count()).select_from(JobEvent)) == 0
+
+
+def test_pg_active_lock_conflict_defers_and_releases_job_for_claim(maintenance_pg, monkeypatch):
+    """A publisher's active lock must not leave reconciliation holding a job."""
+    factory = maintenance_pg
+    current = _seed_pg_reconcile_head(factory, generation_id="pg-reconcile-locked", depth=48)
+    job_id = runner.enqueue_settlement_compaction_job(factory, base_generation_id=current,
+        batch_size=400, resource_limits=_limits(), trigger=maintenance.AUTOMATIC_MAINTENANCE_TRIGGER)
+    # This test isolates lock order. SQL estimation and real resource admission
+    # are exercised by the separate complete PG publication test above.
+    monkeypatch.setattr(maintenance, "automatic_runner_resource_limits", lambda *args, **kwargs: _limits())
+    with factory() as publisher:
+        publisher.scalar(select(SettlementProjectionActive).where(
+            SettlementProjectionActive.projection_name == "settlement").with_for_update())
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            deferred = executor.submit(maintenance.process_automatic_settlement_maintenance, factory)
+            assert deferred.result(timeout=5) is True
+        with factory() as session:
+            job = session.get(JobRun, job_id)
+            assert job.status == "queued" and job.attempt_count == 0
+            assert session.scalar(select(func.count()).select_from(JobEvent)) == 0
+        # Still holding active on the publisher connection: the failed NOWAIT
+        # path must have rolled back and released its JobRun lock, admitting a
+        # concurrent claim without any lock cycle or consumed failed attempt.
+        claimed = runner.claim_settlement_compaction_job(factory, job_id=job_id, resource_decision="allow")
+        assert claimed is not None
+        with factory() as session:
+            job = session.get(JobRun, job_id)
+            assert job.status == "running" and job.attempt_count == 1
