@@ -174,6 +174,11 @@ jobs:
       - name: Build API Docker image
         run: docker build --build-arg PIP_INDEX_URL=https://pypi.org/simple -f apps/api/Dockerfile -t dy-dashboard-api:ci .
 
+      - name: Smoke test built API Docker image
+        env:
+          DY_API_IMAGE_SMOKE_IMAGE: dy-dashboard-api:ci
+        run: python -m pytest tests/test_api_image_runtime.py -q
+
       - name: Build Worker Docker image
         run: docker build --build-arg PIP_INDEX_URL=https://pypi.org/simple -f apps/worker/Dockerfile -t dy-dashboard-worker:ci .
 
