@@ -1989,10 +1989,17 @@ def test_scheduled_product_sync_runs_once_per_interval(monkeypatch):
     monkeypatch.setattr(scheduler, "douyin_app_id", lambda: "configured")
     monkeypatch.setattr(scheduler, "douyin_app_secret", lambda: "configured")
     monkeypatch.setattr(scheduler, "douyin_account_id", lambda: "configured")
+
+    def complete_product_sync(*, job_id, factory):
+        calls.append(job_id)
+        with factory() as session:
+            session.get(JobRun, job_id).status = "success"
+            session.commit()
+
     monkeypatch.setattr(
         scheduler,
         "run_product_sync_job",
-        lambda *, job_id, factory: calls.append(job_id),
+        complete_product_sync,
     )
     now = datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)
 
@@ -2008,7 +2015,7 @@ def test_scheduled_product_sync_runs_once_per_interval(monkeypatch):
     with factory() as session:
         job = session.get(JobRun, first)
         assert job is not None
-        assert job.status == "queued"
+        assert job.status == "success"
         assert job.metadata_json["mode"] == "INCREMENTAL"
 
 

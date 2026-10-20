@@ -107,7 +107,7 @@ jobs:
         env:
           DY_RELEASE_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_release
           DY_MAINTENANCE_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_release
-        run: python -m pytest tests/test_settlement_compaction_runner.py tests/test_job_recovery_and_evidence.py tests/test_settlement_rebuild_heavy_slot.py tests/test_settlement_maintenance.py -q
+        run: python -m pytest tests/test_settlement_compaction_runner.py tests/test_job_recovery_and_evidence.py tests/test_settlement_rebuild_heavy_slot.py tests/test_settlement_maintenance.py tests/test_product_sync_heavy_admission.py -q
 
       - name: Verify clue state transitions on PostgreSQL
         env:
