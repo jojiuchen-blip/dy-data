@@ -54,4 +54,14 @@ python scripts/backup_retention.py --backup-dir /path/to/backups --apply \
 
 ## 协作者操作要求
 
+### 自动结算链维护
+
+结算投影链达到深度 48 时，worker 优先调用有界压缩维护，硬限制 64 保持。每个 base 使用固定任务身份，最多三次尝试；耗尽、磁盘证据不足、资源冷却或同 base 手动任务需要处理时停止继续增长，不能更换任务 ID 绕过预算。`SETTLEMENT_AUTOMATIC_MAINTENANCE_ENABLED=false` 在已达阈值时同样安全延后，不代表允许无维护继续堆积。
+
+容量必须读取真实 PostgreSQL 数据目录所在文件系统。部署先由 `scripts/prepare_postgres_capacity_probe.py --container-id <当前数据库容器 ID>` 读取 `SHOW data_directory` 并匹配最深持久挂载，只在该目录创建固定内容的 `.dydata-capacity-probe` 普通文件。将输出设置为部署环境的 `SETTLEMENT_COMPACTION_DISK_PROBE_SOURCE`，Compose 只向 worker 只读挂载该文件到 `/run/dydata/postgres-capacity`，禁止暴露数据库整卷或 Docker socket。迁移到其他主机或卷时必须重新推导来源，不能复制旧绝对路径。
+
+运行时核对 marker 的类型、内容与文件身份，再用该文件所在文件系统的可用空间计算余量：保留至少 15% 或 10 GiB，并为估计写入和 WAL 另留预算。当前自动准入上限是 100,000 条 manifest、512 MiB 估计写入和 1 GiB WAL；这些是保守策略上限，不是生产容量测量结果。缺失或不匹配的 marker（包括默认 `/dev/null`）会拒绝维护，不能回退使用 worker 根文件系统。每次恢复执行都重新读取真实余量，恢复 checkpoint 的固定会计预算不能替代最新容量准入。
+
+维护日志的 deferred/blocked 原因、固定任务尝试数与发布收据分别留作证据。当前共享 heavy 槽覆盖日期同步、finalize、结算重建和压缩；旧产品同步入口尚未全部接入，不得宣称全部后台任务已全局互斥。部署前后须分别核验 marker 挂载、实际卷余量和服务健康；本地测试不能替代生产挂载验证。
+
 协作者开始涉及磁盘或备份的任务前，先阅读本规则和仓库根目录 `AGENTS.md`。报告必须区分“已扫描”“预演将删除”“实际已删除”和“文件系统已回收”；未经真实环境验证，不得声称线上空间、异地备份或恢复能力已经生效。发现路径越界、符号链接、文件变化、校验失败或容量门禁失败时，应停止删除并把证据交给主任务负责人。

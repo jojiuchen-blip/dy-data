@@ -583,6 +583,13 @@ compose build --progress=plain api web browser worker ops-agent publication-work
 
 log "starting postgres"
 compose up -d postgres
+wait_for_healthy_service postgres
+
+log "preparing read-only PostgreSQL filesystem capacity probe"
+postgres_container_id="$(compose ps -q postgres)"
+probe_source="$(sudo "$PYTHON_BIN" "$APP_DIR/scripts/prepare_postgres_capacity_probe.py" --container-id "$postgres_container_id")"
+ensure_env_value "SETTLEMENT_COMPACTION_DISK_PROBE_SOURCE" "$probe_source"
+validate_compose_config
 
 log "checking production migration lineage"
 check_production_migration_lineage

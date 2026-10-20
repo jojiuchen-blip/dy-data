@@ -1625,7 +1625,7 @@ def test_backfill_compatibility_queue_callback_is_not_executed_in_planning(db_se
     assert len(result.daily_jobs) == 2
 
 
-def test_run_once_processes_queued_rebuilds_before_and_during_backfill(monkeypatch):
+def test_run_once_checks_queue_once_before_planning_backfill(monkeypatch):
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -1643,8 +1643,7 @@ def test_run_once_processes_queued_rebuilds_before_and_during_backfill(monkeypat
     def fake_backfill(**kwargs):
         calls.append("backfill")
         assert kwargs["factory"] is factory
-        assert callable(kwargs["queued_job_runner"])
-        kwargs["queued_job_runner"]()
+        assert "queued_job_runner" not in kwargs
 
     monkeypatch.setenv("WORKER_MODE", "backfill")
     monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
@@ -1653,7 +1652,7 @@ def test_run_once_processes_queued_rebuilds_before_and_during_backfill(monkeypat
 
     run_once()
 
-    assert calls == ["queued", "backfill", "queued"]
+    assert calls == ["queued", "backfill"]
 
 
 def test_scheduler_main_polls_durable_queues_while_auto_sync_is_enabled(
@@ -1675,7 +1674,7 @@ def test_scheduler_main_polls_durable_queues_while_auto_sync_is_enabled(
         "_process_queued_jobs",
         lambda factory_arg: calls.append("queued"),
     )
-    monkeypatch.setattr(scheduler, "drain_ready_daily_children", lambda factory_arg: None)
+    monkeypatch.setattr(scheduler, "drain_ready_daily_children", lambda factory_arg, *, max_children: None)
 
     def stop_after_first_poll(seconds: float) -> None:
         del seconds

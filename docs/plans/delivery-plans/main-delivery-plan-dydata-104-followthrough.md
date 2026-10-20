@@ -64,8 +64,8 @@
 
 | Task | 子开发计划 | 状态 |
 |---|---|---|
-| T0.2 | [API 内存归因与限额验证](sub-delivery-plan-dydata-104-followthrough-T0.2-api-capacity.md) | 进行中 |
-| T0.1 | [账期默认值与现有下载反馈](sub-delivery-plan-dydata-104-followthrough-T0.1-filters-exports.md) | 待开发 |
+| T0.2 | [API 内存归因与限额验证](sub-delivery-plan-dydata-104-followthrough-T0.2-api-capacity.md) | 并行实施 |
+| T0.1 | [账期默认值与现有下载反馈](sub-delivery-plan-dydata-104-followthrough-T0.1-filters-exports.md) | 并行实施 |
 
 ### Phase 1：持续维护与九月业务恢复
 
@@ -74,7 +74,7 @@
 
 | Task | 子开发计划 | 状态 |
 |---|---|---|
-| T1.1 | [自然月运行与结算链自动维护](sub-delivery-plan-dydata-104-followthrough-T1.1-monthly-maintenance.md) | 待开发 |
+| T1.1 | [自然月运行与结算链自动维护](sub-delivery-plan-dydata-104-followthrough-T1.1-monthly-maintenance.md) | 进行中 |
 | T2.1 | [九月来源恢复、范围与费用对账](sub-delivery-plan-dydata-104-followthrough-T2.1-september-recovery.md) | 待开发 |
 
 ### Phase 2：受保护发布
@@ -88,7 +88,7 @@
 
 ## 4. 任务看板
 
-- [当前任务看板](task-kanban-dydata-104-followthrough.md)；当前 T0.2，优先处理 API 可用性，其余任务按依赖开展，状态三处同步。隔离 worker 的当前 Task 可以不同，主线程只集成已独立验收的代码，不覆盖各自计划状态。
+- [当前任务看板](task-kanban-dydata-104-followthrough.md)；当前 T1.1；T0.2 API 可用性由隔离 worker 并行实施，其余任务按依赖开展，状态三处同步。隔离 worker 的当前 Task 可以不同，主线程只集成已独立验收的代码，不覆盖各自计划状态。
 
 ## 5. 发布闸门
 

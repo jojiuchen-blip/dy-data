@@ -52,3 +52,33 @@ API 当前镜像 823e554a8f9d、10/19 15:43 创建，768 MiB；worker 镜像 202
 - #50 合并 `aaa329f98e6d3b3a5d0e0538f24abda8cad10869`，#51 合并 `05a7e2455d3883d0587b3dcf8bd8f014cd7b579f`；最终树 `0b5c1bd9d5f9fab9725ca047b41d6e0f021c6e4e` 与已验证候选树一致。
 - 自动部署变量均为 false。本轮合并未触发生产切换。
 - 104 从合并后的 main 新建独立工作树；原工作区未提交改动保留。以下开发开始以本节为当前基线，前文“待合并”均为历史记录。
+
+## 11:32 当前集成与复核
+
+- 已集成共享 heavy 槽、API 请求资源观察、默认上月与五处 SKU 下载反馈、自动维护核心和可复跑 HTTP 容量脚本。仅本地代码，尚未推送或部署本轮 104 修复。
+- 用户确认未来账号、渠道范围从生效月持续适用直到明确修改/停用，已追加 S4-FCR-015 与接口说明。按账号、渠道独立选择最新版本，不跳过停用、不复制每月规则，原账单保护保持。当前实现与保护回归正在隔离树收口。
+- 主线程发现并修复 legacy 周期规划被积压饿死、DRAIN 放行直接重任务、直接任务定时器未推进三项调度问题。startup/run-once/poll 共用单轮预算，日期 drain 上限一条，财务检测上限一条；轻量日期规划不被重任务积压阻挡。
+- 主线程独立回归：调度/采集/子进程/财务检测/月结 104 passed / 8 skipped；新增流式指纹兼容、探针与调度 43 passed；观察器+探针 33 passed；UI 真实 Chromium+FastAPI 与探针 28 passed；部署相关 49 passed。Web build 通过，现有大 bundle 提示仍在。skip 是显式 PostgreSQL 环境门禁，不能当作 PG 已通过。
+- 自动维护执行器组合 365 passed / 6 skipped；独立容器 Linux + 两项真实 PG 37 passed，覆盖 49 层发布和 100100 条 manifest 截止预算。但独立代码审查复现旧 head 快照误终止新 base queued job，已要求修复并追加确定性 PG 回归，当前不能将原 17b1bfd1 判为最终可发布。
+- 通用容量探针与部署接线已实现：真实 PG data_directory → 持久挂载 → 只读 marker，当前仅本地路径/配置与脚本测试，未在生产创建或挂载 marker。自动预算为保守策略值，不是生产实测容量。
+
+### 真实 HTTP 容量证据
+
+隔离合成数据库规模保持 510467 订单、84944 轮次、85674 中心订单和 1531 门店；setup、API、client 分容器，API 768 MiB / 2 CPU / 禁 swap，正常 cookie 鉴权，仅替换测试 session。脚本 `scripts/benchmark_dashboard_http.py` 最终报告与文件 SHA 一致，自有 schema 已清理。
+
+- API cgroup 基线 145.33 MiB，峰值 184.66 MiB，RSS 峰值 207.03 MiB；不同指标不混用。OOMKilled=false、oom_kill=0。
+- 全年列表 0.891/0.866/0.932s；全年列表加筛选项稳定轮次 1.078/1.135s；并发全年读 1.079s、九月读 0.283s、全层导出 6.763s。单独全层 XLSX 导出 7.071s，152943 B，3 sheet 各 1681 组织行，各层订单合计 510467。
+- 334 条 SQL 观察中，源表读取、写入、builder 调用均为 0。401、422、410 与实际门店权限范围通过；A03 对所有初始化角色开放，不能伪造 403 场景。
+- 单个全年请求 0.889s，其中 SQL 0.828s、鉴权 9ms、序列化与 JSON 编码合计不足 1ms；最慢 selected_orders 查询 0.749s。导出 SQL 4.829s，其余 Python/框架 2.241s。
+- 内存与数据校验通过，全年完整首屏仍超过严格秒内目标，冷启动筛选 1.190s 的非 SQL 初始化来源未完整拆分。未复现旧 OOM，不宣称事故根因已证实；也不能将本榜单规模结果替代所有财务模块的规模验收。
+
+### 生产只读复核 11:31–11:32
+
+READ ONLY / REPEATABLE READ、statement_timeout 8s、lock_timeout 1s，完成后 rollback。首次查询误用了投影代次表复数名称而失败，事务回滚；按模型单数表名修正后成功，无生产写入。
+
+- 退款日期任务真实 success；九月旧 finalize 仍 failed 3/3、原根 failed、ordinal1 pending，没有虚改任务终态。
+- active 已自然推进至 published / depth24，另一个日期任务正在 settle，当前不是空闲窗口。
+- 仍是 Alembic 0062，静态发布表未建立；退款金额单位不明确 1375 条、券匹配歧义 27 条仍在。本轮不绕过完整基线或执行未知金额重放。
+- API、worker、ops-agent、browser、PostgreSQL healthy。根文件系统可用 21,229,232,128 B（约 19.77 GiB / 16.76%），df 使用率 83%。未执行额外清理或部署。
+
+本轮没有修改用户记忆文件。其余源码实现未发现新 foundation 漂移；范围语义变更以 FCR-015 留待 Foundation 正文同步。

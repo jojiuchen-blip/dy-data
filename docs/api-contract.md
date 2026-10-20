@@ -174,3 +174,7 @@ GET `/api/v1/dashboard/douyin-ranking/export`：沿用A03页面权限和账号�
 - 三个线索接口新增 `org_level=all|group|service_center|district|area|store` 和 `org_key`。key是JSON字符串数组：集团[name]、中心[name]、大区[center,district]、区域[center,district,area]、门店[store_id]。空key表示不额外收窄；非法/不完整路径422，越权路径返回空数据。
 - `GET /clues/filter-options/organizations?level=area&q=关键词&selected_key=...&limit=50` 返回 `{data:{options:[{value,label}]},meta}`。limit上限100；当前生效组织目录、仅授权门店、完整路径搜索；选中项在授权范围内时保留。集团与中心为独立维度。
 - 指标看板沿用所有有效账号全局可见规则；线索选项、查询、数量和导出按账号权限与组织筛选取交集。
+
+## 结算范围持续生效增量
+
+DYDATA-104 的账号、渠道生效月延续及显式停用接口见 [结算范围规则](api/settlement-scope-rules.md)。旧请求缺省启用保持幂等兼容，历史已确认账单不追溯。实际发布状态以开发日志为准。

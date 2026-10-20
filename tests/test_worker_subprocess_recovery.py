@@ -375,6 +375,8 @@ def test_scheduler_main_polls_queued_manual_jobs_when_auto_sync_is_disabled(
     calls: list[object] = []
     settlement_calls: list[object] = []
     finance_calls: list[object] = []
+    from apps.worker import settlement_maintenance
+    monkeypatch.setattr(settlement_maintenance, "process_automatic_settlement_maintenance", lambda _factory: False)
 
     monkeypatch.setenv("WORKER_RUN_ON_START", "false")
     monkeypatch.setenv("WORKER_EXECUTE_DAILY_CHILD", "true")
@@ -389,12 +391,12 @@ def test_scheduler_main_polls_queued_manual_jobs_when_auto_sync_is_disabled(
     monkeypatch.setattr(
         scheduler,
         "drain_ready_daily_children",
-        lambda passed_factory: (calls.append(passed_factory) or ()),
+        lambda passed_factory, *, max_children: (calls.append(passed_factory) or ()),
     )
     monkeypatch.setattr(
         scheduler,
         "process_queued_finance_dispute_detections",
-        lambda passed_factory: (finance_calls.append(passed_factory) or ()),
+        lambda passed_factory, *, max_jobs: (finance_calls.append(passed_factory) or None),
     )
     monkeypatch.setattr(
         scheduler,
@@ -426,7 +428,8 @@ def test_scheduler_queue_poll_is_independent_of_long_auto_plan_interval(
     durable_queue_calls: list[object] = []
     sleep_calls: list[float] = []
 
-    def fake_drain(passed_factory):
+    def fake_drain(passed_factory, *, max_children):
+        assert max_children == 1
         drain_calls.append(passed_factory)
         if len(drain_calls) >= 2:
             monkeypatch.setattr(scheduler, "_STOP", True)

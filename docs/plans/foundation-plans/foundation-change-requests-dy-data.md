@@ -281,3 +281,19 @@
 | 状态 | 待补证及 foundation-builder 修订；S4 仅落实失败关闭与安全预演，不宣称金额或历史覆盖已核准。 |
 
 证据与恢复边界见 [退款证据与受控恢复](../../api/refund-evidence-recovery.md)。不得用内部枚举反向解释上游字段、默认单位、改任务终态或批量重算来填补契约缺口。
+
+## S4-FCR-015：结算账号与渠道范围持续生效
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-015` |
+| 来源 Task | `DYDATA-104 / T1.1 自然月运行与结算链自动维护` |
+| 分类 | `DRIFT / GAP` |
+| 改动项 | 范围规则按账号、渠道独立构成生效月份时间线，沿用不晚于业务月的最新版本，支持从新生效月明确停用；不将旧启用规则复制到每个月。 |
+| 原因 | 用户 2026-10-20 明确确认持续沿用，直到修改或停用，历史已确认账单不追溯；原代码只匹配指定月份，且写接口只能启用，无法承接后续月份。 |
+| 指向代码块 | `apps/worker/settlement.py::_match_scope_rule`；`apps/api/dy_api/routes/fee_admin.py::create_settlement_scope_rules`；`apps/api/dy_api/schemas.py::SettlementScopeRuleCreateRequest`。 |
+| 目标 foundation 文件:章节 | `foundation-schema-dy-data/product-rule-source.md` 范围规则；`foundation-api-dy-data/billing-invoice.md` 月结与账单保护；范围配置接口对应章节。 |
+| 严重度 | 高；直接决定未来月份账号与渠道是否参与结算。 |
+| 状态 | 用户已确认；S4 实现与验证中，Foundation 正文待同步。 |
+
+裁决边界：先选择最新版本再判断启停，禁止跳过停用记录回退到旧启用。未提交渠道保持其独立时间线；同月唯一和不可变历史版本保持。缺省启用请求继续兼容既有幂等记录，显式停用参与请求指纹。账单确认、开票和付款仍由人工操作。无需结构迁移或规则逐月回填；读取语义随代码发布，回滚代码可恢复旧匹配方式，已生成账单和规则版本不得删除或覆盖。

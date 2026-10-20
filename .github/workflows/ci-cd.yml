@@ -103,10 +103,11 @@ jobs:
 
       # Explicit gate: the compaction runner and day-recovery suites skip their
       # PostgreSQL cases without the disposable loopback release database.
-      - name: Verify settlement compaction runner and day recovery on PostgreSQL
+      - name: Verify settlement maintenance, shared claims and day recovery on PostgreSQL
         env:
           DY_RELEASE_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_release
-        run: python -m pytest tests/test_settlement_compaction_runner.py tests/test_job_recovery_and_evidence.py -q
+          DY_MAINTENANCE_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_release
+        run: python -m pytest tests/test_settlement_compaction_runner.py tests/test_job_recovery_and_evidence.py tests/test_settlement_rebuild_heavy_slot.py tests/test_settlement_maintenance.py -q
 
       - name: Verify clue state transitions on PostgreSQL
         env:
