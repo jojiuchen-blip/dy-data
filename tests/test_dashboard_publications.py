@@ -214,13 +214,46 @@ def test_latest_failed_attempt_is_preserved_per_module_but_old_failures_are_remo
 def test_source_guard_ignores_old_failures_but_defers_active_materialization(factory):
     from apps.api.dy_api.dashboard_publications.sources import assert_sources_ready
     with factory.begin() as session:
-        session.execute(text("CREATE TABLE job_runs (job_name text, job_kind text, status text)"))
-        session.execute(text("INSERT INTO job_runs VALUES ('settlement_rebuild', NULL, 'failed')"))
+        session.execute(text("CREATE TABLE job_runs (job_id text, job_name text, job_kind text, status text, metadata_json json)"))
+        session.execute(text("INSERT INTO job_runs VALUES ('old', 'settlement_rebuild', NULL, 'failed', '{}')"))
         assert_sources_ready(session)
-        session.execute(text("INSERT INTO job_runs VALUES ('settlement_rebuild', NULL, 'running')"))
+        session.execute(text("INSERT INTO job_runs VALUES ('active', 'settlement_rebuild', NULL, 'running', '{}')"))
         with pytest.raises(PublicationError) as caught:
             assert_sources_ready(session)
         assert caught.value.code == "PUBLICATION_SOURCE_BUSY"
+
+
+@pytest.mark.parametrize("status,metadata_json", [
+    ("running", '{"needs_downstream_processing":false}'),
+    ("partial", '{"needs_downstream_processing":false}'),
+    ("failed", '{"needs_downstream_processing":true}'),
+    ("success", '{"needs_downstream_processing":true}'),
+    ("success", '{}'),
+])
+def test_refund_repair_does_not_release_dashboard_before_downstream_validation(factory, status, metadata_json):
+    from apps.api.dy_api.dashboard_publications.sources import assert_sources_ready
+    with factory.begin() as session:
+        session.execute(text("CREATE TABLE job_runs (job_id text, job_name text, job_kind text, status text, metadata_json json)"))
+        session.execute(text("INSERT INTO job_runs VALUES ('repair', 'refund_evidence_replay', NULL, :status, :metadata)"),
+                        {"status": status, "metadata": metadata_json})
+        with pytest.raises(PublicationError) as caught:
+            assert_sources_ready(session)
+        assert caught.value.code == "PUBLICATION_SOURCE_BUSY"
+        assert_sources_ready(session, exclude_repair_run_id="repair")
+        session.execute(text("INSERT INTO job_runs VALUES ('source', 'collect_once', NULL, 'running', '{}')"))
+        with pytest.raises(PublicationError):
+            assert_sources_ready(session, exclude_repair_run_id="source")
+
+
+def test_refund_repair_verified_completion_and_heavy_claim_lock(factory):
+    from apps.api.dy_api.dashboard_publications.sources import assert_sources_ready, writer_lock_keys
+    from apps.worker.repositories import HEAVY_SYNC_CLAIM_LOCK_KEY
+    assert HEAVY_SYNC_CLAIM_LOCK_KEY in writer_lock_keys()
+    with factory.begin() as session:
+        session.execute(text("CREATE TABLE job_runs (job_id text, job_name text, job_kind text, status text, metadata_json json)"))
+        session.execute(text("INSERT INTO job_runs VALUES ('repair', 'refund_evidence_replay', NULL, 'success', :metadata)"),
+                        {"metadata": '{"needs_downstream_processing":false}'})
+        assert_sources_ready(session)
 
 
 def test_source_dependency_names_exist_in_actual_schemas():

@@ -9,7 +9,7 @@ import hashlib
 import json
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
-from sqlalchemy import inspect, select, text
+from sqlalchemy import func, inspect, or_, select, text
 from sqlalchemy.orm import Session
 
 from .schema import source_counters
@@ -91,7 +91,7 @@ def source_fingerprint(session: Session, module: str | None = None, *, now: date
     return hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode()).hexdigest()
 
 
-def assert_sources_ready(session: Session) -> None:
+def assert_sources_ready(session: Session, *, exclude_repair_run_id: str | None = None) -> None:
     """Fail closed around known multi-transaction writers, without blocking them."""
     from .lifecycle import PublicationError  # Avoid the lifecycle/source import cycle.
 
@@ -106,6 +106,22 @@ def assert_sources_ready(session: Session) -> None:
     )).first()
     if busy:
         raise PublicationError("PUBLICATION_SOURCE_BUSY", "业务数据正在物化，保留上一完整版本", 503)
+    from apps.api.dy_api.models import JobRun
+
+    # A replay's event writes can finish before materialization/settlement.
+    # Keep the last complete dashboard until that downstream work is verified.
+    # The replay itself may exclude only its own repair audit, never a normal
+    # source writer. Missing recovery metadata is deliberately not a release.
+    pending_repair = session.scalar(select(JobRun.job_id).where(
+        JobRun.job_name == "refund_evidence_replay",
+        JobRun.job_id != (exclude_repair_run_id or ""),
+        or_(
+            JobRun.status.in_(("running", "retry_wait", "partial")),
+            func.coalesce(JobRun.metadata_json["needs_downstream_processing"].as_boolean(), True).is_(True),
+        ),
+    ).limit(1))
+    if pending_repair is not None:
+        raise PublicationError("PUBLICATION_SOURCE_BUSY", "退款修复尚未完成后续核验，保留上一完整版本", 503)
 
 
 def writer_lock_keys() -> tuple[int, ...]:
@@ -114,7 +130,10 @@ def writer_lock_keys() -> tuple[int, ...]:
     # selection only. Holding it shared prevents a NEW rebuild from starting;
     # assert_sources_ready detects one already running. The other key is
     # clue_allocation._advisory_lock_key(MASTER_MATERIALIZATION_LOCK).
-    return (0x4459444154410087, int.from_bytes(
+    # HEAVY_SYNC_CLAIM_LOCK_KEY also protects normal collection and bounded
+    # refund replay admission. Detect already-running writers above, and hold
+    # this shared lock to prevent a new claim after the readiness check.
+    return (0x4459444154410087, 661893198734880846, int.from_bytes(
         hashlib.sha256(b"clue-allocation-master-materialization").digest()[:8], "big", signed=True,
     ))
 
