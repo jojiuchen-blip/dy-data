@@ -39,6 +39,7 @@ from apps.api.dy_api.models import (
     SettlementOrderDetail,
 )
 from apps.worker.order_status import normalize_coupon_status, resolve_clue_order_status
+from apps.worker.collectors.normalizers import is_platform_after_sale_payload
 
 
 FOLLOW_UP_METRIC_VERSION = "clue-followup-v5-common-business-denominator"
@@ -515,6 +516,11 @@ def _refund_type(row: Any) -> str | None:
     payload = getattr(row, "raw_payload", None)
     value: Any = None
     if isinstance(payload, Mapping):
+        if is_platform_after_sale_payload(payload):
+            # A completed platform after-sale does not prove the entire order
+            # was refunded. Only an independent order/coupon projection can
+            # establish that; its refund timestamp may still be used below.
+            return None
         value = payload.get("refund_type") or payload.get("type")
         if isinstance(value, Mapping):
             value = value.get("value")

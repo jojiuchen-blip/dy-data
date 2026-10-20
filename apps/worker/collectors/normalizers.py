@@ -2,7 +2,24 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any
+from typing import Any, Mapping
+
+
+def is_platform_after_sale_payload(payload: Mapping[str, Any]) -> bool:
+    """Native refund_type describes the initiator, never partial/full scope."""
+    return any(
+        key in payload
+        for key in (
+            "after_sale_id",
+            "after_sale",
+            "refund_info_list",
+            "times_card_refund_info_list",
+            "merchant_account_id",
+            "total_refund_amount",
+            "real_refund_amount",
+            "user_refund_amount",
+        )
+    )
 
 
 def first(payload: dict[str, Any], *paths: str) -> Any:

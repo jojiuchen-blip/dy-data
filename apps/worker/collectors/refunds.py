@@ -15,7 +15,9 @@ from apps.api.dy_api.models import (
     RawDouyinOrderCoupon,
     RawDouyinRefundRecord,
 )
-from apps.worker.collectors.normalizers import data_items, first, get_path, source_datetime, text
+from apps.worker.collectors.normalizers import (
+    data_items, first, get_path, is_platform_after_sale_payload, source_datetime, text,
+)
 from apps.worker.collectors.types import CollectionWindow, PhaseStats
 from apps.worker.repositories import payload_fingerprint, upsert_data_quality_issue, upsert_refund_event
 
@@ -478,19 +480,7 @@ def _is_platform_after_sale(payload: dict[str, Any]) -> bool:
     Empty or malformed nested lists must not fall through to legacy parsing.
     """
 
-    return any(
-        key in payload
-        for key in (
-            "after_sale_id",
-            "after_sale",
-            "refund_info_list",
-            "times_card_refund_info_list",
-            "merchant_account_id",
-            "total_refund_amount",
-            "real_refund_amount",
-            "user_refund_amount",
-        )
-    )
+    return is_platform_after_sale_payload(payload)
 
 
 def _refund_type(payload: dict[str, Any]) -> int | None:
