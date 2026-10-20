@@ -16,7 +16,7 @@ import os
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.dy_api.db import session_scope
@@ -43,6 +43,7 @@ PRIORITY_DAILY_CUTOFF = time(2, 0)
 DIMENSION_REFRESH_INTERVAL = timedelta(minutes=30)
 MAX_HISTORY_SCAN_DAYS = 3_660
 MAX_PRIORITY_ROWS = 2_000
+MAX_DIMENSION_RETRY_CANDIDATES = 64
 DIMENSION_TARGETS = ("shop_pois", "aweme_bindings", "backend_aweme_export")
 DAILY_JOB_KINDS = ("parent_sync", "date_sync", "finalize")
 DAILY_REQUIRED_PURPOSE = "daily_required"
@@ -377,6 +378,39 @@ def run_priority_daily_tick(
                 selected_purpose=DAILY_REQUIRED_PURPOSE,
                 product_sync_job_id=product_job_id,
                 status="success",
+            )
+        )
+
+    # Keep current daily work, today's dimension cadence and product refresh
+    # ahead of old dimension retries. Drain at most one old job per tick before
+    # optional history, through the same fenced supervisor as every other job.
+    with session_scope(factory) as session:
+        dimension_retry = _select_cross_day_dimension_retry(session, local_now)
+        retry_job_id = dimension_retry.job_id if dimension_retry is not None else None
+        retry_date = _job_business_date(dimension_retry) if dimension_retry is not None else None
+        if dimension_retry is not None:
+            assert retry_job_id is not None and retry_date is not None
+            _stamp_job_metadata(
+                session,
+                job_id=retry_job_id,
+                purpose=DAILY_REQUIRED_PURPOSE,
+                priority_date=retry_date,
+                request_budget_date=local_now.date(),
+            )
+    if retry_job_id is not None:
+        blocked = _resource_wait(retry_date, retry_job_id, DAILY_REQUIRED_PURPOSE)
+        if blocked is not None:
+            return _snapshot(blocked)
+        result = (child_runner or _default_child_runner)(factory, retry_job_id)
+        return _snapshot(
+            PriorityTickResult(
+                mode=PRIORITY_DAILY_MODE,
+                action="executed",
+                business_date=retry_date,
+                selected_job_id=retry_job_id,
+                selected_purpose=DAILY_REQUIRED_PURPOSE,
+                status=_result_status(result),
+                reason=_result_reason(result),
             )
         )
 
@@ -879,6 +913,44 @@ def _select_due_dimension_candidate(
         allowed_purposes={DAILY_REQUIRED_PURPOSE},
         session=session,
     )
+
+
+def _select_cross_day_dimension_retry(session: Session, now: datetime) -> JobRun | None:
+    """Offer bounded old retries without changing their window or terminal state.
+
+    The indexed retry status narrows the queue before the SQL limit. Terminal,
+    future, exhausted and leased rows cannot crowd out an eligible retry.
+    Deterministic parent identity is still checked by the existing claim gate;
+    the supervisor remains authoritative for resource, cooldown and lease CAS.
+    """
+    today_start, _ = _day_window(now.date())
+    purpose = JobRun.metadata_json["priority_purpose"].as_string()
+    rows = session.scalars(
+        select(JobRun).where(
+            JobRun.status == "retry_wait",
+            JobRun.job_kind == "parent_sync",
+            JobRun.job_name == "parent_sync",
+            JobRun.execution_slot == "heavy_sync",
+            JobRun.config_version.like(f"{DIMENSION_CONFIG_PREFIX}%"),
+            JobRun.metadata_json["target"].as_string().in_(DIMENSION_TARGETS),
+            or_(purpose.is_(None), purpose == DAILY_REQUIRED_PURPOSE),
+            JobRun.window_start < today_start,
+            JobRun.window_end <= today_start,
+            JobRun.next_retry_at.is_not(None),
+            JobRun.next_retry_at <= now,
+            func.coalesce(JobRun.attempt_count, 0) < (
+                func.coalesce(JobRun.max_attempts, 3)
+                + func.coalesce(JobRun.quota_pause_count, 0)
+            ),
+            or_(JobRun.lease_expires_at.is_(None), JobRun.lease_expires_at <= now),
+            JobRun.cancel_requested_at.is_(None),
+            JobRun.pause_after_stage_requested_at.is_(None),
+        ).order_by(JobRun.next_retry_at, JobRun.job_id).limit(MAX_DIMENSION_RETRY_CANDIDATES)
+    )
+    for row in rows:
+        if _parent_gate_allows_selection(session, row):
+            return row
+    return None
 
 
 def _plan_due_dimensions(
