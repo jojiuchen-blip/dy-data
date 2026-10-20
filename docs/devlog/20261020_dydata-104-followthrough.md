@@ -188,3 +188,22 @@ READ ONLY / REPEATABLE READ、statement_timeout 8s、lock_timeout 1s，完成后
 - 发布脚本新增默认关闭的`DEPLOY_PRUNE_BUILD_CACHE_AFTER_BUILD`：显式true时只在所有镜像构建成功后执行`docker builder prune --force`，失败走现有错误处理；PostgreSQL、容量、备份、迁移、五模块首版及切换门禁保持原顺序。仅清理dangling构建缓存，实际释放量由df确认，不把unused估算作为可用空间。
 - 主线程`bash -n`与`git diff --check`通过；部署脚本、镜像回滚、publication预热、Compose和备份轮换组合68 passed / 1 skipped（16.33s），覆盖清理开关、失败退出及顺序。默认容量不足仍阻断，不降低15%和10GiB阈值。本增量无foundation漂移。
 - 独立审阅确认构建/清理失败传播和保留门禁有效；发现并修正显式空串与默认初始化的测试差异，harness现执行真实初始化。最终组合复验69 passed / 1 skipped（18.84s），bash语法和diff检查通过。
+
+### 16:12 新历史补采阻断与缓存清理
+
+- 15:40恢复旧worker后，正常调度启动业务日2026-07-24的`date-sync-07348cb62442bab8bf74eddbd0ca2de7`。16:04的READ ONLY有界诊断确认其为collect/retry_wait、douyin_rate_limited、attempt1/3、无lease；下一次本地重试2026-10-21 00:03:02+08。此时间不是上游配额恢复证据，历史请求还必须遵守02:00窗口。
+- checkpoint已提交53页：orders27、clues7、verify17完成，refunds2页未完成；无法从已有证据推算退款剩余页数。attempt峰值约98.4MiB，当前证据不支持OOM。
+- 经EXPLAIN确认source_run索引后查询：该run当前归属orders2250、coupons2158、verify327、clues662、refunds200，impacts3626（包含大量已有事实更新）。materialize/settle stage尚不存在。采集按页原子提交，collect committed_at空不表示未写；不能通过删除来源行回滚，更不能取消任务后把全局忙碌门禁解除当作完整性证据。
+- 维持真实重试与旧版服务，不取消该新任务、不发起额外上游试探、不绕过首版门禁。普通失败/取消任务的部分提交需保留独立完整性验收，任务终态本身不代表完整来源。DYDATA-104继续In Progress。
+- 16:11仅清理dangling构建缓存，命令为`docker builder prune --force`；执行前后核对7个真实运行回滚镜像、5个候选镜像和35个现有容器的镜像引用。没有修改镜像标签、容器、卷、备份或业务事实。
+- 引擎报告回收2.999GB，但文件系统实际由17,702,838,272B升至19,936,260,096B，实际释放2,233,421,824B（约2.08GiB）；随后复核可用19,936,178,176B（约18.57GiB/15.74%）。必须使用df实测，不能把引擎共享空间估算当作实际回收。报告`dydata104-dangling-cache-cleanup-20261020T081105820747Z.json`保留在生产日志目录。
+- 清理后API、worker、browser、ops-agent、PostgreSQL健康，正式入口HTTP200。生产源码89425aa0与0063加法迁移保留，但实际运行镜像仍是发布前原版；5个publication head仍为空。当前没有启动新备份、构建、迁移或切换。
+
+
+### 16:41 修复合并与最终只读核对
+
+- PR55已合并为`39a8a2364e51dfba8d605e377e6849df6c44d887`，合并内容树与精确测试提交`8985f5007dbfea15fd45cb8d883a6e224d675321`完全一致（`dc9990ef3384c0f81a7b98925caf8a812f832241`）。[CI 39390355995](https://github.com/jojiuchen-blip/dy-data/actions/runs/39390355995)全部成功：全仓4079 passed / 274 skipped（1732.50s），显式PG、前端、API/Worker/Browser/Web四镜像全部通过；静态发布PG专项53 passed / 4 skipped。PR55链接：https://github.com/jojiuchen-blip/dy-data/pull/55。
+- 原工作区仍为8项已跟踪修改和2项未跟踪文件，未覆盖。集成分支已经快进到已合并main，本节只记录结果，不包含新的业务代码。
+- 16:41生产只读核对：073日期任务仍为collect/retry_wait，无lease，attempt1/3；没有heavy任务正在执行。0063仍在，五个publication head仍为空；唯一首版失败原因保持SOURCE_CHANGED。
+- API/worker仍为原运行镜像，均healthy、OOM=false；browser、ops-agent、PostgreSQL也健康，正式入口200。根盘可用20,098,523,136B（约18.72GiB/15.86%），df使用率84%。本轮缓存清理没有错误，实际可用空间已回到15%以上；后续备份前仍必须重新测量，不据此预先放行未来写入。
+- 代码已合并，生产静态页面仍未切换。下一步须先确认在途日期任务退款采集与materialize/settle/finalize真实完成，再安排正常排空、备份、五模块预热和切换。正常请求限流和历史02:00窗口保持，不取消部分提交任务、不伪造success。没有创建新的周期任务或恢复已暂停的一次性自动化；现有正常采集调度继续运行。
