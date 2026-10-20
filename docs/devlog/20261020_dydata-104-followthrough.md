@@ -82,3 +82,37 @@ READ ONLY / REPEATABLE READ、statement_timeout 8s、lock_timeout 1s，完成后
 - API、worker、ops-agent、browser、PostgreSQL healthy。根文件系统可用 21,229,232,128 B（约 19.77 GiB / 16.76%），df 使用率 83%。未执行额外清理或部署。
 
 本轮没有修改用户记忆文件。其余源码实现未发现新 foundation 漂移；范围语义变更以 FCR-015 留待 Foundation 正文同步。
+
+### 最终集成专项补验
+
+- 范围规则已合入 `496b5191`；主线程独立 scope/API/billing 92 passed / 2 PG skipped。新增24项范围用例包含真实重算前后已确认账单全字段与来源指针不变；显式停用撤销未保护当前指针但保留历史金额。
+- 自动维护并发修复已合入 `55c87d23`：JobRun 锁后在同事务 NOWAIT 重读 active，冲突回滚并延后。主线程对冻结树在独立 Docker/PG 执行19项真实数据库专项全部通过（42.87s），覆盖共享领取15项与维护4项，包括旧head/新job竞态和锁冲突后继续领取。
+- 全仓第一次尝试在收集阶段失败：宿主机 site-packages 中第三方 `tests` 包遮蔽仓库命名空间，8个导入错误，业务测试未开始。已新建忽略的独立 `.venv`，按既有 requirements 安装后重跑，不修改测试断言或业务代码规避环境问题。
+
+### 冻结候选 HTTP 复测与并发复核
+
+- 候选 `55c87d23` 与实测合并节点 `7007256e` 的内容树均为 `120c22cbeedc63d0c1a67115900fdddefed33db8`。本节是包含请求观察器后的复测，前文较低峰值保留为历史结果。
+- 同规模独立 HTTP 测试退出0，API限额768 MiB / 2 CPU / 禁swap，cgroup基线185.39 MiB、峰225.39 MiB，RSS峰207.74 MiB。无OOM，334条SQL中源读取、写入及builder调用均为0；内容、权限、版本校验通过，自有测试schema清理后剩余0。
+- 全年列表1.140/0.884/0.858s；全年加筛选项1.464/1.185/1.081s；单独导出6.805s；并发全年/九月/导出0.977/0.213/6.773s。完整首屏仍未达到稳定秒内目标，不将容量通过写成性能目标全部通过。
+- 报告SHA256为`854418b6670ab69f879f23c862eff01b4b5219cad5f1e054d758f403363e2be9`。44组观察器start/end配对且末尾并发计数为0；但21个业务请求模板均为unknown，已定位到依赖允许的FastAPI0.150新式`_IncludedRouter`未被识别。该观察兼容问题另作修复和真实路由回归，不能用测试专用直接注册端点替代业务include_router验证。
+- 自动维护P1独立复核关闭：JobRun后锁active、NOWAIT冲突回滚、当前base queued任务保留本tick，符合发布锁顺序。复核者另跑3项竞态/receipt/stale用例通过；真实PG仍采用主线程19项实跑证据，不重复计数。
+
+### 收尾审查修正
+
+- `73192c22` 修复新式FastAPI路由树的观察器识别。仅读取注册元数据、缓存最多512个模板，不触发handler或改变scope。独立容器FastAPI0.150与0.136.3各40项通过，主集成环境另40项通过，覆盖真实业务include_router、嵌套prefix/mount、404/405、取消/流式/日志失败与隐私边界。全规模容量报告仍对应前一冻结候选，未将其冒充后续补丁的重测。
+- 部署审查实际复现自定义bind路径中`&`被既有sed替换器展开。`2e1bb5e5`在创建marker前拒绝环境写入和解析不安全字符，并写入通用规则。主线程Windows18项通过、1项Linux专属跳过；独立Linux容器19项全部通过，无网络和生产操作。
+- 独立审查另复现真实daily supervisor返回BUSY/0后，legacy入口仍运行未共享准入的商品同步。正在补齐正常商品runner的事务级heavy锁和资源/冷却检查，并让被延后的queued任务复用原身份恢复；不能仅凭BUSY全停而造成商品同步永久饥饿，也不能用一次未加锁的查询充当跨进程互斥。
+
+### 商品同步准入修复闭环
+
+- 已合入`9d40fc04`：正常API后台及scheduler共用的商品runner在现有单事务内取得PG共享try-lock，检查ALLOW、冷却和running writer SQL fence后才扫描来源/初始化adapter。正常领取设置heavy_sync，拒绝保留queued、attempt、metadata和cursor，后续调度复用原身份。事务中间没有commit，提交/回滚后释放锁；终态重复调用不再次采集。
+- 独立复核按原BUSY场景重放，确认adapter初始化为0、queued/attempt0不变，释放占位后同job成功；原P2关闭。旧interval测试的mock此前一直留下queued，已改为模拟真实成功提交，继续验证完成后的间隔限制；没有放松断言来允许重复成功执行。
+- Owner组合80 passed / 24 PG skipped，商品API13 passed，采集调度47 passed（旧interval mock由主线程另验）。主线程主集成商品+调度+修正interval组合37 passed / 5 PG skipped；CI已把新商品PG专项加入既有真实数据库步骤。实际PG结果另行记录，不把skip计成通过。
+- 主线程在合入后的源码上用隔离Linux容器独立执行新商品专项：21 passed / 0 skipped（13.32s），其中5项真实PG覆盖共享锁拒绝与恢复、running compaction、legacy NULL rebuild、商品事务反向阻止压缩领取直至提交，以及异常回滚恢复queued并释放锁。独立schema清理由fixture完成，未连接生产。
+
+### 草稿提交与完整验证安排
+
+- 最终业务代码冻结于`6481c2aa`。本地独立环境全仓回归从`55c87d23`开始，审查期间新增的观察器、路径和商品准入修复已分别在主线程专项复核；该长测试运行不能代替冻结提交的完整验证，最终以草稿PR上的精确提交CI为准。
+- 草稿PR仅用于代码审阅和并行CI，不合并、不部署，不将尚在运行的完整回归写成通过。上一轮CI完整pytest耗时约27分钟，因此不串行等待两轮长测试；本地结果与精确提交CI结果均在PR验证记录更新。
+- 远端main再次核对仍为`05a7e2455d3883d0587b3dcf8bd8f014cd7b579f`，无新冲突；原工作区的8项修改、2项未跟踪文件保持。项目suite锁、全局文档、S4路由、正式计划13/13结构、一致性和T1.1上下文验证通过。
+- 生产最后一次本轮只读证据见11:31–11:32节，后续未进行生产写入、迁移、重放、清理或部署。业务和生产验收尚未闭合，DYDATA-104继续In Progress。
