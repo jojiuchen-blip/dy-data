@@ -35,6 +35,7 @@ COPY alembic ./alembic
 COPY apps/api ./apps/api
 COPY apps/cli ./apps/cli
 COPY apps/worker ./apps/worker
+COPY apps/ops_agent ./apps/ops_agent
 
 EXPOSE 8000
 
