@@ -238,3 +238,70 @@ READ ONLY / REPEATABLE READ、statement_timeout 8s、lock_timeout 1s，完成后
 - 原规模fixture补充271,873条原始线索及混合线索中心商品，并验证每个成员查询订单参数不超500；完整规模结果另行记录。主线程已读差异并独立复验，最终CI仍待本提交完成。
 - 主线程独立复验：SQLite榜单39 passed / 11.53s；隔离Linux容器、独立PG schema的5项真实数据库测试全部通过 / 17.09s，新成员查询12个实际计划均走索引，原读取与回滚行为保持。生产额外READ ONLY/3s/无ANALYZE核验500个实际轮次订单的补丁查询形状：订单、原始线索分别命中order_id索引，线索中心使用商品索引与主键批次的BitmapAnd，没有Seq Scan或hashed SubPlan；成本估计不当作执行时间。
 - 18:32再次读取本轮备份归档目录通过，文件SHA256为`98a1dbf2750a4e75f88f9b5bddd7400e7e09df39e4d31c691a4b6f47a48adb4f`。恢复包装器经独立审查：仅允许本次读取代码/测试/文档增量，核对精确源码、已构建镜像、原回滚组、完整备份哈希、15%余量及实际0063版本，要求无既存publisher；随后复用原脚本的异常检查、五模块预热、健康和切换步骤。没有新迁移，不重复生成第三份整库dump。
+
+
+### 18:42 冻结候选与限额规模补验
+
+- PR56：https://github.com/jojiuchen-blip/dy-data/pull/56；冻结head为`e4bdea3b57f78e14e54d2cd62dbf713e59b06120`，完整CI 39409194230已启动。本节记录时专项PG门禁通过，正在全仓回归，不能提前记为全绿。
+- 主线程读取并核对新增规模报告：510,467订单、84,944轮次、85,674线索中心及271,873原始线索。不限CPU的builder50.20485秒、RSS约93.8MiB；实际cgroup `cpu.max=50000 100000`、`memory.max=805306368`下builder59.61182秒、CPU29.30秒、RSS95,313,920 B，沿用180秒预算通过。首版 stats为598,473行，data_as_of仍未知。此为隔离数据库合成规模，生产耗时另验。
+- 完整规模用例仍以1项失败结束：全年筛选和报表冷读合计1.065565秒（0.189426+0.876138），超出既有1秒阈值；热读0.885225/0.964616秒，常用月份约0.251–0.314秒。所有报表单接口均小于1秒，但不能据此声称所有组合及生产首屏已稳定秒内。未放宽阈值，也未扩展修改读取聚合。
+
+### 18:59 用户关机前保存发布现场
+
+- 用户要求让Dot盯进度后关闭电脑。本次实际可用工具未提供Dot消息/云端接手入口，已列出的任务执行主机均为local；因此没有声明已交接，也没有创建依赖本机在线却声称关机可用的自动化。GitHub CI 39409194230继续在GitHub运行，18:52仍处于全仓回归，尚未证明通过；PR56未合并，新版未部署。
+- PR56候选预构建成功，独立生产checkout为`releases/pr56-candidate-e4bdea3b`，源码精确为`e4bdea3b57f78e14e54d2cd62dbf713e59b06120`且干净；原生产repo仍为4e5626df。五个`candidate-56-e4bdea3b`镜像完整ID保存于生产`logs/dydata104-shutdown-checkpoint-20261020T105828502602Z.json`，API为6b0fe0f362dd、worker/publication-worker为2594c1ee91f6、web为3c441720f447、browser为658e9b66da9c、ops-agent为acbd7dcfd754。候选未用于任何运行容器。
+- 关机保护检查发现当前环境的`SETTLEMENT_COMPACTION_DISK_PROBE_SOURCE`与最初备份不同，预检查阻断两次，均未改配置或运行态。后续恢复只替换五个镜像pin，保留全部当前非镜像配置；旧配置完整备份为`logs/backups/failed-first-publication-20261020T105832442002Z.env`。
+- 18:58恢复原worker同一容器和原不可变镜像，重启策略恢复unless-stopped并启动成功；不再将正常采集留在为发布排空的停止状态。API、web等仍使用原运行版本。7/24取消结论保持，不恢复该任务，不将其不完整数据标记成功。
+- 仅清理dangling构建缓存，17个保护镜像与全部现有容器引用前后核对一致。磁盘实际由13,729,280,000 B升至14,721,728,512 B，回收992,448,512 B；没有删除镜像、业务事实、卷或整库备份。当前约13.71 GiB/11.62%，低于发布要求的15%，后续仍须按已审查精确清理流程释放余量，不能放宽门槛。引擎仅输出legacy-builder弃用提示，清理命令和恢复命令退出均为0。
+- 后续接续顺序：先读取本节，再检查PR56精确head CI及main变化；CI通过后才合并，比对合并树和候选镜像源码；重新正常排空worker并确认无writer，再按最新实际镜像pin调整一次性pin脚本（当前已恢复rollback标签，不能直接运行仍要求4e候选pin的旧包装器）。已完成的10:12 UTC备份及0063迁移可按原有精确检查点验证复用，不重复整库备份。容量通过后执行五模块首版、来源保护、服务切换、健康/真实页面/速度及最终磁盘检查。仍不得把五head齐全解释为所有历史账期来源完整。
+- 19:00最终复核：worker/API/browser/ops-agent/PostgreSQL均healthy，web/proxy运行中，正式入口HTTP200；worker原镜像、unless-stopped、OOM=false。磁盘14,721,527,808 B；CI精确head e4bdea3b仍in_progress。发布现场日志副本保存至生产logs/dydata104-shutdown-handoff-20261020.md，未改变PR56测试head或生产repo。
+
+### 19:50 继续发布、合并PR56与容量恢复
+
+- PR56冻结head `e4bdea3b57f78e14e54d2cd62dbf713e59b06120` 的CI 39409194230最终成功：全仓4080 passed / 275 skipped（1314.69秒），静态发布真实PG54 passed / 4 skipped，前端及四个镜像构建全部通过。19:40合并为`ade0ab1071e9489d0065722d5219d5d3f7ba5800`，内容树与已测试候选相同；本机集成工作树与生产repo均快进至该提交，原dy-data的8项跟踪修改和2个未跟踪文件保持。
+- 19:39及19:42有界READ ONLY检查无busy重采集任务。19:40:54旧worker正常停止，exit0、OOM=false。现有0063、原备份路径/大小/SHA、七个原回滚镜像复核保持；本次增量仅读取算法，不再次迁移或恢复数据库。此前恢复采集后的新增数据仍保留，旧dump不作为无损业务回滚点。
+- 容量独立审查先列出21个候选镜像；主线程dry-run额外用ancestor检查发现其中`a764c618`仍是运行API的祖先，未删除并替换为无引用的旧worker镜像。所有直接和祖先容器引用、Compose选用镜像、七回滚和五候选镜像均受保护。修订脚本先落prepared报告，逐标签执行非强制删除并fsync，异常补录剩余标签；最终21镜像/25标签成功退役，实际可用由14,107,410,432 B增至18,320,277,504 B。报告`dydata104-reviewed-image-cleanup-20261020T114714337898Z.json`。
+- 默认dangling清理只释放4,702,208 B，仍不足15%。独立核验108项缓存均InUse=false后，执行一次性`docker builder prune --all --force`清理未使用构建缓存，未调用image/system/volume prune。原部署脚本的默认dangling策略未改；本次命令、12保护镜像和全部容器引用前后检查保存在`dydata104-unused-cache-cleanup-20261020T114929473141Z.json`。df实际回收7,419,715,584 B，可用达到25,744,277,504 B（约23.98GiB/20.32%），不是采用引擎8.248GB估计值。未删除整库备份、业务事实或卷。
+- 五个最终release标签绑定至已保存candidate精确镜像ID，合并树相等检查通过。pin只更改镜像指向并保留容量探针等现有配置，报告`dydata104-retry-image-pins-20261020T114837818682Z.json`。恢复包装器又核对候选manifest完整身份、精确镜像ID及合并树，19:50开始按原异常检查、五模块warm和切换门禁继续；实际结果另行追加，不把开始预热记为部署成功。
+- 本轮治理锁、全局校验、计划一致性及Task上下文通过。本机Docker在关机后未启动，首次env-check如实失败；启动现有Docker Desktop后envReady复验通过，未绕过该门禁。本轮无新增foundation契约漂移。
+
+### 19:56 五模块首版成功及API打包故障恢复
+
+- 19:50:11至19:52:34抖音榜单warm成功（约143秒含进程启动；事务内约140.3秒），采样内存135.7MiB/768MiB；sales、clue-overview、settlement、finance分别于19:52:42、19:52:49、19:53:00、19:53:11发布成功。五heads均为success，来源完整时间均为null，如实显示未知。首版stats：榜单472118行、核销147382行、线索26410行、结算13402行、财务4234行；财务和结算的8/9/10月均未完整，不作为正常零金额发布。
+- 实际发布表只读测量：集团榜单约380–479ms、门店榜单414–604ms、核销九月299–304ms、线索22–35ms、财务/结算筛选73–93ms；核销全年1097–1389ms，仍超过1秒，不能声称所有筛选稳定秒内。8/9/10月财务及结算读取均返回PUBLICATION_PERIOD_NOT_READY（约0.6–1.5ms），未误显示正常零。这里是受限publisher容器中的数据库读函数测量，不是浏览器端到端耗时。
+- 独立publisher健康和readiness通过后，19:53:38开始替换API；新API启动失败，实际错误链为`dy_api.main -> routes.admin -> apps.worker.product_sync -> apps.ops_agent.resources`，报`ModuleNotFoundError: No module named 'apps.ops_agent'`。API Dockerfile包含worker但未包含ops_agent依赖；此前CI只构建镜像，没有验证构建产物导入/启动，故绿CI不足以覆盖这一打包错误。
+- 部署未完成，旧web/browser/ops-agent未切换。主线程停止新publisher，使用已核验的原API镜像重新创建API，重启原proxy以刷新地址，并恢复原worker和unless-stopped策略；未回滚数据库、未清除五个首版。19:56复核API/worker/PostgreSQL等均healthy，正式首页200、未认证auth/me返回401，磁盘25,891,344,384 B。
+- 继续在独立工作树修复API镜像依赖并补真实构建产物启动冒烟；本段不把恢复旧版或五heads成功记为新版部署成功。来源完整性和金额业务验收限制保持。
+
+### 20:14 API镜像修复及再次切换准备
+
+- PR57（https://github.com/jojiuchen-blip/dy-data/pull/57）冻结为`00a53ca5cbe6b5f31bc36af257772fe67b2f2318`，仅修改API Dockerfile、真实镜像测试和CI。补入`apps/ops_agent`，CI在镜像构建后执行默认CMD启动检查。原Dockerfile镜像的两项测试均失败并复现缺失模块；修复镜像及配置相关回归34项通过，主线程独立复跑2项镜像测试通过（10.26秒）。未修改业务算法、迁移或来源门禁。
+- 生产独立候选源码为该精确提交；执行真实Dockerfile构建得到API镜像`sha256:cd82712691052440edbc7a84360a706e64d4900b227b3d2ff35b5511e2fef832`。在无网络、无源码挂载、无生产配置的隔离容器内导入应用并以默认CMD启动，manifest 200、未认证API 401，11.58秒完成；证据为`dydata104-pr57-candidate-build.log`与`dydata104-pr57-verified-candidate.json`。其他四个镜像的运行源码未改，保留精确ID复用。
+- 独立复核续部署助手：合并树必须与CI冻结head一致；原七回滚镜像、旧worker正常停止、现有publisher停止且exit0/OOMfalse、0063、有效备份哈希及容量阈值均重新检查。继续执行原五模块预热、来源、readiness和健康门禁，不重复备份/迁移、不恢复旧dump。切换失败时尽力恢复各原服务和采集，原子恢复五个镜像pin，保留其他当前配置及publication；前置检查失败由主线程恢复采集。
+- 本节记录时CI 39419562553的真实PG与专项门禁已通过，全仓回归仍进行中；生产仍为健康旧服务，不能提前标为新版完成。无新增foundation漂移。
+
+### 20:54 PR57服务切换后页面验收失败与恢复
+
+- PR57冻结head `00a53ca5cbe6b5f31bc36af257772fe67b2f2318` 的CI 39419562553全部成功：4080 passed / 277 skipped（1655.93秒），静态PG54 passed / 4 skipped，真实API镜像启动2 passed（8.41秒）；前端及四镜像构建通过。20:41合并为`7b54b97cac4985b99d7db92ddd36e4b61c3f05bf`，内容树与冻结head相同。生产bundle验证后快进到该提交，源码干净。
+- 正常停止旧采集worker并复核无busy任务后，20:42:48至20:44:13榜单预热成功，事务约84.9秒；其余四模块至20:44:50成功。五个静态版本均有效，来源完整时间保持未知，财务/结算仍有3个未完整账期。20:46:27部署脚本的服务健康及HTTP通用冒烟通过并写last-deploy；这只代表服务切换完成，不代表页面验收成功。
+- 20:46:48真实登录浏览器访问抖音榜单，前端报`TypeError: a.toFixed is not a function`并白屏。定位到PostgreSQL聚合SUM(bigint)返回Decimal，榜单未归一化即经通用camelize转换成字符串，前端按数字格式化失败。此前读函数计时与镜像启动冒烟均未覆盖真实HTTP数值序列化边界；不能以4080项通过代替页面验收。
+- 20:48只恢复原API及web不可变镜像并重启proxy，未恢复数据库、未删除成功publication。20:53原API healthy、web运行正常，实际登录页面数据恢复，白屏消失。新worker、publication-worker、browser及ops-agent继续运行7b54版本并健康，均无OOM/重启；这段运行态属于有记录的混合版本，不能称为新版验收完成。
+- 20:54将API/WEB两项环境镜像pin原子对齐实际恢复版本，其他配置及新后台服务pin保持。配置备份与报告`dydata104-numeric-recovery-20261020T125415844591Z.json`保存在生产日志目录。磁盘可用25,486,938,112 B（20.117%）。正在独立工作树修榜单读取契约，要求真实PG→FastAPI HTTP→实际前端格式化函数先红后绿，并覆盖其他四模块避免同类泄漏；sales已有Pydantic转换，无需扩展修改。
+
+### 21:09 PR58数值契约修复、真实页面与发布准备
+
+- PR58（https://github.com/jojiuchen-blip/dy-data/pull/58）冻结head为`33a7ebed391d1c6579ceae971e54c09d440f73d0`，仅修改ranking_read的4行计数归一化及新增五模块PG HTTP测试。原代码2 failed / 4 passed，复现数字字符串及真实前端displayAverage的toFixed错误；修复相关53 passed、真实PG榜单5 passed，主线程独立6 passed（45.68秒）。未改全局Decimal序列化、财务计算、schema、builder、来源指纹或完整性规则。
+- 从精确源码构建API镜像`sha256:19def0cc1fb97bc4ad194cfb04b69a48d2c7f62dde72715ffb5d3c19de0ff623`，无网络/无源码挂载默认CMD启动与HTTP通用冒烟12.35秒通过。生产READ ONLY/有界超时使用该候选读取当前真实静态版本，集团、门店、空筛选的计数与比例经过同一camelize边界均为数字，耗时336.29/343.69/310.22ms；该项为读取及序列化检查，不冒充真实登录HTTP或浏览器耗时。
+- 主线程在仅loopback、独立fixture schemas的真实FastAPI与现有前端上完成五模块浏览器验收：榜单集团/门店显示3单、2店、店均1.50，零值0.00及无样本显示正确；核销周期/图表、线索、门店结算和财务看板正常渲染，均有publication时间提示，控制台无error。真实下载榜单Excel为8555B，三工作表均记录同一版本pub，指标值1.5/0.333333/1。此为合成业务数据，不等于生产金额对账通过；超JS安全整数的极值仅证明HTTP分值精确保留，前端极值金额显示不作为精度验收。
+- 独立审查确认本增量只影响API读端，已发布schema及builder内容不变：无需再次全库备份/迁移、无需重算五模块、无需停止采集或替换其他后台服务。一次性切换助手要求最终CI成功、merge tree一致、精确双文件diff、0063复核、双readiness、候选不可变镜像和reader字节绑定，并在切换前重复实时数值探针。只更新API/web镜像pin与容器，保留五后台容器ID，失败恢复两服务并校验实际镜像、HTTP和收据；六种控制流故障模拟独立复验通过。
+- CI 39426294993已通过PG专项并在全仓回归阶段；此节记录时尚未完成，未执行PR58生产切换。原工作区改动保持，未新增Linear或启用周期自动化。
+
+### 21:38 新版生产切换及实际页面验收完成
+
+- PR58冻结head `33a7ebed391d1c6579ceae971e54c09d440f73d0`的[CI 39426294993](https://github.com/jojiuchen-blip/dy-data/actions/runs/39426294993)全部成功：全仓4080 passed / 283 skipped（1235.91秒），静态PG60 passed / 4 skipped（57.47秒），真实API镜像启动2 passed（4.98秒），前端及四镜像构建通过。合并为`5da13df156601d2ac423ba1a4cd111cd6dfc2b4d`，内容树`bc954ab1cc31c0c1138f29bd8a50ad27b4579208`与已测试head相同。
+- 21:26:29正式切换成功：API运行`sha256:19def0cc1fb97bc4ad194cfb04b69a48d2c7f62dde72715ffb5d3c19de0ff623`，web复用未改源码镜像`sha256:3c441720f4471cd578abdc0820c0511e9d46c9748751509f68d9dea97fa6a15a`。其余五后台容器ID保持，proxy重启刷新地址；未重复迁移、备份、物化或停止采集，0063及原回滚镜像保留。切换报告为`logs/dydata104-pr58-cutover-20261020T132600940353Z.json`。
+- 正式登录浏览器实测：榜单整页刷新1897ms；集团切门店727ms；排序切回订单量743ms；核销全年切九月607ms；线索状态筛选335ms。均正常显示已发布结果，核销图表和平均周期正常，无新增控制台error。一次排序等待使用了错误标题而超时，实际页面正常，该计时不计入性能证据。核销全年HTTP仍为1095.886ms，不宣称全部组合稳定秒内。
+- 实际下载榜单Excel为246527B、三个工作表各1596条门店结果；标题第9行、数据第10行起，不能把标题算成一条业务结果。三表版本均为`3627afa6e6a4402486b1b396394d8ab6`，发布时间21:20:23，与当时页面一致；SHA256为`2d87f19b8e1082f2ae76b7ff82b5bd3d7587141e167ee8c192cd199c4ccfb853`。导出HTTP3404.323ms、浏览器下载观测6168ms，读取当前版本，不重建来源结果。
+- 订单分佣8/9/10月均明确提示`PUBLICATION_PERIOD_NOT_READY`；推广费和管理费九月提示未完成、金额为占位符且导出禁用，没有正常零金额。财务失败状态不伪造版本时间，顶栏显示准备结果提示；榜单/核销/线索及结算已有版本展示实际发布时间。来源完整时间仍未知。五head于21:34有界READ ONLY复核均success，后台正常生成后续版本、无heavy任务，不能把这一状态解释为历史账期完整。
+- 21:35:38生产8服务均运行，配置健康检查的服务均healthy，OOM=false、重启次数0。64条请求中422为0、异常为0；5次503分别是三次结算和两次财务未完成账期保护，无意外5xx。API cgroup当前197550080B（188.4MiB）、峰值206692352B（197.1MiB）/768MiB，oom事件0；publisher峰值约319.7MiB/768MiB。根盘可用24959713280B（23.25GiB/19.701%），高于15%/10GiB门槛。
+- 生产`last-deploy.json`已由browser_acceptance=pending更新为passed，另记`business_baseline=deferred_with_incomplete_period_guards`；脱敏验收收据为`logs/dydata104-pr58-browser-acceptance-20261020.json`。本地`.tmp/`保留runtime、内存、head、导出元数据和`pr58-production-ranking.png`截图。部署及技术验收完成，T2.1仍暂缓、T3.1保留业务验收，104不关闭。未复活7/24任务、未更新Linear、未更改原dy-data工作区。
