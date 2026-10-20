@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
 from dy_api.auth import AuthContext, get_current_user  # noqa: E402
+from publication_fixture_helpers import publish_fixture
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
 from apps.api.dy_api.models import (  # noqa: E402
@@ -181,6 +182,7 @@ def test_computed_promotion_list_keeps_one_row_and_respects_scope(
     db_session.commit()
     _act_as_restricted_finance_admin(client, store_ids=(statement.store_id,))
     params = {"month": "2026-08", "feeDirection": "PROMOTION", "metricScope": "MONTH"}
+    publish_fixture(db_session, "finance")
     listed = client.get("/api/v1/admin/finance/invoices", params=params)
     assert listed.status_code == 200
     assert listed.json()["data"]["total"] == 1
@@ -298,6 +300,7 @@ def test_promotion_summary_has_exactly_five_cards_and_rejected_amount_is_pending
     )
     _login(client)
 
+    publish_fixture(db_session, "finance")
     response = client.get(
         "/api/v1/admin/finance/summary",
         params={
@@ -676,6 +679,7 @@ def test_invoice_list_exposes_only_official_frozen_contract_facts(
     db_session.commit()
     _login(client)
 
+    publish_fixture(db_session, "finance")
     response = client.get(
         "/api/v1/admin/finance/invoices",
         params={"month": "2026-08", "feeDirection": "PROMOTION"},
@@ -755,6 +759,7 @@ def test_fee_summary_list_and_export_apply_one_shared_filter_contract(
         "invoiceStatus": "REJECTED_REUPLOAD",
     }
 
+    publish_fixture(db_session, "finance")
     summary = client.get("/api/v1/admin/finance/summary", params=filters)
     listed = client.get("/api/v1/admin/finance/invoices", params=filters)
     exported = client.get(
@@ -823,6 +828,7 @@ def test_management_confirmed_statement_without_invoice_is_pending_in_list_expor
         "invoiceStatus": "PENDING_INVOICE",
     }
 
+    publish_fixture(db_session, "finance")
     summary = client.get("/api/v1/admin/finance/summary", params=filters)
     listed = client.get("/api/v1/admin/finance/invoices", params=filters)
     exported = client.get(
@@ -934,6 +940,7 @@ def test_fee_list_and_export_apply_cumulative_metric_scope_like_summary(
         "invoiceStatus": "REJECTED_REUPLOAD",
     }
 
+    publish_fixture(db_session, "finance")
     summary = client.get("/api/v1/admin/finance/summary", params=filters)
     listed = client.get("/api/v1/admin/finance/invoices", params=filters)
     exported = client.get(
@@ -1706,7 +1713,7 @@ def test_finance_import_templates_are_real_header_only_files(
 
 
 def test_finance_contract_exports_are_header_only_when_no_official_rows_exist(
-    client: TestClient,
+    client: TestClient, db_session: Session,
 ) -> None:
     _login(client)
     endpoints = (
@@ -1733,6 +1740,7 @@ def test_finance_contract_exports_are_header_only_when_no_official_rows_exist(
         ("/api/v1/admin/disputes/export", {}),
     )
 
+    publish_fixture(db_session, "finance")
     for endpoint, params in endpoints:
         response = client.get(endpoint, params=params)
         assert response.status_code == 200
@@ -1744,7 +1752,7 @@ def test_finance_contract_exports_are_header_only_when_no_official_rows_exist(
 
 
 def test_finance_pages_use_independent_stable_page_keys(
-    client: TestClient,
+    client: TestClient, db_session: Session,
 ) -> None:
     _act_as_restricted_finance_admin(
         client,
@@ -1756,6 +1764,7 @@ def test_finance_pages_use_independent_stable_page_keys(
         "metricScope": "MONTH",
     }
 
+    publish_fixture(db_session, "finance")
     promotion = client.get(
         "/api/v1/admin/finance/summary",
         params={**common, "feeDirection": "PROMOTION"},
@@ -1910,6 +1919,7 @@ def test_restricted_finance_admin_queries_exports_and_writes_stay_in_store_scope
         "feeDirection": "PROMOTION",
         "metricScope": "MONTH",
     }
+    publish_fixture(db_session, "finance")
     summary = client.get("/api/v1/admin/finance/summary", params=common)
     invoices = client.get("/api/v1/admin/finance/invoices", params=common)
     invoice_export = client.get(

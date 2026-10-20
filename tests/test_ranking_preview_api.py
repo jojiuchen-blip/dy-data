@@ -118,39 +118,52 @@ EXPORT = "/api/v1/dashboard/douyin-ranking/export"
 
 
 def test_business_export_never_recalculates_even_after_source_changes(preview_client, db_session, monkeypatch):
-    from dy_api.routes import dashboard
+    from apps.api.dy_api.dashboard_publications import ranking
+    from apps.api.dy_api.dashboard_publications.schema import runs as publication_runs
+    from apps.api.dy_api.dashboard_publications import ranking_schema
+    from test_api_douyin_ranking import publish_ranking
     from apps.api.dy_api.models import RawDouyinOrder
     from apps.api.dy_api.ranking_schema_v1 import samples, snapshots
-    from apps.api.dy_api.ranking_lifecycle_schema import snapshot_lifecycle
 
     login(preview_client)
     preview_client.app.state.ranking_snapshot_preview = False
-    db_session.execute(runs.update().where(runs.c.run_id == "baseline").values(data_mode="business"))
+    publication_id = publish_ranking(db_session)
     order = db_session.scalar(select(RawDouyinOrder).where(RawDouyinOrder.order_id == "O1"))
     order.owner_account_name = "changed after static publication"
     db_session.commit()
-    before = [db_session.scalar(select(func.count()).select_from(table)) for table in (runs, samples, snapshots)]
+    tables = (runs, samples, snapshots, publication_runs, ranking_schema.orders, ranking_schema.rounds)
+    before = [db_session.scalar(select(func.count()).select_from(table)) for table in tables]
 
     def forbidden(*args, **kwargs):
         pytest.fail("export must not calculate a snapshot")
-    monkeypatch.setattr(dashboard, "ensure_business_snapshot", forbidden)
-    response = preview_client.get(EXPORT, params=PARAMS)
+    monkeypatch.setattr(ranking, "build", forbidden)
+    from apps.api.dy_api import ranking_business
+    monkeypatch.setattr(ranking_business, "ensure_business_snapshot", forbidden)
+    response = preview_client.get(EXPORT, params={**PARAMS, "publication_id": publication_id})
     assert response.status_code == 200
     assert response.content.startswith(b"PK")
-    assert before == [db_session.scalar(select(func.count()).select_from(table)) for table in (runs, samples, snapshots)]
-    assert db_session.scalar(select(snapshot_lifecycle.c.last_accessed_at).where(snapshot_lifecycle.c.run_id == "baseline")) is not None
+    assert response.headers['X-Publication-ID'] == publication_id
+    assert before == [db_session.scalar(select(func.count()).select_from(table)) for table in tables]
+    book = workbook(response)
+    assert any(publication_id in str(cell.value) for sheet in book for row in sheet for cell in row)
 
 
-def test_business_export_missing_static_version_does_not_calculate(preview_client, db_session, monkeypatch):
-    from dy_api.routes import dashboard
+@pytest.mark.parametrize("publication_id,expected_status,code", [(None,503,"PUBLICATION_NOT_READY"),
+    ("expired",410,"PUBLICATION_EXPIRED")])
+def test_business_export_missing_static_version_does_not_calculate(preview_client, db_session, monkeypatch, publication_id, expected_status, code):
+    from apps.api.dy_api.dashboard_publications import ranking
+    from apps.api.dy_api.dashboard_publications.schema import metadata as publication_metadata, runs as publication_runs
     login(preview_client)
     preview_client.app.state.ranking_snapshot_preview = False
+    publication_metadata.create_all(db_session.bind)
     def forbidden(*args, **kwargs):
         pytest.fail("missing static version must not trigger calculation")
-    monkeypatch.setattr(dashboard, "ensure_business_snapshot", forbidden)
-    response = preview_client.get(EXPORT, params=PARAMS)
-    assert response.status_code == 422
+    monkeypatch.setattr(ranking, "build", forbidden)
+    response = preview_client.get(EXPORT, params={**PARAMS, **({"publication_id":publication_id} if publication_id else {})})
+    assert response.status_code == expected_status
+    assert response.json()['detail']['code'] == code
     assert db_session.scalar(select(func.count()).select_from(runs)) == 1
+    assert db_session.scalar(select(func.count()).select_from(publication_runs)) == 0
 
 
 def workbook(response):

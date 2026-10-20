@@ -132,6 +132,8 @@ URLs, local personal paths, or credentials.
 - 记录扫描、预演、实际删除和文件系统回收的独立证据；未在目标环境验证时不得声称线上空间或恢复能力已生效。
 - 涉及榜单时遵守 [`docs/api/ranking-lifecycle.md`](docs/api/ranking-lifecycle.md)：导出复用静态结果，不重算或复制事实；源变化与时间边界决定刷新。新增计算依赖必须同步源变化跟踪和迁移，禁止单独重置计数。
 - 关键业务版本先显式归档再清理；普通版本按查询键保留最近两版，闲置范围按契约淘汰。只能分批删除完整榜单版本，不能以清缓存为名删除业务事实；首次启用自动清理前先盘点并归档历史关键版本。
+- 新的经营榜单、看板和分析汇总统一遵守 [`docs/api/dashboard-publications.md`](docs/api/dashboard-publications.md)：按模块发布窄分析数据，GET、筛选及导出不得触发来源计算或为每个筛选组合复制事实。同页使用同一版本，权限按当前账号重新检查；确认、跟进、发票操作资格保持实时。
+- 分析发布必须由独立限额 worker 执行，部署替换 API 前先验证所有模块已有完整版本。更新失败保留上一版本；来源完整截止时间未知时明确显示未知，不能使用 HTTP 请求时间或构建时间代替。
 
 ## 4. Linear-First Requirement Lifecycle
 

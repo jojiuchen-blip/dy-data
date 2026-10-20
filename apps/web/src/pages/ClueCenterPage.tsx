@@ -1,3 +1,5 @@
+import { usePublishedResource } from "../hooks/usePublishedResource";
+import { usePublishedView } from "../hooks/usePublishedView";
 import { fetchClueOrganizationOptions } from "../api/client";
 import {
   useEffect,
@@ -13,6 +15,7 @@ import {
   exportClueAssignmentRounds,
   fetchClueAssignmentRounds,
   fetchClueFilters,
+  fetchPublishedClueFilters,
   fetchClueStoreOptions,
   fetchClueOrderDetail,
   fetchClueOrderPhone,
@@ -419,31 +422,46 @@ export function ClueCenterPage({
   const detailTouchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const debouncedStoreOptionQuery = useDebouncedValue(storeOptionQuery, 200);
-  const filterResource = useApiResource(() => fetchClueFilters(false), []);
+  const liveFilterResource = useApiResource(() => fetchClueFilters(false), [], { enabled: isDetailsView });
+  const overviewResource = usePublishedView(
+    fetchPublishedClueFilters,
+    (metadata, id) => fetchClueOverview({
+      assigned_store_id: showStoreLocationFilters ? assignedStoreId : "",
+      assigned_date_start: assignedDateStart,
+      assigned_date_end: assignedDateEnd,
+      store_display_status: storeDisplayStatus,
+      product_type: productType || clueDefaultProductType(metadata),
+      org_level: "all",
+      org_key: "",
+      province: showStoreLocationFilters ? province : "",
+      city: showStoreLocationFilters ? city : "",
+    }, id),
+    [assignedStoreId, assignedDateEnd, assignedDateStart, productType, city, province, showStoreLocationFilters, storeDisplayStatus],
+    { enabled: !isDetailsView },
+  );
+  const filterResource = isDetailsView ? liveFilterResource : { ...overviewResource, data: overviewResource.filters };
   const meta = filterResource.data?.data;
   const activeProductType = productType || clueDefaultProductType(meta);
-  const storeOptionsResource = useApiResource(
-    () =>
-      fetchClueStoreOptions({
-        cacheScope: currentUser.user_id ?? currentUser.username,
-        city,
-        limit: 50,
-        province,
-        q: debouncedStoreOptionQuery,
-        selected_store_id: assignedStoreId,
-      }),
-    [
-      assignedStoreId,
-      city,
-      currentUser.user_id,
-      currentUser.username,
-      debouncedStoreOptionQuery,
-      province,
-    ],
-    { enabled: showStoreLocationFilters && storeOptionsEnabled },
+  const liveStoreOptionsResource = useApiResource(
+    () => fetchClueStoreOptions({ cacheScope: currentUser.user_id ?? currentUser.username,
+      city, limit: 50, province, q: debouncedStoreOptionQuery, selected_store_id: assignedStoreId }),
+    [assignedStoreId, city, currentUser.user_id, currentUser.username, debouncedStoreOptionQuery, province],
+    { enabled: isDetailsView && showStoreLocationFilters && storeOptionsEnabled },
   );
-  const storeOptions =
-    storeOptionsResource.data?.data.stores ?? meta?.assigned_stores ?? [];
+  const publishedStoreOptionsResource = usePublishedResource(
+    (publication_id) => fetchClueStoreOptions({
+      // Each completed overview must recheck the current permission scope.
+      cacheScope: `${currentUser.user_id ?? currentUser.username}:${crypto.randomUUID()}`,
+      publication_id, city, limit: 50, province, q: debouncedStoreOptionQuery, selected_store_id: assignedStoreId,
+    }),
+    [assignedStoreId, city, debouncedStoreOptionQuery, province, overviewResource.revision],
+    { leader: false, publicationId: overviewResource.data?.meta.publication?.id,
+      enabled: !isDetailsView && showStoreLocationFilters && storeOptionsEnabled && Boolean(overviewResource.data) },
+  );
+  const storeOptionsResource = isDetailsView ? liveStoreOptionsResource : publishedStoreOptionsResource;
+  const storeOptions = isDetailsView
+    ? liveStoreOptionsResource.data?.data.stores ?? meta?.assigned_stores ?? []
+    : publishedStoreOptionsResource.data?.data.stores ?? [];
 
   const filters: ClueOverviewFilters = useMemo(
     () => ({
@@ -529,21 +547,6 @@ export function ClueCenterPage({
     storeDisplayStatus,
   ]);
 
-  const overviewResource = useApiResource(
-    () => fetchClueOverview(filters),
-    [
-      assignedStoreId,
-      assignedDateEnd,
-      assignedDateStart,
-      activeProductType,
-      orgLevel, orgKey, isDetailsView,
-      city,
-      province,
-      showStoreLocationFilters,
-      storeDisplayStatus,
-    ],
-    { enabled: !isDetailsView, clearOnReload: true },
-  );
   const roundsResource = useApiResource(
     () => fetchClueAssignmentRounds({ filters, page, pageSize }),
     [
@@ -1180,7 +1183,7 @@ export function ClueCenterPage({
         </section>
       ) : null}
 
-      <ResourceNotice
+      <ResourceNotice analysis={!isDetailsView}
         error={displayedResourceError}
         fallbackReason={activeFallbackReason}
         loading={loading || activeResourceRefreshing}
@@ -1275,6 +1278,7 @@ export function ClueCenterPage({
                   setAssignedStoreId(value);
                 }}
               />
+              {storeOptionsResource.error ? <p role="alert">{storeOptionsResource.error}</p> : null}
             </FilterField>
           </>
         ) : null}

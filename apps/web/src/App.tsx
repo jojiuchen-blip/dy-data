@@ -1,3 +1,4 @@
+import { DashboardPublicationProvider } from "./hooks/PublicationContext";
 import {
   lazy,
   Suspense,
@@ -266,7 +267,9 @@ function AuthGate({ children, isDemoMode, pathname }: AuthGateProps) {
     );
   }
 
-  return <>{children({ user, onLogout: handleLogout })}</>;
+  // Both clue routes render one workflow; keep its in-progress tour mounted.
+  const publicationRoute = pathname === "/clues/details" ? "/clues" : pathname;
+  return <DashboardPublicationProvider key={`${user.user_id ?? user.username}:${user.store_scope_mode}:${user.store_ids.join(",")}:${user.page_keys.join(",")}:${publicationRoute}`}>{children({ user, onLogout: handleLogout })}</DashboardPublicationProvider>;
 }
 
 function PageForbiddenPage() {
@@ -405,7 +408,7 @@ export function App() {
               onLogout={isDemoMode ? undefined : onLogout}
             >
               {hasPageAccess(user, location.pathname) ? (
-                adminPage
+                <Suspense fallback={<PageLoadingFallback />}>{adminPage}</Suspense>
               ) : (
                 <PageForbiddenPage />
               )}
@@ -471,7 +474,7 @@ export function App() {
             isDemoMode={isDemoMode}
             onLogout={isDemoMode ? undefined : onLogout}
           >
-            {hasPageAccess(user, location.pathname) ? page : <PageForbiddenPage />}
+            {hasPageAccess(user, location.pathname) ? <Suspense fallback={<PageLoadingFallback />}>{page}</Suspense> : <PageForbiddenPage />}
           </Shell>
         );
         }}

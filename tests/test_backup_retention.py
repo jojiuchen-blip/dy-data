@@ -192,18 +192,24 @@ def test_container_validator_command_round_trips_paths_with_spaces() -> None:
             "DY_WEB_BASE_URL": "https://app.example",
         }
     )
+    # Windows text pipes translate LF to CRLF, and WSL launchers can omit
+    # custom environment variables. Supply both the bytes and shell fixture explicitly.
+    shell_environment = "\n".join(
+        f"{key}={shlex.quote(environment[key])}"
+        for key in ("ENV_FILE", "COMPOSE_FILE", "APT_MIRROR", "DY_WEB_BASE_URL")
+    )
     result = subprocess.run(
         [bash],
-        input=f"{source_prefix}\nbackup_validator_command\n",
+        input=f"{shell_environment}\n{source_prefix}\nbackup_validator_command\n".encode("utf-8"),
         check=False,
         capture_output=True,
-        encoding="utf-8",
-        errors="replace",
         env=environment,
     )
 
-    assert result.returncode == 0, result.stderr
-    command = shlex.split(result.stdout.strip())
+    stdout = result.stdout.decode("utf-8", errors="replace")
+    stderr = result.stderr.decode("utf-8", errors="replace")
+    assert result.returncode == 0, stderr
+    command = shlex.split(stdout.strip())
     assert command == [
         "sudo",
         "APT_MIRROR=http://mirror.example",

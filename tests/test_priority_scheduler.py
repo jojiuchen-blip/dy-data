@@ -166,6 +166,196 @@ def test_dimension_refresh_can_start_before_daily_cutoff(factory) -> None:
         assert selected.metadata_json.get("priority_refresh_slot") == "202609100000"
 
 
+def _old_dimension_retry(factory, now, *, day=date(2026, 9, 11), **overrides):
+    with factory.begin() as session:
+        plan = plan_daily_sync(
+            session, start=day, end=day + timedelta(days=1),
+            target="backend_aweme_export", requested_by="priority-daily-scheduler",
+            trigger_source="dimension_refresh",
+            config_version=f"priority-daily-v1-dimensions-{day:%Y%m%d}18",
+        )
+        priority_scheduler._stamp_plan_metadata(
+            session, parent_job_id=plan.parent_job_id,
+            purpose=priority_scheduler.DAILY_REQUIRED_PURPOSE,
+            priority_date=day, request_budget_date=day,
+        )
+        execution = session.scalar(select(JobRun).where(
+            JobRun.parent_job_id == plan.parent_job_id, JobRun.job_kind == "parent_sync",
+        ))
+        execution.status = "retry_wait"
+        execution.attempt_count = 1
+        execution.next_retry_at = now - timedelta(minutes=1)
+        for name, value in overrides.items():
+            setattr(execution, name, value)
+        return execution.job_id, plan.parent_job_id
+
+
+def test_cross_day_dimension_retry_dispatches_original_job_and_budget_date(factory, monkeypatch):
+    now = datetime.fromisoformat("2026-10-20T00:10:00+08:00")
+    old_day = date(2026, 9, 11)
+    job_id, parent_id = _old_dimension_retry(factory, now, day=old_day)
+    monkeypatch.setattr(priority_scheduler, "_plan_due_dimensions", lambda *_args: ())
+    calls = []
+
+    # Exercise the normal default runner, including its handoff to the existing
+    # supervised execution entry point, rather than calling daily_task directly.
+    from apps.worker import scheduler
+
+    def supervised_runner(passed_factory, *, job_id):
+        assert passed_factory is factory
+        calls.append(job_id)
+        with factory() as session:
+            job = session.get(JobRun, job_id)
+            assert priority_scheduler._job_business_date(job) == old_day
+            assert job.config_version == "priority-daily-v1-dimensions-2026091118"
+            assert job.parent_job_id == parent_id
+            assert job.metadata_json["source_window"]["start"].startswith("2026-09-11")
+            assert job.metadata_json["priority_business_date"] == old_day.isoformat()
+            assert job.metadata_json["request_budget_date"] == now.date().isoformat()
+            assert job.metadata_json["quota_business_date"] == now.date().isoformat()
+            assert job.metadata_json["priority_purpose"] == "daily_required"
+            assert job.status == "retry_wait" and job.attempt_count == 1
+        return ChildRunResult(job_id=job_id, status=ChildRunStatus.RETRY_WAIT, attempts=1)
+
+    monkeypatch.setattr(scheduler, "run_daily_child", supervised_runner)
+    result = priority_scheduler.run_priority_daily_tick(
+        factory, now=now, product_sync_runner=lambda *_args, **_kwargs: None,
+    )
+    assert result.action == "executed"
+    assert result.business_date == old_day
+    assert result.selected_job_id == job_id
+    assert result.status == "retry_wait"
+    assert calls == [job_id]
+
+
+@pytest.mark.parametrize("overrides", [
+    {"next_retry_at": datetime.fromisoformat("2026-10-20T10:00:00+08:00")},
+    {"next_retry_at": None},
+    {"status": "running", "lease_expires_at": datetime.fromisoformat("2026-10-20T10:00:00+08:00")},
+    {"lease_expires_at": datetime.fromisoformat("2026-10-20T10:00:00+08:00")},
+    {"attempt_count": 3, "max_attempts": 3},
+    {"pause_after_stage_requested_at": datetime.fromisoformat("2026-10-19T10:00:00+08:00")},
+    {"cancel_requested_at": datetime.fromisoformat("2026-10-19T10:00:00+08:00")},
+])
+def test_cross_day_dimension_retry_excludes_ineligible_jobs(factory, overrides):
+    now = datetime.fromisoformat("2026-10-20T00:10:00+08:00")
+    _old_dimension_retry(factory, now, **overrides)
+    with factory() as session:
+        assert priority_scheduler._select_cross_day_dimension_retry(session, now) is None
+
+
+def test_cross_day_dimension_retry_keeps_quota_pause_attempt_allowance(factory):
+    now = datetime.fromisoformat("2026-10-20T00:10:00+08:00")
+    job_id, _ = _old_dimension_retry(factory, now, attempt_count=3, max_attempts=3, quota_pause_count=1)
+    with factory() as session:
+        assert priority_scheduler._select_cross_day_dimension_retry(session, now).job_id == job_id
+
+
+def test_cross_day_dimension_retry_checks_original_parent_identity(factory):
+    now = datetime.fromisoformat("2026-10-20T00:10:00+08:00")
+    job_id, parent_id = _old_dimension_retry(factory, now)
+    with factory.begin() as session:
+        parent = session.get(JobRun, parent_id)
+        parent.config_version = "priority-daily-v1-dimensions-invalid-parent"
+    with factory() as session:
+        assert priority_scheduler._select_cross_day_dimension_retry(session, now) is None
+        assert session.get(JobRun, job_id).status == "retry_wait"
+
+
+def test_cross_day_retry_does_not_preempt_current_daily_work(factory):
+    now = datetime.fromisoformat("2026-10-20T08:10:00+08:00")
+    old_job_id, _ = _old_dimension_retry(factory, now)
+    calls = []
+    result = priority_scheduler.run_priority_daily_tick(
+        factory, now=now,
+        child_runner=lambda _factory, job_id: calls.append(job_id) or ChildRunResult(
+            job_id=job_id, status=ChildRunStatus.SUCCESS, attempts=1),
+        product_sync_runner=lambda *_args, **_kwargs: None,
+    )
+    assert result.action == "executed" and calls == [result.selected_job_id]
+    assert result.selected_job_id != old_job_id
+    assert result.business_date == date(2026, 10, 19)
+    with factory() as session:
+        assert session.get(JobRun, old_job_id).status == "retry_wait"
+
+
+def test_cross_day_retry_does_not_preempt_fresh_dimension_cadence(factory):
+    now = datetime.fromisoformat("2026-10-20T00:10:00+08:00")
+    old_job_id, _ = _old_dimension_retry(factory, now)
+    result = priority_scheduler.run_priority_daily_tick(
+        factory, now=now,
+        child_runner=lambda _factory, job_id: ChildRunResult(
+            job_id=job_id, status=ChildRunStatus.SUCCESS, attempts=1),
+        product_sync_runner=lambda *_args, **_kwargs: None,
+    )
+    assert result.action == "executed" and result.selected_job_id != old_job_id
+    assert result.business_date == now.date()
+    with factory() as session:
+        assert session.get(JobRun, old_job_id).status == "retry_wait"
+
+
+def test_cross_day_retry_does_not_preempt_product_refresh(factory, monkeypatch):
+    now = datetime.fromisoformat("2026-10-20T00:10:00+08:00")
+    _old_dimension_retry(factory, now)
+    monkeypatch.setattr(priority_scheduler, "_plan_due_dimensions", lambda *_args: ())
+    result = priority_scheduler.run_priority_daily_tick(
+        factory, now=now,
+        child_runner=lambda *_args: pytest.fail("old retry preempted product refresh"),
+        product_sync_runner=lambda *_args, **_kwargs: "current-product-refresh",
+    )
+    assert result.action == "product_sync"
+
+
+def test_cross_day_retry_respects_live_heavy_slot(factory, monkeypatch):
+    now = datetime.fromisoformat("2026-10-20T00:10:00+08:00")
+    _old_dimension_retry(factory, now)
+    active_job_id, _ = _old_dimension_retry(
+        factory, now, day=date(2026, 9, 12), status="running",
+        lease_expires_at=now + timedelta(minutes=1),
+    )
+    monkeypatch.setattr(priority_scheduler, "_plan_due_dimensions", lambda *_args: ())
+    result = priority_scheduler.run_priority_daily_tick(
+        factory, now=now,
+        child_runner=lambda *_args: pytest.fail("cross-day retry bypassed active heavy lease"),
+        product_sync_runner=lambda *_args, **_kwargs: None,
+    )
+    assert result.reason == "heavy_slot_busy" and result.selected_job_id == active_job_id
+
+
+def test_cross_day_retry_respects_resource_stop(factory, monkeypatch):
+    from apps.ops_agent.resources import ResourceAction, ResourceDecision
+    from apps.worker import resource_monitor
+
+    now = datetime.fromisoformat("2026-10-20T00:10:00+08:00")
+    _old_dimension_retry(factory, now)
+    monkeypatch.setattr(priority_scheduler, "_plan_due_dimensions", lambda *_args: ())
+    monkeypatch.setattr(resource_monitor, "current_resource_decision", lambda: ResourceDecision(
+        ResourceAction.STOP, ("host_memory_stop",),
+    ))
+    result = priority_scheduler.run_priority_daily_tick(
+        factory, now=now,
+        child_runner=lambda *_args: pytest.fail("cross-day retry bypassed resource stop"),
+        product_sync_runner=lambda *_args, **_kwargs: None,
+    )
+    assert result.action == "waiting" and result.status == "resource_wait"
+
+
+def test_cross_day_retry_filters_noise_before_bounded_candidates(factory):
+    now = datetime.fromisoformat("2026-10-20T00:10:00+08:00")
+    job_id, _ = _old_dimension_retry(factory, now)
+    with factory.begin() as session:
+        session.add_all(JobRun(
+            job_id=f"old-irrelevant-{index:03d}", job_name="parent_sync", job_kind="parent_sync",
+            execution_slot="heavy_sync", parent_job_id="unrelated-parent",
+            data_source="douyin", config_version="priority-daily-v1-dimensions-2026091018",
+            window_start=datetime(2026, 9, 10), window_end=datetime(2026, 9, 11),
+            status="retry_wait", next_retry_at=now - timedelta(days=1),
+            metadata_json={"target": "orders"},
+        ) for index in range(priority_scheduler.MAX_DIMENSION_RETRY_CANDIDATES + 10))
+    with factory() as session:
+        assert priority_scheduler._select_cross_day_dimension_retry(session, now).job_id == job_id
+
+
 @pytest.mark.parametrize("elapsed_seconds, due", [(1799, False), (1800, True), (1801, True)])
 def test_dimension_refresh_half_hour_boundary_includes_legacy_success(
     factory, elapsed_seconds, due

@@ -4,7 +4,19 @@ export interface ApiDefinition {
   description: string;
 }
 
+export type PublicationModule = "douyin-ranking" | "sales" | "clue-overview" | "settlement" | "finance";
+
+export interface DashboardPublication {
+  id: string;
+  module: PublicationModule | "allocation-score";
+  dataAsOf: string | null;
+  publishedAt: string;
+  status: "available" | "refreshing" | "stale" | "failed";
+  nextRefreshAt: string | null;
+}
+
 export interface ApiMeta {
+  publication?: DashboardPublication;
   generated_at?: string;
   generatedAt?: string;
   requestId?: string;
@@ -729,6 +741,7 @@ export interface SettlementStatementLine {
 }
 
 export interface SettlementMonthlyData {
+  publicationStatement?: SettlementStatementSummary | null;
   computedCumulative?: {
     promotionNetFeeCent: number;
     managementNetFeeCent: number;
@@ -1372,6 +1385,7 @@ export interface ClueFilterMetadata {
 }
 
 export interface ClueStoreOptionQuery {
+  publication_id?: string;
   cacheScope: string;
   city?: string;
   limit?: number;

@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
+from publication_fixture_helpers import publish_fixture
 from dy_api.auth import AuthContext, get_current_user  # noqa: E402
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
@@ -182,6 +183,7 @@ def test_empty_september_keeps_the_formal_cumulative_and_does_not_invent_month_r
 ) -> None:
     _publish_august_only(db_session)
 
+    publish_fixture(db_session, "settlement")
     response = client.get(
         f"/api/v1/stores/{STORE_ID}/monthly-settlement",
         params={"month": SEPTEMBER, "productScope": "all", "productType": "all"},
@@ -211,10 +213,13 @@ def test_empty_september_does_not_write_statements_or_confirmations(
 ) -> None:
     _publish_august_only(db_session)
 
-    client.get(
+    publish_fixture(db_session, "settlement")
+    response = client.get(
         f"/api/v1/stores/{STORE_ID}/monthly-settlement",
         params={"month": SEPTEMBER, "productScope": "all", "productType": "all"},
     )
+
+    assert response.status_code == 200, response.text
 
     from sqlalchemy import func, select  # noqa: PLC0415
 
@@ -243,6 +248,7 @@ def test_ranking_cumulative_for_an_empty_september_keeps_the_august_total(
 
     _publish_august_only(db_session)
 
+    publish_fixture(db_session, "settlement")
     august = _ranking(admin_client, AUGUST)
     september = _ranking(admin_client, SEPTEMBER)
 
@@ -295,6 +301,7 @@ def test_ranking_cumulative_prefers_a_published_september_partition(
     )
     db_session.commit()
 
+    publish_fixture(db_session, "settlement")
     september = _ranking(admin_client, SEPTEMBER)
 
     assert september["periodKey"] == SEPTEMBER
@@ -335,6 +342,7 @@ def test_settled_august_with_an_empty_september_still_reports_august_cumulative(
     )
     db_session.commit()
 
+    publish_fixture(db_session, "settlement")
     august = _settlement(client, AUGUST)
     # The August period genuinely has a bill and its own fees.
     assert august["statement"]["statementId"] == "stmt-august"
@@ -396,6 +404,7 @@ def test_unpublished_legacy_cumulative_rows_are_not_presented(
     )
     db_session.commit()
 
+    publish_fixture(db_session, "settlement")
     response = client.get(
         f"/api/v1/stores/{STORE_ID}/monthly-settlement",
         params={"month": SEPTEMBER, "productScope": "all", "productType": "all"},
@@ -448,6 +457,7 @@ def test_september_with_its_own_cumulative_snapshot_keeps_that_snapshot(
     )
     db_session.commit()
 
+    publish_fixture(db_session, "settlement")
     response = client.get(
         f"/api/v1/stores/{STORE_ID}/monthly-settlement",
         params={"month": SEPTEMBER, "productScope": "all", "productType": "all"},

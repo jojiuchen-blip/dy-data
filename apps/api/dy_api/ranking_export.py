@@ -1,5 +1,6 @@
 """Excel ranking sheets: one metric per sheet, one section per selected level."""
 from io import BytesIO
+from datetime import datetime
 import json
 from zoneinfo import ZoneInfo
 
@@ -31,11 +32,15 @@ def parse_export_choices(value: str, labels: dict[str, str]) -> list[str]:
     return [key for key in labels if key in choices]
 
 
-def build_ranking_workbook(session, *, levels: list[str], metrics: list[str], **report_args) -> bytes:
+def build_ranking_workbook(session, *, levels: list[str], metrics: list[str],
+                           report_reader=None, **report_args) -> bytes:
     reports = {}
     for level in levels:
-        report = read_snapshot_report(session, level=level, page_size=None, **report_args)
-        report_args["run_id"] = report["snapshot_id"]  # Pin even preview reads to a single batch.
+        reader = report_reader or read_snapshot_report
+        report = reader(session, level=level, page_size=None, **report_args)
+        if report_reader is None:
+            # Preview callers still use the existing immutable snapshot path.
+            report_args["run_id"] = report["snapshot_id"]
         reports[level] = report
     book = Workbook()
     book.remove(book.active)
@@ -66,7 +71,14 @@ def build_ranking_workbook(session, *, levels: list[str], metrics: list[str], **
         observed = first["latest_observed_at"]
         if observed and observed.tzinfo is None:
             observed = observed.replace(tzinfo=ZoneInfo("UTC"))
-        banner(f"数据更新时间：{observed.astimezone(ZoneInfo('Asia/Shanghai')):%Y-%m-%d %H:%M:%S}；快照：{first['snapshot_id']}" if observed else f"快照：{first['snapshot_id']}")
+        publication = first.get("publication")
+        if publication:
+            def local_time(value):
+                return datetime.fromisoformat(value).astimezone(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S")
+            covered = local_time(publication["dataAsOf"]) if publication.get("dataAsOf") else "上游尚未提供完整截止时间"
+            banner(f"版本发布时间：{local_time(publication['publishedAt'])}；数据截止：{covered}；版本：{publication['id']}")
+        else:
+            banner(f"数据更新时间：{observed.astimezone(ZoneInfo('Asia/Shanghai')):%Y-%m-%d %H:%M:%S}；快照：{first['snapshot_id']}" if observed else f"快照：{first['snapshot_id']}")
         filters = [(label, report_args.get(key)) for key, label in [("group_name", "集团"), ("service_center_name", "中心"), ("district_name", "大区"), ("area_name", "区域"), ("store_id", "门店")]]
         banner("商品范围：" + PRODUCT_SCOPE_LABELS[first["product_scope"]] + "；" + "；".join(f"{label}：{value}" for label, value in filters if value))
         banner(first["metric_definitions"][metric] + "。由高到低排列，同值并列，无样本不排名。")

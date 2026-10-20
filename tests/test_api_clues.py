@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
+from publication_fixture_helpers import publish_fixture
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes import _data as data_module  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
@@ -527,6 +528,7 @@ def test_clue_surfaces_share_formal_assignment_visibility_boundary(
         "order-cross-month-1"
     ]
 
+    publish_fixture(db_session, "clue-overview")
     overview_earlier = client.get(
         "/api/v1/clues/overview",
         params={"assigned_date_end": "2026-08-31"},
@@ -568,6 +570,7 @@ def test_clue_dashboard_contract(client: TestClient, db_session: Session) -> Non
         {"store_id": "store-1", "store_name": "Store One"}
     ]
 
+    publish_fixture(db_session, "clue-overview")
     overview = client.get("/api/v1/clues/overview?assigned_store_id=store-1")
     assert overview.status_code == 200
     metrics = overview.json()["data"]
@@ -641,6 +644,7 @@ def test_trial_round_is_excluded_from_business_surfaces(
     db_session.commit()
     _login(client)
 
+    publish_fixture(db_session, "clue-overview")
     overview = client.get("/api/v1/clues/overview?assigned_store_id=store-1")
     filters = client.get("/api/v1/clues/filters")
     rounds = client.get("/api/v1/clues/assignment-rounds?assigned_store_id=store-1")
@@ -777,6 +781,7 @@ def test_clue_overview_separates_action_and_effective_follow_rates(
     db_session.commit()
     _login(client)
 
+    publish_fixture(db_session, "clue-overview")
     response = client.get("/api/v1/clues/overview?assigned_store_id=store-1")
 
     assert response.status_code == 200
@@ -805,6 +810,7 @@ def test_clue_overview_counts_unique_orders_within_selected_scope(
     ))
     db_session.commit()
     _login(client)
+    publish_fixture(db_session, "clue-overview")
     response = client.get("/api/v1/clues/overview?assigned_store_id=store-1")
     assert response.status_code == 200
     metrics = response.json()["data"]
@@ -1098,6 +1104,7 @@ def test_clue_rounds_can_filter_by_location_store_and_verification_status(
         "order-2"
     ]
 
+    publish_fixture(db_session, "clue-overview")
     converted = client.get(
         "/api/v1/clues/overview",
         params={"store_display_status": "已核销"},
@@ -1193,6 +1200,11 @@ def test_admin_can_record_current_follow_up_and_detail_returns_history(
     _seed_clue_center(db_session)
     _promote_order_two_to_self_owned_round(db_session)
     _login(client)
+    original_publication = publish_fixture(db_session, "clue-overview")
+    overview_url = "/api/v1/clues/overview?assigned_store_id=store-1"
+    original_overview = client.get(overview_url)
+    assert original_overview.status_code == 200
+    assert original_overview.json()["data"]["follow_rate"] == 0.5
 
     response = client.post(
         "/api/v1/clues/orders/order-2/follow-up",
@@ -1262,6 +1274,16 @@ def test_admin_can_record_current_follow_up_and_detail_returns_history(
     serialized_detail = json.dumps(detail_payload, ensure_ascii=False)
     assert "phone_plain" not in serialized_detail
     assert "telephone" not in serialized_detail
+
+    # The operation and detail are live; analysis changes only at background publish.
+    frozen_overview = client.get(overview_url)
+    assert frozen_overview.json()["data"] == original_overview.json()["data"]
+    assert frozen_overview.json()["meta"]["publication"]["id"] == original_publication.id
+    replacement = publish_fixture(db_session, "clue-overview")
+    refreshed_overview = client.get(overview_url)
+    assert refreshed_overview.json()["meta"]["publication"]["id"] == replacement.id
+    assert replacement.id != original_publication.id
+    assert refreshed_overview.json()["data"]["follow_rate"] == 1
 
 
 def test_admin_can_delete_follow_up_record_and_summary_rolls_back(

@@ -23,6 +23,7 @@ from apps.api.dy_api.models import (  # noqa: E402
     User,
     UserStoreScope,
 )
+from publication_fixture_helpers import publish_fixture
 from dy_api.auth import hash_password_pbkdf2  # noqa: E402
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
@@ -341,6 +342,8 @@ def test_legacy_visibility_setting_no_longer_hides_settlement_or_clue_data(
     }
     assert meta.json()["data"]["defaultProductType"] == "all"
 
+    publish_fixture(db_session, "settlement")
+    publish_fixture(db_session, "clue-overview")
     ranking = client.get(
         "/api/v1/dashboard/store-ranking",
         params={"periodKey": "2026-06", "productType": "all"},

@@ -44,7 +44,7 @@ compose() {
   fi
   if [ "$1" = "ps" ] && [ "$2" = "-q" ]; then
     case "$3" in
-      api|worker|web|browser|ops-agent|proxy|postgres) printf 'cid-%s\n' "$3" ;;
+      api|worker|publication-worker|web|browser|ops-agent|proxy|postgres) printf 'cid-%s\n' "$3" ;;
       *) return 0 ;;
     esac
   fi
@@ -138,7 +138,7 @@ def test_image_backup_tags_the_full_immutable_id_and_verifies_it(tmp_path: Path)
     calls = (tmp_path / "docker.calls").read_text(encoding="utf-8")
     # The rollback tag must use the complete immutable id, never a short prefix.
     assert f"image tag {FULL_IMAGE_ID} dy-dashboard-rollback:" in calls
-    for service in ("api", "worker", "web", "browser", "ops-agent", "proxy", "postgres"):
+    for service in ("api", "worker", "publication-worker", "web", "browser", "ops-agent", "proxy", "postgres"):
         assert f"dy-dashboard-rollback:" in calls
         assert f"-{service}" in calls
     # Every rollback tag is re-inspected and compared with the running image id.
@@ -206,7 +206,7 @@ def test_image_backup_allows_a_first_deploy_without_any_container(tmp_path: Path
     body = next((tmp_path / "backups").glob("images-*.manifest")).read_text(
         encoding="utf-8"
     )
-    for service in ("api", "worker", "web", "browser", "ops-agent", "proxy", "postgres"):
+    for service in ("api", "worker", "publication-worker", "web", "browser", "ops-agent", "proxy", "postgres"):
         assert f"{service}|-|-|-|no-container" in body
     # No container existed, so no inspect or tag call happened at all.
     calls = tmp_path / "docker.calls"

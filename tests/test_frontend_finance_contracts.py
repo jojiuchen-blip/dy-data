@@ -291,7 +291,7 @@ def test_management_correction_blocks_invalid_fields_before_api_submission() -> 
     assert "!correctionValidationError" in fees
 
 
-def test_management_pending_rows_keep_nullable_invoice_fields_read_only() -> None:
+def test_management_pending_rows_keep_nullable_fields_and_locate_live_current() -> None:
     fees = source("pages/FinanceFeePage.tsx")
     types = source("types/dashboard.ts")
 
@@ -319,9 +319,15 @@ def test_management_pending_rows_keep_nullable_invoice_fields_read_only() -> Non
     assert "row.effectiveSapCode" in fees
     assert "row.statementAmountCent" in fees
     assert "row.settlementBatchMonth" in fees
-    assert 'row.invoiceId && row.isCurrent ? "更正" : undefined' in fees
+    assert 'feeDirection === "MANAGEMENT" && row.storeId && row.statementMonth ? "更正" : undefined' in fees
     assert "!row.invoiceId" in fees
     assert "!row.isCurrent" in fees
+    open_correction = fees.split("const openCorrection =", 1)[1].split("const closeCorrection", 1)[0]
+    assert "!target.storeId || !target.statementMonth" in open_correction
+    assert "target.invoiceId" not in open_correction
+    assert "target.isCurrent" not in open_correction
+    assert "await fetchCurrentManagementInvoice(target.storeId, target.statementMonth)" in fees
+    assert "setCorrectionReady(false)" in fees
 
 
 def test_imports_page_keeps_uploads_out_and_matches_the_frozen_log_order() -> None:
@@ -403,7 +409,7 @@ def test_finance_row_actions_remain_available_in_mobile_cards_and_by_keyboard() 
     assert "rowActionLabel" in table
     assert "data-table-mobile-card__action" in table
     assert 'event.key === "Enter" || event.key === " "' in table
-    assert 'rowActionLabel={(row) => row.invoiceId && row.isCurrent ? "更正" : undefined}' in fees
+    assert 'rowActionLabel={(row) => feeDirection === "MANAGEMENT" && row.storeId && row.statementMonth ? "更正" : undefined}' in fees
     assert 'rowActionLabel={() => "查看完整字段"}' in orders
 
 
@@ -462,6 +468,6 @@ def test_finance_fee_month_control_updates_state_url_and_request_params() -> Non
     assert "onChange={(event) => setMonth(event.target.value)}" not in fees
     # The summary, the list and the export all read the same state value.
     assert "month," in fees
-    assert "() => fetchFinanceSummary(commonQuery)" in fees
-    assert "fetchFinanceInvoices({ ...invoiceQuery, pageSize: 50 })" in fees
-    assert "downloadFinanceInvoices(invoiceQuery)" in fees
+    assert "fetchFinanceSummary({ ...commonQuery, publication_id })" in fees
+    assert "fetchFinanceInvoices({ ...invoiceQuery, pageSize: 50, publication_id: id })" in fees
+    assert "downloadFinanceInvoices({ ...invoiceQuery, publication_id: financeResource.data?.meta.publication?.id })" in fees

@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
 from dy_api.auth import AuthContext, get_current_user
+from publication_fixture_helpers import publish_fixture
 from dy_api.main import create_app
 from dy_api.routes._data import get_session_dependency
 from test_clue_follow_up_atomicity import seed_active_round
@@ -57,6 +58,7 @@ def test_scope_matches_list_detail_phone_and_follow_up(
         scoped = client.get("/api/v1/clues/assignment-rounds", params=query)
         assert scoped.status_code == 200
         assert bool(scoped.json()["data"]["rows"]) is allowed
+        publish_fixture(db_session, "clue-overview")
         overview = client.get("/api/v1/clues/overview", params=query)
         assert bool(overview.json()["data"]["total_clues"]) is allowed
         exported = client.get("/api/v1/clues/assignment-rounds/export", params=query)

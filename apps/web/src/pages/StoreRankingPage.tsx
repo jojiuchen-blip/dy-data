@@ -9,7 +9,7 @@ import { FieldInput, SelectField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
 import { TablePagination } from "../components/TablePagination";
-import { useApiResource } from "../hooks/useApiResource";
+import { usePublishedView } from "../hooks/usePublishedView";
 import type {
   PeriodType,
   RankingSortBy,
@@ -83,27 +83,27 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
   const sortBy = rankingSortByForBasis(rankingBasis);
   const sortOrder: SortOrder = "DESC";
 
-  const metaResource = useApiResource(fetchSettlementFilterMeta, []);
+  const rankingResource = usePublishedView(
+    (id) => fetchSettlementFilterMeta("settlement", id),
+    (filters, publication_id) => fetchSettlementStoreRanking({
+      publication_id,
+      periodType,
+      periodKey: periodKey || filters.saleMonths[0] || "",
+      productScope,
+      productType: productType || filters.defaultProductType || "all",
+      q: query || undefined,
+      sortBy,
+      sortOrder,
+      rankingBasis,
+      page,
+      pageSize: PAGE_SIZE,
+    }),
+    [periodType, periodKey, productScope, productType, query, sortBy, rankingBasis, page],
+  );
+  const metaResource = { ...rankingResource, data: rankingResource.filters };
   const meta = metaResource.data?.data;
   const activePeriodKey = periodKey || meta?.saleMonths[0] || "";
   const activeProductType = productType || meta?.defaultProductType || "all";
-  const rankingResource = useApiResource(
-    () =>
-      fetchSettlementStoreRanking({
-        periodType,
-        periodKey: activePeriodKey,
-        productScope,
-        productType: activeProductType,
-        q: query || undefined,
-        sortBy,
-        sortOrder,
-        rankingBasis,
-        page,
-        pageSize: PAGE_SIZE,
-      }),
-    [periodType, activePeriodKey, productScope, activeProductType, query, sortBy, rankingBasis, page],
-    { enabled: Boolean(meta && activePeriodKey) },
-  );
   const ranking = rankingResource.data?.data;
   const metaError = metaResource.rawError ? apiErrorText(metaResource.rawError, "筛选条件暂不可用，请稍后重试。") : metaResource.error;
   const rankingError = rankingResource.rawError ? apiErrorText(rankingResource.rawError, "榜单暂不可用，请稍后重试。", { 403: "当前账号没有查看该榜单的权限。", 422: "榜单筛选条件不合法，请重新选择。" }) : rankingResource.error;
@@ -133,7 +133,7 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
           <h1>全国门店月度榜单</h1>
         </div>
       </section>
-      <ResourceNotice loading={metaResource.loading || rankingResource.loading} error={metaError ?? rankingError} />
+      <ResourceNotice analysis loading={metaResource.loading || rankingResource.loading || rankingResource.refreshing} error={metaError ?? rankingError} />
       <FilterBar>
         <SelectField label="统计方式" value={periodType} onChange={(value) => {
           const nextPeriodType = value as PeriodType;

@@ -265,3 +265,19 @@
 
 - 2026-08-21：用户确认采纳。本次只新增 `20260821_0029` 前向兼容迁移，不修改任何历史迁移文件。
 - 已实现 V1 回填默认值、版本唯一约束、当前版本部分唯一索引、版本来源关系与账单版本内来源唯一键；测试覆盖 V1 升级、Vn+1 追加、来源复用和第二个当前版本冲突。
+
+## S4-FCR-014：退款上游枚举、金额语义与历史覆盖关系
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-014` |
+| 来源 Task | `unified-dashboard-publications / T1.1` |
+| 分类 | `DRIFT / GAP` |
+| 改动项 | 区分官方退款发起来源和内部部分/全额范围；补齐退款金额单位、实收基数扣减及主单/子单/次卡粒度，定义原券累计退款与迟到事件的覆盖证据。 |
+| 原因 | 2026-10-20 官方 schema 证明 refund_type 为发起来源；现实现误当 1=部分、2=全额。单位尚无该接口的明确契约。另已复现券快照先扣款、事件迟到后重复扣减，重放需阻断已有财务结果。 |
+| 指向代码位 | `apps/worker/collectors/refunds.py`、`apps/worker/settlement.py::_materialize_refund_adjustments`、`apps/api/dy_api/models.py::DouyinRefundEvent` |
+| 目标 foundation 文件:章节 | `foundation-schema-clue-center/raw_douyin_refund_record.md`、`foundation-schema-dy-data/product-rule-source.md §9`、`foundation-schema-dy-data/settlement-reporting.md §0`，以及退款采集 API 与双费用退款调整契约。 |
+| 严重度 | 阻断未经验证的退款回填及完整业务基线验收。 |
+| 状态 | 待补证及 foundation-builder 修订；S4 仅落实失败关闭与安全预演，不宣称金额或历史覆盖已核准。 |
+
+证据与恢复边界见 [退款证据与受控恢复](../../api/refund-evidence-recovery.md)。不得用内部枚举反向解释上游字段、默认单位、改任务终态或批量重算来填补契约缺口。

@@ -1,4 +1,5 @@
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from playwright.sync_api import Browser, expect
@@ -81,6 +82,7 @@ def install_store_finance_routes(page) -> None:
         ),
     )
     def fulfill_ranking(route) -> None:
+        assert parse_qs(urlparse(route.request.url).query)["publication_id"] == ["visual-settlement"]
         is_cumulative = "periodType=CUMULATIVE" in route.request.url
         route.fulfill(
             status=200,
@@ -114,10 +116,18 @@ def install_store_finance_routes(page) -> None:
                 "total": 0,
                 "page": 1,
                 "pageSize": 20,
-            }),
+            }, publication_module="settlement"),
         )
 
     page.route("**/api/v1/dashboard/store-ranking?*", fulfill_ranking)
+    page.route(
+        "**/api/v1/dashboard/publications/settlement/filters*",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=api_payload(settlement_filter_meta(), publication_module="settlement"),
+        ),
+    )
     page.route(
         "**/api/v1/meta/filters",
         lambda route: route.fulfill(
@@ -126,15 +136,20 @@ def install_store_finance_routes(page) -> None:
             body=api_payload(settlement_filter_meta()),
         ),
     )
-    page.route(
-        "**/api/v1/stores/store_001/monthly-settlement?*",
-        lambda route: route.fulfill(
+    def fulfill_monthly_settlement(route) -> None:
+        assert parse_qs(urlparse(route.request.url).query)["publication_id"] == ["visual-settlement"]
+        route.fulfill(
             status=200,
             content_type="application/json",
             body=api_payload(
                 settlement_monthly_data("store_001", "上海浦东体验中心"),
+                publication_module="settlement",
             ),
-        ),
+        )
+
+    page.route(
+        "**/api/v1/stores/store_001/monthly-settlement?*",
+        fulfill_monthly_settlement,
     )
     page.route(
         "**/api/v1/order-fee-details?*",

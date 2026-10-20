@@ -31,15 +31,11 @@ from dy_api.routes._data import (
     request_id,
     with_utf8_bom,
 )
-from apps.api.dy_api.douyin_ranking import build_douyin_ranking_report
+from dy_api.routes._publications import attach_publication, publication_read
 from apps.api.dy_api.ranking_snapshots import read_snapshot_report
 from apps.api.dy_api.ranking_export import build_ranking_workbook, parse_export_choices, LEVEL_LABELS, METRIC_LABELS
-from apps.api.dy_api.ranking_business import ensure_business_snapshot
 from apps.api.dy_api.ranking_lifecycle import (
-    hold_snapshot_read,
-    record_snapshot_access,
     resolve_static_snapshot,
-    run_background_retention,
 )
 from apps.api.dy_api.ranking_snapshots import metric_version
 from dy_api.schemas import (
@@ -472,6 +468,7 @@ def store_ranking(
     sort_order: str = Query(default="DESC", alias="sortOrder"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=50, alias="pageSize"),
+    publication_id: str | None = Query(default=None, max_length=64),
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
@@ -490,7 +487,6 @@ def store_ranking(
             "rankingBasis",
             request,
         )
-    _validate_product_selection(store, product_scope, product_type, request)
     scope_mode = "AUTHORIZED"
     filters = {
         "period_type": period_type,
@@ -508,14 +504,21 @@ def store_ranking(
             None if current_user.has_global_data_access else current_user.store_ids
         ),
     }
-    data = _call_reporting_store(request, store.store_ranking_report, filters)
-    return _reporting_success(request, data, definitions=STORE_RANKING_DEFINITIONS)
+    from apps.api.dy_api.dashboard_publications.finance import read_store_ranking, read_filters
+    session = _billing_session(store, request)
+    with publication_read(session, "settlement", publication_id) as publication:
+        choices = read_filters(session, publication.id, scope_store_ids=filters["scope_store_ids"])
+        _validate_product_choices(choices.get("product_scope_type_map", {}),
+            choices.get("product_types", ["all"]), product_scope, product_type, request)
+        data = read_store_ranking(session, publication.id, filters)
+    return attach_publication(
+        _reporting_success(request, data, definitions=STORE_RANKING_DEFINITIONS), publication,
+    )
 
 
 @router.get("/dashboard/douyin-ranking")
 def douyin_ranking(
     request: Request,
-    background_tasks: BackgroundTasks,
     product_scope: str = Query(default="jingcheng", alias="productScope"),
     period_start: date = Query(alias="periodStart"),
     period_end: date = Query(alias="periodEnd"),
@@ -529,6 +532,7 @@ def douyin_ranking(
     page_size: int = Query(default=50, ge=1, le=200, alias="pageSize"),
     sort_by: str = Query(default="order_count", alias="sortBy"),
     sort_order: str = Query(default="DESC", alias="sortOrder"),
+    publication_id: str | None = Query(default=None, max_length=64),
     current_user: AuthContext = Depends(get_current_user),
     session=Depends(get_session_dependency),
 ):
@@ -539,14 +543,6 @@ def douyin_ranking(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "INVALID_PERIOD",
             "结束日期不能早于开始日期",
-            field="periodEnd",
-        )
-    if (period_end - period_start).days >= 366:
-        _raise_reporting_error(
-            request,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "PERIOD_TOO_LARGE",
-            "打榜查询时间范围不能超过366天",
             field="periodEnd",
         )
     normalized_level = level.strip().lower()
@@ -567,19 +563,9 @@ def douyin_ranking(
     start_at = datetime.combine(period_start, time.min, tzinfo=business_tz)
     end_at = datetime.combine(period_end + timedelta(days=1), time.min, tzinfo=business_tz)
     preview = getattr(request.app.state, "ranking_snapshot_preview", False)
-    try:
-        run_id = None
-        if not preview:
-            run_id = ensure_business_snapshot(session, period_start=start_at, period_end=end_at, product_scope=product_scope)
-            session.commit()
-            # Re-open the read transaction after publication and keep a
-            # parent KEY SHARE lock until the report rows have been consumed.
-            hold_snapshot_read(session, run_id)
-        data = read_snapshot_report(
-            session,
+    publication = None
+    report_filters = dict(
             product_scope=product_scope,
-            run_id=run_id,
-            data_mode="synthetic" if preview else "business",
             period_start=start_at,
             period_end=end_at,
             level=normalized_level,
@@ -594,22 +580,24 @@ def douyin_ranking(
             sort_by=normalized_sort,
             sort_order=normalized_order,
         )
+    try:
+        if preview:
+            data = read_snapshot_report(session, data_mode="synthetic", **report_filters)
+        else:
+            from apps.api.dy_api.dashboard_publications.ranking import read_report
+            with publication_read(session, "douyin-ranking", publication_id) as publication:
+                data = read_report(session, publication.id, **report_filters)
     except ValueError as exc:
         session.rollback()
-        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "RANKING_SNAPSHOT_UNAVAILABLE", str(exc))
+        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "INVALID_RANKING_FILTER", str(exc))
     except DBAPIError:
         session.rollback()
         _raise_reporting_error(request, status.HTTP_503_SERVICE_UNAVAILABLE,
             "RANKING_QUERY_UNAVAILABLE", "指标查询暂时不可用，请稍后重试或缩短日期范围")
-    if not preview:
-        factory = get_session_factory()
-        if factory is not None:
-            # Retention uses a separate session and one-run bound, so an
-            # already-published board response never waits for maintenance.
-            background_tasks.add_task(run_background_retention, factory)
     definitions = [{**item, "description": data.get("metric_definitions", {}).get(item["key"], item["description"])}
                    for item in DOUYIN_RANKING_DEFINITIONS]
-    return _reporting_success(request, data, definitions=definitions)
+    payload = _reporting_success(request, data, definitions=definitions)
+    return attach_publication(payload, publication) if publication is not None else payload
 
 
 @router.get("/dashboard/douyin-ranking/export")
@@ -625,13 +613,14 @@ def export_douyin_ranking(
     district_name: str | None = Query(default=None, alias="districtName"),
     area_name: str | None = Query(default=None, alias="areaName"),
     store_id: str | None = Query(default=None, alias="storeId"),
+    publication_id: str | None = Query(default=None, max_length=64),
     current_user: AuthContext = Depends(get_current_user),
     session=Depends(get_session_dependency),
 ):
     """Export authorized full rankings from one frozen snapshot."""
-    if period_end < period_start or (period_end - period_start).days >= 366:
+    if period_end < period_start:
         _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "INVALID_PERIOD", "结束日期不能早于开始日期，统计范围不能超过366天", field="periodEnd")
+            "INVALID_PERIOD", "结束日期不能早于开始日期", field="periodEnd")
     try:
         selected_levels = parse_export_choices(levels, LEVEL_LABELS)
         selected_metrics = parse_export_choices(metrics, METRIC_LABELS)
@@ -643,22 +632,9 @@ def export_douyin_ranking(
     start_at = datetime.combine(period_start, time.min, tzinfo=business_tz)
     end_at = datetime.combine(period_end + timedelta(days=1), time.min, tzinfo=business_tz)
     preview = getattr(request.app.state, "ranking_snapshot_preview", False)
-    try:
-        # Export is a read of an already published immutable batch.  It must
-        # never invoke the calculator or create a new run as a side effect of
-        # downloading a file.  ``resolve_static_snapshot`` holds a PostgreSQL
-        # KEY SHARE lock until the surrounding request transaction finishes.
-        run_id = resolve_static_snapshot(
-            session,
-            period_start=start_at,
-            period_end=end_at,
-            metric_version=metric_version(product_scope),
-            data_mode="synthetic" if preview else "business",
-            lock_for_read=True,
-        )
-        content = build_ranking_workbook(session, levels=selected_levels, metrics=selected_metrics,
+    publication = None
+    report_filters = dict(
             product_scope=product_scope,
-            run_id=run_id, data_mode="synthetic" if preview else "business",
             period_start=start_at, period_end=end_at,
             scope_store_ids=None,
             group_name=(group_name or "").strip() or None,
@@ -666,23 +642,37 @@ def export_douyin_ranking(
             district_name=(district_name or "").strip() or None,
             area_name=(area_name or "").strip() or None,
             store_id=(store_id or "").strip() or None)
-        # Only a successful workbook build records one access on the already
-        # resolved run. It never creates a ranking snapshot or recalculates it.
-        record_snapshot_access(session, run_id)
-        # The dashboard dependency closes its generator without advancing the
-        # context manager's post-yield commit. Commit here so the access mark
-        # survives the response while the KEY SHARE read lock is still held.
-        session.commit()
+    try:
+        if preview:
+            run_id = resolve_static_snapshot(
+                session, period_start=start_at, period_end=end_at,
+                metric_version=metric_version(product_scope), data_mode="synthetic", lock_for_read=True,
+            )
+            content = build_ranking_workbook(
+                session, levels=selected_levels, metrics=selected_metrics,
+                run_id=run_id, data_mode="synthetic", **report_filters,
+            )
+        else:
+            from apps.api.dy_api.dashboard_publications.ranking import read_report
+            with publication_read(session, "douyin-ranking", publication_id) as publication:
+                def published_reader(read_session, **filters):
+                    return {**read_report(read_session, publication.id, **filters),
+                            "publication": publication.meta()}
+                content = build_ranking_workbook(
+                    session, levels=selected_levels, metrics=selected_metrics,
+                    report_reader=published_reader, **report_filters,
+                )
     except ValueError as exc:
         session.rollback()
-        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "RANKING_SNAPSHOT_UNAVAILABLE", str(exc))
+        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "INVALID_RANKING_FILTER", str(exc))
     except DBAPIError:
         session.rollback()
         _raise_reporting_error(request, status.HTTP_503_SERVICE_UNAVAILABLE,
             "RANKING_QUERY_UNAVAILABLE", "指标导出暂时不可用，请稍后重试或缩短日期范围")
     return Response(content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="douyin-ranking-{period_start}-{period_end}.xlsx"',
-                 "Cache-Control": "no-store"})
+                 "Cache-Control": "no-store",
+                 **({"X-Publication-ID": publication.id} if publication is not None else {})})
 
 
 @router.get("/commission-rules/summary")
@@ -4096,6 +4086,7 @@ def get_admin_finance_summary(
     store_id: str | None = Query(default=None, alias="storeId"),
     q: str | None = Query(default=None),
     invoice_status: str | None = Query(default=None, alias="invoiceStatus"),
+    publication_id: str | None = Query(default=None, max_length=64),
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
@@ -4116,41 +4107,12 @@ def get_admin_finance_summary(
     status_code = _normalize_invoice_status(
         invoice_status, request, fee_direction=direction
     )
-    statement_ids = _finance_summary_filtered_statement_ids(
-        session,
-        month=month,
-        fee_direction=direction,
-        metric_scope=normalized_scope,
-        store_id=store_id,
-        q=q,
-        invoice_status=status_code,
-        scope_store_ids=scope_store_ids,
-    )
-
-    projection = _finance_unbilled_projection_query(
-        store, month=month, metric_scope=normalized_scope, store_id=store_id,
-        q=q, invoice_status=status_code, scope_store_ids=scope_store_ids,
-    )
-    projected = projection.order_by(None).subquery()
-    projection_total = session.scalar(select(func.coalesce(func.sum(
-        projected.c.promotion_net_fee_cent if direction == "PROMOTION"
-        else projected.c.management_net_fee_cent
-    ), 0))) or 0
-    metrics = _finance_summary_metrics(
-        session, month=month, fee_direction=direction, metric_scope=normalized_scope,
-        store_id=store_id, statement_ids=statement_ids,
-    )
-    metrics["statement_total_cent"] += int(projection_total)
-    return _reporting_success(
-        request,
-        {
-            "month": month,
-            "store_id": store_id,
-            "fee_direction": direction,
-            "metric_scope": normalized_scope,
-            "metrics": metrics,
-        },
-    )
+    from apps.api.dy_api.dashboard_publications.finance import read_finance_summary
+    with publication_read(session, "finance", publication_id) as publication:
+        data = read_finance_summary(session, publication.id,
+            month=month, fee_direction=direction, metric_scope=normalized_scope,
+            store_id=store_id, q=q, invoice_status=status_code, scope_store_ids=scope_store_ids)
+    return attach_publication(_reporting_success(request, data), publication)
 
 
 @router.get("/admin/finance/invoices")
@@ -4165,6 +4127,7 @@ def list_admin_finance_invoices(
     include_history: bool = Query(default=False, alias="includeHistory"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=50, alias="pageSize"),
+    publication_id: str | None = Query(default=None, max_length=64),
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
@@ -4186,52 +4149,13 @@ def list_admin_finance_invoices(
         invoice_status, request, fee_direction=direction
     )
 
-    projection = _finance_unbilled_projection_query(
-        store, month=month, metric_scope=normalized_scope, store_id=store_id,
-        q=q, invoice_status=status_code, scope_store_ids=scope_store_ids,
-    )
-    projection_count = session.scalar(select(func.count()).select_from(projection.subquery())) or 0
-    offset = (page - 1) * page_size
-    projected_rows = session.execute(projection.offset(offset).limit(page_size)).all()
-    projection_items = [_finance_unbilled_projection_item(session, row, direction) for row in projected_rows]
-    formal_offset = max(0, offset - projection_count)
-    formal_limit = page_size - len(projection_items)
-    if direction == "PROMOTION":
-        query = _promotion_finance_collection_query(
-            month=month, metric_scope=normalized_scope, store_id=store_id,
-            q=q, invoice_status=status_code, scope_store_ids=scope_store_ids,
-        )
-        total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
-        rows = session.execute(query.offset(formal_offset).limit(formal_limit)).all()
-        items = [
-            _admin_promotion_invoice_item(
-                session, invoice, allocation, statement
-            )
-            for invoice, allocation, statement in rows
-        ]
-    else:
-        query = _management_invoice_collection_query(
-            month=month,
-            metric_scope=normalized_scope,
-            store_id=store_id,
-            q=q,
-            invoice_status=status_code,
-            include_history=include_history,
-            scope_store_ids=scope_store_ids,
-        )
-        total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
-        rows = session.execute(
-            query.offset(formal_offset).limit(formal_limit)
-        ).all()
-        items = [
-            _admin_management_invoice_item(session, invoice, statement)
-            for invoice, statement in rows
-        ]
-
-    return _reporting_success(
-        request,
-        {"list": projection_items + items, "total": projection_count + total, "page": page, "page_size": page_size},
-    )
+    from apps.api.dy_api.dashboard_publications.finance import read_finance_invoices
+    with publication_read(session, "finance", publication_id) as publication:
+        data = read_finance_invoices(session, publication.id,
+            month=month, fee_direction=direction, metric_scope=normalized_scope,
+            store_id=store_id, q=q, invoice_status=status_code, include_history=include_history,
+            scope_store_ids=scope_store_ids, page=page, page_size=page_size)
+    return attach_publication(_reporting_success(request, data), publication)
 
 
 @router.get("/admin/finance/invoices/export")
@@ -4244,6 +4168,7 @@ def export_admin_finance_invoices(
     q: str | None = Query(default=None),
     invoice_status: str | None = Query(default=None, alias="invoiceStatus"),
     include_history: bool = Query(default=False, alias="includeHistory"),
+    publication_id: str | None = Query(default=None, max_length=64),
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
@@ -4266,40 +4191,12 @@ def export_admin_finance_invoices(
     status_code = _normalize_invoice_status(
         invoice_status, request, fee_direction=direction
     )
-    if direction == "PROMOTION":
-        query = _promotion_finance_collection_query(
-            month=month, metric_scope=normalized_scope, store_id=store_id,
-            q=q, invoice_status=status_code, scope_store_ids=scope_store_ids,
-        )
-        rows = session.execute(query.limit(MAX_FINANCE_ORDER_EXPORT_ROWS + 1)).all()
-        items = [
-            _admin_promotion_invoice_item(
-                session, invoice, allocation, statement
-            )
-            for invoice, allocation, statement in rows
-        ]
-    else:
-        rows = session.execute(
-            _management_invoice_collection_query(
-                month=month,
-                metric_scope=normalized_scope,
-                store_id=store_id,
-                q=q,
-                invoice_status=status_code,
-                include_history=include_history,
-                scope_store_ids=scope_store_ids,
-            ).limit(MAX_FINANCE_ORDER_EXPORT_ROWS + 1)
-        ).all()
-        items = [
-            _admin_management_invoice_item(session, invoice, statement)
-            for invoice, statement in rows
-        ]
-    projection = _finance_unbilled_projection_query(
-        store, month=month, metric_scope=normalized_scope, store_id=store_id,
-        q=q, invoice_status=status_code, scope_store_ids=scope_store_ids,
-    )
-    projected_rows = session.execute(projection.limit(MAX_FINANCE_ORDER_EXPORT_ROWS + 1)).all()
-    items = [_finance_unbilled_projection_item(session, row, direction) for row in projected_rows] + items
+    from apps.api.dy_api.dashboard_publications.finance import export_finance_invoices
+    with publication_read(session, "finance", publication_id) as publication:
+        items = export_finance_invoices(session, publication.id,
+            month=month, fee_direction=direction, metric_scope=normalized_scope,
+            store_id=store_id, q=q, invoice_status=status_code, include_history=include_history,
+            scope_store_ids=scope_store_ids, limit=MAX_FINANCE_ORDER_EXPORT_ROWS + 1)
     if len(items) > MAX_FINANCE_ORDER_EXPORT_ROWS:
         _raise_reporting_error(
             request,
@@ -4307,7 +4204,7 @@ def export_admin_finance_invoices(
             "EXPORT_LIMIT_EXCEEDED",
             f"命中记录超过 {MAX_FINANCE_ORDER_EXPORT_ROWS} 行，请缩小筛选范围",
         )
-    return _finance_csv_download(
+    response = _finance_csv_download(
         request=request,
         filename_prefix=f"finance-{direction.lower()}-invoices",
         fieldnames=[
@@ -4332,6 +4229,44 @@ def export_admin_finance_invoices(
         ],
         rows=items,
     )
+    response.headers["X-Publication-ID"] = publication.id
+    return response
+
+
+@router.get(
+    "/admin/finance/management-invoices/{store_id}/{statement_month}/current"
+)
+def get_current_management_invoice(
+    store_id: str,
+    statement_month: str,
+    request: Request,
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    """Read the live management invoice version used by correction commands."""
+
+    _require_finance_admin(current_user, request, page_key="FIN02")
+    _validate_month(statement_month, "statementMonth", request)
+    session = _billing_session(store, request)
+    _require_billing_store(session, store_id, request)
+    _require_finance_store_scope(current_user, store_id, request)
+    current = session.scalar(
+        select(InvoiceRecord).where(
+            InvoiceRecord.store_id == store_id,
+            InvoiceRecord.statement_month == statement_month,
+            InvoiceRecord.fee_direction == 2,
+            InvoiceRecord.is_current.is_(True),
+            InvoiceRecord.is_tombstone.is_(False),
+        )
+    )
+    if current is None:
+        _raise_reporting_error(
+            request,
+            status.HTTP_404_NOT_FOUND,
+            "RESOURCE_NOT_FOUND",
+            "当前管理服务费发票记录不存在",
+        )
+    return _reporting_success(request, _management_invoice_item(current))
 
 
 @router.post(
@@ -5958,28 +5893,45 @@ def monthly_settlement(
     month: str,
     product_scope: str = Query(default="all", alias="productScope"),
     product_type: str = Query(default="all", alias="productType"),
+    publication_id: str | None = Query(default=None, max_length=64),
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
     _require_store_scope(current_user, store_id)
     _validate_month(month, "month", request)
-    _validate_product_selection(store, product_scope, product_type, request)
     # A selectable period may legitimately hold no rows yet (for example the
     # previous business month before its first close).  Only an unknown store is
     # a not-found here; an empty period resolves to a real empty payload.
     _require_known_store(store, store_id, request)
-    data = _call_reporting_store(
-        request,
-        store.monthly_settlement_report,
-        {
+    from apps.api.dy_api.dashboard_publications.finance import read_monthly_settlement, read_filters
+    from dy_api.routes._data import STATEMENT_STATUS_FROM_DB
+    session = _billing_session(store, request)
+    with publication_read(session, "settlement", publication_id) as publication:
+        choices = read_filters(session, publication.id, scope_store_ids=(store_id,))
+        _validate_product_choices(choices.get("product_scope_type_map", {}),
+            choices.get("product_types", ["all"]), product_scope, product_type, request)
+        data = read_monthly_settlement(session, publication.id, {
             "store_id": store_id,
             "month": month,
             "product_scope": product_scope,
             "product_type": product_type,
-        },
-    )
-    return _reporting_success(
-        request, data, definitions=MONTHLY_SETTLEMENT_DEFINITIONS
+        })
+        # Confirmation eligibility and the current statement remain live.
+        # The frozen header is analysis evidence only, never a write target.
+        statement = session.scalar(select(SettlementStatement).where(
+            SettlementStatement.store_id == store_id,
+            SettlementStatement.statement_month == month,
+            SettlementStatement.is_current.is_(True),
+        ))
+        data["statement"] = None if statement is None else {
+            "statement_id": statement.statement_id,
+            "statement_status": STATEMENT_STATUS_FROM_DB.get(statement.statement_status, "GENERATING"),
+            "confirmed_at": statement.confirmed_at,
+            "locked_at": statement.locked_at,
+            "lock_version": statement.lock_version,
+        }
+    return attach_publication(
+        _reporting_success(request, data, definitions=MONTHLY_SETTLEMENT_DEFINITIONS), publication,
     )
 
 
@@ -6096,29 +6048,40 @@ def order_fee_details_export(
 
 @router.get("/dashboard/sales")
 def sales_dashboard(
+    request: Request,
     store_id: str | None = None,
     month: str = "all",
+    year: int | None = Query(default=None, ge=2000, le=2200),
     product_scope: str = "all",
     product_type: str = "all",
     trend_months: list[str] | None = Query(default=None),
+    publication_id: str | None = Query(default=None, max_length=64),
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
     scoped_store_id = _resolve_sales_dashboard_store_id(current_user, store_id)
-    data = SalesDashboardData(
-        **store.sales_dashboard(
+    if month not in {"all", "history"}:
+        _validate_month(month, "month", request)
+    for trend_month in trend_months or []:
+        _validate_month(trend_month, "trend_months", request)
+    from apps.api.dy_api.dashboard_publications.sales import read
+    session = _billing_session(store, request)
+    with publication_read(session, "sales", publication_id) as publication:
+        data = SalesDashboardData(**read(session, publication.id,
             store_id=scoped_store_id,
             month=month,
+            year=year,
             product_scope=product_scope,
             product_type=product_type,
             trend_months=trend_months or [],
-        )
-    )
-    return {
+            visible_product_types=store._visible_product_types(),
+            scope_store_ids=None if current_user.has_global_data_access else current_user.store_ids,
+        ))
+    return attach_publication({
         "data": dump_model(data),
         "definitions": SALES_DASHBOARD_DEFINITIONS,
         "meta": {"generated_at": generated_at(), "source": "postgres"},
-    }
+    }, publication)
 
 
 @router.get("/order-details")
@@ -11646,6 +11609,11 @@ def _validate_product_selection(
 ) -> None:
     scope_map = getattr(store, "product_scope_type_map", lambda: {})()
     available_types = set(getattr(store, "list_product_types", lambda: ["all"])())
+    _validate_product_choices(scope_map, available_types, product_scope, product_type, request)
+
+
+def _validate_product_choices(scope_map, available_types, product_scope, product_type, request):
+    available_types = set(available_types)
     if product_scope != "all" and product_scope not in scope_map:
         _raise_reporting_error(
             request,

@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
+from publication_fixture_helpers import publish_fixture
+from apps.api.dy_api.dashboard_publications import finance as finance_publications
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import DashboardDataStore, get_data_store, sanitize_error_message  # noqa: E402
 from apps.api.dy_api.models import (  # noqa: E402
@@ -31,6 +33,9 @@ def deferred_field(*parts: str) -> str:
 
 
 class FakeStore:
+    def _visible_product_types(self):
+        return None
+
     def list_stores(self, scope_store_ids=None):
         return [{"store_id": "store_001", "store_name": "Store One"}]
 
@@ -466,14 +471,63 @@ class FakeStore:
         return '{"sale_store_id":"store_001"}'
 
 
+def _publish_dashboard_contract_data(session: Session, store: FakeStore) -> None:
+    """Freeze the contract fake once; real readers still exercise publication SQL."""
+    def build_contract(
+        build_session: Session, publication_id: str, cutoff: datetime,
+    ) -> dict[str, int]:
+        dimensions = [{"publication_id": publication_id, "kind": "store",
+            "key": "store_001", "value": {"store_id": "store_001", "store_name": "Store One"}},
+            {"publication_id": publication_id, "kind": "filters", "key": "all",
+             "value": {"product_scope_type_map": store.product_scope_type_map(),
+                       "product_types": store.list_product_types()}}]
+        build_session.execute(finance_publications.dimensions.insert(), dimensions)
+        for month in sorted(store.MATERIALIZED_MONTHS):
+            filters = {"store_id": "store_001", "month": month,
+                       "product_scope": "all", "product_type": "all"}
+            report = store.monthly_settlement_report(filters)
+            build_session.execute(finance_publications.monthly.insert().values(
+                publication_id=publication_id, **filters,
+                **report["metrics"], statement=None, lines=report["lines"]))
+            ranking_report = store.store_ranking_report({"period_type": "MONTHLY",
+                "period_key": month, "product_scope": "all", "product_type": "all",
+                "scope_mode": "AUTHORIZED", "page": 1, "page_size": 20})
+            # Ten equal stores make the fake's overall totals and first row coherent.
+            first = ranking_report["list"][0]
+            for index in range(1, 11):
+                build_session.execute(finance_publications.ranking.insert().values(
+                    publication_id=publication_id, period_type=1, period_key=month,
+                    product_scope="all", product_type="all",
+                    store_id=f"store_{index:03d}",
+                    store_name="Store One" if index == 1 else f"Store {index}",
+                    **{key: first[key] for key in finance_publications.RANK_METRICS}))
+        return {"row_count": 2 + len(store.MATERIALIZED_MONTHS) * 11}
+
+    publish_fixture(session, "settlement", builder=build_contract)
+    session.add(DimStore(store_id="store_001", store_name="Store One"))
+    for index, verified in enumerate((True, False)):
+        session.add(SettlementOrderDetail(
+            coupon_id=f"contract-coupon-{index}", order_id=f"contract-order-{index}",
+            sku_id="sku_001", product_type="basic_service", sale_store_id="store_001",
+            sale_time=datetime(2026, 5, 1, 8, tzinfo=timezone.utc),
+            is_verified=verified, verify_store_id="store_001" if verified else None,
+            verify_time=datetime(2026, 5, 4, 8, tzinfo=timezone.utc) if verified else None,
+            paid_amount_cent=16800, is_refund_excluded=False,
+        ))
+    publish_fixture(session, "sales")
+
+
 @pytest.fixture()
-def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+def client(monkeypatch: pytest.MonkeyPatch, db_session: Session) -> TestClient:
     monkeypatch.setenv("DY_API_TEST_MODE", "true")
     monkeypatch.setenv("DY_SUPER_ADMIN_USERNAME", "system-admin")
     monkeypatch.setenv("DY_TEST_ADMIN_PASSWORD", "test-password")
     monkeypatch.setenv("DY_SESSION_COOKIE_SECURE", "false")
     app = create_app()
-    app.dependency_overrides[get_data_store] = lambda: FakeStore()
+    store = FakeStore()
+    store.session = db_session
+    app.dependency_overrides[get_data_store] = lambda: store
+    _publish_dashboard_contract_data(db_session, store)
     return TestClient(app)
 
 

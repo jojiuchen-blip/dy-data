@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "../components/Button";
 import { DouyinRankingExportDialog } from "../components/DouyinRankingExportDialog";
 import { RANKING_METRIC_OPTIONS, type RankingMetric } from "../utils/rankingOptions";
@@ -10,10 +10,9 @@ import { TooltipLabel } from "../components/TooltipLabel";
 import { MetricCard } from "../components/MetricCard";
 import { TablePagination } from "../components/TablePagination";
 import { ResourceNotice, ResourcePanel, resourceSourceLabel } from "../components/ResourceState";
-import { useApiResource } from "../hooks/useApiResource";
+import { usePublishedResource } from "../hooks/usePublishedResource";
 import type { DouyinRankingLevel, DouyinRankingRow } from "../types/dashboard";
-import { formatDateTime, formatInteger, formatPercent } from "../utils/format";
-import { apiErrorText } from "../utils/apiErrors";
+import { formatInteger, formatPercent } from "../utils/format";
 import {
   RANKING_EARLIEST_DATE,
   normalizeRankingDateRange,
@@ -109,8 +108,9 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
   const productLabel = ({all: "全部商品", jingcheng: "精诚养车商品", byd: "比亚迪本品"} as Record<string, string>)[productScope];
   const [exportOpen, setExportOpen] = useState(false);
 
-  const rankingResource = useApiResource(
-    () => fetchDouyinRanking({
+  const rankingResource = usePublishedResource(
+    (publication_id) => fetchDouyinRanking({
+      publication_id,
       productScope,
       periodStart,
       periodEnd,
@@ -125,24 +125,13 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
       sortOrder: "DESC",
     }),
     [productScope, periodStart, periodEnd, level, groupName, serviceCenterName, districtName, areaName, page, sortBy],
-    { clearOnReload: true },
+
   );
   const ranking = rankingResource.data?.data;
   const hasQualityIssues = Object.entries(ranking?.qualityJson ?? {}).some(
     ([key, count]) => key !== "followRoundsUnderObservation" && count > 0,
   );
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") rankingResource.reload();
-    }, 5 * 60 * 1000);
-    return () => window.clearInterval(timer);
-  }, [rankingResource.reload]);
-  const error = rankingResource.rawError
-    ? apiErrorText(rankingResource.rawError, "打榜看板暂不可用，请稍后重试。", {
-      403: "当前账号没有查看打榜看板的权限。",
-      422: "所选日期的数据尚未准备好，或筛选条件不正确，请调整后重试。",
-    })
-    : rankingResource.error;
+  const error = rankingResource.error;
   const rows = ranking?.rows ?? [];
   const totals = ranking?.totals;
   const sourceLabel = ranking?.dataMode === "synthetic" ? "虚拟测试快照" : resourceSourceLabel(rankingResource.data, rankingResource.loading);
@@ -178,9 +167,9 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
           <p>按集团、服务中心、大区、区域和门店查看抖音订单、线索跟进与核销表现。</p>
         </div>
       </section>
-      {exportOpen && <DouyinRankingExportDialog periodStart={periodStart} periodEnd={periodEnd} today={initialRange.today} level={level}
+      {exportOpen && <DouyinRankingExportDialog publicationId={rankingResource.data?.meta.publication?.id} periodStart={periodStart} periodEnd={periodEnd} today={initialRange.today} level={level}
         productScope={productScope} filters={{ groupName, serviceCenterName, districtName, areaName }} onClose={() => setExportOpen(false)} />}
-      <ResourceNotice loading={rankingResource.loading} error={error} fallbackReason={rankingResource.data?.fallbackReason} />
+      <ResourceNotice analysis loading={rankingResource.loading} error={error} fallbackReason={rankingResource.data?.fallbackReason} />
       {ranking?.dataMode === "synthetic" && <ResourcePanel>{ranking.previewNote} 快照：{ranking.snapshotId}</ResourcePanel>}
       {ranking?.dataMode === "business" && hasQualityIssues && <ResourcePanel>部分数据的门店归属或历史绑定资料尚待核验，当前排名仅供参考；未能唯一归属的数据暂未计入。</ResourcePanel>}
       <FilterBar>
@@ -189,7 +178,7 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
         <FilterField label="结束日期"><FieldInput type="date" min={periodStart} max={initialRange.today} value={periodEnd} onChange={(event) => { setPeriodEnd(updateRankingPeriodEnd(event.target.value, periodStart, initialRange.today)); setPage(1); }} /></FilterField>
         <SelectField label="查看层级" value={level} onChange={(value) => { setLevel(value as DouyinRankingLevel); setPage(1); }} options={LEVEL_OPTIONS} />
         <SelectField label="排名依据" value={sortBy} onChange={(value) => { setSortBy(value as RankingMetric); setPage(1); }} options={RANKING_METRIC_OPTIONS} />
-        <Button onClick={() => setExportOpen(true)}>导出排行</Button>
+        <Button disabled={!rankingResource.data} onClick={() => setExportOpen(true)}>导出排行</Button>
         <FilterField label="集团"><FieldInput value={groupName} placeholder="按名称筛选" onChange={(event) => { setGroupName(event.target.value); setPage(1); }} /></FilterField>
         <FilterField label="服务中心"><FieldInput value={serviceCenterName} placeholder="按名称筛选" onChange={(event) => { setServiceCenterName(event.target.value); setPage(1); }} /></FilterField>
         <FilterField label="大区"><FieldInput value={districtName} placeholder="按名称筛选" onChange={(event) => { setDistrictName(event.target.value); setPage(1); }} /></FilterField>
@@ -209,7 +198,6 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
                 <h2>{LEVEL_OPTIONS.find((item) => item.value === level)?.label ?? "组织"}排名 · {RANKING_METRIC_OPTIONS.find((item) => item.value === sortBy)?.label}</h2>
                 <p>共 {ranking.total} 个结果 · 统计 {ranking.periodStart.slice(0, 10)} 至 {ranking.periodEnd.slice(0, 10)} · 数据源：{sourceLabel}</p>
               </div>
-              <div className="section-title__meta">最近数据：{formatDateTime(ranking.latestObservedAt)}</div>
             </div>
             {rows.length ? <DataTable columns={columns} rows={rows} /> : <ResourcePanel>当前统计范围没有可展示数据，请检查筛选范围及快照更新状态。</ResourcePanel>}
             <TablePagination page={page} pageSize={PAGE_SIZE} total={ranking.total}

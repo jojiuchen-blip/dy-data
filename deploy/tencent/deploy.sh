@@ -19,6 +19,10 @@ SKIP_GIT_SYNC="${SKIP_GIT_SYNC:-false}"
 APT_MIRROR="${APT_MIRROR:-http://mirrors.tencentyun.com}"
 DY_WEB_BASE_URL="${DY_WEB_BASE_URL:-}"
 export APT_MIRROR DY_WEB_BASE_URL
+previous_publication_image_id=""
+previous_publication_image_ref=""
+publication_worker_replaced=false
+api_replaced=false
 
 compose() {
   sudo APT_MIRROR="$APT_MIRROR" DY_WEB_BASE_URL="$DY_WEB_BASE_URL" docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
@@ -83,7 +87,7 @@ backup_running_images() {
 # pre-deploy running images stamp=$stamp target_sha=${TARGET_SHA:-<unset>}
 # service|configured_ref|full_image_id|rollback_tag|state
 EOF
-  for service in api migrate worker web browser ops-agent proxy postgres; do
+  for service in api migrate worker publication-worker web browser ops-agent proxy postgres; do
     if ! container_id="$(compose ps -q "$service" 2>/dev/null)"; then
       # A failed query is not the same as an absent container: the image the
       # running container uses cannot be identified, so the deploy must stop.
@@ -114,6 +118,10 @@ EOF
       log "empty immutable image id; refusing to deploy service=$service container=$container_id"
       sudo rm -f "$tmp_manifest"
       return 1
+    fi
+    if [ "$service" = "publication-worker" ]; then
+      previous_publication_image_id="$image_id"
+      previous_publication_image_ref="$configured_ref"
     fi
     if ! sudo docker image tag "$image_id" "dy-dashboard-rollback:$stamp-$service" >/dev/null 2>&1; then
       log "cannot tag the running image for rollback; refusing to deploy service=$service image=$image_id"
@@ -444,11 +452,87 @@ wait_for_healthy_service() {
   return 1
 }
 
+warm_dashboard_publications() {
+  local module
+  local container_name
+  local warm_stamp
+  local warm_timeout="${PUBLICATION_WARM_TIMEOUT_SECONDS:-240}"
+  case "$warm_timeout" in
+    ''|*[!0-9]*) log "invalid publication warm timeout"; return 1 ;;
+  esac
+  if [ "$warm_timeout" -lt 30 ] || [ "$warm_timeout" -gt 900 ]; then
+    log "publication warm timeout must be between 30 and 900 seconds"
+    return 1
+  fi
+  if ! command -v timeout >/dev/null 2>&1; then
+    log "publication warmup requires GNU timeout; existing API is retained"
+    return 1
+  fi
+  warm_stamp="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  for module in douyin-ranking sales clue-overview settlement finance; do
+    container_name="dy-publication-warm-$warm_stamp-$module"
+    log "warming complete dashboard publication module=$module timeout_seconds=$warm_timeout"
+    if ! timeout --signal=TERM --kill-after=15s "$warm_timeout" \
+      sudo APT_MIRROR="$APT_MIRROR" DY_WEB_BASE_URL="$DY_WEB_BASE_URL" \
+      docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+      run --rm --no-deps --name "$container_name" publication-worker \
+      python -m apps.worker.dashboard_publications --once --require-ready --module "$module"; then
+      # Killing docker compose alone does not guarantee its one-off container
+      # exits. Remove precisely this disposable build, releasing DB locks too.
+      sudo docker rm -f "$container_name" >/dev/null 2>&1 || true
+      log "publication warmup failed module=$module; existing API and business worker are retained"
+      return 1
+    fi
+  done
+  if ! timeout --signal=TERM --kill-after=15s "$warm_timeout" \
+    sudo APT_MIRROR="$APT_MIRROR" DY_WEB_BASE_URL="$DY_WEB_BASE_URL" \
+    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+    run --rm --no-deps --name "dy-publication-ready-$warm_stamp" publication-worker \
+    python -m apps.worker.dashboard_publications --check-ready; then
+    sudo docker rm -f "dy-publication-ready-$warm_stamp" >/dev/null 2>&1 || true
+    log "publication readiness gate failed; existing API and business worker are retained"
+    return 1
+  fi
+}
+
+restore_publication_worker_before_api() {
+  # Warmup does not replace API containers. If starting the new publisher then
+  # fails, restore its exact previous image (or stop a first-time publisher).
+  # Database rollback is deliberately not automatic: completed/pinned facts
+  # and the additive migration remain intact.
+  if [ "${api_replaced:-false}" = "true" ] || [ "${publication_worker_replaced:-false}" != "true" ]; then
+    return 0
+  fi
+  if [ -n "${previous_publication_image_id:-}" ]; then
+    local restore_file
+    local restored=false
+    log "restoring previous publication-worker image before API cutover"
+    if [[ ! "$previous_publication_image_id" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+      log "publication-worker rollback image id is invalid"
+      return 1
+    fi
+    restore_file="$(mktemp)"
+    printf 'services:\n  publication-worker:\n    image: "%s"\n' "$previous_publication_image_id" > "$restore_file"
+    # Override only this service, without retagging the shared WORKER_IMAGE
+    # reference used by the still-running business worker.
+    if compose -f "$restore_file" up -d --no-deps --no-build --force-recreate publication-worker; then
+      restored=true
+    fi
+    rm -f -- "$restore_file"
+    [ "$restored" = "true" ]
+  else
+    log "stopping first-time publication-worker before API cutover"
+    compose stop publication-worker
+  fi
+}
+
 on_error() {
   status=$?
+  trap - ERR
   log "deployment failed with status=$status"
+  restore_publication_worker_before_api || log "publication-worker restore failed; use recorded immutable image manifest"
   compose ps -a || true
-  compose logs --tail=80 api web proxy ops-agent worker || true
+  compose logs --tail=80 api web proxy ops-agent worker publication-worker || true
   exit "$status"
 }
 
@@ -495,7 +579,7 @@ log "recording running images before any build"
 backup_running_images
 
 log "building images"
-compose build --progress=plain api web browser worker ops-agent
+compose build --progress=plain api web browser worker ops-agent publication-worker
 
 log "starting postgres"
 compose up -d postgres
@@ -529,7 +613,26 @@ if [ "$unresolved_snapshot_exceptions" -ne 0 ]; then
   exit 1
 fi
 
+# Do not replace the old API until every new analytical read model is usable.
+# Active legacy work may defer a first publication; fail safely, never bypass
+# writer locks or force-publish a partially materialized source.
+log "warming dashboard publications before API replacement"
+warm_dashboard_publications
+
+log "starting independent publication worker before API replacement"
+publication_worker_replaced=true
+compose up -d --no-deps --force-recreate publication-worker
+wait_for_healthy_service publication-worker
+if ! timeout --signal=TERM --kill-after=15s "${PUBLICATION_WARM_TIMEOUT_SECONDS:-240}" \
+  sudo APT_MIRROR="$APT_MIRROR" DY_WEB_BASE_URL="$DY_WEB_BASE_URL" \
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+  exec -T publication-worker python -m apps.worker.dashboard_publications --check-ready; then
+  log "running publication worker failed its read-only readiness check"
+  false
+fi
+
 log "restarting API before worker claim recovery"
+api_replaced=true
 compose up -d --no-deps --force-recreate api
 wait_for_healthy_service api
 

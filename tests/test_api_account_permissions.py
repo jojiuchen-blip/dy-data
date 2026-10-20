@@ -27,6 +27,7 @@ from apps.api.dy_api.models import (  # noqa: E402
     User,
     UserStoreScope,
 )
+from publication_fixture_helpers import publish_fixture
 from dy_api.auth import hash_password_pbkdf2  # noqa: E402
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import DashboardDataStore, get_session_dependency  # noqa: E402
@@ -397,9 +398,11 @@ def _login_empty_store(client: TestClient) -> None:
     assert response.status_code == 200
 
 
-def test_store_user_permissions_are_enforced(client: TestClient) -> None:
+def test_store_user_permissions_are_enforced(client: TestClient, db_session: Session) -> None:
     assert client.get("/api/v1/order-details").status_code == 401
     _login_store(client)
+    publish_fixture(db_session, "settlement")
+    publish_fixture(db_session, "sales")
 
     own_store = client.get("/api/v1/stores/store-1/monthly-settlement?month=2026-05")
     assert own_store.status_code == 200
@@ -660,8 +663,10 @@ def test_direct_order_fee_details_respects_empty_store_scope(
     assert export.json()["detail"]["code"] == "EXPORT_EMPTY"
 
 
-def test_legacy_viewer_is_mapped_to_global_admin(client: TestClient) -> None:
+def test_legacy_viewer_is_mapped_to_global_admin(client: TestClient, db_session: Session) -> None:
     _login_viewer(client)
+    publish_fixture(db_session, "settlement")
+    publish_fixture(db_session, "sales")
 
     other_store = client.get("/api/v1/stores/store-2/monthly-settlement?month=2026-05")
     assert other_store.status_code == 200
@@ -702,6 +707,7 @@ def test_unlocked_monthly_statement_reads_current_preview_not_frozen_lines(
     line.net_fee_cent = 999
     db_session.commit()
     _login_viewer(client)
+    publish_fixture(db_session, "settlement")
 
     response = client.get(
         "/api/v1/stores/store-1/monthly-settlement?month=2026-05"
@@ -788,9 +794,10 @@ def test_order_fee_context_is_validated_before_detail_filters(
 
 
 def test_monthly_settlement_empty_period_is_legal_but_unknown_store_still_404(
-    client: TestClient,
+    client: TestClient, db_session: Session,
 ) -> None:
     _login_viewer(client)
+    publish_fixture(db_session, "settlement")
 
     # A selectable period that holds no rows yet resolves to a real empty
     # payload; the store context is returned so the page can name it.
@@ -832,6 +839,7 @@ def test_adjustment_only_preview_line_keeps_original_rate_context(
     )
     db_session.commit()
     _login_viewer(client)
+    publish_fixture(db_session, "settlement")
 
     response = client.get(
         "/api/v1/stores/store-1/monthly-settlement?month=2026-06"
@@ -886,6 +894,7 @@ def test_preview_rate_context_ignores_superseded_fee_results(
     )
     db_session.commit()
     _login_viewer(client)
+    publish_fixture(db_session, "settlement")
 
     response = client.get(
         "/api/v1/stores/store-1/monthly-settlement?month=2026-05"

@@ -1,9 +1,10 @@
 from copy import deepcopy
 from datetime import datetime, timezone
 
+import pytest
 from sqlalchemy import select
 
-from apps.api.dy_api.models import DouyinRefundEvent, JobImpact, RawDouyinOrder, RawDouyinOrderCoupon, RawDouyinRefundRecord, RawDouyinVerifyRecord
+from apps.api.dy_api.models import DataQualityIssue, DouyinRefundEvent, JobImpact, RawDouyinOrder, RawDouyinOrderCoupon, RawDouyinRefundRecord, RawDouyinVerifyRecord
 from apps.worker.collectors.orders import collect_orders
 from apps.worker.collectors.refunds import collect_refunds
 from apps.worker.collectors.types import CollectionWindow
@@ -76,11 +77,12 @@ def test_verify_cancellation_updates_and_old_verify_does_not_restore(db_session)
     assert row.cancel_time is not None
 
 
-def test_refund_official_times_repair_identical_legacy_snapshot(db_session):
+@pytest.mark.parametrize("id_field", ["after_sale_id", "refund_event_id"])
+def test_refund_times_repair_identical_legacy_snapshot(db_session, id_field):
     class RefundClient:
         def iter_refunds(self, *args, **kwargs): yield payload
     upsert_raw_order(db_session, "refund-order")
-    payload = {"after_sale_id": "as-official", "order_id": "refund-order", "status": 50,
+    payload = {id_field: "as-official", "order_id": "refund-order", "status": 50,
                "refund_type": 1, "refund_amount_cent": 1234, "create_time": 1788800000,
                "update_time": 1788886401, "complete_time": 1788886400}
     observed = datetime.fromtimestamp(payload["update_time"], tz=timezone.utc)
@@ -95,6 +97,12 @@ def test_refund_official_times_repair_identical_legacy_snapshot(db_session):
     assert row.refund_applied_at.replace(tzinfo=timezone.utc).timestamp() == payload["create_time"]
     assert row.refund_completed_at.replace(tzinfo=timezone.utc).timestamp() == payload["complete_time"]
     event = db_session.scalar(select(DouyinRefundEvent).where(DouyinRefundEvent.refund_event_id == "as-official"))
+    if id_field == "after_sale_id":
+        # Official refund_type identifies the initiator, not the financial scope.
+        # Repairing raw timestamps must not authorize a business refund event.
+        assert event is None
+        assert db_session.scalar(select(DataQualityIssue).where(DataQualityIssue.issue_type == "refund_scope_unverified")) is not None
+        return
     assert event is not None
     assert event.occurred_at.replace(tzinfo=timezone.utc).timestamp() == payload["complete_time"]
     assert event.refund_amount_cent == 1234
@@ -145,11 +153,12 @@ def test_verify_equal_time_conflict_uses_verify_primary_key(db_session):
     assert db_session.scalar(select(DataQualityIssue).where(DataQualityIssue.issue_type == 'source_version_conflict')) is not None
 
 
-def test_newer_refund_snapshot_does_not_clear_or_backdate_times(db_session):
+@pytest.mark.parametrize("id_field", ["after_sale_id", "refund_event_id"])
+def test_newer_refund_snapshot_does_not_clear_or_backdate_times(db_session, id_field):
     class RefundClient:
         def iter_refunds(self, *args, **kwargs): yield payload
     upsert_raw_order(db_session, 'preserved-refund-order')
-    payload = {'after_sale_id': 'preserved-as', 'order_id': 'preserved-refund-order', 'status': 50,
+    payload = {id_field: 'preserved-as', 'order_id': 'preserved-refund-order', 'status': 50,
                'refund_type': 1, 'refund_amount_cent': 1234, 'create_time': 1788800000,
                'update_time': 1788886401, 'complete_time': 1788886400}
     collect_refunds(db_session, RefundClient(), WINDOW, source_run_id='initial-refund')
@@ -166,18 +175,32 @@ def test_newer_refund_snapshot_does_not_clear_or_backdate_times(db_session):
     assert row.refund_applied_at.replace(tzinfo=timezone.utc).timestamp() == 1788800000
     assert row.refund_completed_at.replace(tzinfo=timezone.utc).timestamp() == 1788886400
     event = db_session.scalar(select(DouyinRefundEvent).where(DouyinRefundEvent.refund_event_id == 'preserved-as'))
+    if id_field == "after_sale_id":
+        assert event is None
+        assert db_session.scalar(select(DataQualityIssue).where(DataQualityIssue.issue_type == "refund_scope_unverified")) is not None
+        return
+    assert event is not None
     assert event.occurred_at.replace(tzinfo=timezone.utc).timestamp() == 1788886400
 
-def test_pending_refund_preserves_refund_created_at_alias(db_session):
+@pytest.mark.parametrize("id_field", ["after_sale_id", "refund_event_id"])
+def test_pending_refund_preserves_refund_created_at_alias(db_session, id_field):
     class RefundClient:
         def iter_refunds(self, *args, **kwargs):
-            yield {'after_sale_id': 'alias-as', 'order_id': 'alias-order', 'status': 10,
+            yield {id_field: 'alias-as', 'order_id': 'alias-order', 'status': 10,
                    'refund_type': 1, 'refund_amount_cent': 1234,
                    'refund_created_at': 1788800000, 'update_time': 1788800001}
     upsert_raw_order(db_session, 'alias-order')
     collect_refunds(db_session, RefundClient(), WINDOW, source_run_id='alias-refund')
     db_session.commit()
+    row = db_session.scalar(select(RawDouyinRefundRecord).where(RawDouyinRefundRecord.refund_id == 'alias-as'))
+    assert row.refund_applied_at.replace(tzinfo=timezone.utc).timestamp() == 1788800000
+    assert row.refund_completed_at is None
     event = db_session.scalar(select(DouyinRefundEvent).where(DouyinRefundEvent.refund_event_id == 'alias-as'))
+    if id_field == "after_sale_id":
+        assert event is None
+        assert db_session.scalar(select(DataQualityIssue).where(DataQualityIssue.issue_type == "refund_scope_unverified")) is not None
+        return
+    assert event is not None
     assert event.occurred_at.replace(tzinfo=timezone.utc).timestamp() == 1788800000
 
 
