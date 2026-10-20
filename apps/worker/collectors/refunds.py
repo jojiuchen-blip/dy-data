@@ -287,7 +287,6 @@ def _process_refund(session: Session, payload: dict[str, Any], *, source_run_id:
     if raw.refund_completed_at is None:
         raw.refund_completed_at = _completed_time(current_payload)
     current_status = raw.normalized_refund_status
-    current_amount = raw.refund_amount_cent
     current_observed_at = raw.source_observed_at
     current_order_id = raw.order_id
     current_type = _refund_type(current_payload)
@@ -297,11 +296,20 @@ def _process_refund(session: Session, payload: dict[str, Any], *, source_run_id:
     elif current_status == 2:
         occurred_at = raw.refund_completed_at
     (
-        _amount_value,
+        amount_value,
         current_amount_conflict,
         current_amount_invalid,
         current_amount_ambiguous,
     ) = _refund_amount(current_payload)
+    if not (current_amount_conflict or current_amount_invalid or current_amount_ambiguous):
+        if raw.refund_amount_cent is None:
+            # An identical accepted snapshot can predate a parser correction.
+            # Normalize only its explicitly denominated amount; do not replace
+            # source evidence or take values from a rejected incoming snapshot.
+            raw.refund_amount_cent = amount_value
+        elif amount_value is not None and raw.refund_amount_cent != amount_value:
+            current_amount_conflict = True
+    current_amount = raw.refund_amount_cent
 
     blocked = False
     if not raw.raw_refund_status:
@@ -344,8 +352,13 @@ def _process_refund(session: Session, payload: dict[str, Any], *, source_run_id:
         _record_issue(session, "refund_missing_amount", stable_id, current_order_id, source_run_id, "Refund payload has no unambiguous amount", current_payload)
         blocked = True
     if current_type is None:
-        issue_type = "refund_missing_type" if not first(current_payload, "refund_type", "type") else "refund_unknown_type"
-        _record_issue(session, issue_type, stable_id, current_order_id, source_run_id, "Refund type is missing or unsupported", current_payload, severity="error")
+        if _is_platform_after_sale(current_payload):
+            issue_type = "refund_scope_unverified"
+            message = "Platform refund_type identifies the initiator, not partial/full refund scope"
+        else:
+            issue_type = "refund_missing_type" if not first(current_payload, "refund_type", "type") else "refund_unknown_type"
+            message = "Refund type is missing or unsupported"
+        _record_issue(session, issue_type, stable_id, current_order_id, source_run_id, message, current_payload, severity="error")
         blocked = True
 
     if session.scalar(
@@ -457,7 +470,32 @@ def _stable_refund_id(payload: dict[str, Any]) -> str | None:
     return text(first(payload, "after_sale_id", "refund_event_id", "after_sale.after_sale_id", "refund_event.refund_event_id"))
 
 
+def _is_platform_after_sale(payload: dict[str, Any]) -> bool:
+    """Recognize the native after-sale schema before interpreting type enums.
+
+    The official endpoint's refund_type is the initiator (user, expiry,
+    system, operations, merchant), never the internal partial/full scope.
+    Empty or malformed nested lists must not fall through to legacy parsing.
+    """
+
+    return any(
+        key in payload
+        for key in (
+            "after_sale_id",
+            "after_sale",
+            "refund_info_list",
+            "times_card_refund_info_list",
+            "merchant_account_id",
+            "total_refund_amount",
+            "real_refund_amount",
+            "user_refund_amount",
+        )
+    )
+
+
 def _refund_type(payload: dict[str, Any]) -> int | None:
+    if _is_platform_after_sale(payload):
+        return None
     value = str(first(payload, "refund_type", "type") or "").strip().lower()
     if value in {"1", "partial", "partial_refund"}:
         return 1

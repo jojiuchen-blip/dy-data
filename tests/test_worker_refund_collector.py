@@ -15,7 +15,7 @@ from apps.api.dy_api.models import (
 )
 from apps.worker.collectors.refunds import RefundCollectionError, collect_refunds
 from apps.worker.collectors.types import CollectionWindow
-from apps.worker.repositories import upsert_order_coupon, upsert_raw_order, upsert_refund_event
+from apps.worker.repositories import payload_fingerprint, upsert_order_coupon, upsert_raw_order, upsert_refund_event
 
 
 def window() -> CollectionWindow:
@@ -38,7 +38,7 @@ def test_refund_requires_stable_id_and_upserts_explicit_event_once(db_session: S
     upsert_raw_order(db_session, "order-1", order_status_normalized="paid")
     rows = [
         {
-            "after_sale_id": "as-1",
+            "refund_event_id": "as-1",
             "order_id": "order-1",
             "status": 50,
             "refund_type": 1,
@@ -807,3 +807,69 @@ def test_refund_query_has_more_true_without_cursor_fails_date_phase(db_session: 
             DataQualityIssue.issue_type == "refund_cursor_nonadvance"
         )
     ) is not None
+
+
+@pytest.mark.parametrize("initiator", [0, 1, 2, 3, 4, 5])
+@pytest.mark.parametrize("children", [[], None, [{"refund_id": "child-1", "refund_status": 500}]])
+def test_platform_initiator_never_becomes_partial_or_full_scope(
+    db_session: Session, initiator: int, children: Any,
+) -> None:
+    upsert_raw_order(db_session, "native-order", order_status_normalized="paid")
+    payload = {
+        "after_sale_id": "native-after-sale",
+        "order_id": "native-order",
+        "status": 50,
+        "refund_type": initiator,
+        "refund_info_list": children,
+        # Even a separately explicit amount must not make initiator=2 a full refund.
+        "refund_amount_cent": 100,
+        "complete_time": 1785513570,
+    }
+    stats = collect_refunds(db_session, FakeRefundClient([payload]), window(), source_run_id="native-run")
+    assert stats.upserted == 0
+    assert db_session.query(DouyinRefundEvent).count() == 0
+    assert db_session.scalar(select(DataQualityIssue).where(DataQualityIssue.issue_type == "refund_scope_unverified")) is not None
+    raw = db_session.scalar(select(RawDouyinRefundRecord))
+    assert raw.raw_payload == payload
+
+
+def test_identical_accepted_evidence_can_repair_missing_explicit_cent_amount(db_session: Session) -> None:
+    upsert_raw_order(db_session, "legacy-order", order_status_normalized="paid")
+    payload = {
+        "refund_event_id": "legacy-refund", "order_id": "legacy-order", "status": 50,
+        "refund_type": "partial", "refund_amount_cent": 123,
+        "completed_at": "2026-08-01T10:00:00+08:00",
+    }
+    digest = payload_fingerprint(payload)
+    raw = RawDouyinRefundRecord(source_record_key="legacy-refund", refund_id="legacy-refund",
+        order_id="legacy-order", raw_refund_status="50", normalized_refund_status=2,
+        refund_amount_cent=None, payload_hash=digest, raw_payload=payload, source_run_id="original-run")
+    db_session.add(raw)
+    db_session.flush()
+    for run in ("repair-1", "repair-2"):
+        stats = collect_refunds(db_session, FakeRefundClient([payload]), window(), source_run_id=run)
+        assert stats.upserted == 1
+    assert raw.refund_amount_cent == 123
+    assert raw.payload_hash == digest and raw.raw_payload == payload
+    assert raw.source_run_id == "original-run"
+    events = list(db_session.scalars(select(DouyinRefundEvent)))
+    assert len(events) == 1 and events[0].refund_amount_cent == 123
+
+
+def test_reparse_rejects_conflicting_stored_normalized_amount(db_session: Session) -> None:
+    upsert_raw_order(db_session, "conflict-order", order_status_normalized="paid")
+    payload = {
+        "refund_event_id": "conflict-refund", "order_id": "conflict-order", "status": 50,
+        "refund_type": "partial", "refund_amount_cent": 123,
+        "completed_at": "2026-08-01T10:00:00+08:00",
+    }
+    raw = RawDouyinRefundRecord(source_record_key="conflict-refund", refund_id="conflict-refund",
+        order_id="conflict-order", raw_refund_status="50", normalized_refund_status=2,
+        refund_amount_cent=999, payload_hash=payload_fingerprint(payload), raw_payload=payload)
+    db_session.add(raw)
+    db_session.flush()
+    stats = collect_refunds(db_session, FakeRefundClient([payload]), window(), source_run_id="repair-conflict")
+    assert stats.upserted == 0
+    assert raw.refund_amount_cent == 999
+    assert db_session.query(DouyinRefundEvent).count() == 0
+    assert db_session.scalar(select(DataQualityIssue).where(DataQualityIssue.issue_type == "refund_amount_conflict")) is not None
