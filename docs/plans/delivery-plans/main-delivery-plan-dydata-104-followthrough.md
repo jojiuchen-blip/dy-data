@@ -1,6 +1,6 @@
 # DYDATA-104：自然月、九月恢复与静态发布验收
 
-> **版本**：v1
+> **版本**：v2
 > **发布日期**：2026-10-20
 > **适用范围**：已有 DYDATA-104；承接 DYDATA-97/102/103 的未验收项，不重复重做已修复内容。
 > **开发模式**：团队协作，Codex 执行与集成，用户业务验收。
@@ -74,8 +74,8 @@
 
 | Task | 子开发计划 | 状态 |
 |---|---|---|
-| T1.1 | [自然月运行与结算链自动维护](sub-delivery-plan-dydata-104-followthrough-T1.1-monthly-maintenance.md) | 进行中 |
-| T2.1 | [九月来源恢复、范围与费用对账](sub-delivery-plan-dydata-104-followthrough-T2.1-september-recovery.md) | 待开发 |
+| T1.1 | [自然月运行与结算链自动维护](sub-delivery-plan-dydata-104-followthrough-T1.1-monthly-maintenance.md) | 待验收 |
+| T2.1 | [九月来源恢复、范围与费用对账](sub-delivery-plan-dydata-104-followthrough-T2.1-september-recovery.md) | 暂缓 |
 
 ### Phase 2：受保护发布
 
@@ -84,21 +84,23 @@
 
 | Task | 子开发计划 | 状态 |
 |---|---|---|
-| T3.1 | [静态首版发布与生产业务验收](sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md) | 待开发 |
+| T3.1 | [静态首版发布与生产业务验收](sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md) | 进行中 |
 
 ## 4. 任务看板
 
-- [当前任务看板](task-kanban-dydata-104-followthrough.md)；当前 T1.1；T0.2 API 可用性由隔离 worker 并行实施，其余任务按依赖开展，状态三处同步。隔离 worker 的当前 Task 可以不同，主线程只集成已独立验收的代码，不覆盖各自计划状态。
+- [当前任务看板](task-kanban-dydata-104-followthrough.md)；当前 T3.1；T0.1、T0.2、T1.1 代码已集成，生产验收仍保留。用户 2026-10-20 要求“实在恢复不了不要纠结”，T2.1 暂缓，不再作为新版上线的整体前置；部署前补齐未完成账期保护。隔离 worker 的当前 Task 可以不同，主线程只集成已独立验收的代码，不覆盖各自计划状态。
 
 ## 5. 发布闸门
 
 - [ ] 最终合并树完整 CI / PG / Web build 通过。
 - [ ] 当前来源资格、金额/退款范围与后处理可核实，不能用任务 success 替代。
-- [ ] 九月受控恢复和费用/投影/账单/导出按分一致。
+- [ ] 财务及结算发布冻结账期就绪状态；未完成账期和包含它的累计查询明确拒绝展示/导出正常金额。九月恢复及按分对账保留为后续业务验收，不阻碍具有此保护的新版发布。
 - [ ] 五模块首版完成后才切换 API，失败保留原版。
 - [ ] 备份可校验、磁盘至少 15% / 10 GiB 且覆盖备份和构建峰值。
 - [ ] 真实页面月份、下载、权限、版本与内存耗时验收。
 - [ ] 用户业务验收后才关闭 DYDATA-104。
+
+2026-10-20 发布范围调整：保留失败记录、原始证据和恢复预算，不再手动推进历史恢复。五模块仍须成功构建静态版本，来源写入互斥、首版门禁及容量门禁不放宽；版本构建成功与账期业务完整是两个独立状态。完整月允许真实零值，缺失日水位不得变成零值。月结生成继续使用原有完整性门禁。
 
 ## 6. 风险与应对
 
