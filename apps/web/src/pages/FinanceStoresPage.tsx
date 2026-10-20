@@ -24,14 +24,10 @@ import type {
 import { formatCurrency, formatDateTime } from "../utils/format";
 import { userFacingError } from "../utils/userFacingError";
 import { displayFinanceSapStatus } from "../utils/userFacingLabels";
+import { initialStatementMonth } from "../utils/statementMonth";
 
 type StoreTab = "base" | "sap";
 type ActionState = "idle" | "loading" | "success" | "error" | "conflict";
-
-function defaultStatementMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
 
 function countMetric(value: number | undefined): string {
   return typeof value === "number" ? `${value} 家` : "—";
@@ -44,7 +40,7 @@ interface FinanceStoresPageProps {
 
 export function FinanceStoresPage({ currentUser, searchParams }: FinanceStoresPageProps) {
   const [tab, setTab] = useState<StoreTab>(searchParams.get("tab") === "sap" ? "sap" : "base");
-  const [month, setMonth] = useState(searchParams.get("month") ?? defaultStatementMonth());
+  const [month, setMonth] = useState(() => initialStatementMonth(searchParams));
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
   const [feeDirection, setFeeDirection] = useState<FeeDirection>("PROMOTION");
   const [metricScope, setMetricScope] = useState<BillingMetricScope>("MONTH");

@@ -93,6 +93,9 @@ UTF8_BOM = "\ufeff"
 ALL_MONTHS = "all"
 ALL_STORES_OPTION = {"store_id": "", "store_name": "全部门店"}
 MAX_SALES_CYCLE_SAMPLE_POINTS = 90
+# First month of the formal settlement window; mirrors the API contract value in
+# ``meta/filters.formal_period_start_month``.
+FORMAL_PERIOD_START_MONTH = "2026-08"
 
 FEE_DIRECTION_TO_DB = {"PROMOTION": 1, "MANAGEMENT": 2}
 FEE_DIRECTION_FROM_DB = {value: key for key, value in FEE_DIRECTION_TO_DB.items()}
@@ -444,6 +447,31 @@ def _month_from_datetime(value: Any) -> str:
 
 def _matches_dashboard_month(value: Any, month: str) -> bool:
     return not month or month == ALL_MONTHS or _month_from_datetime(value) == month
+
+
+def _formal_cumulative_periods(month: str) -> list[str]:
+    """Formal cumulative periods to try for ``month``, newest first.
+
+    The formal window starts at ``FORMAL_PERIOD_START_MONTH``, so a selected
+    month outside it has no cumulative periods at all.
+    """
+
+    normalized = _to_str(month)
+    if normalized < FORMAL_PERIOD_START_MONTH:
+        return []
+    try:
+        end_year, end_month = (int(part) for part in normalized.split("-"))
+        start_year, start_month = (
+            int(part) for part in FORMAL_PERIOD_START_MONTH.split("-")
+        )
+    except ValueError:
+        return []
+    end_index = end_year * 12 + end_month - 1
+    start_index = start_year * 12 + start_month - 1
+    return [
+        f"{index // 12:04d}-{index % 12 + 1:02d}"
+        for index in range(end_index, start_index - 1, -1)
+    ]
 
 
 def _order_identity(row: dict[str, Any]) -> str:
@@ -819,10 +847,24 @@ class DashboardDataStore:
                 "page_size": page_size,
             }
         period_type_db = PERIOD_TYPE_TO_DB[period_type]
-        source_table, source_where, source_params = self._ranking_source_spec(
-            period_type=period_type_db, period_key=period_key
+        # A cumulative period with no rows of its own must not report zero: the
+        # formal window is 2026-08 → the selected month, so the newest published
+        # period inside that window that actually holds rows is the figure the
+        # operator is owed. Monthly periods keep their exact requested key.
+        read_period_key = self._servable_cumulative_period(
+            filters,
+            period_type=period_type,
+            period_type_db=period_type_db,
+            period_key=period_key,
+            product_scope=product_scope,
+            product_type=product_type,
         )
         metrics = tuple(empty_totals)
+        source_table = None
+        if read_period_key is not None:
+            source_table, source_where, source_params = self._ranking_source_spec(
+                period_type=period_type_db, period_key=read_period_key
+            )
         if source_table is None:
             return {
                 "period_type": period_type,
@@ -1158,6 +1200,76 @@ class DashboardDataStore:
                 row.get("effective_commission_income_cent")
             ),
         }
+
+    def _servable_cumulative_period(
+        self,
+        filters: dict[str, Any],
+        *,
+        period_type: str,
+        period_type_db: int,
+        period_key: str,
+        product_scope: str,
+        product_type: str,
+    ) -> str | None:
+        """The published cumulative period that answers this request.
+
+        Monthly requests keep their exact key.  A cumulative request keeps its
+        own key whenever that partition holds rows for the requested scope, so a
+        published-but-zero cumulative is never replaced by an older period.  Only
+        when the selected period has no rows at all does the read fall back to
+        the newest earlier period inside the formal window, because that window
+        (2026-08 → the selected month) is what the operator is asking about.
+
+        Returns ``None`` when no period in the window holds rows; the caller then
+        answers with an empty payload.  Only the pinned published lineage is ever
+        read — unpublished legacy aggregates are never substituted.
+        """
+
+        if period_type != "CUMULATIVE":
+            return period_key
+        for candidate in _formal_cumulative_periods(period_key):
+            source_table, source_where, source_params = self._ranking_source_spec(
+                period_type=period_type_db, period_key=candidate
+            )
+            if source_table is None:
+                continue
+            params = dict(source_params)
+            clauses = [
+                source_where,
+                self._reporting_projection_product_condition(
+                    params,
+                    product_scope=product_scope,
+                    product_type=product_type,
+                    prefix="ranking_probe_product",
+                ),
+            ]
+            keyword = _to_str(filters.get("q")).strip()
+            if keyword:
+                params["ranking_probe_keyword"] = f"%{keyword.lower()}%"
+                clauses.append("LOWER(source.store_name) LIKE :ranking_probe_keyword")
+            if (
+                filters.get("scope_mode") == "AUTHORIZED"
+                and filters.get("scope_store_ids") is not None
+            ):
+                placeholders, scope_params = _in_clause_params(
+                    "ranking_probe_scope", filters.get("scope_store_ids") or []
+                )
+                if not placeholders:
+                    clauses.append("1 = 0")
+                else:
+                    params.update(scope_params)
+                    clauses.append(f"source.store_id IN ({placeholders})")
+            rows = self._execute_lineage(
+                f"""
+                SELECT COUNT(DISTINCT source.store_id) AS period_store_count
+                FROM {source_table}
+                WHERE {' AND '.join(clauses)}
+                """,
+                params,
+            )
+            if _to_int((rows[0] if rows else {}).get("period_store_count")) > 0:
+                return candidate
+        return None
 
     def _monthly_settlement_pinned(
         self,
@@ -2660,7 +2772,13 @@ class DashboardDataStore:
         }
 
     def _computed_store_cumulative(self, filters: dict[str, Any]) -> dict[str, int]:
-        """Read displayed fees from the pinned ranking, never from formal bills."""
+        """Read displayed fees from the pinned ranking, never from formal bills.
+
+        A period with no rows of its own must not reset the formal cumulative;
+        ``store_ranking_report`` resolves the newest published cumulative period
+        inside the formal window, so 2026-09 still reports 2026-08 → 2026-09.
+        """
+
         fields = ("promotion_net_fee_cent", "management_net_fee_cent")
         if self._pinned_aggregate_generation() is None:
             return {key: 0 for key in fields}

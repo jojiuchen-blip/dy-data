@@ -3,9 +3,11 @@ import {
   createIdempotencyKey,
   fetchProductSyncRunDetail,
   fetchProductSyncRuns,
+  fetchSettlementMonthReadiness,
   fetchSkuSyncHistory,
   triggerProductSync,
 } from "../api/client";
+import type { MonthCloseReadinessAlert } from "../api/client";
 import type {
   ProductSyncMode,
   ProductSyncRunDetailData,
@@ -44,6 +46,9 @@ export function AdminProductSyncPanel() {
   const [working, setWorking] = useState(false);
   const [notice, setNotice] = useState("");
   const [detailRequestId, setDetailRequestId] = useState("");
+  const [monthReadinessAlerts, setMonthReadinessAlerts] = useState<
+    MonthCloseReadinessAlert[]
+  >([]);
 
   const loadRuns = async () => {
     const response = await fetchProductSyncRuns({ page: 1, pageSize: 20 });
@@ -70,6 +75,21 @@ export function AdminProductSyncPanel() {
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchSettlementMonthReadiness()
+      .then((response) => {
+        if (!cancelled) setMonthReadinessAlerts(response.data.alerts);
+      })
+      .catch(() => {
+        // Readiness alerts are advisory: never block the sync panel on them.
+        if (!cancelled) setMonthReadinessAlerts([]);
       });
     return () => {
       cancelled = true;
@@ -169,6 +189,15 @@ export function AdminProductSyncPanel() {
     <section className="content-section admin-product-sync">
       <div className="section-title"><div><h2>商品主数据同步</h2><p>支持增量或全量同步；触发成功只表示任务已入队，页面会继续轮询最终状态。</p></div><Button disabled={loading} onClick={() => void loadRuns()} type="button">刷新商品任务</Button></div>
       {notice ? <div aria-live="polite" className="resource-notice" role="status">{notice}</div> : null}
+      {monthReadinessAlerts.length ? (
+        <div aria-live="polite" className="resource-notice" role="alert">
+          {monthReadinessAlerts.map((alert) => (
+            <p key={`${alert.month}-${alert.state}`}>
+              <strong>月结未派发</strong>（{alert.month}）：{alert.message}
+            </p>
+          ))}
+        </div>
+      ) : null}
       <div className="admin-form-grid">
         <SelectField label="同步方式" onChange={(value) => setMode(value as ProductSyncMode)} options={[{ value: "INCREMENTAL", label: "增量同步" }, { value: "FULL", label: "全量同步" }]} value={mode} />
         <label className="filter-field admin-form-grid__wide"><span>触发原因</span><input maxLength={512} onChange={(event) => setReason(event.target.value)} placeholder="说明本次同步目的" value={reason} /></label>

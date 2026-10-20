@@ -29,6 +29,7 @@ from apps.worker.daily_windows import (
 from apps.worker.materialize_once import MATERIALIZATION_STAGES
 from apps.worker.pipeline import run_collect_and_settle, sanitize_error_message
 from apps.worker.product_sync import PRODUCT_SYNC_JOB_NAME, run_product_sync_job
+from apps.worker.month_close import ensure_month_close_job
 from apps.worker.queued_jobs import (
     process_queued_finance_dispute_detections,
     process_queued_settlement_rebuilds,
@@ -616,6 +617,7 @@ def _run_legacy_scheduler(factory, *, run_once_only: bool, run_on_start: bool) -
 
 
 def _process_queued_jobs(factory) -> None:
+    ensure_month_close_job(factory)
     process_queued_settlement_rebuilds(factory)
     process_queued_finance_dispute_detections(factory)
 

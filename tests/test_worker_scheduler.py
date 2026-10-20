@@ -13,6 +13,11 @@ def test_scheduler_consumes_settlement_queue_when_auto_sync_is_paused(
     monkeypatch.setattr(scheduler, "_auto_sync_enabled", lambda _factory: False)
     monkeypatch.setattr(
         scheduler,
+        "ensure_month_close_job",
+        lambda _factory: calls.append("month_close"),
+    )
+    monkeypatch.setattr(
+        scheduler,
         "process_queued_settlement_rebuilds",
         lambda _factory: calls.append("settlement"),
     )
@@ -32,4 +37,4 @@ def test_scheduler_consumes_settlement_queue_when_auto_sync_is_paused(
 
     scheduler.main()
 
-    assert calls == ["settlement", "finance"]
+    assert calls == ["month_close", "settlement", "finance"]

@@ -23,6 +23,8 @@ from apps.worker.stage_runner import BeforeSuccessCommit
 _LOWER_HEX_64 = re.compile(r"[0-9a-f]{64}\Z")
 _ONCE_PREFIX = "finalize-consume-v1:"
 _REBUILD_ONCE_PREFIX = "settlement-rebuild-publish-v1:"
+_COMPACTION_ONCE_PREFIX = "settlement-compaction-publish-v1:"
+_COMPACTION_JOB_NAME = "settlement_compaction"
 
 
 def _database_utcnow(session: Session) -> datetime:
@@ -76,6 +78,21 @@ def settlement_rebuild_publish_once_key(job_id: str, input_fingerprint: str) -> 
     key = f"{_REBUILD_ONCE_PREFIX}{suffix}"
     if len(key) > 128:  # pragma: no cover - fixed protocol assertion
         raise RuntimeError("settlement rebuild publication once key is too long")
+    return key
+
+
+def settlement_compaction_publish_once_key(job_id: str, input_fingerprint: str) -> str:
+    """Return the durable once key for a settlement compaction publish."""
+
+    if not isinstance(job_id, str):
+        raise TypeError("job_id must be a string")
+    fingerprint = _digest(input_fingerprint, label="input_fingerprint")
+    suffix = hashlib.sha256(
+        f"{job_id}|{fingerprint}".encode("utf-8")
+    ).hexdigest()
+    key = f"{_COMPACTION_ONCE_PREFIX}{suffix}"
+    if len(key) > 128:  # pragma: no cover - fixed protocol assertion
+        raise RuntimeError("settlement compaction publication once key is too long")
     return key
 
 
@@ -343,9 +360,246 @@ def publish_settlement_rebuild(
     return payload
 
 
+def publish_settlement_compaction(
+    session: Session,
+    *,
+    job_id: str,
+    claim_id: str,
+    generation_id: str,
+    input_fingerprint: str,
+    manifest_checksum: str,
+) -> dict[str, str]:
+    """Publish a ready settlement compaction head with a claim-fenced CAS.
+
+    Unlike ``publish_settlement_rebuild`` this accepts only ``compact``
+    generations whose recorded compaction checkpoint proves the equivalence
+    evidence of the merged lineage.  The actual evidence is re-verified
+    through the caller's transaction; the active pointer is promoted only
+    when it still equals the compaction base recorded at build time.
+    """
+
+    from apps.worker.legacy_projection_bootstrap import (  # noqa: PLC0415
+        COMPACTION_OPERATION,
+        COMPACTION_PROTOCOL,
+        MAX_BATCH_SIZE,
+        _COMPACTION_CHECKPOINT_KEYS,
+        _strict_int,
+    )
+
+    job_id = _identity(job_id, label="job_id")
+    generation_id = _identity(generation_id, label="generation_id")
+    input_fingerprint = _digest(input_fingerprint, label="input_fingerprint")
+    manifest_checksum = _digest(manifest_checksum, label="manifest_checksum")
+    if (
+        not isinstance(claim_id, str)
+        or not claim_id
+        or claim_id.strip() != claim_id
+    ):
+        raise RuntimeError("settlement compaction publication claim is required")
+    claim = claim_id
+
+    if not session.in_transaction():
+        raise RuntimeError("settlement compaction publication requires a transaction")
+
+    job_statement = select(JobRun).where(JobRun.job_id == job_id)
+    if session.get_bind().dialect.name == "postgresql":
+        job_statement = job_statement.with_for_update()
+    job = session.scalar(job_statement.execution_options(populate_existing=True))
+    if job is None or job.job_name != _COMPACTION_JOB_NAME:
+        raise RuntimeError("settlement compaction publication job is invalid")
+    lease_expires_at = job.lease_expires_at
+    if lease_expires_at is not None and lease_expires_at.tzinfo is None:
+        lease_expires_at = lease_expires_at.replace(tzinfo=UTC)
+    if (
+        job.status != "running"
+        or job.claim_token != claim
+        or lease_expires_at is None
+        or lease_expires_at <= _database_utcnow(session)
+    ):
+        raise RuntimeError("settlement compaction publication claim is no longer active")
+
+    active_statement = select(SettlementProjectionActive).where(
+        SettlementProjectionActive.projection_name == "settlement"
+    )
+    generation_statement = select(SettlementProjectionGeneration).where(
+        SettlementProjectionGeneration.generation_id == generation_id
+    )
+    if session.get_bind().dialect.name == "postgresql":
+        active_statement = active_statement.with_for_update()
+        generation_statement = generation_statement.with_for_update()
+    active = session.scalar(active_statement)
+    generation = session.scalar(generation_statement)
+    if active is None:
+        raise RuntimeError("settlement active pointer is missing")
+    if generation is None:
+        raise RuntimeError("settlement compaction generation is missing")
+
+    compaction_base = generation.compaction_base_generation_id
+    if (
+        generation.projection_name != "settlement"
+        or generation.generation_kind != "compact"
+        or generation.base_generation_id is not None
+        or generation.lineage_depth != 0
+        or compaction_base is None
+        or generation.input_fingerprint != input_fingerprint
+        or generation.manifest_checksum != manifest_checksum
+    ):
+        raise RuntimeError("settlement compaction generation metadata conflicts")
+
+    checkpoint = generation.checkpoint_json
+    if (
+        not isinstance(checkpoint, dict)
+        or not _COMPACTION_CHECKPOINT_KEYS.issubset(checkpoint)
+        or checkpoint.get("protocol") != COMPACTION_PROTOCOL
+        or checkpoint.get("operation") != COMPACTION_OPERATION
+        or checkpoint.get("phase") != "ready"
+        or checkpoint.get("cursor") is not None
+        or checkpoint.get("base_generation_id") != compaction_base
+        or checkpoint.get("expected_active_pointer") != compaction_base
+        or checkpoint.get("effective_checksum") != manifest_checksum
+        or not 1 <= _strict_int(checkpoint.get("batch_size"), "compaction batch size")
+        <= MAX_BATCH_SIZE
+        or _strict_int(
+            checkpoint.get("batch_count"), "compaction checkpoint batch_count",
+            nonnegative=True,
+        ) < 0
+        or _strict_int(
+            checkpoint.get("partition_count"),
+            "compaction checkpoint partition_count",
+            nonnegative=True,
+        ) < 0
+        or _strict_int(
+            checkpoint.get("source_generation_count"),
+            "compaction checkpoint source_generation_count",
+            nonnegative=True,
+        ) < 0
+        or _strict_int(
+            checkpoint.get("estimated_manifest_rows"),
+            "compaction checkpoint estimated_manifest_rows",
+            nonnegative=True,
+        ) < 0
+        or _strict_int(
+            checkpoint.get("estimated_write_rows"),
+            "compaction checkpoint estimated_write_rows",
+            nonnegative=True,
+        ) < 0
+        or _strict_int(
+            checkpoint.get("estimated_write_bytes"),
+            "compaction checkpoint estimated_write_bytes",
+            nonnegative=True,
+        ) < 0
+        or _strict_int(
+            checkpoint.get("estimated_wal_bytes"),
+            "compaction checkpoint estimated_wal_bytes",
+            nonnegative=True,
+        ) < 0
+        or _strict_int(
+            checkpoint.get("estimated_disk_headroom_bytes"),
+            "compaction checkpoint estimated_disk_headroom_bytes",
+            nonnegative=True,
+        ) < 0
+    ):
+        raise RuntimeError("settlement compaction checkpoint is invalid")
+
+    already_published = (
+        active.generation_id == generation_id and generation.state == "published"
+    )
+    if not already_published:
+        from apps.worker.legacy_projection_bootstrap import (  # noqa: PLC0415
+            LegacyProjectionBootstrapError,
+            reverify_ready_compaction_publication,
+        )
+
+        try:
+            reverify_ready_compaction_publication(
+                session, generation_id=generation_id
+            )
+        except LegacyProjectionBootstrapError as exc:
+            raise RuntimeError(
+                f"settlement compaction publication verification failed: {exc}"
+            ) from exc
+
+        # Lock acquisition and the long verification can outlive the lease.
+        # Validate the claim again only after all verification work finished.
+        if lease_expires_at <= _database_utcnow(session):
+            raise RuntimeError(
+                "settlement compaction publication claim expired during lock wait"
+            )
+
+        # Re-read the fenced rows after the long verification before the CAS.
+        active = session.scalar(
+            active_statement.execution_options(populate_existing=True)
+        )
+        generation = session.scalar(
+            generation_statement.execution_options(populate_existing=True)
+        )
+        if (
+            generation is None
+            or generation.compaction_base_generation_id != compaction_base
+            or generation.state != "ready"
+            or generation.published_at is not None
+        ):
+            raise RuntimeError("settlement compaction generation changed during verification")
+        if active is None or active.generation_id != compaction_base:
+            raise RuntimeError("settlement active pointer changed before compaction publish")
+        generation.state = "published"
+        generation.published_at = datetime.now(UTC)
+        active.generation_id = generation_id
+
+    once_key = settlement_compaction_publish_once_key(job_id, input_fingerprint)
+    payload = {
+        "generation_id": generation_id,
+        "input_fingerprint": input_fingerprint,
+        "manifest_checksum": manifest_checksum,
+        "base_generation_id": compaction_base,
+        "compaction_protocol": COMPACTION_PROTOCOL,
+    }
+    # Make a same-session replay see this transaction's own pending event
+    # even when the caller runs with autoflush disabled.
+    session.flush()
+    existing_event = session.scalar(
+        select(JobEvent).where(
+            JobEvent.job_id == job_id,
+            JobEvent.idempotency_key == once_key,
+        )
+    )
+    if existing_event is not None:
+        if (
+            existing_event.stage_run_id is not None
+            or existing_event.event_type != "settlement_projection_published"
+            or existing_event.payload_json != payload
+        ):
+            raise RuntimeError("settlement compaction publication once event conflicts")
+        return payload
+
+    event_suffix = hashlib.sha256(
+        f"{job_id}|{once_key}".encode("utf-8")
+    ).hexdigest()
+    session.add(
+        JobEvent(
+            event_id=f"event-settlement-compaction-{event_suffix}",
+            job_id=job_id,
+            stage_run_id=None,
+            attempt_id=None,
+            event_type="settlement_projection_published",
+            from_status=job.status,
+            to_status=job.status,
+            actor_type="worker" if job.lease_owner else "system",
+            actor_id=job.lease_owner,
+            reason="settlement compaction projection published",
+            idempotency_key=once_key,
+            payload_json=payload,
+            occurred_at=datetime.now(UTC),
+        )
+    )
+    return payload
+
+
 __all__ = [
     "make_projection_publish_mutation",
+    "publish_settlement_compaction",
     "publish_settlement_rebuild",
     "projection_publish_once_key",
+    "settlement_compaction_publish_once_key",
     "settlement_rebuild_publish_once_key",
 ]

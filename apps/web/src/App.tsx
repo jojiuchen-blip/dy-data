@@ -425,13 +425,13 @@ export function App() {
           ) : location.pathname === "/settlement/invoice" ? (
             <StoreInvoicePage currentUser={user} searchParams={searchParams} />
           ) : location.pathname === "/finance/promotion" ? (
-            <FinanceFeePage key="finance-fee-promotion" feeDirection="PROMOTION" searchParams={searchParams} />
+            <FinanceFeePage key={`finance-fee:PROMOTION:${searchParams.toString()}`} feeDirection="PROMOTION" searchParams={searchParams} />
           ) : location.pathname === "/finance/management" ? (
-            <FinanceFeePage key="finance-fee-management" feeDirection="MANAGEMENT" searchParams={searchParams} />
+            <FinanceFeePage key={`finance-fee:MANAGEMENT:${searchParams.toString()}`} feeDirection="MANAGEMENT" searchParams={searchParams} />
           ) : location.pathname === "/finance/orders/promotion" ? (
-            <FinanceOrderDetailsPage key="finance-orders-promotion" feeDirection="PROMOTION" searchParams={searchParams} />
+            <FinanceOrderDetailsPage key={`finance-orders:PROMOTION:${searchParams.toString()}`} feeDirection="PROMOTION" searchParams={searchParams} />
           ) : location.pathname === "/finance/orders/management" ? (
-            <FinanceOrderDetailsPage key="finance-orders-management" feeDirection="MANAGEMENT" searchParams={searchParams} />
+            <FinanceOrderDetailsPage key={`finance-orders:MANAGEMENT:${searchParams.toString()}`} feeDirection="MANAGEMENT" searchParams={searchParams} />
           ) : location.pathname === "/finance/stores" ? (
             <FinanceStoresPage currentUser={user} searchParams={searchParams} />
           ) : location.pathname === "/finance/disputes" ? (

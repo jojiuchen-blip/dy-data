@@ -37,6 +37,7 @@ from dy_api.routes import (
     operations,
     ranking_sources,
     pdca_sources,
+    settlement_audit,
 )
 
 
@@ -157,6 +158,7 @@ def create_app(
     app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
     app.include_router(ranking_sources.router, prefix="/api/v1/admin", tags=["ranking-sources"])
     app.include_router(pdca_sources.router, prefix="/api/v1/admin", tags=["pdca-sources"])
+    app.include_router(settlement_audit.router, prefix="/api/v1/admin", tags=["settlement-audit"])
     app.include_router(
         operations.router,
         prefix="/api/v1/admin/operations",

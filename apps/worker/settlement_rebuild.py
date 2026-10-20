@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -9,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from threading import Event, Lock, Thread
 from uuid import uuid4
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import case, func, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.dy_api.db import session_scope
@@ -38,7 +39,10 @@ from apps.worker.settlement import (
     _sparse_base_chain,
     build_settlement_sparse_overlay,
     mark_settlement_sparse_overlay_ready,
+    rebuild_dual_fee_results,
     rebuild_settlement,
+    count_current_fee_results_for_month,
+    select_coupon_ids_by_verify_business_month,
 )
 
 
@@ -50,8 +54,25 @@ SETTLEMENT_REBUILD_CLAIM_LOCK_KEY = 0x4459444154410087
 _SETTLEMENT_REBUILD_CLAIM_PROCESS_LOCK = Lock()
 
 
+_MONTH_KEY_PATTERN = re.compile(r"\d{4}-\d{2}\Z")
+# Marks a rebuild job that is bounded to one business month instead of the
+# whole formal window.  Stored on JobRun.metadata_json so the queue processor
+# can dispatch it without changing the claim protocol.
+SETTLEMENT_SCOPE_KEY = "settlement_scope"
+SETTLEMENT_SCOPE_BUSINESS_MONTH = "business_month"
+SETTLEMENT_SCOPE_MONTH_KEY = "business_month"
+
+
 class SettlementRebuildLeaseLost(RuntimeError):
     """The rebuild may no longer mutate state after losing its durable claim."""
+
+
+class SettlementMonthLockedError(RuntimeError):
+    """A requested business month holds a locked statement and must not change."""
+
+
+class SettlementSourceNotReady(RuntimeError):
+    """A month has no billable source and must fail instead of silently passing."""
 
 
 @dataclass(frozen=True)
@@ -251,7 +272,14 @@ def claim_latest_settlement_rebuild_job(
                 JobRun.job_name == SETTLEMENT_REBUILD_JOB_NAME,
                 JobRun.status.in_(("queued", "retry_wait")),
             )
-            .order_by(JobRun.started_at, JobRun.job_id)
+            .order_by(
+                JobRun.started_at,
+                case(
+                    (JobRun.job_id.like("settlement-publication-after-%"), 0),
+                    else_=1,
+                ),
+                JobRun.job_id,
+            )
         )
         if session.get_bind().dialect.name == "postgresql":
             statement = statement.with_for_update()
@@ -310,7 +338,7 @@ def claim_latest_settlement_rebuild_job(
 
 
 def _lineage_refresh_plan(
-    factory: sessionmaker, *, job_id: str
+    factory: sessionmaker, *, job_id: str, months: tuple[str, ...] | None = None
 ) -> _LineageRefreshPlan | None:
     with session_scope(factory) as session:
         active = session.get(SettlementProjectionActive, "settlement")
@@ -355,6 +383,26 @@ def _lineage_refresh_plan(
                 )
             )
         )
+        if months is not None:
+            # Month-scoped rebuild: only the requested business months may be
+            # recomputed, projected or billed.  A locked month is refused
+            # outright instead of being silently dropped from the window.
+            requested = tuple(sorted(set(months)))
+            if not requested:
+                raise ValueError("business month scope must not be empty")
+            for month in requested:
+                if not _MONTH_KEY_PATTERN.match(month) or month < formal_start:
+                    raise ValueError(
+                        "business month is outside the formal settlement window: "
+                        f"{month}"
+                    )
+            blocked = [month for month in requested if month in locked_months]
+            if blocked:
+                raise SettlementMonthLockedError(
+                    "requested business month is locked: " + ",".join(blocked)
+                )
+            candidate_months = set(requested)
+
         affected_months = tuple(
             sorted(month for month in candidate_months if month not in locked_months)
         )
@@ -461,10 +509,21 @@ def refresh_active_settlement_lineage(
     claim_id: str,
     progress_callback: Callable[[str, int, int | None], None] | None = None,
     lease_duration: timedelta = DEFAULT_SETTLEMENT_REBUILD_LEASE,
+    months: tuple[str, ...] | None = None,
 ) -> dict[str, object] | None:
-    """Build and publish the active settlement overlay after a full rebuild."""
+    """Build and publish the active settlement overlay after a full rebuild.
 
-    plan = _lineage_refresh_plan(factory, job_id=job_id)
+    ``months`` bounds the whole publication to those business months; when it
+    is ``None`` the historical behaviour (every projected formal month) is kept.
+    """
+
+    # Keep the historical unscoped call signature exact: only a month-scoped
+    # run passes ``months``, so existing callers and fakes are unaffected.
+    plan = (
+        _lineage_refresh_plan(factory, job_id=job_id)
+        if months is None
+        else _lineage_refresh_plan(factory, job_id=job_id, months=months)
+    )
     if plan is None:
         _record_settlement_projection_noop(
             factory,
@@ -1201,13 +1260,168 @@ def run_settlement_rebuild_job(
     return True
 
 
+def run_settlement_month_rebuild_job(
+    *,
+    job_id: str,
+    factory: sessionmaker,
+    business_month: str,
+    source_run_id: str | None = None,
+    claimed_at: datetime | None = None,
+    claim_id: str | None = None,
+    lease_duration: timedelta = DEFAULT_SETTLEMENT_REBUILD_LEASE,
+    heartbeat_interval_seconds: float | None = None,
+) -> bool:
+    """Rebuild exactly one business month without touching any other month.
+
+    Only the fee results of coupons whose latest non-cancelled valid verify
+    falls in ``business_month`` are recomputed, and the publication plan is
+    bounded to that month, so no other month's projection, commission result or
+    statement can change.  Nothing is deleted globally: unlike
+    ``rebuild_settlement`` this entry never clears the shared projections.
+    """
+
+    if factory is None:
+        raise RuntimeError("settlement rebuild requires a database session factory")
+    if not _MONTH_KEY_PATTERN.match(business_month):
+        raise ValueError(f"invalid business month: {business_month}")
+    if claim_id is None:
+        claim_id = claim_settlement_rebuild_job(
+            factory,
+            job_id=job_id,
+            claimed_at=claimed_at,
+            lease_duration=lease_duration,
+        )
+    if claim_id is None:
+        return False
+    active_source_run_id = source_run_id or _settlement_rebuild_source_run_id(
+        factory, job_id=job_id,
+    )
+    try:
+        with _settlement_rebuild_heartbeat_watchdog(
+            factory,
+            job_id=job_id,
+            claim_id=claim_id,
+            lease_duration=lease_duration,
+            heartbeat_interval_seconds=heartbeat_interval_seconds,
+        ) as report_progress:
+            report_progress("settle_month", 0, None)
+            with session_scope(factory) as session:
+                coupon_ids = select_coupon_ids_by_verify_business_month(
+                    session, business_month
+                )
+                stats = rebuild_dual_fee_results(
+                    session,
+                    calculation_run_id=active_source_run_id,
+                    coupon_ids=coupon_ids,
+                )
+                # Source-readiness gate: a month without a single current
+                # commission result is not billable.  Fail before any
+                # publication so the job cannot report a successful no-op.
+                ready_results = count_current_fee_results_for_month(
+                    session, business_month
+                )
+                if ready_results == 0:
+                    raise SettlementSourceNotReady(
+                        "no billable source for business month "
+                        f"{business_month}: candidates={len(coupon_ids)} "
+                        f"current_results={ready_results}"
+                    )
+                _fence_settlement_rebuild_commit(
+                    session, job_id=job_id, claim_id=claim_id,
+                    stage="business_month_committed",
+                    lease_duration=lease_duration,
+                )
+            report_progress(
+                "publish_projection", stats.result_count, stats.result_count
+            )
+            refresh_active_settlement_lineage(
+                factory,
+                job_id=job_id,
+                claim_id=claim_id,
+                progress_callback=report_progress,
+                lease_duration=lease_duration,
+                months=(business_month,),
+            )
+            report_progress(
+                "projection_published", stats.result_count, stats.result_count
+            )
+        _finish_claimed_settlement_rebuild(
+            factory, job_id=job_id, claim_id=claim_id,
+            stats=SettlementStats(
+                detail_count=stats.result_count,
+                issue_count=stats.adjustment_count,
+                ranking_count=0,
+                monthly_count=0,
+            ),
+        )
+    except SettlementRebuildLeaseLost:
+        raise
+    except SettlementMonthLockedError:
+        _fail_claimed_settlement_rebuild(
+            factory, job_id=job_id, claim_id=claim_id,
+            error_message=f"business month locked: {business_month}",
+            requires_new_job=True,
+        )
+        raise
+    except SettlementSourceNotReady as exc:
+        # Late-arriving source may still make the month billable, so this is a
+        # retryable failure rather than a terminal one.
+        _fail_claimed_settlement_rebuild(
+            factory, job_id=job_id, claim_id=claim_id,
+            error_message=str(exc),
+            requires_new_job=False,
+        )
+        raise
+    except Exception as exc:
+        transition = _fail_claimed_settlement_rebuild(
+            factory, job_id=job_id, claim_id=claim_id, error_message=str(exc),
+            requires_new_job=isinstance(exc, BillingSourceDriftError),
+        )
+        if transition == "reconciled":
+            return True
+        raise
+    return True
+
+
+def settlement_month_scope_metadata(business_month: str) -> dict[str, str]:
+    """Build the durable job metadata that selects the month-scoped entry."""
+
+    if not _MONTH_KEY_PATTERN.match(business_month):
+        raise ValueError(f"invalid business month: {business_month}")
+    return {
+        SETTLEMENT_SCOPE_KEY: SETTLEMENT_SCOPE_BUSINESS_MONTH,
+        SETTLEMENT_SCOPE_MONTH_KEY: business_month,
+    }
+
+
+def scoped_business_month(metadata: object) -> str | None:
+    """Return the requested month when a job is month-scoped, else ``None``."""
+
+    if not isinstance(metadata, dict):
+        return None
+    if metadata.get(SETTLEMENT_SCOPE_KEY) != SETTLEMENT_SCOPE_BUSINESS_MONTH:
+        return None
+    value = metadata.get(SETTLEMENT_SCOPE_MONTH_KEY)
+    if not isinstance(value, str) or not _MONTH_KEY_PATTERN.match(value):
+        return None
+    return value
+
+
 __all__ = [
     "SETTLEMENT_REBUILD_JOB_NAME",
     "SETTLEMENT_REBUILD_SPARSE_BATCH_SIZE",
+    "SETTLEMENT_SCOPE_BUSINESS_MONTH",
+    "SETTLEMENT_SCOPE_KEY",
+    "SETTLEMENT_SCOPE_MONTH_KEY",
+    "SettlementMonthLockedError",
     "SettlementRebuildLeaseLost",
+    "claim_latest_settlement_rebuild_job",
     "claim_settlement_rebuild_job",
     "heartbeat_settlement_rebuild_job",
     "reconcile_published_settlement_rebuild",
     "refresh_active_settlement_lineage",
+    "run_settlement_month_rebuild_job",
     "run_settlement_rebuild_job",
+    "scoped_business_month",
+    "settlement_month_scope_metadata",
 ]

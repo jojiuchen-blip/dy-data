@@ -33,6 +33,9 @@ from apps.api.dy_api.models import (
 )
 from apps.worker.projection_lineage import (
     LineageError,
+    MAX_LINEAGE_DEPTH,
+    _CompactProvenanceContext,
+    _INHERITED_COMPACT_STATES,
     canonical_score_partition_key,
     resolve_projection_partitions,
 )
@@ -2176,12 +2179,24 @@ def _manifest_checksum(manifests: list[Mapping[str, Any]]) -> str:
 def _validate_compaction_source_manifest_digests(
     session_factory: Callable[[], Session], lineage_rows: Sequence[Mapping[str, Any]]
 ) -> None:
-    expected = {
-        str(row["generation_id"]): str(row["manifest_checksum"])
-        for row in lineage_rows
+    expected: dict[str, str] = {}
+    compact_generations: set[str] = set()
+    for row in lineage_rows:
+        generation_id = str(row["generation_id"])
+        expected[generation_id] = str(row["manifest_checksum"])
+        if _as_text(row.get("generation_kind")) == "compact":
+            # A compact generation declares its digest with the compaction
+            # envelope, not the ordinary manifest envelope; recompute it with
+            # the matching accumulator so the gate stays exact per kind.
+            compact_generations.add(generation_id)
+    manifest_accumulators = {
+        generation_id: _ManifestChecksumAccumulator()
+        for generation_id in expected
+        if generation_id not in compact_generations
     }
-    accumulators = {
-        generation_id: _ManifestChecksumAccumulator() for generation_id in expected
+    compaction_accumulators = {
+        generation_id: _CompactionChecksumAccumulator()
+        for generation_id in compact_generations
     }
     cursor: tuple[str, str, str] | None = None
     while True:
@@ -2229,28 +2244,37 @@ def _validate_compaction_source_manifest_digests(
         if not page:
             break
         for row in page:
-            accumulators[row.generation_id].add(
-                {
-                    "artifact": row.artifact,
-                    "partition_key": row.partition_key,
-                    "owner_state": row.owner_state,
-                    "source_kind": row.source_kind,
-                    "data_generation_id": row.data_generation_id,
-                    "base_generation_id": row.base_generation_id,
-                    "row_count": row.row_count,
-                    "amount_total_cent": row.amount_total_cent,
-                    "status_counts_json": row.status_counts_json,
-                    "checksum": row.checksum,
-                }
-            )
+            values = {
+                "artifact": row.artifact,
+                "partition_key": row.partition_key,
+                "owner_state": row.owner_state,
+                "source_kind": row.source_kind,
+                "data_generation_id": row.data_generation_id,
+                "base_generation_id": row.base_generation_id,
+                "row_count": row.row_count,
+                "amount_total_cent": row.amount_total_cent,
+                "status_counts_json": row.status_counts_json,
+                "checksum": row.checksum,
+            }
+            if row.generation_id in compact_generations:
+                compaction_accumulators[row.generation_id].add(
+                    {**values, "last_key": row.last_key}
+                )
+            else:
+                manifest_accumulators[row.generation_id].add(values)
         terminal = page[-1]
         cursor = (
             terminal.generation_id,
             terminal.artifact,
             terminal.partition_key,
         )
-    for generation_id, accumulator in accumulators.items():
-        if accumulator.hexdigest() != expected[generation_id]:
+    for generation_id, digest in expected.items():
+        accumulator = (
+            compaction_accumulators[generation_id]
+            if generation_id in compact_generations
+            else manifest_accumulators[generation_id]
+        )
+        if accumulator.hexdigest() != digest:
             raise LegacyProjectionBootstrapError(
                 "compaction source manifest checksum is corrupt"
             )
@@ -4300,8 +4324,26 @@ def _load_compaction_lineage(
         if index == 0 and kind == "compact":
             if len(rows) != 1 or row.get("base_generation_id") is not None:
                 raise LegacyProjectionBootstrapError("compact base metadata is invalid")
+        elif kind == "compact":
+            # A compact generation may terminate the loaded chain after later
+            # daily lineages rebuilt on top of it (second maintenance round).
+            # It must be the terminal row; its depth 0 and its NULL base are
+            # enforced by the arithmetic and base-link checks below, and its
+            # provenance must be present.
+            if index != len(rows) - 1:
+                raise LegacyProjectionBootstrapError(
+                    "nested compact lineage is invalid"
+                )
+            if row.get("base_generation_id") is not None:
+                raise LegacyProjectionBootstrapError(
+                    "compact ancestor metadata is invalid"
+                )
+            if row.get("compaction_base_generation_id") is None:
+                raise LegacyProjectionBootstrapError(
+                    "compact ancestor provenance is invalid"
+                )
         elif kind not in {"lineage", "legacy_root"}:
-            raise LegacyProjectionBootstrapError("nested compact lineage is invalid")
+            raise LegacyProjectionBootstrapError("compaction lineage kind is invalid")
         if kind != "compact" and row.get("compaction_base_generation_id") is not None:
             raise LegacyProjectionBootstrapError("ordinary compaction source is invalid")
         depth = _strict_int(
@@ -4379,6 +4421,10 @@ def _compaction_source_payload_page(
     if not keys:
         return []
     session = _open_session(session_factory)
+    # One bounded provenance context serves every artifact resolution of this
+    # page: verified closures, anchor/source manifests, and actual-row presence
+    # facts are batched once and reused by all partitions on the page.
+    provenance_context = _CompactProvenanceContext(session)
     try:
         resolutions: dict[tuple[str, str], Any] = {}
         for artifact in ARTIFACTS:
@@ -4391,6 +4437,7 @@ def _compaction_source_payload_page(
                     artifact=artifact,
                     partition_keys=artifact_keys,
                     pinned_generation_id=base_generation_id,
+                    provenance_context=provenance_context,
                 )
             except LineageError as exc:
                 raise LegacyProjectionBootstrapError(
@@ -4428,6 +4475,28 @@ def _compaction_source_payload_page(
                     column.name: getattr(row, column.name)
                     for column in SettlementProjectionPartitionManifest.__table__.columns
                 }
+        # When the loaded chain terminates in a compact ancestor, that compact
+        # owns the older partitions and is the provenance anchor for them: its
+        # manifest rows legitimately self-reference as compact heads and name
+        # the real leaf data generations proven by the same full provenance
+        # verifier the readers use — never by bare membership in its direct
+        # closure.  This full verification runs inside the open session, after
+        # every database read of the page, so the provenance context never
+        # outlives the session it was created with.
+        terminal_compact_id: str | None = None
+        if lineage_rows and _as_text(lineage_rows[-1].get("generation_kind")) == "compact":
+            terminal_compact_id = str(lineage_rows[-1]["generation_id"])
+            # The shared verifier fail-closes on missing, dangling, digest-mismatched,
+            # wrong-projection/state, or malformed closure provenance even when no
+            # requested key resolves to a compact-owned partition.
+            try:
+                provenance_context.verified_closure(
+                    terminal_compact_id, allowed_states=_INHERITED_COMPACT_STATES
+                )
+            except LineageError as exc:
+                raise LegacyProjectionBootstrapError(
+                    "compact ancestor provenance is missing"
+                ) from exc
     finally:
         _close_session(session)
     lineage_bases = {
@@ -4447,7 +4516,11 @@ def _compaction_source_payload_page(
         source = source_rows.get((owner, artifact, partition_key))
         if source is None:
             raise LegacyProjectionBootstrapError("compaction source manifest is missing")
-        if source.get("reference_head_generation_id") is not None:
+        reference_head = _as_text(source.get("reference_head_generation_id"))
+        from_compact_source = owner == terminal_compact_id
+        if reference_head is not None and not (
+            from_compact_source and reference_head == owner
+        ):
             raise LegacyProjectionBootstrapError("ordinary source has compact reference")
         if _as_text(source.get("base_generation_id")) != lineage_bases.get(owner):
             raise LegacyProjectionBootstrapError("compaction source base metadata is invalid")
@@ -4471,8 +4544,17 @@ def _compaction_source_payload_page(
             owner_state != "owned"
             or source_kind != "overlay"
             or data_generation_id != _as_text(resolution.actual_data_generation_id)
-            or data_generation_id not in lineage_bases
+            or data_generation_id is None
+            or (
+                not from_compact_source
+                and data_generation_id not in lineage_bases
+            )
         ):
+            # For a compact-owned partition the resolution above already proved
+            # the real leaf provenance with the shared full verifier (digests,
+            # states, shapes, manifest evidence, and actual data rows); the
+            # manifest row must agree with that verified resolution exactly.
+            # Ordinary sources keep the strict chain-membership gate unchanged.
             raise LegacyProjectionBootstrapError("compaction overlay source is invalid")
         checksum = source.get("checksum")
         if source_kind == "overlay" and (
@@ -5530,6 +5612,86 @@ def _compact_projection_metadata_locked(
     )
 
 
+def _verification_session_factory(caller: Session) -> Callable[[], Session]:
+    """Return a factory of read-only sessions bound to the caller's transaction.
+
+    Each session joins the caller's connection with a dedicated savepoint
+    (``join_transaction_mode="create_savepoint"``): the reads observe the
+    caller's own uncommitted evidence, and closing the session only releases
+    that savepoint, never the caller's surrounding transaction.
+    """
+
+    def factory() -> Session:
+        return Session(
+            bind=caller.connection(),
+            join_transaction_mode="create_savepoint",
+            autoflush=False,
+            expire_on_commit=False,
+        )
+
+    return factory
+
+
+def reverify_ready_compaction_publication(
+    session: Session,
+    *,
+    generation_id: str,
+) -> dict[str, Any]:
+    """Re-verify a ready compact head against its actual merged evidence.
+
+    The evidence is read through the caller's publish transaction via
+    savepoint-isolated sessions bound to the same connection, so the
+    verification cannot be pointed at a different database and cannot end the
+    caller's transaction.  The replay is read-only over the source generations
+    and bounded by the recorded batch size.
+    """
+
+    session_factory = _verification_session_factory(session)
+    generation = _load_generation(session_factory, generation_id)
+    if generation is None:
+        raise LegacyProjectionBootstrapError("reverify compaction generation is missing")
+    if (
+        generation.generation_kind != "compact"
+        or generation.state != "ready"
+        or generation.base_generation_id is not None
+    ):
+        raise LegacyProjectionBootstrapError(
+            "reverify compaction generation is not a ready compact head"
+        )
+    base_generation_id = generation.compaction_base_generation_id
+    if not isinstance(base_generation_id, str) or not base_generation_id:
+        raise LegacyProjectionBootstrapError("reverify compaction base is missing")
+    lineage_rows = _load_compaction_lineage(session_factory, base_generation_id)
+    checkpoint = generation.checkpoint_json
+    if not isinstance(checkpoint, Mapping):
+        raise LegacyProjectionBootstrapError("reverify compaction checkpoint is malformed")
+    batch_size = _strict_int(checkpoint.get("batch_size"), "reverify compaction batch size")
+    resource: tuple[int, int, int, int, int] = tuple(
+        _strict_int(
+            checkpoint.get(key), f"reverify compaction {key}", nonnegative=True
+        )
+        for key in (
+            "estimated_manifest_rows",
+            "estimated_write_rows",
+            "estimated_write_bytes",
+            "estimated_wal_bytes",
+            "estimated_disk_headroom_bytes",
+        )
+    )  # type: ignore[assignment]
+    plan_summary = _summarize_compaction_plan(
+        session_factory, base_generation_id, lineage_rows, batch_size
+    )
+    return _verify_compaction_ready(
+        session_factory,
+        generation,
+        base_generation_id=base_generation_id,
+        lineage_rows=lineage_rows,
+        plan_summary=plan_summary,
+        resource=resource,
+        batch_size=batch_size,
+    )
+
+
 def compact_projection_metadata(
     session_factory: Callable[[], Session],
     *,
@@ -5574,4 +5736,5 @@ __all__ = [
     "LegacyProjectionBootstrapError",
     "certify_legacy_null_root",
     "compact_projection_metadata",
+    "reverify_ready_compaction_publication",
 ]

@@ -479,12 +479,27 @@ def _control_job(
         {"job_id": job_id, "action": action, "reason": reason}
     )
     key = f"admin-{action}:{_idempotency_hash(idempotency_key)}"
-    if _existing_control_event(
+    existing = _existing_control_event(
         session, job_id=job_id, idempotency_key=key, request_sha=request_sha
-    ) is not None:
-        return {**_job_summary(job), "replayed": True, "intent": action}
+    )
+    if existing is not None:
+        recovery = _replayed_recovery(
+            job,
+            session,
+            action=action,
+            request_key=_idempotency_hash(idempotency_key),
+        )
+        session.commit()
+        return {
+            **_job_summary(job),
+            "replayed": True,
+            "intent": action,
+            **_recovery_snapshot(job, session),
+            **recovery,
+        }
     before = job.status
     now = _now()
+    recovery: dict[str, Any] | None = None
     if action == "pause":
         if job.status in {"success", "failed", "cancelled"}:
             raise HTTPException(status_code=409, detail="Terminal job cannot be paused")
@@ -510,6 +525,15 @@ def _control_job(
         job.error_code = None
         job.error_summary = None
         job.error_message = None
+    elif action == "recover":
+        recovery = _recover_day_plan(
+            session,
+            job=job,
+            request_key=_idempotency_hash(idempotency_key),
+            reason=reason,
+            actor=actor,
+            now=now,
+        )
     else:  # pragma: no cover - private allowlist
         raise HTTPException(status_code=422, detail="Unsupported control action")
     _add_control_event(
@@ -524,7 +548,190 @@ def _control_job(
         to_status=job.status,
     )
     session.commit()
-    return {**_job_summary(job), "replayed": False, "intent": action}
+    return {
+        **_job_summary(job),
+        "replayed": False,
+        "intent": action,
+        **(recovery or _recovery_snapshot(job, session)),
+    }
+
+
+def _recover_day_plan(
+    session: Session,
+    *,
+    job: JobRun,
+    request_key: str,
+    reason: str,
+    actor: str,
+    now: datetime,
+) -> dict[str, Any]:
+    """Schedule one independent, audited recovery generation for a day plan.
+
+    The original row is never re-opened: ``begin_job_attempt`` derives
+    ``attempt_number = attempt_count + 1`` and ``job_attempts`` is unique on
+    ``(job_id, attempt_number)``, so re-using an exhausted row collides with the
+    attempts it already recorded.  A distinct ``config_version`` instead yields a
+    brand new range parent whose date children are new job ids with empty attempt
+    space, which the scheduler then claims exactly like the original plan.  Every
+    original ``JobAttempt`` row and the original error evidence stay untouched.
+    """
+
+    from apps.worker.day_recovery import (
+        MAX_RECOVERY_GENERATIONS,
+        RECOVERY_ROOT_KEY,
+        DayRecoveryNotAllowed,
+        plan_day_recovery,
+        recovery_generation_by_request_key,
+        recovery_generations,
+    )
+
+    recorded = recovery_generation_by_request_key(session, request_key)
+    if recorded is not None:
+        recorded_root = (recorded.metadata_json or {}).get(RECOVERY_ROOT_KEY)
+        if recorded_root != job.job_id or not _same_day_window(job, recorded):
+            # The key already names a generation.  Re-using it for a different
+            # plan row is a caller mistake, and returning that other generation
+            # would silently attach one day's recovery evidence to another.
+            raise HTTPException(
+                status_code=409,
+                detail="Idempotency-Key already scheduled recovery for another job",
+            )
+        return _replayed_recovery(
+            job, session, action="recover", request_key=request_key
+        )
+    try:
+        plan, replayed = plan_day_recovery(
+            session,
+            parent=job,
+            request_key=request_key,
+            reason=reason,
+            actor=actor,
+            now=now,
+        )
+    except DayRecoveryNotAllowed as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    recovered = session.get(JobRun, plan.parent_job_id)
+    if recovered is None:  # pragma: no cover - plan_daily_sync guarantees it
+        raise HTTPException(status_code=500, detail="Recovery plan was not persisted")
+    return {
+        "recovered": {
+            **_job_summary(recovered),
+            "ordinal": _recorded_ordinal(job, recovered.job_id),
+            "replayed": replayed,
+            "generation_budget": MAX_RECOVERY_GENERATIONS,
+            "generations_recorded": len(recovery_generations(job)),
+        }
+    }
+
+
+def _replayed_recovery(
+    job: JobRun, session: Session, *, action: str, request_key: str
+) -> dict[str, Any]:
+    """Re-state the recovery generation a replayed control request refers to.
+
+    A replay must answer with the same generation the original request returned;
+    otherwise a caller cannot tell an idempotent replay from a no-op.
+    """
+
+    if action != "recover":
+        return {}
+    from apps.worker.day_recovery import (
+        MAX_RECOVERY_GENERATIONS,
+        RECOVERY_ROOT_KEY,
+        generation_ordinal,
+        recovery_generation_by_request_key,
+        recovery_generations,
+    )
+
+    # recovered_by names the latest generation and changes after another
+    # recovery. A control-event replay must resolve its own immutable key.
+    parent = recovery_generation_by_request_key(session, request_key)
+    entry = next(
+        (
+            item for item in recovery_generations(job)
+            if isinstance(item, dict)
+            and parent is not None
+            and item.get("parent_job_id") == parent.job_id
+            and item.get("request_key") == request_key
+        ),
+        {},
+    )
+    ordinal = entry.get("ordinal")
+    if (
+        parent is None
+        or (parent.metadata_json or {}).get(RECOVERY_ROOT_KEY) != job.job_id
+        or (parent.metadata_json or {}).get("recovery_request_key") != request_key
+        or entry.get("config_version") != parent.config_version
+        or not _same_day_window(job, parent)
+        or isinstance(ordinal, bool)
+        or not isinstance(ordinal, int)
+        or ordinal < 1
+        or generation_ordinal(parent) != ordinal
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Recovery request generation evidence is missing or conflicts",
+        )
+    return {
+        "recovered": {
+            **_job_summary(parent),
+            "ordinal": ordinal,
+            "replayed": True,
+            "generation_budget": MAX_RECOVERY_GENERATIONS,
+            "generations_recorded": len(recovery_generations(job)),
+        }
+    }
+
+
+def _recovery_snapshot(job: JobRun, session: Session) -> dict[str, Any]:
+
+    from apps.worker.day_recovery import (
+        MAX_RECOVERY_GENERATIONS,
+        RECOVERED_BY_KEY,
+        recovery_generations,
+    )
+
+    metadata = job.metadata_json or {}
+    generations = recovery_generations(job)
+    recovered_by = metadata.get(RECOVERED_BY_KEY)
+    if recovered_by is None and not generations:
+        return {}
+    return {
+        "recovered_by": recovered_by,
+        "recovery_generations": generations,
+        "recovery_budget": MAX_RECOVERY_GENERATIONS,
+        "recovered_parent": _job_summary(session.get(JobRun, recovered_by))
+        if recovered_by
+        else None,
+    }
+
+
+def _recorded_ordinal(job: JobRun, parent_job_id: str) -> int | None:
+    from apps.worker.day_recovery import recovery_generations
+
+    for entry in recovery_generations(job):
+        if entry.get("parent_job_id") == parent_job_id:
+            ordinal = entry.get("ordinal")
+            return ordinal if isinstance(ordinal, int) else None
+    return None
+
+
+def _same_day_window(origin: JobRun, candidate: JobRun) -> bool:
+    """Same normalised plan window and the same source identity.
+
+    Naive datetimes coming back from the driver are read as UTC, which is the
+    project's storage convention for these boundaries; a local-date comparison
+    would let two distinct plans on one day pass as the same plan.
+    """
+
+    from apps.worker.day_recovery import plan_window_matches
+
+    return (
+        plan_window_matches(origin.window_start, candidate.window_start)
+        and plan_window_matches(origin.window_end, candidate.window_end)
+        and origin.data_source == candidate.data_source
+    )
 
 
 def _control_endpoint(action: str):
@@ -561,6 +768,7 @@ router.post("/jobs/{job_id}/pause")(_control_endpoint("pause"))
 router.post("/jobs/{job_id}/resume")(_control_endpoint("resume"))
 router.post("/jobs/{job_id}/cancel")(_control_endpoint("cancel"))
 router.post("/jobs/{job_id}/retry")(_control_endpoint("retry"))
+router.post("/jobs/{job_id}/recover")(_control_endpoint("recover"))
 
 
 def _command_payload(command: OpsCommand) -> dict[str, Any]:

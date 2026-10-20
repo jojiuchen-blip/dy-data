@@ -2352,6 +2352,24 @@ export function downloadSkuFeeRuleImportResult(batchId: string): Promise<void> {
   );
 }
 
+export type MonthCloseReadinessAlert = {
+  month: string;
+  state: string;
+  severity: string;
+  message: string;
+};
+
+export async function fetchSettlementMonthReadiness(): Promise<
+  ApiLoadResult<{ alerts: MonthCloseReadinessAlert[] }>
+> {
+  return {
+    ...(await requestJson<{ alerts: MonthCloseReadinessAlert[] }>(
+      "/admin/settlement-month-readiness",
+    )),
+    usingMock: false,
+  };
+}
+
 export async function fetchProductSyncRuns(params: {
   page?: number;
   pageSize?: number;

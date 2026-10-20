@@ -2968,6 +2968,9 @@ def test_incremental_lock_contention_leaves_work_pending(
     db_session: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # A bounded wait now precedes the page: shrink it to zero so this test keeps
+    # covering the fail-closed path instead of sleeping for the default budget.
+    monkeypatch.setenv("DY_CLUE_MATERIALIZATION_LOCK_WAIT_SECONDS", "0")
     store, mapping = _store("store-a", "poi-a")
     db_session.add_all([store, mapping, _clue("raw-a", "clue-a", "order-a", "poi-a")])
     db_session.commit()

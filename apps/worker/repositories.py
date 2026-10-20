@@ -53,9 +53,18 @@ SCHEDULER_PAUSE_MARKERS = frozenset(
 
 
 def is_priority_resource_config(config_version: str | None) -> bool:
+    """Whether a row belongs to the priority daily control plane.
+
+    Recovery generations count: they are the same day's chain re-issued under
+    ``<base>-recovery-<digest>`` and carry the same ``daily_required`` purpose, so
+    treating them as legacy work would hand a recovered day's rows to the wrong
+    admission rule.
+    """
+
     return isinstance(config_version, str) and (
         config_version == PRIORITY_DAILY_CONFIG_VERSION
         or config_version.startswith(f"{PRIORITY_DAILY_CONFIG_VERSION}-dimensions-")
+        or config_version.startswith(f"{PRIORITY_DAILY_CONFIG_VERSION}-recovery")
     )
 
 
@@ -2994,7 +3003,7 @@ def _close_expired_attempt(
     previous_attempt.finished_at = finished_at
     previous_attempt.exit_type = "crashed"
     previous_attempt.error_code = "lease_expired"
-    previous_attempt.error_summary = "lease expired before the attempt completed"
+    _preserve_previous_error(previous_attempt, "lease expired before the attempt completed")
     release_result = session.execute(
         update(ComponentHeartbeat)
         .where(
@@ -3028,6 +3037,25 @@ def _close_expired_attempt(
     )
 
 
+def _preserve_previous_error(target: Any, new_summary: str) -> None:
+    """Keep what the row already recorded before a lease-expiry overwrite.
+
+    The child's stderr tail (the real traceback) is the only evidence of why a
+    worker crashed.  Closing a lease must not silently replace it with a generic
+    sentence, so the previous text is retained rather than discarded.
+    """
+
+    previous = (getattr(target, "error_summary", None) or "").strip()
+    if previous and previous != new_summary:
+        metadata = dict(getattr(target, "metadata_json", None) or {})
+        if metadata:
+            metadata.setdefault("previous_error_summary", previous)
+            target.metadata_json = metadata
+        else:
+            new_summary = f"{new_summary}; previous: {previous}"
+    target.error_summary = new_summary
+
+
 def _fail_job_after_exhausted_crash(
     session: Session,
     *,
@@ -3044,7 +3072,7 @@ def _fail_job_after_exhausted_crash(
     job.lease_expires_at = None
     job.next_retry_at = None
     job.error_code = "max_attempts_exhausted_after_crash"
-    job.error_summary = "lease expired after the final permitted attempt"
+    _preserve_previous_error(job, "lease expired after the final permitted attempt")
     job.error_message = job.error_summary
     _add_job_event(
         session,
