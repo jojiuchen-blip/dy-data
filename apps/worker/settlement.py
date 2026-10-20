@@ -67,6 +67,7 @@ from apps.api.dy_api.models import (
     utcnow,
 )
 from apps.api.dy_api.rule_utils import normalize_owner_account_name
+from apps.api.dy_api.settlement_scope import resolve_settlement_scope_rule
 from apps.worker.projection_lineage import resolve_projection_partitions
 from apps.worker.receipt_amounts import (
     load_order_attributions,
@@ -3217,22 +3218,30 @@ def _materialize_dual_fee_direction(
         return True
     business_month = business_date.strftime("%Y-%m")
 
-    scope_rule = _match_scope_rule(
+    scope_rule = resolve_settlement_scope_rule(
         session,
         business_month=business_month,
         owner_account_id=product_owner_account_id,
         channel=channel,
     )
-    if scope_rule is None:
+    if scope_rule is None or not scope_rule.is_active:
+        scope_state = "disabled" if scope_rule is not None else "unconfigured"
         _block_dual_fee(
             session,
             calculation_run_id,
             coupon,
             order,
             "dual_fee_missing_scope_rule",
-            "业务月份、归属账号与渠道未命中有效结算范围，费用方向已阻断。",
+            "该归属账号与渠道的结算范围已从生效月份起停用，费用方向已阻断。"
+            if scope_rule is not None else
+            "该业务月份之前未配置归属账号与渠道的结算范围，费用方向已阻断。",
             directions=(direction,),
-            context={"direction": direction_name, "business_month": business_month},
+            context={
+                "direction": direction_name, "business_month": business_month,
+                "scope_state": scope_state, "owner_account_id": product_owner_account_id,
+                "sale_channel": channel,
+                "scope_rule_version": scope_rule.scope_rule_version if scope_rule else None,
+            },
         )
         return False
 
@@ -4077,14 +4086,11 @@ def _match_scope_rule(
     owner_account_id: str,
     channel: str,
 ) -> SettlementScopeRule | None:
-    return session.scalar(
-        select(SettlementScopeRule).where(
-            SettlementScopeRule.effective_month == business_month,
-            SettlementScopeRule.owner_account_id == owner_account_id,
-            SettlementScopeRule.sale_channel_normalized == channel,
-            SettlementScopeRule.is_active.is_(True),
-        )
+    latest = resolve_settlement_scope_rule(
+        session, business_month=business_month,
+        owner_account_id=owner_account_id, channel=channel,
     )
+    return latest if latest is not None and latest.is_active else None
 
 
 def _match_fee_rule(
