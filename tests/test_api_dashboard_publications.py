@@ -43,6 +43,8 @@ READS = [
 
 @pytest.fixture
 def analytical_client(db_session, monkeypatch):
+    from publication_fixture_helpers import ready_periods_fixture
+    monkeypatch.setattr(finance.period_readiness, "capture", ready_periods_fixture)
     monkeypatch.setenv("DY_API_TEST_MODE", "true")
     ranking_metadata.create_all(db_session.bind)
     metadata.create_all(db_session.bind)
@@ -186,3 +188,34 @@ def test_invalid_filter_is_422_and_failed_refresh_keeps_last_good_result(analyti
     assert response.status_code == 200, response.text
     assert response.json()["meta"]["publication"]["id"] == first.id
     assert response.json()["meta"]["publication"]["status"] == "failed"
+
+
+@pytest.mark.parametrize("module,path,params", [
+    ("finance", "/admin/finance/summary", FINANCE_PARAMS),
+    ("finance", "/admin/finance/invoices", FINANCE_PARAMS),
+    ("finance", "/admin/finance/invoices/export", FINANCE_PARAMS),
+    ("settlement", "/dashboard/store-ranking", {"periodType": "MONTHLY", "periodKey": "2026-09"}),
+    ("settlement", "/stores/A/monthly-settlement", {"month": "2026-09"}),
+])
+def test_incomplete_frozen_period_is_503_but_same_version_filters_remain_available(
+    analytical_client, monkeypatch, module, path, params,
+):
+    client, _, factory = analytical_client
+    from publication_fixture_helpers import ready_periods_fixture
+    def incomplete(session, cutoff):
+        snapshot = ready_periods_fixture(session, cutoff)
+        snapshot["months"]["2026-09"] = {"ready": False, "success_days": 29, "total_days": 30}
+        return snapshot
+    monkeypatch.setattr(finance.period_readiness, "capture", incomplete)
+    publication = freeze(factory, module)
+    response = client.get("/api/v1" + path, params={**params, "publication_id": publication.id})
+    assert response.status_code == 503, response.text
+    assert response.json()["detail"]["code"] == "PUBLICATION_PERIOD_NOT_READY"
+    assert "2026-09账期数据尚未准备完成" in response.json()["detail"]["message"]
+    assert "data" not in response.json()
+    filters = client.get(f"/api/v1/dashboard/publications/{module}/filters",
+        params={"publication_id": publication.id})
+    assert filters.status_code == 200, filters.text
+    assert filters.json()["meta"]["publication"]["id"] == publication.id
+    assert "2026-09" in filters.json()["data"]["statementMonths"]
+    assert filters.json()["data"]["periodReadiness"]["months"]["2026-09"]["ready"] is False
