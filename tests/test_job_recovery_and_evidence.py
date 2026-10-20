@@ -1704,6 +1704,127 @@ def test_management_api_recover_is_available_authorized_and_idempotent(
     assert all(row.reason for row in events)
 
 
+def test_management_api_replays_the_requested_generation_after_second_recovery(
+    monkeypatch: pytest.MonkeyPatch, db_session: Session
+) -> None:
+    from apps.api.dy_api.models import JobEvent
+
+    parent_id, _child, _attempts = _exhausted_day_plan(db_session)
+    db_session.commit()
+    client = _control_plane_client(monkeypatch, db_session)
+    path = f"/api/v1/admin/operations/jobs/{parent_id}/recover"
+    body = {"reason": "repair the exhausted day"}
+    first_headers = {"Idempotency-Key": "recover-first-generation-key"}
+    second_headers = {"Idempotency-Key": "recover-second-generation-key"}
+    first = client.post(path, headers=first_headers, json=body)
+    assert first.status_code == 200
+    first_id = first.json()["data"]["recovered"]["job_id"]
+    db_session.get(JobRun, first_id).status = "failed"
+    db_session.commit()
+    second = client.post(path, headers=second_headers, json=body)
+    assert second.status_code == 200
+    second_id = second.json()["data"]["recovered"]["job_id"]
+    assert first_id != second_id
+    db_session.expire_all()
+    original_metadata = dict(db_session.get(JobRun, parent_id).metadata_json)
+    original_jobs = set(db_session.scalars(select(JobRun.job_id)))
+    original_events = set(db_session.scalars(select(JobEvent.event_id)))
+
+    for headers, expected_id, ordinal in (
+        (first_headers, first_id, 1),
+        (second_headers, second_id, 2),
+    ):
+        replay = client.post(path, headers=headers, json=body)
+        assert replay.status_code == 200
+        data = replay.json()["data"]
+        assert data["replayed"] is True
+        assert data["recovered"]["job_id"] == expected_id
+        assert data["recovered"]["ordinal"] == ordinal
+        assert data["recovered_by"] == second_id
+    db_session.expire_all()
+    assert db_session.get(JobRun, parent_id).metadata_json == original_metadata
+    assert set(db_session.scalars(select(JobRun.job_id))) == original_jobs
+    assert set(db_session.scalars(select(JobEvent.event_id))) == original_events
+    control_events = list(
+        db_session.scalars(
+            select(JobEvent).where(
+                JobEvent.job_id == parent_id,
+                JobEvent.event_type == "admin_recover_requested",
+            )
+        )
+    )
+    assert len(control_events) == 2
+
+
+@pytest.mark.parametrize(
+    "invalid_evidence",
+    [
+        "missing", "unknown", "root", "window", "source", "ledger",
+        "request_key", "ordinal", "ledger_request_key", "ledger_ordinal",
+        "ledger_config", "malformed_ledger",
+    ],
+)
+def test_management_api_recovery_replay_rejects_invalid_generation_evidence(
+    monkeypatch: pytest.MonkeyPatch, db_session: Session, invalid_evidence: str
+) -> None:
+    from apps.api.dy_api.models import JobEvent
+
+    parent_id, _child, _attempts = _exhausted_day_plan(db_session)
+    db_session.commit()
+    client = _control_plane_client(monkeypatch, db_session)
+    path = f"/api/v1/admin/operations/jobs/{parent_id}/recover"
+    headers = {"Idempotency-Key": "recover-generation-evidence-key"}
+    body = {"reason": "repair the exhausted day"}
+    first = client.post(path, headers=headers, json=body)
+    assert first.status_code == 200
+    generation = db_session.get(JobRun, first.json()["data"]["recovered"]["job_id"])
+    parent = db_session.get(JobRun, parent_id)
+    if invalid_evidence == "missing":
+        db_session.delete(generation)
+    elif invalid_evidence == "unknown":
+        generation.config_version = "unknown-recovery-generation"
+    elif invalid_evidence == "root":
+        generation.metadata_json = {
+            **generation.metadata_json, day_recovery.RECOVERY_ROOT_KEY: "another-root"
+        }
+    elif invalid_evidence == "window":
+        generation.window_end += timedelta(days=1)
+    elif invalid_evidence == "source":
+        generation.data_source = "another-source"
+    elif invalid_evidence == "request_key":
+        generation.metadata_json = {
+            **generation.metadata_json, "recovery_request_key": "another-key"
+        }
+    elif invalid_evidence == "ordinal":
+        generation.metadata_json = {
+            **generation.metadata_json, day_recovery.RECOVERY_ORDINAL_KEY: 2
+        }
+    elif invalid_evidence == "malformed_ledger":
+        parent.metadata_json = {
+            **parent.metadata_json, day_recovery.RECOVERY_GENERATIONS_KEY: ["invalid"]
+        }
+    elif invalid_evidence.startswith("ledger_"):
+        entries = day_recovery.recovery_generations(parent)
+        field = invalid_evidence.removeprefix("ledger_")
+        field = "config_version" if field == "config" else field
+        entries[0] = {**entries[0], field: 0 if field == "ordinal" else "another-value"}
+        parent.metadata_json = {
+            **parent.metadata_json, day_recovery.RECOVERY_GENERATIONS_KEY: entries
+        }
+    else:
+        parent.metadata_json = {
+            **parent.metadata_json, day_recovery.RECOVERY_GENERATIONS_KEY: []
+        }
+    db_session.commit()
+    original_jobs = set(db_session.scalars(select(JobRun.job_id)))
+    original_events = set(db_session.scalars(select(JobEvent.event_id)))
+    replay = client.post(path, headers=headers, json=body)
+    assert replay.status_code == 409
+    db_session.expire_all()
+    assert set(db_session.scalars(select(JobRun.job_id))) == original_jobs
+    assert set(db_session.scalars(select(JobEvent.event_id))) == original_events
+
+
 def test_management_api_rejects_recovering_a_successful_plan(
     monkeypatch: pytest.MonkeyPatch, db_session: Session
 ) -> None:
