@@ -55,6 +55,34 @@ def pg_build(session, publication_id, cutoff):
     return {"row_count": 1}
 
 
+def test_real_refund_repair_and_heavy_claim_block_publication(pg_factory):
+    from apps.api.dy_api.dashboard_publications.sources import assert_sources_ready, writer_lock_keys
+    from apps.api.dy_api.models import JobRun
+    from apps.worker.repositories import HEAVY_SYNC_CLAIM_LOCK_KEY
+
+    with pg_factory() as session:
+        JobRun.__table__.create(session.connection())
+        session.commit()
+    previous = publish_module(pg_factory, "sales", pg_build)
+    with pg_factory.begin() as session:
+        session.add(JobRun(job_id="refund-repair", job_name="refund_evidence_replay", status="success",
+                           metadata_json={"needs_downstream_processing": True}))
+    with pytest.raises(PublicationError) as caught:
+        publish_module(pg_factory, "sales", pg_build, readiness_check=assert_sources_ready,
+                       shared_lock_keys=writer_lock_keys())
+    assert caught.value.code == "PUBLICATION_SOURCE_BUSY"
+    with pg_factory.begin() as session:
+        assert resolve_publication(session, "sales").id == previous.id
+        repair = session.get(JobRun, "refund-repair")
+        repair.metadata_json = {"needs_downstream_processing": False}
+    with pg_factory() as writer:
+        writer.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": HEAVY_SYNC_CLAIM_LOCK_KEY})
+        assert publish_module(pg_factory, "sales", pg_build, readiness_check=assert_sources_ready,
+                              shared_lock_keys=writer_lock_keys()) is None
+    assert publish_module(pg_factory, "sales", pg_build, readiness_check=assert_sources_ready,
+                          shared_lock_keys=writer_lock_keys()) is not None
+
+
 def test_real_atomic_failure_keeps_previous_head(pg_factory):
     previous = publish_module(pg_factory, "sales", pg_build)
 

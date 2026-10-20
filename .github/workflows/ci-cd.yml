@@ -123,6 +123,11 @@ jobs:
           python -c 'import psycopg; conn = psycopg.connect("host=127.0.0.1 port=5432 dbname=dydata_release user=postgres password=postgres", autocommit=True); conn.execute("CREATE DATABASE dydata_publication_test"); conn.close()'
           python -m pytest -q tests/test_dashboard_publications_postgres.py tests/test_dashboard_publication_*_postgres.py tests/test_dashboard_publication_migration.py
 
+      - name: Verify guarded refund replay on PostgreSQL
+        env:
+          DYDATA_REFUND_REPLAY_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_publication_test
+        run: python -m pytest -q tests/test_refund_evidence_replay_postgres.py
+
       - name: Install frontend dependencies
         working-directory: apps/web
         run: npm ci
