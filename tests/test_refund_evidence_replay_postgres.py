@@ -18,7 +18,7 @@ from apps.api.dy_api.models import Base, DouyinRefundEvent, JobImpact, JobRun, R
 from apps.worker import refund_replay as replay
 from apps.worker.collectors import refunds
 from apps.worker.repositories import HEAVY_SYNC_CLAIM_LOCK_KEY, payload_fingerprint
-from tests.test_refund_evidence_replay import apply, evidence, preview, seed, seed_financial
+from test_refund_evidence_replay import apply, evidence, preview, seed, seed_financial
 
 
 @pytest.fixture()
