@@ -181,3 +181,10 @@ READ ONLY / REPEATABLE READ、statement_timeout 8s、lock_timeout 1s，完成后
 - 实现者SQLite榜单专项40 passed / 1 PG skipped，真实PostgreSQL7 passed；主线程独立容器PG复验7 passed / 19.37s。新测试与旧SQL独立oracle比较，涵盖重复同店映射、歧义排除、多POI同店、撤销及cutoff边界；测试文件使用`_postgres.py`后缀，纳入既有显式PG CI glob。
 - 合成510467订单、84944轮次的真实builder完成81.810s、峰值RSS93.8MiB、3426条SQL；该结果不能代替生产首版耗时。规模测试整项仍因既有全年筛选+列表合计1.003–1.044s未满足严格1s预算而失败，单次列表0.816–0.879s、常见月份合计0.304–0.352s。未放宽阈值或扩大到读取查询改造。
 - 本补丁归属当前T3.1发布阻断修复，主/子计划、看板和执行入口已同步；consistency、T3.1 envReady/canExecute均通过。最终CI、重新预热和生产切换仍待本提交验证，不把前一版本CI或本地规模结果冒充线上完成。
+
+### 构建后缓存清理与发布重试准备
+
+- PR55承接首版核销慢查询修复。生产worker已恢复且持续healthy，未把主机源码或已执行0063迁移标为新版本上线。
+- 发布脚本新增默认关闭的`DEPLOY_PRUNE_BUILD_CACHE_AFTER_BUILD`：显式true时只在所有镜像构建成功后执行`docker builder prune --force`，失败走现有错误处理；PostgreSQL、容量、备份、迁移、五模块首版及切换门禁保持原顺序。仅清理dangling构建缓存，实际释放量由df确认，不把unused估算作为可用空间。
+- 主线程`bash -n`与`git diff --check`通过；部署脚本、镜像回滚、publication预热、Compose和备份轮换组合68 passed / 1 skipped（16.33s），覆盖清理开关、失败退出及顺序。默认容量不足仍阻断，不降低15%和10GiB阈值。本增量无foundation漂移。
+- 独立审阅确认构建/清理失败传播和保留门禁有效；发现并修正显式空串与默认初始化的测试差异，harness现执行真实初始化。最终组合复验69 passed / 1 skipped（18.84s），bash语法和diff检查通过。

@@ -16,6 +16,7 @@ BACKUP_MIN_FREE_PERCENT="${BACKUP_MIN_FREE_PERCENT:-15}"
 BACKUP_SIZE_SAFETY_PERCENT="${BACKUP_SIZE_SAFETY_PERCENT:-150}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 SKIP_GIT_SYNC="${SKIP_GIT_SYNC:-false}"
+DEPLOY_PRUNE_BUILD_CACHE_AFTER_BUILD="${DEPLOY_PRUNE_BUILD_CACHE_AFTER_BUILD-false}"
 APT_MIRROR="${APT_MIRROR:-http://mirrors.tencentyun.com}"
 DY_WEB_BASE_URL="${DY_WEB_BASE_URL:-}"
 export APT_MIRROR DY_WEB_BASE_URL
@@ -30,6 +31,20 @@ compose() {
 
 log() {
   printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"
+}
+
+prune_build_cache_after_build() {
+  case "$DEPLOY_PRUNE_BUILD_CACHE_AFTER_BUILD" in
+    false) return 0 ;;
+    true) ;;
+    *) log "DEPLOY_PRUNE_BUILD_CACHE_AFTER_BUILD must be true or false"; return 1 ;;
+  esac
+  # Opt-in only: clear dangling build cache after images are complete. This
+  # does not prune images, containers or volumes; the capacity gate still
+  # decides whether enough disk space was actually recovered.
+  log "pruning dangling build cache after successful image builds"
+  sudo docker builder prune --force
+  log "build cache cleanup complete; backup capacity gate remains required"
 }
 
 ensure_env_value() {
@@ -580,6 +595,8 @@ backup_running_images
 
 log "building images"
 compose build --progress=plain api web browser worker ops-agent publication-worker
+
+prune_build_cache_after_build
 
 log "starting postgres"
 compose up -d postgres
