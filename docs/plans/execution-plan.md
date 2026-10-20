@@ -1,3 +1,13 @@
+# 当前执行：DYDATA-104 自然月、九月恢复与静态发布验收（2026-10-20）
+
+- 用户已确认先合并 #50/#51，再在统一 main 执行 104；不新增 Linear，原工作区未提交改动保留。
+- 当前阶段 S4，Linear DYDATA-104 为 In Progress，当前 Task T0.2：API 内存归因与限额验证。
+- 正式计划：[主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)、[看板](delivery-plans/task-kanban-dydata-104-followthrough.md)。
+- 代码基线 `05a7e2455d3883d0587b3dcf8bd8f014cd7b579f`，两项 PR 已合并；#51 最终 CI 3,855 通过 / 248 跳过，PG、Web 与镜像通过。合并未部署。
+- 门店账期默认值、SKU 下载反馈与月结维护按子计划并行独立推进；生产恢复先核验资源、有限重试预算及保护事实，未知退款契约不猜测。
+- 当前证据与风险：[开发日志](../devlog/20261020_dydata-104-followthrough.md)。未完成来源、首版、部署及用户业务验收前，不关闭需求。
+
+---
 # 当前增量：统一静态看板（2026-10-19，独立工作树）
 
 - 用户已确认开发、无需 Linear，并要求先对齐代码基线；原工作区未提交改动已备份且保留，当前分支基于实际已部署的 `fe02e2a8`。
