@@ -101,6 +101,26 @@ def resource_admission_allows_job(job: JobRun, resource_decision: Any | None) ->
     )
 
 
+def no_other_running_heavy_job() -> Any:
+    """SQL claim fence, including legacy rebuild writers without a slot.
+
+    Lease expiry alone never proves a multi-transaction writer has stopped.
+    Its existing recovery protocol must first release the running state.
+    """
+
+    other_running = aliased(JobRun)
+    return ~exists(
+        select(1).where(
+            other_running.job_id != JobRun.job_id,
+            other_running.status == "running",
+            or_(
+                other_running.execution_slot == "heavy_sync",
+                other_running.job_name == "settlement_rebuild",
+            ),
+        )
+    )
+
+
 def heavy_sync_rate_limit_cooldown_active(
     session: Session,
     *,
@@ -120,7 +140,10 @@ def heavy_sync_rate_limit_cooldown_active(
         session.scalar(
             select(
                 exists().where(
-                    JobRun.execution_slot == "heavy_sync",
+                    or_(
+                        JobRun.execution_slot == "heavy_sync",
+                        JobRun.job_name == "settlement_rebuild",
+                    ),
                     JobRun.status == "retry_wait",
                     JobRun.error_code == DOUYIN_RATE_LIMIT_ERROR_CODE,
                     JobRun.next_retry_at.is_not(None),
@@ -1769,7 +1792,6 @@ def claim_next_heavy_job(
     if heavy_sync_rate_limit_cooldown_active(session):
         return None
 
-    other_running = aliased(JobRun)
     attempt_available = (
         func.coalesce(JobRun.attempt_count, 0)
         < (
@@ -1797,13 +1819,7 @@ def claim_next_heavy_job(
         ready_to_start,
         expired_running,
     )
-    no_other_running_slot = ~exists(
-        select(1).where(
-            other_running.job_id != JobRun.job_id,
-            other_running.execution_slot == "heavy_sync",
-            other_running.status == "running",
-        )
-    )
+    no_other_running_slot = no_other_running_heavy_job()
     predicates = [
         JobRun.job_kind.in_(job_kinds),
         JobRun.execution_slot == "heavy_sync",
