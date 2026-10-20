@@ -2,7 +2,7 @@
 from datetime import timedelta
 
 import pytest
-from sqlalchemy import delete, event, func, select
+from sqlalchemy import delete, event, func, or_, select
 
 from apps.api.dy_api.dashboard_publications import ranking
 from apps.api.dy_api.dashboard_publications import ranking_schema as frozen
@@ -204,6 +204,75 @@ def test_membership_three_sources_and_unlinked_lead_first_round(source):
     freeze(source)
     for product_scope in ("all", "byd", "jingcheng"):
         compare(source, product_scope=product_scope)
+
+
+def seed_membership_cases(session):
+    from apps.api.dy_api.models import ClueCenterOrder, DimSkuProductRule, RawDouyinClue
+
+    session.add_all([
+        DimSkuProductRule(sku_id="member-sku", product_id="member-product", product_scope="精诚养车"),
+        DimSkuProductRule(sku_id="other-sku", product_id="other-product", product_scope="其他"),
+        # Membership has no sale-time predicate, unlike the sales projection.
+        RawDouyinOrder(order_id="member-order", sku_id="member-sku", sale_time=CUTOFF + timedelta(days=1)),
+        RawDouyinOrder(order_id="member-overlap", sku_id="member-sku", sale_time=AT),
+        RawDouyinOrder(order_id="member-wrong", sku_id="member-product", sale_time=AT),
+        RawDouyinClue(clue_row_key="member-raw", order_id="member-raw", product_id="member-product"),
+        RawDouyinClue(clue_row_key="member-raw-duplicate", order_id="member-raw", product_id="member-product"),
+        RawDouyinClue(clue_row_key="member-raw-sku", order_id="member-raw-sku", product_id="member-sku"),
+        RawDouyinClue(clue_row_key="member-overlap", order_id="member-overlap", product_id="member-product"),
+        RawDouyinClue(clue_row_key="member-wrong", order_id="member-wrong", product_id="other-product"),
+        RawDouyinClue(clue_row_key="member-null", order_id=None, product_id="member-product"),
+        ClueCenterOrder(order_id="member-center", product_id="member-product", lead_status="assigned", current_round_status="active"),
+        ClueCenterOrder(order_id="member-overlap", product_id="member-sku", lead_status="assigned", current_round_status="active"),
+        ClueCenterOrder(order_id="member-wrong", product_id="other-sku", lead_status="assigned", current_round_status="active"),
+    ])
+    expected = {"member-order": True, "member-raw": True, "member-raw-sku": True,
+        "member-center": True, "member-overlap": True, "member-wrong": False, "member-missing": False}
+    for order_id in expected:
+        session.add(ClueAssignmentRound(assignment_round_id=order_id, order_id=order_id,
+            assigned_store_id="A", assigned_at=AT, execution_mode="formal", round_status="active"))
+    session.commit()
+    return expected
+
+
+def old_membership(session, order_ids):
+    """Independent old correlated-EXISTS oracle, including current SKU rules."""
+    from apps.api.dy_api.models import ClueCenterOrder, DimSkuProductRule, RawDouyinClue
+
+    rules = list(session.scalars(select(DimSkuProductRule).where(DimSkuProductRule.product_scope == "精诚养车")))
+    skus = {row.sku_id for row in rules}
+    products = skus | {row.product_id for row in rules if row.product_id}
+    predicates = [select(model.order_id).where(model.order_id == ClueAssignmentRound.order_id,
+        product_column.in_(allowed)).correlate(ClueAssignmentRound).exists()
+        for model, product_column, allowed in (
+            (RawDouyinOrder, RawDouyinOrder.sku_id, skus),
+            (RawDouyinClue, RawDouyinClue.product_id, products),
+            (ClueCenterOrder, ClueCenterOrder.product_id, products))]
+    return dict(session.execute(select(ClueAssignmentRound.order_id, or_(*predicates)).where(
+        ClueAssignmentRound.order_id.in_(order_ids))).all())
+
+
+def test_membership_current_rules_match_old_exists_across_batches(source, monkeypatch):
+    from apps.api.dy_api.dashboard_publications import ranking_build
+    from apps.api.dy_api.models import DimSkuProductRule
+
+    expected = seed_membership_cases(source)
+    assert old_membership(source, expected) == expected
+    monkeypatch.setattr(ranking_build, "BATCH_SIZE", 2)
+    freeze(source)
+    actual = dict(source.execute(select(frozen.rounds.c.order_id, frozen.rounds.c.is_jingcheng).where(
+        frozen.rounds.c.publication_id == "pub", frozen.rounds.c.order_id.in_(expected))).all())
+    assert actual == expected
+    for product_scope in ("all", "byd", "jingcheng"):
+        compare(source, product_scope=product_scope)
+    source.scalar(select(DimSkuProductRule).where(DimSkuProductRule.sku_id == "member-sku")).product_scope = "其他"
+    source.commit()
+    assert old_membership(source, expected) == dict.fromkeys(expected, False)
+    freeze(source, "changed-rules")
+    assert not any(source.scalars(select(frozen.rounds.c.is_jingcheng).where(
+        frozen.rounds.c.publication_id == "changed-rules", frozen.rounds.c.order_id.in_(expected))))
+    assert dict(source.execute(select(frozen.rounds.c.order_id, frozen.rounds.c.is_jingcheng).where(
+        frozen.rounds.c.publication_id == "pub", frozen.rounds.c.order_id.in_(expected))).all()) == expected
 
 
 def test_all_history_exceeds_old_50000_row_batch_without_truncation(source):

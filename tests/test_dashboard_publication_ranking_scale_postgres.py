@@ -34,12 +34,12 @@ from apps.api.dy_api.dashboard_publications.schema import metadata, runs
 from apps.api.dy_api.models import (
     Base, ClueAssignmentRound, ClueCenterOrder, ClueFollowUpRecord, ClueMasterLead,
     DimAwemeAccount, DimSkuProductRule, DimStore, DimStorePoiMapping,
-    RawDouyinOrder, RawDouyinOrderCoupon, RawDouyinVerifyRecord,
+    RawDouyinClue, RawDouyinOrder, RawDouyinOrderCoupon, RawDouyinVerifyRecord,
 )
 from apps.api.dy_api.ranking_schema_v1 import metadata as source_metadata, org_history, eligibility
 from apps.api.dy_api.ranking_identity import OrderAttributionIndex
 
-ORDER_COUNT, ROUND_COUNT, CENTER_COUNT, STORE_COUNT = 510467, 84944, 85674, 1531
+ORDER_COUNT, ROUND_COUNT, CENTER_COUNT, RAW_CLUE_COUNT, STORE_COUNT = 510467, 84944, 85674, 271873, 1531
 START = datetime(2026, 1, 1, tzinfo=timezone.utc)
 CUTOFF = datetime(2026, 10, 19, tzinfo=timezone.utc)
 
@@ -105,7 +105,12 @@ def _seed_sources(session):
             literal("identity-") + cast(number, String), order(number)], ROUND_COUNT // 2,
         predicate=lambda number: number % 2 == 0)
     _source_rows(session, ClueCenterOrder, ["order_id", "product_id", "lead_status", "current_round_status"],
-        lambda number: [order(number), literal("JC"), literal("active"), literal("active_unfollowed")], CENTER_COUNT)
+        lambda number: [order(number), case((number % 2 == 0, literal("JC")), else_=literal("OTHER")),
+            literal("active"), literal("active_unfollowed")], CENTER_COUNT)
+    _source_rows(session, RawDouyinClue, ["clue_row_key", "order_id", "product_id", "raw_payload"],
+        lambda number: [literal("source-clue-") + cast(number, String), order(number % CENTER_COUNT),
+            case((number % 2 == 0, literal("JC")), else_=literal("OTHER")),
+            func.jsonb_build_object("synthetic_evidence", func.repeat(func.md5(cast(number, String)), 16))], RAW_CLUE_COUNT)
     _source_rows(session, ClueAssignmentRound,
         ["assignment_round_id", "order_id", "lead_key", "round_no", "assigned_store_id", "assigned_at", "execution_mode", "round_status"],
         lambda number: [literal("R") + func.lpad(cast(number, String), 8, "0"), order(number // 2),
@@ -123,7 +128,7 @@ def _seed_sources(session):
         lambda number: [literal("verify-") + cast(number, String), literal("coupon-") + cast(number, String),
             literal("poi-") + cast(number % STORE_COUNT, String), literal("success"), at(number) + text("interval '12 hours'")], 1000)
     session.commit()
-    for model in (RawDouyinOrder, ClueAssignmentRound, ClueCenterOrder, ClueMasterLead,
+    for model in (RawDouyinOrder, RawDouyinClue, ClueAssignmentRound, ClueCenterOrder, ClueMasterLead,
         ClueFollowUpRecord, RawDouyinOrderCoupon, RawDouyinVerifyRecord):
         session.execute(text("ANALYZE " + model.__tablename__))
     session.commit()
@@ -132,6 +137,7 @@ def _seed_sources(session):
 def _measure(schema, trace_memory):
     engine = create_engine(os.environ["DYDATA_PUBLICATION_TEST_DATABASE_URL"], connect_args={"options": f"-csearch_path={schema}"})
     statements, slowest, sql_seconds, first_round_start = 0, [], 0.0, None
+    membership_queries, max_membership_batch = 0, 0
     attribution_calls, attribution_seconds = 0, 0.0
     original_resolve = OrderAttributionIndex.resolve
 
@@ -145,10 +151,16 @@ def _measure(schema, trace_memory):
             attribution_seconds += perf_counter() - attribution_started
 
     def before(connection, cursor, statement, parameters, context, executemany):
-        nonlocal first_round_start
+        nonlocal first_round_start, membership_queries, max_membership_batch
         context.ranking_started = perf_counter()
         if first_round_start is None and statement.startswith("SELECT clue_assignment_rounds."):
             first_round_start = context.ranking_started
+        if statement.startswith("SELECT DISTINCT") and any("FROM " + name in statement for name in (
+            "raw_douyin_orders", "raw_douyin_clues", "clue_center_orders")):
+            batch = [value for key, value in parameters.items() if key.startswith("order_id_")]
+            assert 1 <= len(batch) <= ranking_build.BATCH_SIZE
+            membership_queries += 1
+            max_membership_batch = max(max_membership_batch, len(batch))
 
     def after(connection, cursor, statement, parameters, context, executemany):
         nonlocal statements, sql_seconds
@@ -199,7 +211,8 @@ def _measure(schema, trace_memory):
             ORDER BY c.relname
         """), {"schema": schema}).mappings()]
         print("RANKING_BUILD_SCALE=" + json.dumps(dict(orders=stats["orders"], rounds=stats["rounds"],
-            stores=STORE_COUNT, center_orders=CENTER_COUNT, build_seconds=elapsed, cpu_seconds=cpu_seconds,
+            stores=STORE_COUNT, center_orders=CENTER_COUNT, raw_clues=RAW_CLUE_COUNT, build_seconds=elapsed, cpu_seconds=cpu_seconds,
+            membership_queries=membership_queries, max_membership_batch=max_membership_batch,
             python_cpu_limit="unrestricted local process; not a 0.5-CPU container result",
             build_sql=statements, rss_peak_bytes=rss,
             attribution_calls=attribution_calls, attribution_seconds=attribution_seconds,
@@ -351,9 +364,10 @@ def test_real_source_build_at_production_scale(tmp_path, trace_memory):
         metadata.create_all(engine)
         with Session(engine) as session:
             _seed_sources(session)
-            for model, expected in ((RawDouyinOrder, ORDER_COUNT), (ClueAssignmentRound, ROUND_COUNT), (ClueCenterOrder, CENTER_COUNT)):
+            for model, expected in ((RawDouyinOrder, ORDER_COUNT), (ClueAssignmentRound, ROUND_COUNT),
+                    (ClueCenterOrder, CENTER_COUNT), (RawDouyinClue, RAW_CLUE_COUNT)):
                 assert session.scalar(select(func.count()).select_from(model)) == expected
-        print(f"Real source fixture ready: {ORDER_COUNT} orders / {ROUND_COUNT} rounds / {CENTER_COUNT} center orders", flush=True)
+        print(f"Real source fixture ready: {ORDER_COUNT} orders / {ROUND_COUNT} rounds / {CENTER_COUNT} center orders / {RAW_CLUE_COUNT} raw clues", flush=True)
         output = []
         evidence_path = tmp_path / "ranking-build-scale.jsonl"
         print(f"Immediate UTF-8 evidence: {evidence_path}", flush=True)
@@ -391,6 +405,8 @@ def test_real_source_build_at_production_scale(tmp_path, trace_memory):
         if not trace_memory:
             _diagnose_global_jit(engine, tmp_path / "ranking-global-read-plan.json")
         assert report["orders"] == ORDER_COUNT and report["rounds"] == ROUND_COUNT
+        assert report["membership_queries"] == 3 * ((ROUND_COUNT + ranking_build.BATCH_SIZE - 1) // ranking_build.BATCH_SIZE)
+        assert 1 <= report["max_membership_batch"] <= ranking_build.BATCH_SIZE
         assert report["build_seconds"] < 180
         assert report["rss_peak_bytes"] < 768 * 1024 * 1024
         assert all(row["seconds"] < 1 for row in report["reads"]), report["reads"]

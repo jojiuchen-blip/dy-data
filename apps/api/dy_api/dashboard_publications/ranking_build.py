@@ -77,6 +77,25 @@ def _verification_by_store(session, order_ids, poi_to_store, cutoff):
     return by_store
 
 
+def _membership_order_ids(session, order_ids, skus, products):
+    """Resolve the same three-source membership for this round batch only.
+
+    Correlated EXISTS expressions in the paged round SELECT can become hashed
+    whole-source subplans, rebuilt for every page. Restrict each source to the
+    current order IDs before deduplicating so at most one batch is materialized.
+    """
+    members = set()
+    for model, product_column, allowed in (
+        (RawDouyinOrder, RawDouyinOrder.sku_id, skus),
+        (RawDouyinClue, RawDouyinClue.product_id, products),
+        (ClueCenterOrder, ClueCenterOrder.product_id, products),
+    ):
+        members.update(session.scalars(select(model.order_id).where(
+            model.order_id.in_(order_ids), product_column.in_(allowed),
+        ).distinct()))
+    return members
+
+
 def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, Any]:
     """Freeze all observed history in bounded batches without committing.
 
@@ -146,13 +165,6 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
         order_count += len(values)
         last_id = batch[-1].id
 
-    # Membership stays identical to the old three-source EXISTS rule.
-    known_order = select(RawDouyinOrder.order_id).where(RawDouyinOrder.order_id == ClueAssignmentRound.order_id,
-        RawDouyinOrder.sku_id.in_(skus)).correlate(ClueAssignmentRound).exists()
-    known_raw = select(RawDouyinClue.order_id).where(RawDouyinClue.order_id == ClueAssignmentRound.order_id,
-        RawDouyinClue.product_id.in_(products)).correlate(ClueAssignmentRound).exists()
-    known_center = select(ClueCenterOrder.order_id).where(ClueCenterOrder.order_id == ClueAssignmentRound.order_id,
-        ClueCenterOrder.product_id.in_(products)).correlate(ClueAssignmentRound).exists()
     first_round = aliased(ClueAssignmentRound)
     has_lead = and_(ClueAssignmentRound.lead_key.is_not(None), ClueAssignmentRound.lead_key != "")
     no_lead = or_(ClueAssignmentRound.lead_key.is_(None), ClueAssignmentRound.lead_key == "")
@@ -164,7 +176,7 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
     ).correlate(ClueAssignmentRound).scalar_subquery()
     round_count, last_round = 0, None
     while True:
-        statement = select(ClueAssignmentRound, or_(known_order, known_raw, known_center), first_at).where(
+        statement = select(ClueAssignmentRound, first_at).where(
             ClueAssignmentRound.execution_mode == "formal", ClueAssignmentRound.assigned_at <= cutoff
         ).order_by(ClueAssignmentRound.assignment_round_id).limit(BATCH_SIZE).options(load_only(
             ClueAssignmentRound.assignment_round_id, ClueAssignmentRound.order_id, ClueAssignmentRound.lead_key,
@@ -178,13 +190,14 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
         if not batch:
             break
         rows = [item[0] for item in batch]
+        member_order_ids = _membership_order_ids(session, {row.order_id for row in rows}, skus, products)
         lead_keys = {row.lead_key or "order:" + row.order_id for row in rows}
         pinned = {row["lead_key"]: row for row in session.execute(select(lead_bindings).where(
             lead_bindings.c.lead_key.in_(lead_keys))).mappings()}
         pinned.update({row["lead_key"]: row for row in session.execute(select(frozen.lead_bindings).where(
             frozen.lead_bindings.c.lead_key.in_(lead_keys))).mappings()})
         new_bindings = {}
-        for row, _, earliest_at in batch:
+        for row, earliest_at in batch:
             key = row.lead_key or "order:" + row.order_id
             binding = pinned.get(key)
             version = binding["mapping_version"] if binding else version_at(earliest_at)
@@ -200,7 +213,7 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
         follow = bulk_evaluate_legacy_ranking_followup(session, {row.order_id for row in rows}, round_rows=rows, observed_through=cutoff)
         verify = _verification_by_store(session, {row.order_id for row in rows}, unique_pois, cutoff)
         values = []
-        for row, member, earliest_at in batch:
+        for row, earliest_at in batch:
             key = row.lead_key or "order:" + row.order_id
             binding = pinned.get(key)
             version = binding["mapping_version"] if binding else version_at(earliest_at)
@@ -209,7 +222,7 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
             verified_at = verify.get((row.order_id, row.assigned_store_id))
             values.append(dict(publication_id=publication_id, round_id=row.assignment_round_id, order_id=row.order_id,
                 lead_key=key, store_id=row.assigned_store_id, mapping_version=version, assigned_at=at,
-                is_jingcheng=bool(member), follow_24h=metric.numerator, follow_any=metric.follow_any_numerator,
+                is_jingcheng=row.order_id in member_order_ids, follow_24h=metric.numerator, follow_any=metric.follow_any_numerator,
                 self_verified=int(verified_at is not None and verified_at >= at), under_observation=metric.under_observation,
                 first_assignment_changed=bool(binding and utc(binding["first_assigned_at"]) != utc(earliest_at))))
         session.execute(frozen.rounds.insert(), values)
