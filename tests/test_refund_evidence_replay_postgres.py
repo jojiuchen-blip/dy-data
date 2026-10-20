@@ -1,6 +1,8 @@
 """Opt-in PostgreSQL replay gates, isolated in a random loopback test schema."""
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from datetime import datetime, timezone
 import os
 import re
 from uuid import uuid4
@@ -15,7 +17,7 @@ from apps.api.dy_api.db import normalize_database_url
 from apps.api.dy_api.models import Base, DouyinRefundEvent, JobImpact, JobRun, RawDouyinRefundRecord
 from apps.worker import refund_replay as replay
 from apps.worker.collectors import refunds
-from apps.worker.repositories import payload_fingerprint
+from apps.worker.repositories import HEAVY_SYNC_CLAIM_LOCK_KEY, payload_fingerprint
 from tests.test_refund_evidence_replay import apply, evidence, preview, seed, seed_financial
 
 
@@ -82,6 +84,15 @@ def test_pg_apply_commits_once_and_keeps_source_and_success_observation(pg_engin
         observed_at = event.successful_observed_at
         assert observed_at is not None and event.source_run_id == "repair-run"
         assert session.scalar(select(JobImpact)).source_run_id == "repair-run"
+        assert session.get(JobRun, "repair-run").metadata_json["needs_downstream_processing"] is True
+    with pytest.raises(replay.RefundReplayError, match="source_jobs_or_repairs_not_ready"):
+        apply(pg_engine, preview(pg_engine), run="repair-again")
+    # Simulate the separate downstream acceptance workflow in this disposable
+    # fixture. The replay tool itself must never clear this flag.
+    with Session(pg_engine) as session, session.begin():
+        job = session.get(JobRun, "repair-run")
+        job.metadata_json = {**job.metadata_json, "needs_downstream_processing": False,
+                             "downstream_acceptance": "synthetic test receipt"}
     again = apply(pg_engine, preview(pg_engine), run="repair-again")
     assert again["unchanged"] == 1 and again["applied"] == 0
     with Session(pg_engine) as session:
@@ -169,3 +180,70 @@ def test_pg_database_statement_timeout_is_bounded(pg_engine):
         with replay._transaction(pg_engine, bounds, write=False) as (session, _):
             session.execute(text("SELECT pg_sleep(1)"))
     assert caught.value.orig.sqlstate == "57014"
+
+
+@pytest.mark.parametrize("status", ["running", "retry_wait"])
+def test_pg_running_source_jobs_block_even_with_expired_lease(pg_engine, status):
+    seed(pg_engine)
+    document = preview(pg_engine)
+    with Session(pg_engine) as session, session.begin():
+        session.add(JobRun(job_id="existing-source-writer", job_name="collect_once", status=status,
+                           lease_expires_at=datetime(2020, 1, 1, tzinfo=timezone.utc)))
+    with pytest.raises(replay.RefundReplayError, match="source_jobs_or_repairs_not_ready"):
+        apply(pg_engine, document)
+    with Session(pg_engine) as session:
+        assert session.scalar(select(func.count(DouyinRefundEvent.id))) == 0
+        assert session.scalar(select(func.count(JobImpact.id))) == 0
+        assert session.get(JobRun, "repair-run") is None
+    with Session(pg_engine) as session, session.begin():
+        session.get(JobRun, "existing-source-writer").status = "success"
+    assert apply(pg_engine, document)["applied"] == 1
+
+
+def test_pg_claim_mutex_blocks_all_writes_and_release_allows_apply(pg_engine):
+    seed(pg_engine)
+    document = preview(pg_engine)
+    with Session(pg_engine) as claimant:
+        assert claimant.scalar(select(func.pg_try_advisory_xact_lock(HEAVY_SYNC_CLAIM_LOCK_KEY)))
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(apply, pg_engine, document)
+            with pytest.raises(replay.RefundReplayError, match="heavy_sync_claim_lock_busy"):
+                future.result(timeout=5)
+        with Session(pg_engine) as session:
+            assert session.scalar(select(func.count(DouyinRefundEvent.id))) == 0
+            assert session.scalar(select(func.count(JobImpact.id))) == 0
+            assert session.get(JobRun, "repair-run") is None
+        claimant.rollback()
+    assert apply(pg_engine, document)["applied"] == 1
+
+
+def test_pg_new_source_job_between_batches_preserves_durable_partial_progress(pg_engine, monkeypatch):
+    seed(pg_engine)
+    seed(pg_engine, number=2)
+    document = replay.preview_refunds(pg_engine, replay.ReplayBounds("source-run", 0, 1, 2))
+    transaction = replay._transaction
+    writes = 0
+
+    @contextmanager
+    def new_claim_after_first_batch(engine, bounds, **kwargs):
+        nonlocal writes
+        with transaction(engine, bounds, **kwargs) as context:
+            yield context
+        if kwargs.get("write"):
+            writes += 1
+            if writes == 2:  # Initial audit + first successful batch committed.
+                with Session(engine) as claimant, claimant.begin():
+                    assert claimant.scalar(select(func.pg_try_advisory_xact_lock(HEAVY_SYNC_CLAIM_LOCK_KEY)))
+                    claimant.add(JobRun(job_id="new-source-job", job_name="collect_once", status="running"))
+
+    monkeypatch.setattr(replay, "_transaction", new_claim_after_first_batch)
+    result = apply(pg_engine, document)
+    assert result["status"] == "partial" and result["audit_finalized"] is False
+    assert result["applied"] == result["blocked"] == result["job_impacts"] == 1
+    assert result["needs_downstream_processing"] is True
+    assert result["rows"][1]["reasons"] == ["source_jobs_or_repairs_not_ready"]
+    with Session(pg_engine) as session:
+        job = session.get(JobRun, "repair-run")
+        assert job.status == "running" and job.metadata_json["progress"]["applied"] == 1
+        assert job.metadata_json["needs_downstream_processing"] is True
+        assert session.scalar(select(func.count(DouyinRefundEvent.id))) == 1

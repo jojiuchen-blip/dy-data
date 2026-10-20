@@ -108,9 +108,15 @@ def test_unknown_amount_unit_is_blocked_without_any_write(replay_engine):
     payload["refund_info_list"] = [{"refund_amount": 1000}]
     payload["total_refund_amount"] = 1000
     seed(replay_engine, payload)
+    statements = []
+    event.listen(replay_engine, "before_cursor_execute", lambda conn, cursor, statement, params, context, many: statements.append(statement))
     result = preview(replay_engine)
     assert result["ready"] == 0 and result["blocked"] == 1
     assert "refund_amount_unit_ambiguous" in result["rows"][0]["reasons"]
+    assert result["financial_guard"] == {"policy": "only_otherwise_ready", "not_checked_is_not_approval": True,
+                                         "checked": 0, "not_checked": 1}
+    assert not any(table in statement for statement in statements for table in (
+        "settlement_fee_result", "settlement_fee_adjustment", "settlement_statement_entry"))
     assert apply(replay_engine, result)["blocked"] == 1
     with Session(replay_engine) as session:
         assert session.scalar(select(func.count(DouyinRefundEvent.id))) == 0
@@ -182,6 +188,7 @@ def test_repeated_apply_is_idempotent_preserves_evidence_success_time_and_dqi(re
         assert session.get(DataQualityIssue, "old-issue").issue_type == "old_refund_missing_type"
         audit = session.get(JobRun, "repair-run")
         assert audit.status == "success" and audit.metadata_json["result"] == result
+        assert audit.metadata_json["needs_downstream_processing"] is True
         assert session.get(JobRun, "source-run") is None
     again = apply(replay_engine, preview(replay_engine), run="repair-again")
     assert again["unchanged"] == 1 and again["applied"] == again["job_impacts"] == 0
@@ -238,6 +245,20 @@ def test_cursor_source_filter_and_frozen_upper_are_respected(replay_engine):
     assert second["cursor"] == third_id and second["scanned"] == 1 and second["has_more"] is False
     empty = replay.preview_refunds(replay_engine, replay.ReplayBounds("no-source", 0, 1, 1))
     assert empty["scanned"] == empty["upper_id"] == empty["cursor"] == 0
+
+
+def test_financial_coupon_scope_is_bounded_before_fact_queries(replay_engine, monkeypatch):
+    seed(replay_engine)
+    with Session(replay_engine) as session, session.begin():
+        session.add_all(RawDouyinOrderCoupon(coupon_id=f"extra-coupon-{number}", order_id="order-1") for number in range(100))
+
+    def forbid_fact_scan(*args):
+        pytest.fail("oversized coupon scope must not query financial facts")
+
+    monkeypatch.setattr(replay, "_has_financial_projection", forbid_fact_scan)
+    document = preview(replay_engine)
+    assert document["ready"] == 0 and document["reasons"] == {"financial_scope_too_large": 1}
+    assert document["rows"][0]["financial_check"] == "not_checked_scope_too_large"
 
 
 @pytest.mark.parametrize("field,value", [("after_id", -1), ("after_id", True), ("batch_size", 101),

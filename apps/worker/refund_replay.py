@@ -17,7 +17,7 @@ import json
 import time
 from typing import Any, Iterator
 
-from sqlalchemy import func, or_, select, text as sql_text
+from sqlalchemy import func, select, text as sql_text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -27,9 +27,11 @@ from apps.api.dy_api.models import (
     RawDouyinRefundRecord, SettlementFeeAdjustment, SettlementFeeResult,
     SettlementFeeResultCurrent, SettlementStatementEntry,
 )
+from apps.api.dy_api.dashboard_publications.lifecycle import PublicationError
+from apps.api.dy_api.dashboard_publications.sources import assert_sources_ready
 from apps.worker.collectors import refunds
 from apps.worker.collectors.normalizers import first, text
-from apps.worker.repositories import finish_job_run, payload_fingerprint, start_job_run
+from apps.worker.repositories import HEAVY_SYNC_CLAIM_LOCK_KEY, finish_job_run, payload_fingerprint, start_job_run
 
 
 class RefundReplayError(ValueError):
@@ -68,7 +70,8 @@ def _check_deadline(deadline: float) -> None:
         raise TimeoutError("bounded transaction deadline exceeded")
 
 
-def _configure_transaction(session: Session, bounds: ReplayBounds, *, write: bool) -> None:
+def _configure_transaction(session: Session, bounds: ReplayBounds, *, write: bool,
+                           repair_run_id: str | None = None) -> None:
     dialect = session.get_bind().dialect.name
     if dialect == "postgresql":
         if not write:
@@ -84,8 +87,15 @@ def _configure_transaction(session: Session, bounds: ReplayBounds, *, write: boo
             session.execute(sql_text("SELECT set_config('transaction_timeout', :value, true)"),
                             {"value": str(bounds.transaction_timeout_ms)})
         if write:
-            # Protect the absence check while this short transaction runs.
-            # Operators must also quiesce workers holding pre-replay snapshots.
+            # Match normal heavy-job claiming: claim mutex -> writer-state
+            # check -> financial SHARE -> raw row locks. Never infer that an
+            # expired lease means a running writer has stopped.
+            if not session.scalar(select(func.pg_try_advisory_xact_lock(HEAVY_SYNC_CLAIM_LOCK_KEY))):
+                raise RefundReplayError("heavy_sync_claim_lock_busy")
+            try:
+                assert_sources_ready(session, exclude_repair_run_id=repair_run_id)
+            except PublicationError as exc:
+                raise RefundReplayError("source_jobs_or_repairs_not_ready") from exc
             session.execute(sql_text(
                 "LOCK TABLE settlement_fee_result, settlement_fee_result_current, "
                 "settlement_fee_adjustment, settlement_statement_entry IN SHARE MODE"
@@ -100,11 +110,12 @@ def _configure_transaction(session: Session, bounds: ReplayBounds, *, write: boo
 
 
 @contextmanager
-def _transaction(engine: Engine, bounds: ReplayBounds, *, write: bool) -> Iterator[tuple[Session, float]]:
+def _transaction(engine: Engine, bounds: ReplayBounds, *, write: bool,
+                 repair_run_id: str | None = None) -> Iterator[tuple[Session, float]]:
     deadline = time.monotonic() + bounds.transaction_timeout_ms / 1000
     with Session(engine, autoflush=False, expire_on_commit=False) as session:
         with session.begin():
-            _configure_transaction(session, bounds, write=write)
+            _configure_transaction(session, bounds, write=write, repair_run_id=repair_run_id)
             yield session, deadline
             _check_deadline(deadline)
 
@@ -113,16 +124,19 @@ def _utc(value: datetime | None) -> datetime | None:
     return value.replace(tzinfo=timezone.utc) if value is not None and value.tzinfo is None else value
 
 
-def _has_financial_projection(session: Session, raw: RawDouyinRefundRecord) -> bool:
-    coupons = select(RawDouyinOrderCoupon.coupon_id).where(RawDouyinOrderCoupon.order_id == raw.order_id)
+def _has_financial_projection(session: Session, raw: RawDouyinRefundRecord, coupon_ids: list[str]) -> bool:
+    # Separate predicates avoid OR + hashed-subplan scans. Historical order
+    # equality probes remain statement-timeout bounded: these tables do not
+    # currently all have a leading order_id index. Coupon probes use existing
+    # leading coupon indexes and at most 100 keys.
     for model in (SettlementFeeResult, SettlementFeeAdjustment, SettlementStatementEntry):
-        if session.scalar(select(model.id).where(or_(
-            model.order_id == raw.order_id, model.coupon_id.in_(coupons),
-        )).limit(1)) is not None:
+        if session.scalar(select(model.id).where(model.order_id == raw.order_id).limit(1)) is not None:
             return True
-    return session.scalar(select(SettlementFeeResultCurrent.id).where(
-        SettlementFeeResultCurrent.coupon_id.in_(coupons),
-    ).limit(1)) is not None
+    if coupon_ids:
+        for model in (SettlementFeeResult, SettlementFeeAdjustment, SettlementStatementEntry, SettlementFeeResultCurrent):
+            if session.scalar(select(model.id).where(model.coupon_id.in_(coupon_ids)).limit(1)) is not None:
+                return True
+    return False
 
 
 def _inspect_row(session: Session, raw: RawDouyinRefundRecord) -> dict[str, Any]:
@@ -132,7 +146,8 @@ def _inspect_row(session: Session, raw: RawDouyinRefundRecord) -> dict[str, Any]
         DouyinRefundEvent.refund_event_id == raw.source_record_key,
     ))
     result = {"raw_id": raw.id, "payload_hash": raw.payload_hash,
-              "existing_event_id": event.id if event else None, "status": "blocked", "reasons": reasons}
+              "existing_event_id": event.id if event else None, "status": "blocked", "reasons": reasons,
+              "financial_check": "not_checked_blocked_evidence"}
     if not isinstance(payload, dict) or payload_fingerprint(payload) != raw.payload_hash:
         reasons.append("payload_hash_mismatch")
         return result
@@ -174,8 +189,6 @@ def _inspect_row(session: Session, raw: RawDouyinRefundRecord) -> dict[str, Any]
         coupon_order = session.scalar(select(RawDouyinOrderCoupon.order_id).where(RawDouyinOrderCoupon.coupon_id == coupon_id))
         if coupon_order != raw.order_id:
             reasons.append("coupon_missing_or_order_mismatch")
-    if _has_financial_projection(session, raw):
-        reasons.append("existing_financial_projection_requires_reconciliation")
     if event is not None:
         if (event.payload_fingerprint != raw.payload_hash or event.order_id != raw.order_id
                 or event.coupon_id != coupon_id or event.refund_status != status
@@ -184,6 +197,17 @@ def _inspect_row(session: Session, raw: RawDouyinRefundRecord) -> dict[str, Any]
             # Existing different observations require a separate reconciliation;
             # this tool cannot turn an old raw snapshot into a newer observation.
             reasons.append("existing_event_requires_reconciliation")
+    if not reasons:
+        coupon_ids = list(session.scalars(select(RawDouyinOrderCoupon.coupon_id).where(
+            RawDouyinOrderCoupon.order_id == raw.order_id,
+        ).limit(101)))
+        if len(coupon_ids) > 100:
+            result["financial_check"] = "not_checked_scope_too_large"
+            reasons.append("financial_scope_too_large")
+        else:
+            result["financial_check"] = "checked"
+            if _has_financial_projection(session, raw, coupon_ids):
+                reasons.append("existing_financial_projection_requires_reconciliation")
     result["status"] = "blocked" if reasons else "ready"
     return result
 
@@ -225,6 +249,9 @@ def preview_refunds(engine: Engine, bounds: ReplayBounds, *, upper_id: int | Non
               "upper_id": upper_id, "cursor": cursor, "has_more": has_more,
               "scanned": len(rows), "ready": ready, "blocked": len(rows) - ready,
               "existing_events": sum(row["existing_event_id"] is not None for row in rows),
+              "financial_guard": {"policy": "only_otherwise_ready", "not_checked_is_not_approval": True,
+                  "checked": sum(row["financial_check"] == "checked" for row in rows),
+                  "not_checked": sum(row["financial_check"] != "checked" for row in rows)},
               "reasons": dict(Counter(reason for row in rows for reason in row["reasons"])), "rows": rows}
     return {**report, "preview_digest": _digest(report)}
 
@@ -255,6 +282,19 @@ def _validate_preview(preview: dict[str, Any], expected_digest: str) -> ReplayBo
     return bounds
 
 
+def _summarize_apply(report: dict[str, Any]) -> None:
+    for status, field in (("applied", "applied"), ("unchanged", "unchanged"), ("blocked", "blocked")):
+        report[field] = sum(row["status"] == status for row in report["rows"])
+    report["reasons"] = dict(Counter(reason for row in report["rows"] for reason in row["reasons"]))
+
+
+def _impact_summary(session: Session, repair_run_id: str) -> dict[str, Any]:
+    count, lower, upper = session.execute(select(
+        func.count(JobImpact.id), func.min(JobImpact.id), func.max(JobImpact.id),
+    ).where(JobImpact.source_run_id == repair_run_id)).one()
+    return {"job_impacts": count, "impact_min_id": lower, "impact_max_id": upper}
+
+
 def apply_refunds(engine: Engine, preview: dict[str, Any], *, expected_digest: str,
                   repair_run_id: str, reason: str) -> dict[str, Any]:
     """Apply only reviewed ready rows, with a durable separate repair audit.
@@ -271,10 +311,11 @@ def apply_refunds(engine: Engine, preview: dict[str, Any], *, expected_digest: s
         "preview_digest": expected_digest, "scanned": preview["scanned"],
         "applied": 0, "unchanged": 0, "blocked": 0, "rows": [],
         "cursor": bounds.after_id, "upper_id": preview["upper_id"],
-        "needs_downstream_processing": False, "job_impacts": 0}
+        "needs_downstream_processing": False, "job_impacts": 0, "audit_finalized": False}
     audit = {"source_run_id": bounds.source_run_id, "reason": reason,
-             "preview_digest": expected_digest, "bounds": asdict(bounds), "upper_id": preview["upper_id"]}
-    with _transaction(engine, bounds, write=True) as (session, _):
+             "preview_digest": expected_digest, "bounds": asdict(bounds), "upper_id": preview["upper_id"],
+             "needs_downstream_processing": False}
+    with _transaction(engine, bounds, write=True, repair_run_id=repair_run_id) as (session, _):
         existing = session.get(JobRun, repair_run_id)
         if existing is not None:
             metadata = existing.metadata_json or {}
@@ -288,7 +329,7 @@ def apply_refunds(engine: Engine, preview: dict[str, Any], *, expected_digest: s
         batch = preview["rows"][offset:offset + bounds.batch_size]
         outcomes: list[dict[str, Any]] = []
         try:
-            with _transaction(engine, bounds, write=True) as (session, deadline):
+            with _transaction(engine, bounds, write=True, repair_run_id=repair_run_id) as (session, deadline):
                 for expected in batch:
                     _check_deadline(deadline)
                     outcome = {**expected, "status": "blocked", "reasons": list(expected["reasons"])}
@@ -303,6 +344,7 @@ def apply_refunds(engine: Engine, preview: dict[str, Any], *, expected_digest: s
                         outcome["reasons"] = ["snapshot_changed_since_preview"]
                         continue
                     fresh = _inspect_row(session, raw)
+                    outcome["financial_check"] = fresh["financial_check"]
                     if fresh["status"] != "ready":
                         outcome["reasons"] = fresh["reasons"]
                         continue
@@ -318,25 +360,43 @@ def apply_refunds(engine: Engine, preview: dict[str, Any], *, expected_digest: s
                             raise RefundReplayError("raw_provenance_changed")
                     outcome.update(status="applied", reasons=[])
                 _check_deadline(deadline)
+                pending = deepcopy(report)
+                pending["rows"].extend(outcomes)
+                pending["cursor"] = batch[-1]["raw_id"]
+                _summarize_apply(pending)
+                pending.update(_impact_summary(session, repair_run_id))
+                pending["needs_downstream_processing"] = pending["needs_downstream_processing"] or pending["job_impacts"] > 0
+                job = session.get(JobRun, repair_run_id)
+                job.metadata_json = {**audit, "progress": pending,
+                    "needs_downstream_processing": pending["needs_downstream_processing"]}
+                job.success_count = pending["applied"] + pending["unchanged"]
+                job.failed_count = pending["blocked"]
+            report = pending
         except (SQLAlchemyError, TimeoutError, RefundReplayError) as exc:
             # The entire bounded batch rolled back. Never report its rows applied.
             code = str(exc) if isinstance(exc, RefundReplayError) else "transaction_timeout_or_database_error"
-            outcomes = [{**row, "status": "blocked", "reasons": [code]} for row in batch]
-        report["rows"].extend(outcomes)
-        report["cursor"] = batch[-1]["raw_id"]
-    report["applied"] = sum(row["status"] == "applied" for row in report["rows"])
-    report["unchanged"] = sum(row["status"] == "unchanged" for row in report["rows"])
-    report["blocked"] = sum(row["status"] == "blocked" for row in report["rows"])
-    report["reasons"] = dict(Counter(reason for row in report["rows"] for reason in row["reasons"]))
-    with _transaction(engine, bounds, write=True) as (session, _):
-        impact_count, impact_min, impact_max = session.execute(select(
-            func.count(JobImpact.id), func.min(JobImpact.id), func.max(JobImpact.id),
-        ).where(JobImpact.source_run_id == repair_run_id)).one()
-        report.update(job_impacts=impact_count, impact_min_id=impact_min, impact_max_id=impact_max,
-                      needs_downstream_processing=impact_count > 0)
-        job = session.get(JobRun, repair_run_id)
-        job.metadata_json = {**audit, "result": report}
-        finish_job_run(session, repair_run_id,
-                       status="partial" if report["blocked"] and report["applied"] + report["unchanged"] else "failed" if report["blocked"] else "success",
-                       success_count=report["applied"] + report["unchanged"], failed_count=report["blocked"])
+            guard_blocked = code in {"heavy_sync_claim_lock_busy", "source_jobs_or_repairs_not_ready"}
+            remaining = preview["rows"][offset:] if guard_blocked else batch
+            report["rows"].extend({**row, "status": "blocked", "reasons": [code]} for row in remaining)
+            report["cursor"] = remaining[-1]["raw_id"]
+            if guard_blocked:
+                break
+    _summarize_apply(report)
+    report["status"] = "partial" if report["blocked"] and report["applied"] + report["unchanged"] else "failed" if report["blocked"] else "success"
+    try:
+        with _transaction(engine, bounds, write=True, repair_run_id=repair_run_id) as (session, _):
+            report.update(_impact_summary(session, repair_run_id))
+            report["needs_downstream_processing"] = report["needs_downstream_processing"] or report["job_impacts"] > 0
+            report["audit_finalized"] = True
+            job = session.get(JobRun, repair_run_id)
+            job.metadata_json = {**audit, "result": report,
+                "needs_downstream_processing": report["needs_downstream_processing"]}
+            finish_job_run(session, repair_run_id, status=report["status"],
+                           success_count=report["applied"] + report["unchanged"], failed_count=report["blocked"])
+    except (RefundReplayError, SQLAlchemyError, TimeoutError):
+        # Do not bypass the claim/source fence just to finish the audit. The
+        # last committed progress and its sticky downstream flag remain durable.
+        report["audit_finalized"] = False
+        report["status"] = "partial" if report["applied"] + report["unchanged"] else "failed"
+        report["audit_error"] = "audit_finish_guard_or_database_blocked"
     return report

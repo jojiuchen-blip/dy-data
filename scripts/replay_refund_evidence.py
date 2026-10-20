@@ -67,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
                                repair_run_id=args.repair_run_id, reason=args.reason)
                   if args.apply else preview_refunds(engine, bounds, upper_id=args.upper_id))
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
-        return 2 if result["blocked"] else 0
+        return 2 if result["blocked"] or (args.apply and not result["audit_finalized"]) else 0
     except (RefundReplayError, SQLAlchemyError, TimeoutError, OSError, TypeError, KeyError, json.JSONDecodeError) as exc:
         # DB exceptions can include payloads/URLs. Do not print their messages.
         message = str(exc) if isinstance(exc, RefundReplayError) else "preview_or_apply_failed_safely"
