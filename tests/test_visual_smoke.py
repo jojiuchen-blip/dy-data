@@ -2418,9 +2418,12 @@ def test_settlement_mock_filter_and_statement_use_the_same_store(
             )
 
         page.route("**/api/v1/store-settlements?*", matching_statement)
-        page.goto(f"{vite_base_url}/settlement", wait_until="domcontentloaded")
+        # This store-matching fixture contains August bills. Keep its month
+        # explicit so the last-complete-month default cannot select another bill.
+        page.goto(f"{vite_base_url}/settlement?month=2026-08", wait_until="domcontentloaded")
         page.get_by_role("heading", name="单店分账", exact=True).wait_for(timeout=10000)
 
+        expect(page.get_by_role("button", name="账期", exact=True)).to_have_text("2026-08")
         expect(page.get_by_role("combobox", name="门店")).to_have_value(
             "上海浦东体验中心",
             timeout=10000,
