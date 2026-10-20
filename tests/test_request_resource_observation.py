@@ -13,7 +13,7 @@ import subprocess
 import sys
 
 import pytest
-from fastapi import HTTPException, Request
+from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 from starlette.routing import Mount, Route, Router
 
@@ -110,6 +110,130 @@ def test_real_app_registered_routes_method_errors_and_404(observations, path, me
     start, end = events(observations)
     assert start["route_template"] == end["route_template"] == template
     assert end["status"] == status and end["active_requests"] == 0
+    assert SECRET not in json.dumps(events(observations))
+
+
+@pytest.mark.parametrize("method,suffix,status", [
+    ("GET", f"/records/{SECRET}", 200),
+    ("POST", f"/records/{SECRET}", 405),
+    ("HEAD", f"/records/{SECRET}", 405),
+    ("GET", f"/missing/{SECRET}", 404),
+])
+def test_nested_include_router_uses_registered_prefixes_before_endpoint(observations, method, suffix, status):
+    app = create_app()
+    calls = []
+    child = APIRouter(prefix="/child")
+
+    @child.get("/records/{record_id}")
+    async def endpoint(record_id: str):
+        assert events(observations)[0]["route_template"] == "/extra/outer/nested/child/records/{record_id}"
+        calls.append(record_id)
+        return {"record": record_id}
+
+    parent = APIRouter(prefix="/outer")
+    parent.include_router(child, prefix="/nested")
+    app.include_router(parent, prefix="/extra")
+    response = TestClient(app).request(method, "/extra/outer/nested/child" + suffix + f"?token={SECRET}")
+    assert response.status_code == status
+    assert calls == ([SECRET] if status == 200 else [])
+    start, end = events(observations)
+    expected = "unknown" if status == 404 else "/extra/outer/nested/child/records/{record_id}"
+    assert start["route_template"] == end["route_template"] == expected
+    assert end["active_requests"] == 0
+    assert SECRET not in json.dumps([start, end])
+
+
+@pytest.mark.parametrize("method,suffix,status", [
+    ("GET", f"/records/{SECRET}", 200),
+    ("POST", f"/records/{SECRET}", 405),
+    ("GET", f"/missing/{SECRET}", 404),
+])
+def test_parameterized_mount_with_included_router_keeps_only_registered_templates(observations, method, suffix, status):
+    child = FastAPI()
+    router = APIRouter()
+
+    @router.get("/records/{record_id}")
+    async def endpoint(record_id: str):
+        return {"ok": True}
+
+    child.include_router(router, prefix="/api/v2")
+    app = create_app()
+    app.mount("/tenants/{tenant_id}", child)
+    response = TestClient(app, root_path="/deployment").request(
+        method, f"/deployment/tenants/{SECRET}/api/v2" + suffix)
+    assert response.status_code == status
+    expected = "unknown" if status == 404 else "/tenants/{tenant_id}/api/v2/records/{record_id}"
+    assert {item["route_template"] for item in events(observations)} == {expected}
+    assert SECRET not in json.dumps(events(observations))
+
+
+def test_full_match_after_included_partial_uses_selected_registered_route(observations):
+    first, second = APIRouter(), APIRouter()
+
+    @first.get("/objects/{object_id}")
+    async def first_endpoint(object_id: str):
+        pytest.fail("method mismatch must not execute the first endpoint")
+
+    @second.post("/objects/fixed")
+    async def second_endpoint():
+        return {"selected": True}
+
+    app = create_app()
+    app.include_router(first, prefix="/version")
+    app.include_router(second, prefix="/version")
+    response = TestClient(app).post("/version/objects/fixed")
+    assert response.status_code == 200 and response.json() == {"selected": True}
+    assert {item["route_template"] for item in events(observations)} == {"/version/objects/fixed"}
+
+
+@pytest.mark.parametrize("path,method,status,template", [
+    ("/api/v1/dashboard/douyin-ranking", "GET", 401, "/api/v1/dashboard/douyin-ranking"),
+    ("/api/v1/dashboard/douyin-ranking/export", "GET", 401, "/api/v1/dashboard/douyin-ranking/export"),
+    ("/api/v1/dashboard/publications/douyin-ranking/filters", "GET", 401,
+     "/api/v1/dashboard/publications/{module}/filters"),
+    (f"/api/v1/stores/{SECRET}/monthly-settlement", "GET", 401,
+     "/api/v1/stores/{store_id}/monthly-settlement"),
+    ("/api/v1/dashboard/douyin-ranking", "POST", 405, "/api/v1/dashboard/douyin-ranking"),
+])
+def test_actual_included_business_routes_are_classified_without_bypassing_auth(observations, path, method, status, template):
+    response = TestClient(create_app()).request(method, path + f"?private={SECRET}")
+    assert response.status_code == status
+    start, end = events(observations)
+    assert start["route_template"] == end["route_template"] == template
+    assert end["active_requests"] == 0 and end["status"] == status
+    assert SECRET not in json.dumps([start, end])
+
+
+def test_included_matcher_never_uses_spoofed_scope_or_calls_registered_handlers(observations, monkeypatch):
+    router = APIRouter()
+    handler_calls = []
+
+    @router.get("/records/{record_id}")
+    async def endpoint(record_id: str):
+        handler_calls.append(record_id)
+
+    registered = FastAPI()
+    registered.include_router(router, prefix="/registered")
+
+    def forbidden_match(request_scope):
+        pytest.fail("observer must not invoke routing hooks or construct effective handlers")
+
+    for route in [*router.routes, *registered.router.routes]:
+        monkeypatch.setattr(route, "matches", forbidden_match)
+    original = scope(f"/registered/records/{SECRET}")
+    original["route"] = Route("/" + SECRET, endpoint)
+    original["fastapi"] = {"private": SECRET}
+    original_keys = set(original)
+    original_fastapi = dict(original["fastapi"])
+
+    async def app(request_scope, receive, send):
+        assert request_scope is original
+
+    observer = observation.RequestResourceObservationMiddleware(app, router=registered.router)
+    asyncio.run(observer(original, unused_receive, discard_send))
+    assert handler_calls == []
+    assert set(original) == original_keys and original["fastapi"] == original_fastapi
+    assert {item["route_template"] for item in events(observations)} == {"/registered/records/{record_id}"}
     assert SECRET not in json.dumps(events(observations))
 
 

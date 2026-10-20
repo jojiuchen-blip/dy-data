@@ -13,11 +13,13 @@ import logging
 import os
 import re
 import sys
+from functools import lru_cache
 from threading import Lock
 from time import perf_counter
 from typing import Callable
 from uuid import uuid4
 
+from fastapi import routing as fastapi_routing
 from starlette.routing import Match, Mount, Route, Router
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -26,6 +28,7 @@ LOGGER_NAME = "dy_api.request_resources"
 UNKNOWN_ROUTE = "unknown"
 logger = logging.getLogger(LOGGER_NAME)
 _SAFE_EXCEPTION_CLASS = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,79}\Z")
+_INCLUDED_ROUTER_TYPE = getattr(fastapi_routing, "_IncludedRouter", None)
 
 
 class _ObservationStdoutHandler(logging.Handler):
@@ -66,31 +69,72 @@ def read_process_rss_bytes() -> int | None:
     return None
 
 
-def _registered_template(router: Router, scope: Scope, *, prefix: str = "", depth: int = 0) -> str:
+async def _matching_only_app(scope: Scope, receive: Receive, send: Send) -> None:
+    raise AssertionError("observation matchers must never handle a request")
+
+
+@lru_cache(maxsize=512)
+def _registered_matcher(path: str, methods: tuple[str, ...], mount: bool) -> Route | Mount:
+    """Compile registered paths without running custom handlers or matches()."""
+    if mount:
+        return Mount(path, app=_matching_only_app)
+    matcher = Route(path, endpoint=_matching_only_app, methods=list(methods))
+    # Starlette automatically adds HEAD for GET; FastAPI APIRoute does not.
+    matcher.methods = set(methods) if methods else None
+    return matcher
+
+
+def _registered_match(router: Router, scope: Scope, *, prefix: str = "",
+                      include_prefix: str = "", depth: int = 0) -> tuple[Match, str]:
     if depth >= 8:
-        return UNKNOWN_ROUTE
+        return Match.NONE, UNKNOWN_ROUTE
     partial: str | None = None
     for route in router.routes:
+        if _INCLUDED_ROUTER_TYPE is not None and isinstance(route, _INCLUDED_ROUTER_TYPE):
+            # FastAPI >=0.137 keeps include_router() as a live registration
+            # tree. These two attributes are verified against its installed
+            # _IncludedRouter implementation; older versions expand routes.
+            # Avoid effective_candidates()/matches(): they construct handlers
+            # and mutate FastAPI's private request-scope matching context.
+            match, template = _registered_match(route.original_router, scope, prefix=prefix,
+                include_prefix=include_prefix + route.include_context.prefix, depth=depth + 1)
+            if match == Match.FULL:
+                return match, template
+            if match == Match.PARTIAL and partial is None:
+                partial = template
+            continue
         # Never accept a template from incoming scope["route"] or from a path
         # fallback. Unknown/custom routing remains deliberately unclassified.
         if not isinstance(route, (Route, Mount)):
             continue
-        match, child_scope = route.matches(scope)
+        registered_path = include_prefix + route.path
+        template = prefix + registered_path
+        if len(template) > 512:
+            continue
+        matcher = _registered_matcher(registered_path, tuple(sorted(route.methods or ()))
+            if isinstance(route, Route) else (), isinstance(route, Mount))
+        match, child_scope = matcher.matches(scope)
         if match == Match.NONE:
             continue
-        template = prefix + route.path
         if isinstance(route, Mount) and match == Match.FULL:
             child_router = getattr(route, "_base_app", None)
             if not isinstance(child_router, Router):
                 child_router = getattr(child_router, "router", None)
             if isinstance(child_router, Router):
-                return _registered_template(child_router, {**scope, **child_scope}, prefix=template, depth=depth + 1)
-            return UNKNOWN_ROUTE
+                child_match, child_template = _registered_match(child_router, {**scope, **child_scope},
+                    prefix=template, depth=depth + 1)
+                # A mount owns its matching branch even when its child is 404.
+                return Match.FULL, child_template if child_match != Match.NONE else UNKNOWN_ROUTE
+            return Match.FULL, UNKNOWN_ROUTE
         if match == Match.FULL:
-            return template if len(template) <= 512 else UNKNOWN_ROUTE
+            return match, template
         if partial is None:
             partial = template
-    return partial if partial is not None and len(partial) <= 512 else UNKNOWN_ROUTE
+    return (Match.PARTIAL, partial) if partial is not None else (Match.NONE, UNKNOWN_ROUTE)
+
+
+def _registered_template(router: Router, scope: Scope) -> str:
+    return _registered_match(router, scope)[1]
 
 
 def _safe_template(router: Router, scope: Scope) -> str:
