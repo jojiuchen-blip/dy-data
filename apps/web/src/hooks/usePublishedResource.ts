@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type DependencyList } from "react";
 import { ApiRequestError, type ApiLoadResult } from "../api/client";
 import { useDashboardPublication } from "./PublicationContext";
+import { isPublicationPeriodNotReady, PUBLICATION_PERIOD_NOT_READY_TEXT } from "../utils/apiErrors";
 
 interface PublishedState<T> {
   data?: ApiLoadResult<T>;
@@ -96,12 +97,12 @@ export function usePublishedResource<T>(
         422: "筛选条件不正确，请调整后重试。",
         503: "发布结果暂不可用，请稍后重试；后台会继续准备数据。",
       };
-      const message = error instanceof ApiRequestError
+      const message = isPublicationPeriodNotReady(error) ? PUBLICATION_PERIOD_NOT_READY_TEXT : error instanceof ApiRequestError
         ? statusMessages[error.status] ?? "发布结果读取失败，请稍后重试。"
         : error instanceof TypeError ? "网络连接异常，请检查后重试。"
         : "发布结果或版本信息暂不可用，请读取最新结果。";
       setResolvedKey(wantedKey);
-      const mayKeepPrevious = sameQuery && !(error instanceof ApiRequestError && [401, 403, 410, 422].includes(error.status));
+      const mayKeepPrevious = sameQuery && !isPublicationPeriodNotReady(error) && !(error instanceof ApiRequestError && [401, 403, 410, 422].includes(error.status));
       setState((current) => ({ data: mayKeepPrevious ? current.data : undefined, error: message, rawError: error, loading: false, refreshing: false }));
     });
     return () => { cancelled = true; };

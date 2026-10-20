@@ -778,3 +778,144 @@ test("clue route family retains its pin while other modules get independent publ
   await freshFamily;
   assert.equal(requests.filter((url) => url.pathname.endsWith("/publications/clue-overview/filters")).at(-1).searchParams.has("publication_id"), false);
 }));
+
+const periodUnavailable = { status: 503, json: { detail: { code: "PUBLICATION_PERIOD_NOT_READY", message: "period incomplete" } } };
+const periodNotice = "所选账期尚未完成，暂不展示金额或提供导出。请选择其他账期，或稍后读取最新结果。";
+const settlementPeriods = { ...filterMeta, saleMonths: ["2026-09", "2026-08"], statementMonths: ["2026-09", "2026-08"] };
+const settlementRows = { list: [{ storeId: "s1", storeName: "完整账期门店", rank: 1, promotionMonthFeeCent: 12345 }], totals: { promotionMonthFeeCent: 12345 }, total: 1, page: 1, pageSize: 20 };
+
+for (const phase of ["initial", "month", "refresh"]) {
+  test(`settlement ${phase} incomplete period commits only same-version filters and clears amounts without retries`, async () => withPage(async ({ page, requests, handle }) => {
+    let latest = "period1";
+    let incomplete = phase === "initial";
+    handle(async (route, url) => {
+      const id = url.searchParams.get("publication_id") ?? latest;
+      if (url.pathname.endsWith("/publications/settlement/filters")) {
+        const response = payload(settlementPeriods, "settlement", id);
+        if (id === "period2") response.meta.publication.publishedAt = "2026-10-19T03:00:00Z";
+        await route.fulfill({ json: response }); return true;
+      }
+      if (!url.pathname.endsWith("/dashboard/store-ranking")) return false;
+      await route.fulfill(incomplete ? periodUnavailable : { json: payload(settlementRows, "settlement", id) }); return true;
+    });
+    await page.goto(`${baseUrl}/ranking?periodKey=2026-09`);
+    if (phase !== "initial") {
+      await page.locator("tbody").getByText("完整账期门店", { exact: true }).waitFor();
+      incomplete = true;
+      if (phase === "refresh") {
+        latest = "period2";
+        await page.getByRole("button", { name: "读取最新结果", exact: true }).click();
+      } else {
+        await page.getByLabel("账期", { exact: true }).click();
+        await page.getByRole("option", { name: "2026-08", exact: true }).click();
+      }
+    }
+    await page.getByText(periodNotice, { exact: false }).first().waitFor();
+    assert.equal(await page.getByLabel("账期", { exact: true }).isEnabled(), true);
+    assert.equal(await page.locator("tbody").getByText("完整账期门店", { exact: true }).count(), 0);
+    assert.equal(await page.locator(".metric-card").count(), 0, "unready must not render normal zero metrics");
+    if (phase === "refresh") assert.match(await page.locator(".publication-time").innerText(), /11:00/);
+    const before = requests.length;
+    await page.waitForTimeout(150);
+    assert.equal(requests.length, before, "503 has no immediate automatic retry");
+    incomplete = false;
+    const recovered = page.waitForResponse((response) => response.url().includes("/dashboard/store-ranking?") && response.status() === 200);
+    await page.getByLabel("账期", { exact: true }).click();
+    await page.getByRole("option", { name: phase === "month" ? "2026-09" : "2026-08", exact: true }).click();
+    await recovered;
+    await page.locator("tbody").getByText("完整账期门店", { exact: true }).waitFor();
+    const id = phase === "refresh" ? "period2" : "period1";
+    assert.equal(requests.filter((url) => url.pathname.endsWith("/publications/settlement/filters")).at(-1).searchParams.get("publication_id"), id);
+    assert.equal(requests.filter((url) => url.pathname.endsWith("/dashboard/store-ranking")).at(-1).searchParams.get("publication_id"), id);
+  }));
+}
+
+for (const phase of ["month", "refresh"]) {
+  test(`finance ${phase} period-not-ready clears previous money and disables export`, async () => withPage(async ({ page, requests, handle }) => {
+    let incomplete = false;
+    let latest = "money1";
+    handle(async (route, url) => {
+      const id = url.searchParams.get("publication_id") ?? latest;
+      if (url.pathname.endsWith("/finance/summary")) {
+        await route.fulfill(incomplete ? periodUnavailable : { json: payload({ month: "2026-09", metrics: { statementTotalCent: 12345 } }, "finance", id) }); return true;
+      }
+      if (url.pathname.endsWith("/finance/invoices")) {
+        await route.fulfill({ json: payload({ list: [], total: 0 }, "finance", id) }); return true;
+      }
+      return false;
+    });
+    await page.goto(`${baseUrl}/finance/promotion?month=2026-09`);
+    const total = page.locator(".metric-card").filter({ hasText: "推广费总额" });
+    await total.getByText("¥123.45", { exact: true }).waitFor();
+    incomplete = true;
+    if (phase === "month") await page.getByLabel("筛选账期", { exact: true }).fill("2026-08");
+    else {
+      latest = "money2";
+      await page.getByRole("button", { name: "读取最新结果", exact: true }).click();
+    }
+    await page.getByText(periodNotice, { exact: true }).first().waitFor();
+    assert.doesNotMatch(await total.innerText(), /123\.45|0\.00/);
+    assert.equal(await page.getByRole("button", { name: "导出当前筛选结果", exact: true }).isDisabled(), true);
+    assert.equal(await page.getByLabel("筛选账期", { exact: true }).isEnabled(), true);
+    const before = requests.length;
+    await page.waitForTimeout(150);
+    assert.equal(requests.length, before);
+  }));
+}
+
+for (const status of [401, 403]) {
+  for (const boundary of ["filters", "data"]) {
+    test(`period filters are removed after ${boundary} authorization denial ${status}`, async () => withPage(async ({ page, requests, handle }) => {
+      let denied = false;
+      handle(async (route, url) => {
+        const filters = url.pathname.endsWith("/publications/settlement/filters");
+        const data = url.pathname.endsWith("/dashboard/store-ranking");
+        if (!filters && !data) return false;
+        await route.fulfill(denied && (boundary === "filters" ? filters : data)
+          ? { status, json: { detail: { message: "denied" } } }
+          : filters ? { json: payload(settlementPeriods, "settlement", "permission1") } : periodUnavailable);
+        return true;
+      });
+      await page.goto(`${baseUrl}/ranking?periodKey=2026-09`);
+      await page.getByText(periodNotice, { exact: false }).first().waitFor();
+      assert.equal(await page.getByLabel("账期", { exact: true }).isEnabled(), true);
+      denied = true;
+      const denial = page.waitForResponse((response) => response.status() === status);
+      await page.getByRole("button", { name: "读取最新结果", exact: true }).click();
+      await denial;
+      await page.waitForTimeout(100);
+      assert.equal(await page.getByLabel("账期", { exact: true }).isDisabled(), true);
+      assert.equal(await page.getByRole("option", { name: "2026-08", exact: true }).count(), 0);
+      const latestData = requests.filter((url) => url.pathname.endsWith("/dashboard/store-ranking"));
+      assert.equal(latestData.length, boundary === "filters" ? 1 : 2);
+    }));
+  }
+}
+
+test("unready analytical period keeps protected historical billing and invoice entry live", async () => withPage(async ({ page, requests, handle }) => {
+  handle(async (route, url) => {
+    if (url.pathname.endsWith("/publications/settlement/filters")) {
+      await route.fulfill({ json: payload(settlementPeriods, "settlement", "protected1") }); return true;
+    }
+    if (url.pathname.endsWith("/monthly-settlement")) {
+      await route.fulfill(periodUnavailable); return true;
+    }
+    if (url.pathname.endsWith("/store-settlements")) {
+      await route.fulfill({ json: payload({ list: [{ statementId: "protected-statement", storeId: "s1", storeName: "门店一", month: "2026-08", versionNo: 2, isCurrent: true, status: "CONFIRMED", promotionConfirmableAmountCent: 38000, managementConfirmableAmountCent: 9000, promotionConfirmation: { status: "CONFIRMED", confirmedAt: "2026-09-02T02:00:00Z", confirmedAmountCent: 38000 }, managementConfirmation: null }], total: 1 }) }); return true;
+    }
+    if (url.pathname.endsWith("/order-fee-details") || url.pathname.endsWith("/disputes")) {
+      await route.fulfill({ json: payload({ list: [], total: 0 }) }); return true;
+    }
+    return false;
+  });
+  await page.goto(`${baseUrl}/settlement?storeId=s1&month=2026-08`);
+  await page.getByText(periodNotice, { exact: false }).first().waitFor();
+  const invoice = page.getByRole("link", { name: "进入推广费开票", exact: true });
+  await invoice.waitFor();
+  assert.match(await invoice.getAttribute("href"), /storeId=s1&month=2026-08/);
+  assert.equal(await page.getByRole("button", { name: "确认管理服务费", exact: true }).isEnabled(), true);
+  const live = requests.find((url) => url.pathname.endsWith("/store-settlements"));
+  assert.equal(live.searchParams.get("month"), "2026-08");
+  assert.equal(live.searchParams.has("publication_id"), false);
+  assert.equal(requests.filter((url) => url.pathname.endsWith("/monthly-settlement")).length, 1);
+}));

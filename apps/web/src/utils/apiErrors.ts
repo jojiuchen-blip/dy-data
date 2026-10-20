@@ -1,12 +1,18 @@
 import { ApiRequestError } from "../api/client";
 
+export const PUBLICATION_PERIOD_NOT_READY_TEXT = "所选账期尚未完成，暂不展示金额或提供导出。请选择其他账期，或稍后读取最新结果。";
+
+export function isPublicationPeriodNotReady(error: unknown): error is ApiRequestError & { status: 503; code: "PUBLICATION_PERIOD_NOT_READY" } {
+  return error instanceof ApiRequestError && error.status === 503 && error.code === "PUBLICATION_PERIOD_NOT_READY";
+}
+
 export function apiErrorText(
   error: unknown,
   fallback: string,
   statusMessages: Partial<Record<number, string>> = {},
 ): string {
   if (!(error instanceof ApiRequestError)) return fallback;
-  const parts = [statusMessages[error.status] ?? fallback];
+  const parts = [isPublicationPeriodNotReady(error) ? PUBLICATION_PERIOD_NOT_READY_TEXT : statusMessages[error.status] ?? fallback];
   if (Array.isArray(error.fieldErrors) && error.fieldErrors.length) {
     const fieldSummary = error.fieldErrors
       .map((item) => {

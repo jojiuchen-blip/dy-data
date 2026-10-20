@@ -22,6 +22,7 @@ import type {
 } from "../types/dashboard";
 import { formatCurrency, formatDateTime } from "../utils/format";
 import { userFacingError } from "../utils/userFacingError";
+import { isPublicationPeriodNotReady, PUBLICATION_PERIOD_NOT_READY_TEXT } from "../utils/apiErrors";
 import { displayFinanceInvoiceStatus, displayFinanceProcessingStatus } from "../utils/userFacingLabels";
 import {
   initialStatementMonth,
@@ -414,6 +415,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
         <DataTable
           columns={feeDirection === "PROMOTION" ? promotionColumns : managementColumns}
           emptyText="当前筛选下暂无记录"
+          errorText={isPublicationPeriodNotReady(financeResource.rawError) ? PUBLICATION_PERIOD_NOT_READY_TEXT : undefined}
           onRowAction={feeDirection === "MANAGEMENT" ? openCorrection : undefined}
           onRowDoubleClick={feeDirection === "MANAGEMENT" ? (row) => { void openCorrection(row); } : undefined}
           rowActionLabel={(row) => feeDirection === "MANAGEMENT" && row.storeId && row.statementMonth ? "更正" : undefined}
