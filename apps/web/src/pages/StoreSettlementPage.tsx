@@ -322,6 +322,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
           disabled={!meta}
           label="账期"
           value={activeMonth}
+          placeholder={activeMonth || undefined}
           onChange={(value) => { setMonth(value); setInvalidatedStatementKey(null); }}
           options={(meta?.statementMonths ?? []).map((value) => ({ value, label: value }))}
         />
