@@ -15,6 +15,10 @@ FIELDS = ("order_count", "follow_numerator", "follow_denominator", "follow_any_n
 
 
 def _finish(item):
+    # PostgreSQL SUM(bigint) returns Decimal. Keep the count/ratio contract
+    # numeric before camelize preserves other domains' Decimal values as text.
+    for field in (*FIELDS, "store_count"):
+        item[field] = int(item[field])
     for result, numerator, denominator in (("order_average", "order_count", "store_count"),
         ("follow_rate", "follow_any_numerator", "follow_any_denominator"),
         ("follow_action_rate", "follow_action_numerator", "follow_action_denominator"),
