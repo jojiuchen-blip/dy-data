@@ -191,43 +191,57 @@ def run_scheduled_product_sync(factory, *, now: datetime | None = None) -> str |
     current_time = now or datetime.now(timezone.utc)
     interval_seconds = _bounded_product_sync_interval()
     with session_scope(factory) as session:
-        active = session.scalar(
+        running = session.scalar(
             select(JobRun.job_id)
             .where(
                 JobRun.job_name == PRODUCT_SYNC_JOB_NAME,
-                JobRun.status.in_(("queued", "running")),
+                JobRun.status == "running",
             )
             .limit(1)
         )
-        if active is not None:
+        if running is not None:
             _log("product_sync_skip reason=active_run")
             return None
-        latest_started_at = session.scalar(
-            select(func.max(JobRun.started_at)).where(
-                JobRun.job_name == PRODUCT_SYNC_JOB_NAME
+        queued = session.scalar(
+            select(JobRun.job_id).where(
+                JobRun.job_name == PRODUCT_SYNC_JOB_NAME,
+                JobRun.status == "queued",
+            ).order_by(JobRun.started_at, JobRun.job_id).limit(1)
+        )
+        if queued is not None:
+            # A deferred API or scheduled run keeps its original identity,
+            # mode and metadata; the interval applies only to new jobs.
+            job_id = queued
+        else:
+            latest_started_at = session.scalar(
+                select(func.max(JobRun.started_at)).where(
+                    JobRun.job_name == PRODUCT_SYNC_JOB_NAME
+                )
             )
-        )
-        if latest_started_at is not None:
-            if latest_started_at.tzinfo is None:
-                latest_started_at = latest_started_at.replace(tzinfo=timezone.utc)
-            if (current_time - latest_started_at).total_seconds() < interval_seconds:
-                _log("product_sync_skip reason=interval_not_due")
-                return None
-        job_id = f"product-sync-scheduled-{current_time:%Y%m%d%H%M%S}"
-        queue_job_run(
-            session,
-            job_id,
-            PRODUCT_SYNC_JOB_NAME,
-            started_at=current_time,
-            metadata_json={
-                "mode": "INCREMENTAL",
-                "reason": "scheduled product master refresh",
-                "phase_counts": {},
-            },
-        )
+            if latest_started_at is not None:
+                if latest_started_at.tzinfo is None:
+                    latest_started_at = latest_started_at.replace(tzinfo=timezone.utc)
+                if (current_time - latest_started_at).total_seconds() < interval_seconds:
+                    _log("product_sync_skip reason=interval_not_due")
+                    return None
+            job_id = f"product-sync-scheduled-{current_time:%Y%m%d%H%M%S}"
+            queue_job_run(
+                session,
+                job_id,
+                PRODUCT_SYNC_JOB_NAME,
+                started_at=current_time,
+                metadata_json={
+                    "mode": "INCREMENTAL",
+                    "reason": "scheduled product master refresh",
+                    "phase_counts": {},
+                },
+            )
     _log(f"product_sync_start job_id={job_id}")
-    run_product_sync_job(job_id=job_id, factory=factory)
-    _log(f"product_sync_done job_id={job_id}")
+    result = run_product_sync_job(job_id=job_id, factory=factory)
+    if getattr(result, "status", None) == "DEFERRED":
+        _log(f"product_sync_deferred job_id={job_id} reason={result.error_code}")
+    else:
+        _log(f"product_sync_done job_id={job_id}")
     return job_id
 
 
