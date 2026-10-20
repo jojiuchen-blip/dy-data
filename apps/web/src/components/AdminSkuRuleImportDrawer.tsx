@@ -22,6 +22,7 @@ import { Button } from "./Button";
 import { StatusChip, type ChipTone } from "./Chips";
 import { Dialog } from "./Dialog";
 import { FieldInput } from "./FormControls";
+import { useDownloadFeedback } from "../hooks/useDownloadFeedback";
 
 const FIRST_EFFECTIVE_DATE = "2026-08-01";
 
@@ -62,6 +63,7 @@ export function AdminSkuRuleImportDrawer({
   onClose,
   open,
 }: AdminSkuRuleImportDrawerProps) {
+  const download = useDownloadFeedback();
   const importCommitIntent = useRef<{ fingerprint: string; key: string } | null>(null);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importDate, setImportDate] = useState(FIRST_EFFECTIVE_DATE);
@@ -182,6 +184,7 @@ export function AdminSkuRuleImportDrawer({
       title="批量导入设置"
     >
       {notice ? <div aria-live="polite" className="resource-notice" role="status">{notice}</div> : null}
+      {download.message ? <p className="resource-notice" role={download.isError ? "alert" : "status"}>{download.message}</p> : null}
 
       <div className="admin-form-grid admin-import-drawer__form">
         <label className="filter-field">
@@ -202,7 +205,7 @@ export function AdminSkuRuleImportDrawer({
           />
         </label>
         <div className="admin-header-actions">
-          <Button onClick={() => void downloadSkuFeeRuleImportTemplate()} type="button">
+          <Button loading={download.busy} onClick={() => void download.run(downloadSkuFeeRuleImportTemplate, "模板已下载。")} type="button">
             下载标准模板
           </Button>
           <Button disabled={working || !importFile} onClick={() => void uploadImport()} type="button">
@@ -232,7 +235,8 @@ export function AdminSkuRuleImportDrawer({
             <span>正式写入 {formatInteger(activeBatch.successCount)}</span>
             {activeBatch.hasResultFile ? (
               <Button
-                onClick={() => void downloadSkuFeeRuleImportResult(activeBatch.batchId)}
+                loading={download.busy}
+                onClick={() => void download.run(() => downloadSkuFeeRuleImportResult(activeBatch.batchId), "结果文件已下载。")}
                 size="sm"
               >
                 下载结果文件

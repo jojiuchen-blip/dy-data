@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
-from publication_fixture_helpers import publish_fixture
+from publication_fixture_helpers import publish_fixture, ready_periods_fixture
 from apps.api.dy_api.dashboard_publications import finance as finance_publications
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import DashboardDataStore, get_data_store, sanitize_error_message  # noqa: E402
@@ -57,8 +57,8 @@ class FakeStore:
     def list_statement_months(self):
         return ["2026-08", "2026-07"]
 
-    # Months this fake has materialized rows for; anything else must behave like
-    # a selectable period that simply holds no data yet.
+    # Months this fake has materialized rows for; another complete month may
+    # legitimately have no financial rows.
     MATERIALIZED_MONTHS = frozenset({"2026-08", "2026-07", "2026-05"})
 
     def store_exists(self, store_id: str):
@@ -480,7 +480,11 @@ def _publish_dashboard_contract_data(session: Session, store: FakeStore) -> None
             "key": "store_001", "value": {"store_id": "store_001", "store_name": "Store One"}},
             {"publication_id": publication_id, "kind": "filters", "key": "all",
              "value": {"product_scope_type_map": store.product_scope_type_map(),
-                       "product_types": store.list_product_types()}}]
+                       "product_types": store.list_product_types()}},
+            # This custom builder bypasses the production dimension builder;
+            # freeze explicit collection evidence for these synthetic facts too.
+            {"publication_id": publication_id, "kind": "period_readiness", "key": "v1",
+             "value": ready_periods_fixture(build_session, cutoff)}]
         build_session.execute(finance_publications.dimensions.insert(), dimensions)
         for month in sorted(store.MATERIALIZED_MONTHS):
             filters = {"store_id": "store_001", "month": month,
@@ -501,7 +505,7 @@ def _publish_dashboard_contract_data(session: Session, store: FakeStore) -> None
                     store_id=f"store_{index:03d}",
                     store_name="Store One" if index == 1 else f"Store {index}",
                     **{key: first[key] for key in finance_publications.RANK_METRICS}))
-        return {"row_count": 2 + len(store.MATERIALIZED_MONTHS) * 11}
+        return {"row_count": len(dimensions) + len(store.MATERIALIZED_MONTHS) * 11}
 
     publish_fixture(session, "settlement", builder=build_contract)
     session.add(DimStore(store_id="store_001", store_name="Store One"))

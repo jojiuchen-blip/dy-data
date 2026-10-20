@@ -9,7 +9,7 @@ import json
 import os
 from typing import Any, Protocol
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.dy_api.db import get_session_factory, session_scope
@@ -22,6 +22,13 @@ from apps.api.dy_api.models import (
     SyncSetting,
     utcnow,
 )
+from apps.ops_agent.resources import ResourceAction
+from apps.worker.repositories import (
+    HEAVY_SYNC_CLAIM_LOCK_KEY,
+    heavy_sync_rate_limit_cooldown_active,
+    no_other_running_heavy_job,
+)
+from apps.worker.resource_monitor import current_resource_decision
 
 
 PRODUCT_SYNC_JOB_NAME = "product_sync"
@@ -615,6 +622,45 @@ def run_product_sync_job(
     if session_factory is None:
         raise RuntimeError("Set DY_DATABASE_URL or DATABASE_URL before running product sync")
     with session_scope(session_factory) as session:
+        # Keep the existing single execution transaction: its advisory lock
+        # covers source scanning, adapter/network work and the final commit.
+        # Other heavy claims cannot observe this uncommitted running row, so
+        # both the shared lock and the durable running-slot fence are needed.
+        if session.get_bind().dialect.name == "postgresql":
+            acquired = session.scalar(select(func.pg_try_advisory_xact_lock(HEAVY_SYNC_CLAIM_LOCK_KEY)))
+            if not acquired:
+                return ProductSyncResult(job_id, "DEFERRED", error_code="HEAVY_SLOT_BUSY")
+        job = session.get(JobRun, job_id)
+        if job is None or job.job_name != PRODUCT_SYNC_JOB_NAME:
+            raise ValueError(f"Unknown product sync job: {job_id}")
+        if job.status != "queued":
+            return ProductSyncResult(job_id, "DEFERRED", error_code="JOB_NOT_QUEUED")
+        try:
+            decision = current_resource_decision()
+        except Exception:  # Resource evidence is required before any source work.
+            return ProductSyncResult(job_id, "DEFERRED", error_code="RESOURCE_UNAVAILABLE")
+        if getattr(decision, "action", None) is not ResourceAction.ALLOW:
+            return ProductSyncResult(job_id, "DEFERRED", error_code="RESOURCE_NOT_ALLOW")
+        if heavy_sync_rate_limit_cooldown_active(session):
+            return ProductSyncResult(job_id, "DEFERRED", error_code="RATE_LIMIT_COOLDOWN")
+        # Preserve the pre-existing same-product exclusion for legacy running
+        # rows that were created before products joined the shared heavy slot.
+        other_product = session.scalar(select(JobRun.job_id).where(
+            JobRun.job_name == PRODUCT_SYNC_JOB_NAME,
+            JobRun.status == "running", JobRun.job_id != job_id,
+        ).limit(1))
+        if other_product is not None:
+            return ProductSyncResult(job_id, "DEFERRED", error_code="HEAVY_SLOT_BUSY")
+        claimed = session.execute(update(JobRun).where(
+            JobRun.job_id == job_id,
+            JobRun.job_name == PRODUCT_SYNC_JOB_NAME,
+            JobRun.status == "queued",
+            no_other_running_heavy_job(),
+        ).values(status="running", execution_slot="heavy_sync")
+            .execution_options(synchronize_session=False))
+        if claimed.rowcount != 1:
+            return ProductSyncResult(job_id, "DEFERRED", error_code="HEAVY_SLOT_BUSY")
+        session.refresh(job)
         active_adapter = adapter
         if active_adapter is None:
             try:

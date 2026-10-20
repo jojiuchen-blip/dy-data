@@ -28,6 +28,13 @@ from apps.worker.projection_publish import (
     settlement_rebuild_publish_once_key,
 )
 from apps.worker.pipeline import sanitize_error_message
+from apps.worker.repositories import (
+    HEAVY_SYNC_CLAIM_LOCK_KEY,
+    heavy_sync_rate_limit_cooldown_active,
+    no_other_running_heavy_job,
+    resource_admission_allows_job,
+)
+from apps.worker.resource_monitor import current_resource_decision
 from apps.worker.billing_source_capture import (
     BillingSourceDriftError, collect_billing_sources, freeze_billing_sources, load_billing_sources, load_billing_slots,
 )
@@ -148,6 +155,16 @@ def _settlement_rebuild_claim_transaction(
     try:
         with session_scope(factory) as session:
             if dialect_name == "postgresql":
+                # Every heavy claimant takes the shared lock first. Retain the
+                # rebuild lock for its existing latest/supersede protocol.
+                acquired = bool(
+                    session.scalar(
+                        select(func.pg_try_advisory_xact_lock(HEAVY_SYNC_CLAIM_LOCK_KEY))
+                    )
+                )
+                if not acquired:
+                    yield None
+                    return
                 acquired = bool(
                     session.scalar(
                         text("SELECT pg_try_advisory_xact_lock(:lock_key)"),
@@ -178,6 +195,10 @@ def _claim_settlement_rebuild_in_session(
         or job.status != "queued"
     ):
         return None
+    if heavy_sync_rate_limit_cooldown_active(session):
+        return None
+    if not resource_admission_allows_job(job, current_resource_decision()):
+        return None
 
     observed_attempt_count = job.attempt_count
     attempt_count = max(0, int(observed_attempt_count or 0)) + 1
@@ -207,6 +228,7 @@ def _claim_settlement_rebuild_in_session(
             JobRun.job_id == job_id,
             JobRun.job_name == SETTLEMENT_REBUILD_JOB_NAME,
             JobRun.status == "queued",
+            no_other_running_heavy_job(),
             (
                 JobRun.attempt_count.is_(None)
                 if observed_attempt_count is None
@@ -215,6 +237,7 @@ def _claim_settlement_rebuild_in_session(
         )
         .values(
             status="running",
+            execution_slot="heavy_sync",
             started_at=claim_time,
             finished_at=None,
             success_count=0,

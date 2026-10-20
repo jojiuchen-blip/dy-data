@@ -789,6 +789,7 @@ class SettlementScopeRuleCreateRequest(BaseModel):
     allowed_sale_channels: list[Literal["LIVE", "SHORT_VIDEO"]] = Field(
         alias="allowedSaleChannels", min_length=1, max_length=2
     )
+    is_active: bool = Field(default=True, alias="isActive", strict=True)
     change_reason: str = Field(alias="changeReason", min_length=1, max_length=512)
 
     @field_validator("allowed_sale_channels", mode="before")

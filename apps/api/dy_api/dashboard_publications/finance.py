@@ -19,6 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Session
 
 from .schema import metadata
+from . import period_readiness
 
 
 FORMAL_START = "2026-08"
@@ -186,7 +187,7 @@ def _source_context(session, cutoff):
     return store, months, sorted(selectable_months, reverse=True)
 
 
-def _build_dimensions(session, publication_id, store, statement_months):
+def _build_dimensions(session, publication_id, store, statement_months, cutoff):
     rows = [{"publication_id": publication_id, "kind": "store",
              "key": item["store_id"], "value": item}
             for item in store.list_stores(scope_store_ids=None)]
@@ -209,8 +210,12 @@ def _build_dimensions(session, publication_id, store, statement_months):
                  "value": values})
     rows.append({"publication_id": publication_id, "kind": "source", "key": "settlement",
                  "value": {"has_generation": store._pinned_aggregate_generation() is not None}})
+    readiness = period_readiness.capture(session, cutoff)
+    rows.append({"publication_id": publication_id, "kind": "period_readiness", "key": "v1",
+                 "value": readiness})
     _write(session, dimensions, rows)
-    return len(rows)
+    ready = sum(item["ready"] is True for item in readiness["months"].values())
+    return len(rows), {"ready_periods": ready, "incomplete_periods": len(readiness["months"]) - ready}
 
 
 def _monthly_lines(session, store, month):
@@ -381,10 +386,10 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
                 "lines": _json_value(lines)})
         _write(session, monthly, batch)
         monthly_count += len(batch)
-    dimension_count = _build_dimensions(session, publication_id, store, selectable_months)
+    dimension_count, period_stats = _build_dimensions(session, publication_id, store, selectable_months, cutoff)
     return {"row_count": ranking_count + monthly_count + dimension_count,
             "ranking_rows": ranking_count, "monthly_rows": monthly_count,
-            "source_generation_id": store._pinned_aggregate_generation(), "data_as_of": None}
+            "source_generation_id": store._pinned_aggregate_generation(), "data_as_of": None, **period_stats}
 
 
 def _finance_display_context(session):
@@ -571,10 +576,10 @@ def build_finance(session: Session, publication_id: str, cutoff: datetime) -> di
                 "statement_id": period["statement_id"]})
     _write(session, pending, pending_rows)
     _write(session, pending_members, member_rows)
-    dimension_count = _build_dimensions(session, publication_id, store, selectable_months)
+    dimension_count, period_stats = _build_dimensions(session, publication_id, store, selectable_months, cutoff)
     return {"row_count": len(totals) + len(collection_rows) + len(pending_rows) + dimension_count,
             "invoice_rows": len(collection_rows), "statement_rows": len(totals),
-            "pending_rows": len(pending_rows), "data_as_of": None}
+            "pending_rows": len(pending_rows), "data_as_of": None, **period_stats}
 
 
 def build(session: Session, publication_id: str, cutoff: datetime) -> dict:
@@ -584,6 +589,13 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict:
 
 def _scope(table, scope_store_ids):
     return [] if scope_store_ids is None else [table.c.store_id.in_(tuple(scope_store_ids))]
+
+
+def _require_period(session, publication_id, month, *, cumulative=False):
+    snapshot = session.scalar(select(dimensions.c.value).where(
+        dimensions.c.publication_id == publication_id,
+        dimensions.c.kind == "period_readiness", dimensions.c.key == "v1"))
+    period_readiness.require(snapshot, month, cumulative=cumulative)
 
 
 def read_filters(session: Session, publication_id: str, module: str = "settlement",
@@ -596,7 +608,11 @@ def read_filters(session: Session, publication_id: str, module: str = "settlemen
     if scope_store_ids is not None:
         conditions.append(dimensions.c.key.in_(scope_store_ids))
     stores = list(session.scalars(select(dimensions.c.value).where(*conditions)))
-    return {**values, "stores": sorted(stores, key=lambda item: (item["store_name"], item["store_id"]))}
+    readiness = session.scalar(select(dimensions.c.value).where(
+        dimensions.c.publication_id == publication_id,
+        dimensions.c.kind == "period_readiness", dimensions.c.key == "v1"))
+    return {**values, "period_readiness": readiness,
+        "stores": sorted(stores, key=lambda item: (item["store_name"], item["store_id"]))}
 
 
 def _ranking_conditions(publication_id, filters):
@@ -621,6 +637,8 @@ def read_store_ranking(session: Session, publication_id: str, filters: dict[str,
     """Filter, sum and sort frozen ranking rows within the caller's current scope."""
     period_type = filters.get("period_type", "MONTHLY")
     month = filters["period_key"]
+    _require_period(session, publication_id, month,
+        cumulative=period_type == "CUMULATIVE" or bool(filters.get("ranking_basis")))
     basis = filters.get("ranking_basis")
     conditions = _ranking_conditions(publication_id, filters)
     page, page_size = filters.get("page", 1), filters.get("page_size", 20)
@@ -695,6 +713,7 @@ def read_store_ranking(session: Session, publication_id: str, filters: dict[str,
 def read_monthly_settlement(session: Session, publication_id: str, filters: dict[str, Any]) -> dict:
     """Return frozen operating amounts; routes populate the live statement head."""
     store_id, month = filters["store_id"], filters["month"]
+    _require_period(session, publication_id, month, cumulative=True)
     scope = filters.get("scope_store_ids")
     allowed = scope is None or store_id in scope
     row = session.execute(select(monthly).where(monthly.c.publication_id == publication_id,
@@ -748,6 +767,8 @@ def _invoice_conditions(publication_id, *, month, fee_direction, metric_scope="M
 def read_finance_invoices(session: Session, publication_id: str, *, page: int = 1,
                           page_size: int = 20, **filters: Any) -> dict:
     """Return a page from precisely the same frozen row set used by export."""
+    _require_period(session, publication_id, filters["month"],
+        cumulative=filters.get("metric_scope", "MONTH") == "CUMULATIVE")
     conditions = _invoice_conditions(publication_id, **filters)
     total = session.scalar(select(func.count()).select_from(invoices).where(*conditions)) or 0
     items = list(session.scalars(select(invoices.c.item).where(*conditions).order_by(
@@ -758,6 +779,8 @@ def read_finance_invoices(session: Session, publication_id: str, *, page: int = 
 def export_finance_invoices(session: Session, publication_id: str, *,
                             limit: int | None = None, **filters: Any) -> list[dict]:
     """Materialize the list's frozen rows; callers retain export size/audit policy."""
+    _require_period(session, publication_id, filters["month"],
+        cumulative=filters.get("metric_scope", "MONTH") == "CUMULATIVE")
     query = select(invoices.c.item).where(*_invoice_conditions(publication_id, **filters)).order_by(
         invoices.c.position)
     if limit is not None:
@@ -771,6 +794,7 @@ def read_finance_summary(session: Session, publication_id: str, *, month: str,
                          invoice_status: int | None = None,
                          scope_store_ids: tuple[str, ...] | None = None) -> dict:
     """Sum frozen statement facts and pre-evaluated balances after row filtering."""
+    _require_period(session, publication_id, month, cumulative=metric_scope == "CUMULATIVE")
     row_filters = bool((q or "").strip()) or invoice_status is not None or scope_store_ids is not None
     filters = dict(month=month, fee_direction=fee_direction, metric_scope=metric_scope,
         store_id=store_id, q=q, invoice_status=invoice_status, scope_store_ids=scope_store_ids)

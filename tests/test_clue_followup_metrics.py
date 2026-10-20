@@ -301,6 +301,49 @@ def test_completed_full_refund_record_is_terminal_without_coupon_projection(db_s
     assert terminal.terminal_at == AT + timedelta(hours=4)
 
 
+@pytest.mark.parametrize("platform_marker", [
+    {"after_sale_id": "AFTER-SALE"},
+    {"after_sale": {}},
+    {"refund_info_list": []},
+    {"times_card_refund_info_list": []},
+    {"merchant_account_id": "MERCHANT"},
+    {"total_refund_amount": 100},
+    {"real_refund_amount": 100},
+    {"user_refund_amount": 100},
+])
+def test_platform_refund_initiator_does_not_prove_full_refund(db_session, platform_marker) -> None:
+    db_session.add_all([
+        RawDouyinOrder(order_id="O", order_status="201", sale_time=AT),
+        RawDouyinRefundRecord(
+            source_record_key="PLATFORM-REFUND", order_id="O", refund_id="PLATFORM-REFUND",
+            normalized_refund_status=2, raw_refund_status="50",
+            refund_completed_at=AT + timedelta(hours=4),
+            source_observed_at=AT + timedelta(hours=4), payload_hash="platform-refund",
+            raw_payload={"refund_type": "2", **platform_marker},
+        ),
+    ])
+    db_session.commit()
+    assert load_terminal_evidence(db_session, {"O"}, observed_through=CUTOFF)["O"].kind is None
+
+
+def test_platform_refund_time_remains_usable_with_independent_full_refund_projection(db_session) -> None:
+    db_session.add_all([
+        RawDouyinOrder(order_id="O", order_status="refunded", order_status_normalized="refunded",
+                       source_observed_at=AT + timedelta(hours=4), sale_time=AT),
+        RawDouyinRefundRecord(
+            source_record_key="PLATFORM-REFUND", order_id="O", refund_id="PLATFORM-REFUND",
+            normalized_refund_status=2, raw_refund_status="50",
+            refund_completed_at=AT + timedelta(hours=4),
+            source_observed_at=AT + timedelta(hours=4), payload_hash="platform-refund",
+            raw_payload={"after_sale_id": "AFTER-SALE", "refund_type": "2"},
+        ),
+    ])
+    db_session.commit()
+    terminal = load_terminal_evidence(db_session, {"O"}, observed_through=CUTOFF)["O"]
+    assert terminal.kind == "refunded"
+    assert terminal.terminal_at == AT + timedelta(hours=4)
+
+
 def test_order_projection_precedes_stale_raw_clue_status(db_session) -> None:
     db_session.add_all(
         [

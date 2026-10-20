@@ -135,11 +135,19 @@ services:
       WORKER_RESOURCE_PRESSURE_SWAP_ACTIVITY_THRESHOLD_BYTES_PER_SECOND: ${WORKER_RESOURCE_PRESSURE_SWAP_ACTIVITY_THRESHOLD_BYTES_PER_SECOND:-33554432}
       WORKER_RESOURCE_PRESSURE_HARD_PROCESS_TREE_RSS_BYTES: ${WORKER_RESOURCE_MAX_PROCESS_TREE_RSS_BYTES:-2147483648}
       WORKER_RESOURCE_PRESSURE_HARD_CGROUP_CURRENT_BYTES: ${WORKER_RESOURCE_MAX_CGROUP_CURRENT_BYTES:-3221225472}
+      SETTLEMENT_AUTOMATIC_MAINTENANCE_ENABLED: ${SETTLEMENT_AUTOMATIC_MAINTENANCE_ENABLED:-true}
+      SETTLEMENT_COMPACTION_DISK_PROBE_PATH: /run/dydata/postgres-capacity
       TZ: Asia/Shanghai
     volumes:
       - browser-downloads:/home/browser/Downloads
       - browser-runtime:/run/browser
       - exports-data:/data
+      - type: bind
+        source: ${SETTLEMENT_COMPACTION_DISK_PROBE_SOURCE:-/dev/null}
+        target: /run/dydata/postgres-capacity
+        read_only: true
+        bind:
+          create_host_path: false
     stop_grace_period: ${WORKER_STOP_GRACE_PERIOD:-5m}
     mem_limit: ${WORKER_MEMORY_LIMIT:-3g}
     security_opt:

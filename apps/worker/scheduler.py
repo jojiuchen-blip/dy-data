@@ -139,19 +139,15 @@ def run_once() -> None:
     factory = get_session_factory()
     if factory is None:
         raise RuntimeError("Set DY_DATABASE_URL or DATABASE_URL before running worker scheduler.")
-    _process_queued_jobs(factory)
-    if mode == "backfill":
-        with session_scope(factory) as session:
-            config = load_sync_config(session)
-        run_backfill(
-            factory=factory,
-            start=config.history_start,
-            end=config.history_end or None,
-            chunk_days=config.history_chunk_days,
-            skip_completed=config.backfill_skip_completed,
-            queued_job_runner=lambda: _process_queued_jobs(factory),
-        )
-        drain_ready_daily_children(factory)
+    if _process_queued_jobs(factory):
+        return
+    from apps.ops_agent.resources import ResourceAction
+    from apps.worker.resource_monitor import current_resource_decision
+
+    if current_resource_decision().action is not ResourceAction.ALLOW:
+        # Legacy direct settlement/browser/product jobs carry no explicit
+        # daily-required admission. Planning is cheap; executing them is not.
+        _plan_legacy_sources(factory, mode)
         return
     if mode == "browser_export_only":
         run_browser_export_once(factory)
@@ -160,9 +156,28 @@ def run_once() -> None:
         if mode == "settlement_only":
             run_settlement_job(session, job_id=_job_id("settlement"), source_run_id=source_run_id)
             return
-        config = load_sync_config(session)
-    run_incremental_collection_chunks(factory, config)
+    plan = _plan_legacy_sources(factory, mode)
+    child = execute_ready_daily_child(factory, plan)
+    if mode == "backfill":
+        return
+    if child is not None and (child.attempts > 0 or child.status is not ChildRunStatus.BUSY):
+        return
     run_scheduled_product_sync(factory)
+
+
+def _plan_legacy_sources(factory, mode: str) -> DailySyncPlan | None:
+    """Plan dates without using the tick's execution budget."""
+    if mode not in {"collect_and_settle", "backfill"}:
+        return None
+    with session_scope(factory) as session:
+        config = load_sync_config(session)
+    if mode == "backfill":
+        return run_backfill(
+            factory=factory, start=config.history_start,
+            end=config.history_end or None, chunk_days=config.history_chunk_days,
+            skip_completed=config.backfill_skip_completed,
+        )
+    return _plan_incremental_collection(factory, config)
 
 
 def run_scheduled_product_sync(factory, *, now: datetime | None = None) -> str | None:
@@ -176,47 +191,67 @@ def run_scheduled_product_sync(factory, *, now: datetime | None = None) -> str |
     current_time = now or datetime.now(timezone.utc)
     interval_seconds = _bounded_product_sync_interval()
     with session_scope(factory) as session:
-        active = session.scalar(
+        running = session.scalar(
             select(JobRun.job_id)
             .where(
                 JobRun.job_name == PRODUCT_SYNC_JOB_NAME,
-                JobRun.status.in_(("queued", "running")),
+                JobRun.status == "running",
             )
             .limit(1)
         )
-        if active is not None:
+        if running is not None:
             _log("product_sync_skip reason=active_run")
             return None
-        latest_started_at = session.scalar(
-            select(func.max(JobRun.started_at)).where(
-                JobRun.job_name == PRODUCT_SYNC_JOB_NAME
+        queued = session.scalar(
+            select(JobRun.job_id).where(
+                JobRun.job_name == PRODUCT_SYNC_JOB_NAME,
+                JobRun.status == "queued",
+            ).order_by(JobRun.started_at, JobRun.job_id).limit(1)
+        )
+        if queued is not None:
+            # A deferred API or scheduled run keeps its original identity,
+            # mode and metadata; the interval applies only to new jobs.
+            job_id = queued
+        else:
+            latest_started_at = session.scalar(
+                select(func.max(JobRun.started_at)).where(
+                    JobRun.job_name == PRODUCT_SYNC_JOB_NAME
+                )
             )
-        )
-        if latest_started_at is not None:
-            if latest_started_at.tzinfo is None:
-                latest_started_at = latest_started_at.replace(tzinfo=timezone.utc)
-            if (current_time - latest_started_at).total_seconds() < interval_seconds:
-                _log("product_sync_skip reason=interval_not_due")
-                return None
-        job_id = f"product-sync-scheduled-{current_time:%Y%m%d%H%M%S}"
-        queue_job_run(
-            session,
-            job_id,
-            PRODUCT_SYNC_JOB_NAME,
-            started_at=current_time,
-            metadata_json={
-                "mode": "INCREMENTAL",
-                "reason": "scheduled product master refresh",
-                "phase_counts": {},
-            },
-        )
+            if latest_started_at is not None:
+                if latest_started_at.tzinfo is None:
+                    latest_started_at = latest_started_at.replace(tzinfo=timezone.utc)
+                if (current_time - latest_started_at).total_seconds() < interval_seconds:
+                    _log("product_sync_skip reason=interval_not_due")
+                    return None
+            job_id = f"product-sync-scheduled-{current_time:%Y%m%d%H%M%S}"
+            queue_job_run(
+                session,
+                job_id,
+                PRODUCT_SYNC_JOB_NAME,
+                started_at=current_time,
+                metadata_json={
+                    "mode": "INCREMENTAL",
+                    "reason": "scheduled product master refresh",
+                    "phase_counts": {},
+                },
+            )
     _log(f"product_sync_start job_id={job_id}")
-    run_product_sync_job(job_id=job_id, factory=factory)
-    _log(f"product_sync_done job_id={job_id}")
+    result = run_product_sync_job(job_id=job_id, factory=factory)
+    if getattr(result, "status", None) == "DEFERRED":
+        _log(f"product_sync_deferred job_id={job_id} reason={result.error_code}")
+    else:
+        _log(f"product_sync_done job_id={job_id}")
     return job_id
 
 
 def run_incremental_collection_chunks(factory, config) -> DailySyncPlan:
+    plan = _plan_incremental_collection(factory, config)
+    execute_ready_daily_child(factory, plan)
+    return plan
+
+
+def _plan_incremental_collection(factory, config) -> DailySyncPlan:
     source_window = resolve_incremental_collection_window(
         env={
             **os.environ,
@@ -237,7 +272,6 @@ def run_incremental_collection_chunks(factory, config) -> DailySyncPlan:
         f"parent_job_id={plan.parent_job_id} dates={len(plan.daily_jobs)} "
         f"start={plan.window_start.isoformat()} end={plan.window_end.isoformat()}"
     )
-    execute_ready_daily_child(factory, plan)
     return plan
 
 def run_daily_child(
@@ -306,10 +340,10 @@ def drain_ready_daily_children(
 
 def execute_ready_daily_child(
     factory,
-    plan: DailySyncPlan,
+    plan: DailySyncPlan | None,
 ) -> ChildRunResult | None:
     _ = plan
-    results = drain_ready_daily_children(factory)
+    results = drain_ready_daily_children(factory, max_children=1)
     return results[-1] if results else None
 
 
@@ -526,31 +560,39 @@ def _run_priority_daily_mode(factory) -> None:
 def _run_priority_daily_ticks(factory) -> None:
     """Run the bounded priority scheduler loop without the legacy drain."""
 
-    from apps.worker.priority_scheduler import run_priority_daily_tick
-
     run_once_only = _truthy(os.getenv("WORKER_RUN_ONCE"))
     run_on_start = _truthy(os.getenv("WORKER_RUN_ON_START", "true"))
     if run_once_only:
-        run_priority_daily_tick(factory)
+        _run_priority_tick_with_maintenance(factory)
         return
 
     if run_on_start and factory is not None:
         try:
-            run_priority_daily_tick(factory)
+            _run_priority_tick_with_maintenance(factory)
         except Exception as exc:  # noqa: BLE001 - keep the supervisor alive.
             _log(f"priority_daily_tick_failed error={sanitize_error_message(str(exc))}")
 
     while not _STOP:
-        from apps.worker.resource_monitor import current_resource_decision
-        from apps.ops_agent.resources import ResourceAction
-
-        if factory is not None and current_resource_decision().action is not ResourceAction.STOP:
-            _process_queued_jobs(factory)
         try:
-            run_priority_daily_tick(factory)
+            _run_priority_tick_with_maintenance(factory)
         except Exception as exc:  # noqa: BLE001 - keep polling after one tick.
             _log(f"priority_daily_tick_failed error={sanitize_error_message(str(exc))}")
         _sleep_until_stop(_configured_daily_queue_poll_seconds())
+
+
+def _run_priority_tick_with_maintenance(factory) -> None:
+    """Use the same single-heavy-work budget for startup, run-once and polling."""
+
+    from apps.ops_agent.resources import ResourceAction
+    from apps.worker.priority_scheduler import run_priority_daily_tick
+    from apps.worker.resource_monitor import current_resource_decision
+
+    if factory is not None:
+        if current_resource_decision().action is ResourceAction.STOP:
+            return
+        if _process_queued_jobs(factory):
+            return
+    run_priority_daily_tick(factory)
 
 
 def main() -> None:
@@ -589,9 +631,9 @@ def _run_legacy_scheduler(factory, *, run_once_only: bool, run_on_start: bool) -
         next_plan_at = None
 
     while not _STOP:
+        work_consumed = False
         if factory is not None:
-            _process_queued_jobs(factory)
-        drain_ready_daily_children(factory)
+            work_consumed = bool(_process_queued_jobs(factory))
         if _STOP:
             break
 
@@ -599,13 +641,21 @@ def _run_legacy_scheduler(factory, *, run_once_only: bool, run_on_start: bool) -
         now = time.monotonic()
         if auto_enabled:
             if next_plan_at is None or now >= next_plan_at:
-                run_once()
-                next_plan_at = (
-                    time.monotonic()
-                    + _configured_interval_seconds(factory)
-                )
+                mode = resolve_worker_mode()
+                planning_completed = False
+                if work_consumed:
+                    # A backlog must not prevent planning newly due dates.
+                    # Direct modes have nothing cheap to plan and wait a tick.
+                    _plan_legacy_sources(factory, mode)
+                    planning_completed = mode in {"collect_and_settle", "backfill"}
+                else:
+                    run_once()
+                    work_consumed = True
+                    planning_completed = True
+                if planning_completed:
+                    next_plan_at = time.monotonic() + _configured_interval_seconds(factory)
             sleep_seconds = _configured_daily_queue_poll_seconds()
-            if next_plan_at is not None:
+            if next_plan_at is not None and next_plan_at > time.monotonic():
                 sleep_seconds = min(
                     sleep_seconds,
                     max(0.1, next_plan_at - time.monotonic()),
@@ -613,13 +663,34 @@ def _run_legacy_scheduler(factory, *, run_once_only: bool, run_on_start: bool) -
         else:
             next_plan_at = None
             sleep_seconds = _configured_daily_queue_poll_seconds()
+        if not work_consumed:
+            drain_ready_daily_children(factory, max_children=1)
+        if _STOP:
+            break
         _sleep_until_stop(sleep_seconds)
 
 
-def _process_queued_jobs(factory) -> None:
+def _process_queued_jobs(factory) -> bool:
+    """Return whether work ran or maintenance must defer further heavy work."""
+
+    from apps.worker.settlement_maintenance import process_automatic_settlement_maintenance
+    from apps.worker.resource_monitor import current_resource_decision
+    from apps.ops_agent.resources import ResourceAction
+
+    decision = current_resource_decision()
+    if decision.action is ResourceAction.STOP:
+        return True
+    if process_automatic_settlement_maintenance(factory):
+        return True
+    if decision.action is not ResourceAction.ALLOW:
+        # Only explicitly admitted daily work may proceed while draining.
+        return False
     ensure_month_close_job(factory)
-    process_queued_settlement_rebuilds(factory)
-    process_queued_finance_dispute_detections(factory)
+    rebuild = process_queued_settlement_rebuilds(factory)
+    if rebuild is not None and rebuild.processed_job_id is not None:
+        return True
+    detection = process_queued_finance_dispute_detections(factory, max_jobs=1)
+    return bool(detection is not None and detection.processed_job_ids)
 
 
 def _configured_interval_seconds(factory) -> int:

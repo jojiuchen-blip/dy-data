@@ -23,9 +23,16 @@ from dy_api.models import (
 )
 from dy_api.routes import dashboard as source
 from dy_api.routes._data import DashboardDataStore
+from publication_fixture_helpers import ready_periods_fixture
 
 
 NOW = datetime(2026, 10, 19, 4, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def complete_projection_periods(monkeypatch):
+    """Domain parity fixtures explicitly assume complete daily collection."""
+    monkeypatch.setattr(publication.period_readiness, "capture", ready_periods_fixture)
 
 
 def _run(session, publication_id, module, cutoff=NOW):

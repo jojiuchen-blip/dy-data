@@ -850,14 +850,16 @@ def create_settlement_scope_rules(
         )
     key_hash = _idempotency_key_hash(idempotency_key, request)
     channels = list(parsed.allowed_sale_channels)
-    request_hash = _canonical_sha256(
-        {
-            "effectiveMonth": parsed.effective_month,
-            "ownerAccountId": parsed.owner_account_id,
-            "allowedSaleChannels": channels,
-            "changeReason": parsed.change_reason,
-        }
-    )
+    request_identity: dict[str, Any] = {
+        "effectiveMonth": parsed.effective_month,
+        "ownerAccountId": parsed.owner_account_id,
+        "allowedSaleChannels": channels,
+        "changeReason": parsed.change_reason,
+    }
+    # Omitted/explicit true preserve the hashes of requests saved by the old API.
+    if not parsed.is_active:
+        request_identity["isActive"] = False
+    request_hash = _canonical_sha256(request_identity)
     existing_key_rows = list(
         store.session.scalars(
             select(SettlementScopeRule)
@@ -889,6 +891,7 @@ def create_settlement_scope_rules(
                 "scopeRuleVersions": [row.scope_rule_version for row in existing_key_rows],
                 "effectiveMonth": parsed.effective_month,
                 "ownerAccountId": parsed.owner_account_id,
+                "isActive": bool(existing_key_rows[0].is_active),
                 "allowedSaleChannels": [
                     row.sale_channel_normalized.upper() for row in existing_key_rows
                 ],
@@ -930,7 +933,7 @@ def create_settlement_scope_rules(
             effective_month=parsed.effective_month,
             owner_account_id=parsed.owner_account_id,
             sale_channel_normalized=normalized_channel,
-            is_active=True,
+            is_active=parsed.is_active,
             created_by=username,
             change_reason=parsed.change_reason,
         )
@@ -961,6 +964,7 @@ def create_settlement_scope_rules(
             "scopeRuleVersions": [row.scope_rule_version for row in rows],
             "effectiveMonth": parsed.effective_month,
             "ownerAccountId": parsed.owner_account_id,
+            "isActive": parsed.is_active,
             "allowedSaleChannels": channels,
         },
     )

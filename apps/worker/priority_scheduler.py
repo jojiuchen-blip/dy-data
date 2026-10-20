@@ -1019,7 +1019,10 @@ def _live_heavy_job(session: Session, now: datetime) -> JobRun | None:
         session.scalars(
             select(JobRun)
             .where(
-                JobRun.execution_slot == "heavy_sync",
+                or_(
+                    JobRun.execution_slot == "heavy_sync",
+                    JobRun.job_name == "settlement_rebuild",
+                ),
                 JobRun.status == "running",
             )
             .order_by(JobRun.job_id)
@@ -1027,7 +1030,9 @@ def _live_heavy_job(session: Session, now: datetime) -> JobRun | None:
         )
     )
     for row in rows:
-        if _is_active_running(row, now):
+        # Legacy rebuild rows can lack a slot or a lease. Only their audited
+        # recovery path may release a writer; elapsed time is not that proof.
+        if row.job_name == "settlement_rebuild" or _is_active_running(row, now):
             return row
     return None
 

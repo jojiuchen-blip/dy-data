@@ -123,9 +123,19 @@ def month_current_results_fingerprint(
             SettlementFeeResult.fee_direction,
             SettlementFeeResult.fee_result_id,
         )
-    ).all()
-    payload = ";".join(f"{coupon}|{direction}|{result}" for coupon, direction, result in rows)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12], len(rows)
+        .execution_options(yield_per=500)
+    )
+    digest = hashlib.sha256()
+    count = 0
+    try:
+        for coupon, direction, result in rows:
+            if count:
+                digest.update(b";")
+            digest.update(f"{coupon}|{direction}|{result}".encode("utf-8"))
+            count += 1
+    finally:
+        rows.close()
+    return digest.hexdigest()[:12], count
 
 
 def published_days_revisions(

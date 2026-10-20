@@ -1,4 +1,5 @@
 import { ApiRequestError } from "../api/client";
+import { isPublicationPeriodNotReady, PUBLICATION_PERIOD_NOT_READY_TEXT } from "./apiErrors";
 
 const STATUS_MESSAGES: Readonly<Record<number, string>> = {
   400: "提交内容不完整或格式不正确，请检查后重试。",
@@ -14,6 +15,7 @@ export function userFacingError(
   error: unknown,
   fallback = "操作未完成，请稍后重试。",
 ): string {
+  if (isPublicationPeriodNotReady(error)) return PUBLICATION_PERIOD_NOT_READY_TEXT;
   if (error instanceof ApiRequestError) {
     if (STATUS_MESSAGES[error.status]) {
       return STATUS_MESSAGES[error.status];

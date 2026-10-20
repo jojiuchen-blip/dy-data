@@ -2418,9 +2418,12 @@ def test_settlement_mock_filter_and_statement_use_the_same_store(
             )
 
         page.route("**/api/v1/store-settlements?*", matching_statement)
-        page.goto(f"{vite_base_url}/settlement", wait_until="domcontentloaded")
+        # This store-matching fixture contains August bills. Keep its month
+        # explicit so the last-complete-month default cannot select another bill.
+        page.goto(f"{vite_base_url}/settlement?month=2026-08", wait_until="domcontentloaded")
         page.get_by_role("heading", name="单店分账", exact=True).wait_for(timeout=10000)
 
+        expect(page.get_by_role("button", name="账期", exact=True)).to_have_text("2026-08")
         expect(page.get_by_role("combobox", name="门店")).to_have_value(
             "上海浦东体验中心",
             timeout=10000,
@@ -2430,6 +2433,59 @@ def test_settlement_mock_filter_and_statement_use_the_same_store(
             name="确认管理服务费",
             exact=True,
         ).wait_for(timeout=10000)
+    finally:
+        context.close()
+
+
+def test_settlement_keeps_default_month_visible_when_absent_from_published_options(
+    browser: Browser,
+    vite_real_api_base_url: str,
+    tmp_path: Path,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    monthly_requests: list[str] = []
+    try:
+        page.clock.set_fixed_time("2026-10-20T02:00:00Z")
+        install_settlement_user_route(page, "admin")
+        page.route(
+            "**/api/v1/dashboard/publications/settlement/filters*",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=api_payload(settlement_filter_meta(), publication_module="settlement"),
+            ),
+        )
+
+        def fulfill_monthly(route) -> None:
+            monthly_requests.append(route.request.url)
+            data = settlement_monthly_data("store_001", "上海浦东体验中心", "2026-09")
+            data["metrics"] = {key: 0 for key in data["metrics"]}
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=api_payload(data, publication_module="settlement"),
+            )
+
+        page.route("**/api/v1/stores/*/monthly-settlement?*", fulfill_monthly)
+        page.route(
+            "**/api/v1/store-settlements?*",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=api_payload({
+                    "list": [billing_statement_data("store_001", "上海浦东体验中心")],
+                    "total": 1, "page": 1, "pageSize": 1,
+                    "metricScope": "MONTH", "metrics": {},
+                }),
+            ),
+        )
+        page.goto(f"{vite_real_api_base_url}/settlement", wait_until="domcontentloaded")
+        expect(page.get_by_role("combobox", name="门店")).to_have_value("上海浦东体验中心")
+        assert monthly_requests and all("month=2026-09" in url for url in monthly_requests)
+        expect(page.get_by_role("button", name="账期", exact=True)).to_have_text("2026-09")
+        expect(page.get_by_role("button", name="确认管理服务费", exact=True)).to_have_count(0)
+        page.screenshot(path=str(tmp_path / "unpublished-default-month.png"), full_page=True)
     finally:
         context.close()
 

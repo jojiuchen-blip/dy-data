@@ -87,6 +87,8 @@ def source_fingerprint(session: Session, module: str | None = None, *, now: date
         time_token["clue_organization"] = effective_organization_version(session, cutoff)
     if module in {None, "finance", "settlement"}:
         time_token["shanghai_month"] = cutoff.astimezone(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m")
+        from . import period_readiness
+        time_token["financial_periods"] = period_readiness.fingerprint(period_readiness.capture(session, cutoff))
     payload = {"sources": [tuple(row) for row in rows], "time": time_token}
     return hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode()).hexdigest()
 

@@ -24,8 +24,8 @@ from threading import Event, Lock, Thread
 from typing import Any, Callable, Iterator
 from uuid import uuid4
 
-from sqlalchemy import and_, exists, func, or_, select, update
-from sqlalchemy.orm import aliased, Session, sessionmaker
+from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.dy_api.db import session_scope
 from apps.api.dy_api.models import (
@@ -48,6 +48,7 @@ from apps.worker.projection_publish import (
 from apps.worker.repositories import (
     HEAVY_SYNC_CLAIM_LOCK_KEY,
     heavy_sync_rate_limit_cooldown_active,
+    no_other_running_heavy_job,
     resource_admission_allows_job,
 )
 from apps.worker.resource_monitor import current_resource_decision
@@ -114,6 +115,7 @@ def enqueue_settlement_compaction_job(
     base_generation_id: str,
     batch_size: int,
     resource_limits: ResourceGateConfig,
+    trigger: str | None = None,
 ) -> str:
     """Queue one idempotent compaction job against the active settlement head."""
 
@@ -133,6 +135,8 @@ def enqueue_settlement_compaction_job(
         "batch_size": batch_size,
         **{key: int(getattr(resource_limits, key)) for key in _RESOURCE_KEYS},
     }
+    if trigger is not None:
+        metadata["trigger"] = trigger
     with session_scope(factory) as session:
         active = session.get(SettlementProjectionActive, "settlement")
         if active is None or active.generation_id != base_generation_id:
@@ -172,17 +176,6 @@ def enqueue_settlement_compaction_job(
             )
         )
     return job_id
-
-
-def _no_other_running_heavy_slot() -> Any:
-    other = aliased(JobRun)
-    return ~exists(
-        select(1).where(
-            other.job_id != JobRun.job_id,
-            other.execution_slot == "heavy_sync",
-            other.status == "running",
-        )
-    )
 
 
 def claim_settlement_compaction_job(
@@ -231,7 +224,7 @@ def claim_settlement_compaction_job(
                     return None
             if heavy_sync_rate_limit_cooldown_active(session):
                 return None
-            no_other_running = _no_other_running_heavy_slot()
+            no_other_running = no_other_running_heavy_job()
             if dialect_name == "postgresql":
                 clock = func.statement_timestamp()
                 expired_running = and_(
@@ -246,12 +239,9 @@ def claim_settlement_compaction_job(
                     JobRun.lease_expires_at.is_not(None),
                     JobRun.lease_expires_at <= now,
                 )
-            attempt_available = (
-                func.coalesce(JobRun.attempt_count, 0)
-                < (
-                    func.coalesce(JobRun.max_attempts, 3)
-                    + func.coalesce(JobRun.quota_pause_count, 0)
-                )
+            attempt_available = and_(
+                func.coalesce(JobRun.attempt_count, 0) < DEFAULT_SETTLEMENT_COMPACTION_MAX_ATTEMPTS,
+                func.coalesce(JobRun.attempt_count, 0) < func.coalesce(JobRun.max_attempts, 3),
             )
             statement = (
                 select(JobRun)
@@ -272,6 +262,27 @@ def claim_settlement_compaction_job(
                 return None
             if not resource_admission_allows_job(job, resource_decision):
                 return None
+            if (job.metadata_json or {}).get("trigger") == "automatic_lineage_maintenance":
+                # A fresh probe/estimate before the attempt increment prevents
+                # resource changes while queued from consuming the retry budget.
+                from apps.worker.settlement_maintenance import (
+                    automatic_runner_resource_limits,
+                )
+
+                try:
+                    automatic_runner_resource_limits(
+                        factory,
+                        base_generation_id=str((job.metadata_json or {}).get("base_generation_id", "")),
+                        batch_size=int((job.metadata_json or {}).get("batch_size", 0)),
+                    )
+                except Exception as exc:
+                    _record_compaction_event(
+                        session, job=job,
+                        event_type="settlement_compaction_admission_deferred",
+                        reason="automatic maintenance resource evidence is unavailable before claim",
+                        payload={"error_type": type(exc).__name__},
+                    )
+                    return None
             claim_id = f"settlement-compaction-{uuid4().hex}"
             claim_time = _database_utcnow(session)
             observed_status = job.status
@@ -530,6 +541,59 @@ def _finish_in_session(
     )
 
 
+def _stale_in_session(
+    session: Session, job: JobRun, *, current_base: str | None
+) -> None:
+    """Terminalize an obsolete base with a truthful, one-time audit event."""
+    now = _database_utcnow(session)
+    metadata = dict(job.metadata_json or {})
+    metadata.update({"stage": "STALE", "claimId": None, "stale_current_base": current_base,
+                     "attemptCount": int(job.attempt_count or 0)})
+    job.status = "failed"
+    job.finished_at = now
+    job.state_updated_at = now
+    job.claim_token = None
+    job.lease_expires_at = None
+    job.error_code = "settlement_compaction_stale_base"
+    job.error_summary = "compaction base is no longer active"
+    job.error_message = job.error_summary
+    job.metadata_json = metadata
+    _record_compaction_event(
+        session, job=job, event_type="settlement_compaction_stale_base",
+        reason="automatic compaction base is no longer active",
+        payload={"base_generation_id": metadata.get("base_generation_id"), "current_base": current_base},
+    )
+
+
+def _defer_automatic_claim(
+    factory: sessionmaker, *, job_id: str, claim_id: str, reason: str
+) -> dict[str, object]:
+    """Release an admission race before the builder; refund only this claim."""
+    with session_scope(factory) as session:
+        job = _load_claimed_job(session, job_id=job_id, claim_id=claim_id, require_live_lease=True)
+        active = session.get(SettlementProjectionActive, "settlement")
+        metadata = dict(job.metadata_json or {})
+        current_base = active.generation_id if active is not None else None
+        job.attempt_count = max(0, int(job.attempt_count or 0) - 1)
+        job.state_updated_at = _database_utcnow(session)
+        if current_base != metadata.get("base_generation_id"):
+            _stale_in_session(session, job, current_base=current_base)
+        else:
+            job.status = "queued"
+            job.claim_token = None
+            job.lease_expires_at = None
+            metadata.update({"stage": "ADMISSION_DEFERRED", "claimId": None,
+                             "maintenance_blocked_reason": reason,
+                             "attemptCount": job.attempt_count})
+            job.metadata_json = metadata
+            _record_compaction_event(
+                session, job=job, event_type=f"settlement_compaction_deferred_{reason}",
+                reason="automatic maintenance admission changed before execution",
+                payload={"reason": reason},
+            )
+    return {"status": "deferred", "outcome": reason, "generation_id": None}
+
+
 def _find_publication_evidence(
     session: Session, *, job_id: str, base_generation_id: str
 ) -> str | None:
@@ -745,6 +809,30 @@ def run_settlement_compaction_job(
             }
 
     try:
+        if metadata.get("trigger") == "automatic_lineage_maintenance":
+            from apps.worker.settlement_maintenance import automatic_runner_resource_limits
+
+            # Re-read actual capacity and policy after claim to fence the
+            # observation/claim race. No builder has been entered at this point.
+            try:
+                with factory() as session:
+                    admission_job = session.get(JobRun, job_id)
+                    allowed = (
+                        admission_job is not None
+                        and resource_admission_allows_job(admission_job, current_resource_decision())
+                        and not heavy_sync_rate_limit_cooldown_active(session)
+                    )
+                if not allowed:
+                    return _defer_automatic_claim(
+                        factory, job_id=job_id, claim_id=claim_id, reason="resource_policy_changed"
+                    )
+                resource_limits = automatic_runner_resource_limits(
+                    factory, base_generation_id=base_generation_id, batch_size=batch_size
+                )
+            except Exception:
+                return _defer_automatic_claim(
+                    factory, job_id=job_id, claim_id=claim_id, reason="resource_evidence_unavailable"
+                )
         with _compaction_heartbeat_watchdog(
             factory,
             job_id=job_id,

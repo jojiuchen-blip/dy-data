@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
+from publication_fixture_helpers import ready_periods_fixture
 from sqlalchemy import create_engine, delete, event, func, insert, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
@@ -37,6 +38,11 @@ PUBLICATION_POSTGRES_URL = os.getenv("DYDATA_PUBLICATION_TEST_DATABASE_URL")
 POSTGRES_URL = PUBLICATION_POSTGRES_URL or os.getenv("DYDATA_T12_TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not POSTGRES_URL, reason="dedicated PostgreSQL test URL not configured")
 SCHEMA_PATTERN = re.compile(r"pub_finance_[0-9a-f]{12}\Z")
+
+
+@pytest.fixture(autouse=True)
+def complete_projection_periods(monkeypatch):
+    monkeypatch.setattr(publication.period_readiness, "capture", ready_periods_fixture)
 
 
 @pytest.fixture()

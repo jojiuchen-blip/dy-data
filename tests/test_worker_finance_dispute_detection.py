@@ -633,7 +633,7 @@ def test_scheduler_run_once_scans_finance_detection_queue(
     monkeypatch.setattr(
         scheduler,
         "process_queued_finance_dispute_detections",
-        lambda factory_arg: calls.append("finance-detection-queue"),
+        lambda factory_arg, *, max_jobs: calls.append("finance-detection-queue"),
         raising=False,
     )
     monkeypatch.setattr(

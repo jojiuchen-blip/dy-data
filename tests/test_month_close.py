@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+import hashlib
 
 import pytest
 from sqlalchemy import select
@@ -164,6 +165,20 @@ def test_zero_current_results_fails_closed(db_session):
     from apps.worker.month_close import NO_CURRENT_RESULTS
 
     assert month_close_preflight(db_session, MONTH) == (NO_CURRENT_RESULTS, None)
+
+
+def test_streaming_result_fingerprint_preserves_existing_job_identity(db_session):
+    # More than two fetch batches; lexical order deliberately differs from input.
+    for index in range(1003):
+        _add_current_result(db_session, f"result-{index}", f"coupon-{index}")
+    db_session.commit()
+    rows = sorted((f"coupon-{index}", 1, f"result-{index}") for index in range(1003))
+    old_payload = ";".join(f"{coupon}|{direction}|{result}" for coupon, direction, result in rows)
+    expected = hashlib.sha256(old_payload.encode("utf-8")).hexdigest()[:12]
+    assert month_close.month_current_results_fingerprint(db_session, MONTH) == (expected, 1003)
+    assert month_close.month_current_results_fingerprint(db_session, "2026-10") == (
+        hashlib.sha256(b"").hexdigest()[:12], 0,
+    )
 
 
 def test_planner_enabled_but_incomplete_month_enqueues_nothing(db_session):

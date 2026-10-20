@@ -32,6 +32,7 @@ import { userFacingError } from "../utils/userFacingError";
 import { displayFinanceSaleChannel } from "../utils/userFacingLabels";
 import { parseYuanToCent } from "../utils/money";
 import { createPendingRequestKey } from "../utils/pendingRequestKey";
+import { initialStatementMonth } from "../utils/statementMonth";
 
 interface StoreSettlementPageProps {
   currentUser: AdminUser;
@@ -69,7 +70,7 @@ function confirmationLabel(confirmation: BillingConfirmationSummary | null): str
 }
 
 export function StoreSettlementPage({ currentUser, searchParams }: StoreSettlementPageProps) {
-  const [month, setMonth] = useState(searchParams.get("month") ?? "");
+  const [month, setMonth] = useState(() => initialStatementMonth(searchParams));
   const requestedStoreId = searchParams.get("storeId") ?? searchParams.get("store_id") ?? "";
   const [storeId, setStoreId] = useState(requestedStoreId);
   const [activeFeeDirection, setActiveFeeDirection] = useState<FeeDirection>("PROMOTION");
@@ -321,6 +322,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
           disabled={!meta}
           label="账期"
           value={activeMonth}
+          placeholder={activeMonth || undefined}
           onChange={(value) => { setMonth(value); setInvalidatedStatementKey(null); }}
           options={(meta?.statementMonths ?? []).map((value) => ({ value, label: value }))}
         />
