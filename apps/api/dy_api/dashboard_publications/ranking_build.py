@@ -47,6 +47,36 @@ def _copy(session, source, target, publication_id, predicate, columns):
     return count
 
 
+def _unique_poi_stores(poi_rows):
+    """Match SQL COUNT(DISTINCT store_id) = 1, including repeated mappings."""
+    stores_by_poi = {}
+    for poi_id, store_id in poi_rows:
+        if poi_id is not None and store_id is not None:
+            stores_by_poi.setdefault(poi_id, set()).add(store_id)
+    return {poi_id: next(iter(stores)) for poi_id, stores in stores_by_poi.items() if len(stores) == 1}
+
+
+def _verification_by_store(session, order_ids, poi_to_store, cutoff):
+    # Restrict coupons to this order batch before aggregating. Joining the POI
+    # dimension here can make PG scan all verifications for each round batch.
+    by_store = {}
+    statement = select(RawDouyinOrderCoupon.order_id, RawDouyinVerifyRecord.poi_id,
+        func.max(RawDouyinVerifyRecord.verify_time)).join(RawDouyinVerifyRecord,
+        RawDouyinVerifyRecord.coupon_id == RawDouyinOrderCoupon.coupon_id).where(
+        RawDouyinOrderCoupon.order_id.in_(order_ids),
+        RawDouyinVerifyRecord.verify_status.in_(("1", "success", "verified", "已核销")),
+        RawDouyinVerifyRecord.verify_time <= cutoff,
+        or_(RawDouyinVerifyRecord.cancel_time.is_(None), RawDouyinVerifyRecord.cancel_time > cutoff)
+    ).group_by(RawDouyinOrderCoupon.order_id, RawDouyinVerifyRecord.poi_id)
+    for order_id, poi_id, at in session.execute(statement):
+        store_id = poi_to_store.get(poi_id)
+        if store_id is not None:
+            key, at = (order_id, store_id), utc(at)
+            if key not in by_store or at > by_store[key]:
+                by_store[key] = at
+    return by_store
+
+
 def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, Any]:
     """Freeze all observed history in bounded batches without committing.
 
@@ -90,6 +120,7 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
     poi_rows = list(session.execute(select(DimStorePoiMapping.poi_id, DimStorePoiMapping.store_id).limit(DIMENSION_LIMIT + 1)))
     if len(poi_rows) > DIMENSION_LIMIT:
         raise ValueError("榜单POI维度超过构建上限，请核对门店映射")
+    unique_pois = _unique_poi_stores(poi_rows)
     owner_index = OrderAttributionIndex(accounts=_dimensions(session, select(DimAwemeAccount)),
         bindings=_dimensions(session, select(RawAwemeBinding)), poi_to_store=poi_rows)
     sale_time = func.coalesce(RawDouyinOrder.sale_time, RawDouyinOrder.pay_time)
@@ -131,8 +162,6 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
             and_(no_lead, or_(first_round.lead_key.is_(None), first_round.lead_key == ""),
                 first_round.order_id == ClueAssignmentRound.order_id))
     ).correlate(ClueAssignmentRound).scalar_subquery()
-    unique_pois = select(DimStorePoiMapping.poi_id, func.min(DimStorePoiMapping.store_id).label("store_id")).group_by(
-        DimStorePoiMapping.poi_id).having(func.count(func.distinct(DimStorePoiMapping.store_id)) == 1).subquery()
     round_count, last_round = 0, None
     while True:
         statement = select(ClueAssignmentRound, or_(known_order, known_raw, known_center), first_at).where(
@@ -169,15 +198,7 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
             pinned.update({row["lead_key"]: row for row in session.execute(select(frozen.lead_bindings).where(
                 frozen.lead_bindings.c.lead_key.in_(lead_keys))).mappings()})
         follow = bulk_evaluate_legacy_ranking_followup(session, {row.order_id for row in rows}, round_rows=rows, observed_through=cutoff)
-        verify = {(order, store): utc(at) for order, store, at in session.execute(select(
-            RawDouyinOrderCoupon.order_id, unique_pois.c.store_id, func.max(RawDouyinVerifyRecord.verify_time))
-            .join(RawDouyinVerifyRecord, RawDouyinVerifyRecord.coupon_id == RawDouyinOrderCoupon.coupon_id)
-            .join(unique_pois, unique_pois.c.poi_id == RawDouyinVerifyRecord.poi_id)
-            .where(RawDouyinOrderCoupon.order_id.in_({row.order_id for row in rows}),
-                RawDouyinVerifyRecord.verify_status.in_(("1", "success", "verified", "已核销")),
-                RawDouyinVerifyRecord.verify_time <= cutoff,
-                or_(RawDouyinVerifyRecord.cancel_time.is_(None), RawDouyinVerifyRecord.cancel_time > cutoff))
-            .group_by(RawDouyinOrderCoupon.order_id, unique_pois.c.store_id))}
+        verify = _verification_by_store(session, {row.order_id for row in rows}, unique_pois, cutoff)
         values = []
         for row, member, earliest_at in batch:
             key = row.lead_key or "order:" + row.order_id

@@ -22,8 +22,11 @@
 
 2026-10-20 用户调整优先级：历史恢复暂缓。构建时冻结财务/结算各月日水位完整性，读端只读取固定发布版本的状态；不完整月及包含该月的累计返回明确未就绪，避免正常零金额及不完整导出。状态变化纳入发布指纹，不能依赖业务表 DML 才恢复。已保护历史账单仍按原操作资格读取，生成新账单继续遵守原门禁。另修复线索读取原始平台售后 refund_type 时把发起来源误当全额退款的旁路。
 
+2026-10-20 首次发布实测：抖音榜单构建约809秒，期间正常线索跟进变更导致来源指纹检查拒绝发布。T3.1包含这一发布阻断的最小性能修复：核销聚合先限定本批订单券，再按订单/POI汇总并使用已加载的唯一门店映射；重复同店、歧义POI、同店多POI、撤销与cutoff口径保持。不得修改来源指纹或完整性门禁，不新增索引/迁移；通过专项、真实PG、最终CI和重新预热证明结果，不能以EXPLAIN估计代替耗时验证。
+
 **核心文件**：
 - `deploy/tencent/deploy.sh`
+- `apps/api/dy_api/dashboard_publications/ranking_build.py`
 - `docs/api/dashboard-publications.md`
 - `docs/rules/storage-management.md`
 - `docs/devlog/20261020_dydata-104-followthrough.md`
