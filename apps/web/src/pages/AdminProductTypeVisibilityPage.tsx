@@ -22,6 +22,7 @@ import type {
 } from "../types/dashboard";
 import { formatDateTime } from "../utils/format";
 import { userFacingError } from "../utils/userFacingError";
+import { useDownloadFeedback } from "../hooks/useDownloadFeedback";
 
 type ViewMode = "pending" | "configured";
 type EditorMode = "single" | "bulk" | null;
@@ -54,6 +55,7 @@ function errorMessage(error: unknown): string {
 }
 
 export function AdminProductTypeVisibilityPage() {
+  const download = useDownloadFeedback();
   const [viewMode, setViewMode] = useState<ViewMode>(modeFromUrl);
   const [rows, setRows] = useState<SkuProductItem[]>([]);
   const [page, setPage] = useState(() => Math.max(1, Number(urlValue("page")) || 1));
@@ -278,7 +280,8 @@ export function AdminProductTypeVisibilityPage() {
       </Dialog>
 
       <Dialog actions={<><Button disabled={saving} onClick={() => setImportOpen(false)} variant="secondary">取消</Button>{importPreview?.batch.batchStatus === "PENDING_COMMIT" ? <Button disabled={saving} onClick={() => void commitImport()} variant="primary">确认写入 {importPreview.batch.validCount} 条</Button> : <Button disabled={saving || !importFile} onClick={() => void uploadImport()} variant="primary">上传并预校验</Button>}</>} description="支持 UTF-8 CSV 或 XLSX。字段为 skuId、productScope、productType；单项不修改请填写 KEEP，空白和两个 KEEP 都会阻止整批写入。" onClose={() => setImportOpen(false)} open={importOpen} panelClassName="product-types-drawer" title="批量导入商品口径">
-        <div className="product-types-import-actions"><Button onClick={() => void downloadSkuProductImportTemplate()} variant="secondary">下载模板</Button><FieldInput accept=".csv,.xlsx" aria-label="选择商品口径导入文件" onChange={(event) => { setImportFile(event.target.files?.[0] ?? null); setImportPreview(null); }} type="file" /></div>
+        <div className="product-types-import-actions"><Button loading={download.busy} onClick={() => void download.run(downloadSkuProductImportTemplate, "模板已下载。")} variant="secondary">下载模板</Button><FieldInput accept=".csv,.xlsx" aria-label="选择商品口径导入文件" onChange={(event) => { setImportFile(event.target.files?.[0] ?? null); setImportPreview(null); }} type="file" /></div>
+        {download.message ? <p className="resource-notice" role={download.isError ? "alert" : "status"}>{download.message}</p> : null}
         {importPreview ? <div className="product-types-import-summary"><strong>{importPreview.batch.batchStatus === "PENDING_COMMIT" ? "预校验通过" : "预校验未通过"}</strong><span>总计 {importPreview.batch.totalCount} / 有效 {importPreview.batch.validCount} / 错误 {importPreview.batch.failedCount}</span>{importPreview.errorPreview.slice(0, 10).map((row) => <p key={row.rowNumber}>第 {row.rowNumber} 行：{row.errors.map(({ message }) => message).join("；")}</p>)}</div> : null}
       </Dialog>
     </div>

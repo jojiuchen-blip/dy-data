@@ -31,6 +31,7 @@ import { Button } from "./Button";
 import { StatusChip, type ChipTone } from "./Chips";
 import { DataTable, type Column } from "./DataTable";
 import { SelectField } from "./FormControls";
+import { useDownloadFeedback } from "../hooks/useDownloadFeedback";
 
 const FIRST_EFFECTIVE_DATE = "2026-08-01";
 
@@ -58,6 +59,7 @@ function statusTone(value: string): ChipTone {
 }
 
 export function AdminSkuGovernancePanel() {
+  const download = useDownloadFeedback();
   const feePublishIntent = useRef<{ fingerprint: string; key: string } | null>(null);
   const importCommitIntent = useRef<{ fingerprint: string; key: string } | null>(null);
   const [products, setProducts] = useState<SkuProductItem[]>([]);
@@ -333,7 +335,8 @@ export function AdminSkuGovernancePanel() {
       </section>
 
       <section className="content-section">
-        <div className="section-title"><div><h2>批量导入与原子提交</h2><p>先上传并全量预校验；任一行错误时整批未写入，只有全部通过才可确认原子提交。</p></div><Button onClick={() => void downloadSkuFeeRuleImportTemplate()} type="button">下载标准模板</Button></div>
+        <div className="section-title"><div><h2>批量导入与原子提交</h2><p>先上传并全量预校验；任一行错误时整批未写入，只有全部通过才可确认原子提交。</p></div><Button loading={download.busy} onClick={() => void download.run(downloadSkuFeeRuleImportTemplate, "模板已下载。")} type="button">下载标准模板</Button></div>
+        {download.message ? <p className="resource-notice" role={download.isError ? "alert" : "status"}>{download.message}</p> : null}
         <div className="admin-form-grid">
           <label className="filter-field"><span>CSV / XLSX 文件</span><input accept=".csv,.xlsx" onChange={(event) => setImportFile(event.target.files?.[0] ?? null)} type="file" /></label>
           <label className="filter-field"><span>整批生效自然日</span><input min={FIRST_EFFECTIVE_DATE} onChange={(event) => setImportDate(event.target.value)} type="date" value={importDate} /></label>
@@ -343,7 +346,7 @@ export function AdminSkuGovernancePanel() {
         </div>
         {activeBatch ? (
           <div className="resource-panel">
-            <div className="admin-batch-summary"><StatusChip tone={statusTone(activeBatch.batchStatus)}>{displayImportBatchStatus(activeBatch.batchStatus)}</StatusChip><span>总计 {formatInteger(activeBatch.totalCount)}</span><span>合法 {formatInteger(activeBatch.validCount)}</span><span>失败 {formatInteger(activeBatch.failedCount)}</span><span>正式写入 {formatInteger(activeBatch.successCount)}</span>{activeBatch.hasResultFile ? <Button onClick={() => void downloadSkuFeeRuleImportResult(activeBatch.batchId)} size="sm">下载结果文件</Button> : null}</div>
+            <div className="admin-batch-summary"><StatusChip tone={statusTone(activeBatch.batchStatus)}>{displayImportBatchStatus(activeBatch.batchStatus)}</StatusChip><span>总计 {formatInteger(activeBatch.totalCount)}</span><span>合法 {formatInteger(activeBatch.validCount)}</span><span>失败 {formatInteger(activeBatch.failedCount)}</span><span>正式写入 {formatInteger(activeBatch.successCount)}</span>{activeBatch.hasResultFile ? <Button loading={download.busy} onClick={() => void download.run(() => downloadSkuFeeRuleImportResult(activeBatch.batchId), "结果文件已下载。")} size="sm">下载结果文件</Button> : null}</div>
             {activeBatch.batchStatus === "VALIDATION_FAILED" ? <p className="admin-error">整批未写入。以下按原文件行号列出全部已返回错误。</p> : null}
             {errorRows.map((row) => <div className="admin-import-error" key={row.rowNumber}><strong>第 {row.rowNumber} 行 · {displayImportRowStatus(row.validationStatus)}</strong>{row.errors.map((error) => <span key={`${row.rowNumber}-${error.field}-${error.code}`}>{error.field}：{error.message}</span>)}</div>)}
             {hasMoreErrors ? <p className="admin-muted">还有更多错误，请下载结果文件查看。</p> : null}
