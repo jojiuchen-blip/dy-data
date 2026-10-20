@@ -305,3 +305,8 @@ READ ONLY / REPEATABLE READ、statement_timeout 8s、lock_timeout 1s，完成后
 - 订单分佣8/9/10月均明确提示`PUBLICATION_PERIOD_NOT_READY`；推广费和管理费九月提示未完成、金额为占位符且导出禁用，没有正常零金额。财务失败状态不伪造版本时间，顶栏显示准备结果提示；榜单/核销/线索及结算已有版本展示实际发布时间。来源完整时间仍未知。五head于21:34有界READ ONLY复核均success，后台正常生成后续版本、无heavy任务，不能把这一状态解释为历史账期完整。
 - 21:35:38生产8服务均运行，配置健康检查的服务均healthy，OOM=false、重启次数0。64条请求中422为0、异常为0；5次503分别是三次结算和两次财务未完成账期保护，无意外5xx。API cgroup当前197550080B（188.4MiB）、峰值206692352B（197.1MiB）/768MiB，oom事件0；publisher峰值约319.7MiB/768MiB。根盘可用24959713280B（23.25GiB/19.701%），高于15%/10GiB门槛。
 - 生产`last-deploy.json`已由browser_acceptance=pending更新为passed，另记`business_baseline=deferred_with_incomplete_period_guards`；脱敏验收收据为`logs/dydata104-pr58-browser-acceptance-20261020.json`。本地`.tmp/`保留runtime、内存、head、导出元数据和`pr58-production-ranking.png`截图。部署及技术验收完成，T2.1仍暂缓、T3.1保留业务验收，104不关闭。未复活7/24任务、未更新Linear、未更改原dy-data工作区。
+
+### 21:54 关联需求状态及评论整理
+
+- 用户明确授权关闭可关闭需求并补齐记录。DYDATA-97原始实收与费用导出修复已从In Review改为Done，扩大后的全量生产导出验收已在104 E/AC8明确承接；102、103、104均保持In Progress，分别保留九月补账暂缓、真实完整月结闭环和完整业务验收。四票均已评论并从页面读回确认，详见[当日收口记录及四条评论](20261020_refactor_log_Keith_Chen.md)。
+- 本次只有需求状态和文档更新；未改变运行版本、业务事实、账单或采集任务。原工作区8项已跟踪修改及2项未跟踪文件保持。前节“未更新Linear”仅描述21:38当时状态，由本节补充后续事实。

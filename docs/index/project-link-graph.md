@@ -4,8 +4,8 @@
 
 ## 1. 摘要
 
-- 文件节点：1104
-- 文件关系：1251
+- 文件节点：1262
+- 文件关系：1444
 - 诊断问题：33
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
@@ -15,10 +15,12 @@
 | 文件 | 类型 | owner skill | wiki 链接 | markdown 链接 |
 |---|---|---|---|---|
 | ci-cd.yml | config | host-project | [[.github/workflows/ci-cd.yml|ci-cd.yml]] | [ci-cd.yml](../../.github/workflows/ci-cd.yml) |
+| local-ranking-export-20261009.yml | config | host-project | [[.github/workflows/local-ranking-export-20261009.yml|local-ranking-export-20261009.yml]] | [local-ranking-export-20261009.yml](../../.github/workflows/local-ranking-export-20261009.yml) |
 | pdca-readonly-verify.yml | config | host-project | [[.github/workflows/pdca-readonly-verify.yml|pdca-readonly-verify.yml]] | [pdca-readonly-verify.yml](../../.github/workflows/pdca-readonly-verify.yml) |
 | tencent-lighthouse-deploy.yml | config | host-project | [[.github/workflows/tencent-lighthouse-deploy.yml|tencent-lighthouse-deploy.yml]] | [tencent-lighthouse-deploy.yml](../../.github/workflows/tencent-lighthouse-deploy.yml) |
+| tencent-resume-verified.yml | config | host-project | [[.github/workflows/tencent-resume-verified.yml|tencent-resume-verified.yml]] | [tencent-resume-verified.yml](../../.github/workflows/tencent-resume-verified.yml) |
 | AGENTS.md | doc | host-project | [[AGENTS.md|AGENTS.md]] | [AGENTS.md](../../AGENTS.md) |
-| env.py | source_code | coding-standards | [[alembic/env.py|env.py]] | [env.py](../../alembic/env.py) |
+| Register all domain tables before Alembic compares metadata. Historical | source_code | coding-standards | [[alembic/env.py|Register all domain tables before Alembic compares metadata. Historical]] | [Register all domain tables before Alembic compares metadata. Historical](../../alembic/env.py) |
 | 20260612_0001_backend_production_mvp.py | source_code | coding-standards | [[alembic/versions/20260612_0001_backend_production_mvp.py|20260612_0001_backend_production_mvp.py]] | [20260612_0001_backend_production_mvp.py](../../alembic/versions/20260612_0001_backend_production_mvp.py) |
 | 20260616_0002_sync_settings.py | source_code | coding-standards | [[alembic/versions/20260616_0002_sync_settings.py|20260616_0002_sync_settings.py]] | [20260616_0002_sync_settings.py](../../alembic/versions/20260616_0002_sync_settings.py) |
 | 20260616_0003_clue_center_mvp.py | source_code | coding-standards | [[alembic/versions/20260616_0003_clue_center_mvp.py|20260616_0003_clue_center_mvp.py]] | [20260616_0003_clue_center_mvp.py](../../alembic/versions/20260616_0003_clue_center_mvp.py) |
@@ -92,16 +94,17 @@
 | 20260909_0052_merge_clue_and_fee_provenance.py | source_code | coding-standards | [[alembic/versions/20260909_0052_merge_clue_and_fee_provenance.py|20260909_0052_merge_clue_and_fee_provenance.py]] | [20260909_0052_merge_clue_and_fee_provenance.py](../../alembic/versions/20260909_0052_merge_clue_and_fee_provenance.py) |
 | 20260910_0053_quota_pause_attempts.py | source_code | coding-standards | [[alembic/versions/20260910_0053_quota_pause_attempts.py|20260910_0053_quota_pause_attempts.py]] | [20260910_0053_quota_pause_attempts.py](../../alembic/versions/20260910_0053_quota_pause_attempts.py) |
 | 20260911_0054_dim_store_service_code.py | source_code | coding-standards | [[alembic/versions/20260911_0054_dim_store_service_code.py|20260911_0054_dim_store_service_code.py]] | [20260911_0054_dim_store_service_code.py](../../alembic/versions/20260911_0054_dim_store_service_code.py) |
-| 20260911_0055_douyin_store_org_assignments.py | source_code | coding-standards | [[alembic/versions/20260911_0055_douyin_store_org_assignments.py|20260911_0055_douyin_store_org_assignments.py]] | [20260911_0055_douyin_store_org_assignments.py](../../alembic/versions/20260911_0055_douyin_store_org_assignments.py) |
-| 20260911_0056_store_org_assignment_active.py | source_code | coding-standards | [[alembic/versions/20260911_0056_store_org_assignment_active.py|20260911_0056_store_org_assignment_active.py]] | [20260911_0056_store_org_assignment_active.py](../../alembic/versions/20260911_0056_store_org_assignment_active.py) |
 
 ## 3. 关系
 
 | 来源 | 关系 | 目标 | 证据 |
 |---|---|---|---|
 | AGENTS.md | links_to | AGENTS.md | AGENTS.md:80 |
+| AGENTS.md | links_to | docs/api/dashboard-publications.md | AGENTS.md:135 |
+| AGENTS.md | links_to | docs/api/ranking-lifecycle.md | AGENTS.md:133 |
 | AGENTS.md | links_to | docs/governance/authority-map.md | AGENTS.md:92 |
 | AGENTS.md | links_to | docs/plans/execution-plan.md | AGENTS.md:88 |
+| AGENTS.md | links_to | docs/rules/storage-management.md | AGENTS.md:124 |
 | AGENTS.md | links_to | project-profile.md | AGENTS.md:85 |
 | AGENTS.md | links_to | project-rules.md | AGENTS.md:83 |
 | apps/web/README.md | links_to | docs/design-system/README.md | apps/web/README.md:53 |
@@ -116,13 +119,18 @@
 | docs/项目产品介绍书.md | links_to | docs/runbook.md | docs/项目产品介绍书.md:87 |
 | docs/项目产品介绍书.md | links_to | project-profile.md | docs/项目产品介绍书.md:89 |
 | docs/api-contract.md | links_to | docs/api/pdca-event-snapshot.md | docs/api-contract.md:13 |
-| docs/api-contract.md | links_to | docs/devlog/20260914_ranking_export.md | docs/api-contract.md:152 |
+| docs/api-contract.md | links_to | docs/api/settlement-scope-rules.md | docs/api-contract.md:180 |
+| docs/api-contract.md | links_to | docs/devlog/20260914_ranking_export.md | docs/api-contract.md:156 |
 | docs/api-contract.md | links_to | docs/prd/foundation/foundation-api-dy-data.md | docs/api-contract.md:3 |
 | docs/api/pdca-event-snapshot.md | links_to | docs/api/pdca-event-manifest.schema.json | docs/api/pdca-event-snapshot.md:83 |
 | docs/api/pdca-event-snapshot.md | links_to | docs/api/pdca-event-page.schema.json | docs/api/pdca-event-snapshot.md:84 |
 | docs/api/pdca-event-snapshot.md | links_to | docs/api/pdca-event-synthetic-example.json | docs/api/pdca-event-snapshot.md:85 |
 | docs/api/pdca-event-snapshot.md | links_to | docs/devlog/20260928_refactor_log_Your_Name.md | docs/api/pdca-event-snapshot.md:87 |
 | docs/api/pdca-source-evidence.md | links_to | docs/api/pdca-api-release-checklist.md | docs/api/pdca-source-evidence.md:7 |
+| docs/api/ranking-lifecycle.md | links_to | docs/rules/storage-management.md | docs/api/ranking-lifecycle.md:34 |
+| docs/api/refund-evidence-recovery.md | links_to | docs/api/dashboard-publications.md | docs/api/refund-evidence-recovery.md:31 |
+| docs/api/refund-evidence-recovery.md | links_to | docs/devlog/20261019_unified_dashboard_publications.md | docs/api/refund-evidence-recovery.md:3 |
+| docs/api/settlement-scope-rules.md | links_to | docs/devlog/20261020_dydata-104-followthrough.md | docs/api/settlement-scope-rules.md:35 |
 | docs/architecture.md | links_to | docs/项目产品介绍书.md | docs/architecture.md:81 |
 | docs/architecture.md | links_to | docs/runbook.md | docs/architecture.md:74 |
 | docs/baseline/dydata-6-baseline-dry-run-review.md | links_to | docs/governance/authority-map.md | docs/baseline/dydata-6-baseline-dry-run-review.md:50 |
@@ -138,6 +146,7 @@
 | docs/commission-pages-collaborator-handoff.md | links_to | docs/superpowers/specs/2026-07-15-dydata-23-store-dashboard-visual-design.md | docs/commission-pages-collaborator-handoff.md:18 |
 | docs/commission-settlement-rework-decisions.md | links_to | docs/single-store-monthly-settlement-mock.html | docs/commission-settlement-rework-decisions.md:51 |
 | docs/commission-settlement-rework-decisions.md | links_to | docs/store-ranking-mock.html | docs/commission-settlement-rework-decisions.md:23 |
+| docs/data-model.md | links_to | docs/api/ranking-lifecycle.md | docs/data-model.md:88 |
 | docs/design-system/README.md | links_to | docs/design-system/THIRD_PARTY_NOTICES.md | docs/design-system/README.md:87 |
 | docs/devlog/20260714_refactor_log_Keith_Chen.md | links_to | AGENTS.md | docs/devlog/20260714_refactor_log_Keith_Chen.md:52 |
 | docs/devlog/20260714_refactor_log_Keith_Chen.md | links_to | docs/项目产品介绍书.md | docs/devlog/20260714_refactor_log_Keith_Chen.md:50 |
@@ -210,15 +219,6 @@
 | docs/devlog/20260909_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260909_refactor_log_jojiuchen-blip.md:84 |
 | docs/devlog/20260910_refactor_log_jojiuchen-blip.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-93-admin-rules-T0.1-permissions.md | docs/devlog/20260910_refactor_log_jojiuchen-blip.md:5 |
 | docs/devlog/20260912_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260912_refactor_log_Keith_Chen.md:71 |
-| docs/devlog/20260913_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260913_refactor_log_Keith_Chen.md:69 |
-| docs/devlog/20260914_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260914_refactor_log_Keith_Chen.md:69 |
-| docs/devlog/20260921_refactor_log_Your_Name.md | links_to | project-rules.md | docs/devlog/20260921_refactor_log_Your_Name.md:71 |
-| docs/devlog/20260924_refactor_log_Your_Name.md | links_to | docs/api/pdca-api-release-checklist.md | docs/devlog/20260924_refactor_log_Your_Name.md:25 |
-| docs/devlog/20260924_refactor_log_Your_Name.md | links_to | docs/api/pdca-source-evidence.md | docs/devlog/20260924_refactor_log_Your_Name.md:25 |
-| docs/devlog/20260928_refactor_log_Your_Name.md | links_to | docs/api/pdca-event-snapshot.md | docs/devlog/20260928_refactor_log_Your_Name.md:16 |
-| docs/devlog/20260928_refactor_log_Your_Name.md | links_to | docs/plans/delivery-plans/main-delivery-plan-pdca-events.md | docs/devlog/20260928_refactor_log_Your_Name.md:4 |
-| docs/devlog/20260928_refactor_log_Your_Name.md | links_to | docs/plans/foundation-plans/foundation-change-requests-pdca-events.md | docs/devlog/20260928_refactor_log_Your_Name.md:52 |
-| docs/github-cicd.md | links_to | docs/tencent-lighthouse-cicd.md | docs/github-cicd.md:10 |
 
 ## 4. 诊断问题
 
