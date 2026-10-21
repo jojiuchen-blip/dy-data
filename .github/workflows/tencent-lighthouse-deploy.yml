@@ -32,7 +32,7 @@ jobs:
           sudo docker ps -q --filter label=com.docker.compose.service=web | while read -r id; do
             sudo docker inspect --format '{{.Image}} {{index .Config.Labels "com.docker.compose.project.config_files"}} {{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$id"
           done
-          python3 - <<'PY'
+          sudo python3 - <<'PY'
           import json, hashlib, os
           from pathlib import Path
           p=Path('/opt/dy-dashboard/logs/last-deploy.json')
