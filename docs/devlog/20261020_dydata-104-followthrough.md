@@ -310,3 +310,12 @@ READ ONLY / REPEATABLE READ、statement_timeout 8s、lock_timeout 1s，完成后
 
 - 用户明确授权关闭可关闭需求并补齐记录。DYDATA-97原始实收与费用导出修复已从In Review改为Done，扩大后的全量生产导出验收已在104 E/AC8明确承接；102、103、104均保持In Progress，分别保留九月补账暂缓、真实完整月结闭环和完整业务验收。四票均已评论并从页面读回确认，详见[当日收口记录及四条评论](20261020_refactor_log_Keith_Chen.md)。
 - 本次只有需求状态和文档更新；未改变运行版本、业务事实、账单或采集任务。原工作区8项已跟踪修改及2项未跟踪文件保持。前节“未更新Linear”仅描述21:38当时状态，由本节补充后续事实。
+# 2026-10-21 12:49：九月当月页面独立读取已上线
+
+- 用户要求“这个问题得修，你搞定”。缺陷为月榜有rankingBasis时及单店读取时，无条件要求八月到九月累计完整，导致已完整九月仍503。修复只改2个API读端文件和3个Web文件；当月独立就绪，未完整累计及兼容别名为null，页面显示暂不可用并禁用累计排序，累计查询/导出继续保护。
+- [PR59](https://github.com/jojiuchen-blip/dy-data/pull/59)合并`f66cdd5d5259dcc1e3137dd86aece49e24d3111b`；树`f9a520ef78db4ee4667317e9d261b13af6159a99`等于CI提交`150f7838ab4bcdd16baf2ac8fd649bd63c84bc09`。 [最终CI](https://github.com/jojiuchen-blip/dy-data/actions/runs/39543233518)成功：4098 passed/284 skipped（1251.61s）；真实PG静态发布61 passed/4 skipped，含HTTP数字/null契约；5项真实FastAPI/Chromium、Web build及默认CMD镜像启动通过。本地无Docker，未将本机跳过项称为PG成功。
+- API候选`sha256:c3b8e6d106a6eb454b6155554e1f1fa8acdfd4b7782719399fd3c9b16009df71`，web候选`sha256:bd8e7a3ad95f748ae03cbe98d2bfb8bb9c44267f63f8597ea727b0f8af47632e`，按源码、构建树和web构建产物绑定后，在生产数据上有界READ ONLY核验452店/452账单，两费各1,003,268分且差异0；累计、累计排序、八月及累计导出保护通过。独立复核通过，7种切换故障模拟通过。
+- 12:47 API/web切换完成，未迁移/重建发布/停止采集/还原数据库；worker、publication-worker、browser、ops-agent、postgres身份保持，配置备份和失败恢复路径保留。上线后8服务正常，API峰值179.6MiB/768MiB、0重启/0 OOM，磁盘可用22.12GiB/18.745%。
+- 生产真实页面验收：九月月榜显示452店、当期推广服务费10,032.68元；韶关华盛单店显示推广费2,249.80元、管理费39.80元及正式待确认账单；累计提示暂不可用，累计排序禁用；八月明确未完成，切回九月恢复。浏览器错误日志为空，未执行确认/开票/异议操作。证据截图在本工作树`.tmp/monthly-production-ranking.png`、`.tmp/monthly-production-settlement.png`和`.tmp/monthly-production-august-guard.png`。
+- 服务器验收收据`/opt/dy-dashboard/logs/dydata104-monthly-browser-acceptance-20261021.json`，切换收据`dydata104-monthly-cutover-20261021T044645630285Z.json`，last-deploy browser_acceptance=passed。Linear104已回填PR、CI、金额、页面和资源证据，保持In Progress供整体业务验收；八月依用户要求不恢复，来源截止时间未知继续如实显示。未更新工作流记忆。
+- 本地完整pytest与CI并行启动；CI完整门禁及生产验收均成功后，本机重复全仓运行在约72%主动停止并清理其专属进程树，不声称本地全仓完成。最终全量结果以精确提交Linux CI为准，本机定向回归及Web build已通过。
