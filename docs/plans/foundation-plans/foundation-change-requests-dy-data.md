@@ -1,5 +1,19 @@
 # dy-data Foundation 变更请求
 
+## S4-FCR-016：完整当月与不完整累计独立可用性
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-016` |
+| 来源 Task | `DYDATA-104 / T3.1 静态首版发布与生产业务验收` |
+| 分类 | `GAP` |
+| 改动项 | 门店月榜与单店月度分账分别表达当月和累计就绪状态；完整当月正常读取，未完整累计为 null，累计排序/查询/导出继续要求完整前缀。 |
+| 原因 | 九月已完整且账单已核验，但混合指标接口无条件依赖八月，导致完整当月也不可用；用户明确授权修复。 |
+| 指向代码块 | `apps/api/dy_api/dashboard_publications/finance.py::read_store_ranking`、`read_monthly_settlement`；`period_readiness.py::require`。 |
+| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-api-dy-data/settlement-reporting.md` 门店榜单/月度结算；`billing-invoice.md` 账单单月与累计指标。 |
+| 严重度 | 建议；当前运行合同已在 `docs/api/dashboard-publications.md` 明确。 |
+| 状态 | 待评审；业务修复已获用户授权，Foundation 正文由 foundation-builder 后续回捞。 |
+
 ## S4-FCR-013：有效核销共同前置、费用核销血缘与待确认账单衔接
 
 | 字段 | 内容 |
