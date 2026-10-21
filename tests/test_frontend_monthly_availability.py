@@ -192,7 +192,7 @@ def test_unsupported_cumulative_deep_link_recovers_to_monthly_on_same_publicatio
         with page.expect_response(lambda r: "/store-ranking?" in r.url) as response:
             page.goto(f"{availability_web}/ranking?periodKey=2026-09&rankingBasis=PROMOTION_FEE_CUMULATIVE")
         assert response.value.status == 503
-        assert response.value.json()["error"]["code"] == "PUBLICATION_PERIOD_NOT_READY"
+        assert response.value.json()["detail"]["code"] == "PUBLICATION_PERIOD_NOT_READY"
         expect(page.get_by_role("alert").filter(has_text="所选账期尚未完成")).to_be_visible()
         basis = page.get_by_role("button", name="排行依据", exact=True)
         expect(basis).to_be_enabled()
