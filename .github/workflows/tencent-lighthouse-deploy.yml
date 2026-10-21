@@ -39,6 +39,7 @@ jobs:
           TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
         run: |
           set -uo pipefail
+          set +e
           umask 077
 
           work="$RUNNER_TEMP/dydata104-r0"
@@ -115,7 +116,7 @@ jobs:
           fi
 
           if [ -z "$prep_error" ]; then
-            timeout --signal=TERM --kill-after=10s 90s \
+            timeout --signal=KILL 90s \
               ssh -F /dev/null \
                 -i "$key" \
                 -p "$port" \
@@ -409,6 +410,416 @@ jobs:
           fi
           exit 1
 
+      - name: Probe August/September head gaps and recovery budgets (read-only)
+        id: head_days
+        env:
+          TENCENT_SSH_KEY: ${{ secrets.TENCENT_SSH_KEY }}
+          TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
+          PROBE_ID: r0-head-day-gaps-recovery
+          PROBE_SCRIPT: ops-preparation/recovery_r0_head_days.py
+          PROBE_OUTPUT: head-days.json
+          EXPECTED_SOURCE_SHA256: 9bb154c257f37629999368fb2b6f21e87c292b741b8c5fd7a7b7e8074838db72
+        run: |
+          set -uo pipefail
+          set +e
+          umask 077
+
+          work="$RUNNER_TEMP/dydata104-r0"
+          private="$work/head-days.private"
+          install -m 700 -d "$work" "$private"
+          stdout="$private/probe.stdout"
+          stderr="$private/probe.stderr"
+          key="$private/ssh_key"
+          known="$private/known_hosts"
+          out="$work/$PROBE_OUTPUT"
+          : > "$stdout"
+          : > "$stderr"
+          rm -f "$out"
+          trap 'rm -f "$key" "$known"; rm -rf "$private"' EXIT
+
+          shaExpected="$EXPECTED_SOURCE_SHA256"
+          shaActual="$(sha256sum "$PROBE_SCRIPT" | awk '{print $1}')"
+          shaMatch=false
+          if [ -n "$shaActual" ] && [ "$shaActual" = "$shaExpected" ]; then
+            shaMatch=true
+          fi
+          printf 'source_check_receipt probe=%s source_sha256=%s expected_sha256=%s source_hash_match=%s\n' \
+            "$PROBE_ID" "${shaActual:-missing}" "$shaExpected" "$shaMatch"
+          if [ "$shaMatch" != true ]; then
+            printf 'probe=%s source_check=failed\n' "$PROBE_ID"
+            exit 1
+          fi
+          printf 'probe=%s source_check=passed source_sha256=%s\n' "$PROBE_ID" "$shaActual" >> "$GITHUB_STEP_SUMMARY"
+
+          prep_error=""
+          if [ -z "${TENCENT_HOST:-}" ]; then
+            prep_error="${prep_error}${prep_error:+,}TENCENT_HOST_missing"
+          fi
+          if [ -z "${TENCENT_SSH_USER:-}" ]; then
+            prep_error="${prep_error}${prep_error:+,}TENCENT_SSH_USER_missing"
+          fi
+          if [ -z "${TENCENT_SSH_PORT:-}" ]; then
+            prep_error="${prep_error}${prep_error:+,}TENCENT_SSH_PORT_missing"
+          fi
+          port=0
+          if [ -n "${TENCENT_SSH_PORT:-}" ]; then
+            case "$TENCENT_SSH_PORT" in
+              *[!0-9]*)
+                prep_error="${prep_error}${prep_error:+,}TENCENT_SSH_PORT_invalid"
+                ;;
+              *)
+                if [ "${#TENCENT_SSH_PORT}" -gt 5 ]; then
+                  prep_error="${prep_error}${prep_error:+,}TENCENT_SSH_PORT_invalid"
+                else
+                  port=$((10#$TENCENT_SSH_PORT))
+                  if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+                    prep_error="${prep_error}${prep_error:+,}TENCENT_SSH_PORT_invalid"
+                  fi
+                fi
+                ;;
+            esac
+          fi
+          if [ -z "${TENCENT_SSH_KEY:-}" ]; then
+            prep_error="${prep_error}${prep_error:+,}TENCENT_SSH_KEY_missing"
+          fi
+          if [ -z "${TENCENT_KNOWN_HOSTS:-}" ]; then
+            prep_error="${prep_error}${prep_error:+,}TENCENT_KNOWN_HOSTS_missing"
+          fi
+
+          if [ -z "$prep_error" ]; then
+            printf '%s\n' "$TENCENT_SSH_KEY" | tr -d '\r' > "$key"
+            printf '%s\n' "$TENCENT_KNOWN_HOSTS" | tr -d '\r' > "$known"
+            chmod 600 "$key" "$known"
+            if [ ! -s "$key" ] || [ ! -s "$known" ]; then
+              prep_error="ssh_material_empty"
+            fi
+          fi
+          if [ -z "$prep_error" ]; then
+            host_key_name="$TENCENT_HOST"
+            if [ "$port" -ne 22 ]; then
+              host_key_name="[$TENCENT_HOST]:$port"
+            fi
+            if ! ssh-keygen -F "$host_key_name" -f "$known" >/dev/null 2>&1; then
+              prep_error="pinned_host_key_missing"
+            fi
+          fi
+          if [ -n "$prep_error" ]; then
+            printf 'probe=%s validation=failed error=preflight_%s\n' "$PROBE_ID" "$prep_error"
+            exit 1
+          fi
+
+          rc=78
+          timeout --signal=KILL 90s \
+            ssh -F /dev/null \
+              -i "$key" \
+              -p "$port" \
+              -o BatchMode=yes \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile="$known" \
+              -o GlobalKnownHostsFile=/dev/null \
+              -o ConnectTimeout=12 \
+              -o ConnectionAttempts=1 \
+              -o ServerAliveInterval=10 \
+              -o ServerAliveCountMax=2 \
+              -o PasswordAuthentication=no \
+              -o KbdInteractiveAuthentication=no \
+              -o LogLevel=ERROR \
+              "$TENCENT_SSH_USER@$TENCENT_HOST" \
+              'cd /opt/dy-dashboard/repo && sudo -n docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml exec -T -e PYTHONDONTWRITEBYTECODE=1 worker python - --confirm-read-only' \
+            < "$PROBE_SCRIPT" >"$stdout" 2>"$stderr"
+          rc=$?
+          if [ "$rc" -ne 0 ]; then
+            printf 'probe=%s validation=failed error=ssh_or_remote_failure ssh_exit_code=%s\n' "$PROBE_ID" "$rc"
+            exit 1
+          fi
+
+          SSH_EXIT_CODE="$rc" PROBE_ID="$PROBE_ID" python3 - "$stdout" "$out" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          stdout_path, output_path = sys.argv[1], sys.argv[2]
+          probe_id = os.environ["PROBE_ID"]
+          max_bytes = 262144
+
+          def reject(code):
+              print("validation_error=" + code)
+              raise SystemExit(1)
+
+          try:
+              size = os.path.getsize(stdout_path)
+          except OSError:
+              reject("response_unreadable")
+          if size > max_bytes:
+              reject("response_oversize")
+          try:
+              with open(stdout_path, "rb") as handle:
+                  raw = handle.read(max_bytes + 1)
+              if len(raw) > max_bytes:
+                  reject("response_oversize")
+              text = raw.decode("utf-8")
+          except (OSError, UnicodeDecodeError):
+              reject("response_unreadable")
+
+          credential = re.compile(
+              r"(?i)(-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----|"
+              r"postgres(?:ql)?(?:\+[a-z0-9]+)?://[^@\s:]+:[^@\s]+@|"
+              r"\b(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)\b\s*[:=]\s*[^\s,}\]]+|"
+              r"\b(?:authorization|cookie|set-cookie)\s*:\s*\S|"
+              r"\bBearer\s+[A-Za-z0-9._~+/=-]{8,}|"
+              r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b|"
+              r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AKID[A-Za-z0-9]{13,}|sk-[A-Za-z0-9]{20,})\b|"
+              r"\b(?:ssh-(?:rsa|ed25519|dss)|ecdsa-sha2-nistp\d+)\s+AAAA[A-Za-z0-9+/=]{20,})"
+          )
+          if credential.search(text):
+              reject("credential_material")
+
+          try:
+              payload = json.loads(text)
+          except json.JSONDecodeError:
+              reject("invalid_json")
+          if not isinstance(payload, dict):
+              reject("not_json_object")
+          if "error" in payload:
+              reject("probe_error")
+          if payload.get("probe") != probe_id:
+              reject("unexpected_probe")
+          if payload.get("read_only_enforced") is not True:
+              reject("read_only_not_enforced")
+          settings = payload.get("settings")
+          if not isinstance(settings, dict):
+              reject("settings_missing")
+          if str(settings.get("transaction_read_only", "")).strip().lower() != "on":
+              reject("transaction_read_only_not_on")
+          if str(settings.get("default_transaction_read_only", "")).strip().lower() != "on":
+              reject("default_transaction_read_only_not_on")
+          isolation = str(settings.get("transaction_isolation", "")).strip().lower().replace("_", " ")
+          if isolation != "repeatable read":
+              reject("isolation_not_repeatable_read")
+
+          try:
+              rendered = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+              with open(output_path, "w", encoding="utf-8", newline="\n") as handle:
+                  handle.write(rendered)
+          except (OSError, TypeError, ValueError):
+              reject("validated_write_failed")
+          PY
+          vrc=$?
+          if [ "$vrc" -ne 0 ]; then
+            rm -f "$out"
+            printf 'probe=%s validation=failed error=response_rejected ssh_exit_code=%s validator_exit_code=%s\n' "$PROBE_ID" "$rc" "$vrc"
+            exit 1
+          fi
+          printf 'probe=%s validation=passed ssh_exit_code=%s output=%s\n' "$PROBE_ID" "$rc" "$PROBE_OUTPUT"
+          printf 'probe=%s validation=passed\n' "$PROBE_ID" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Probe August/September fee reconciliation (read-only)
+        id: fees
+        env:
+          TENCENT_SSH_KEY: ${{ secrets.TENCENT_SSH_KEY }}
+          TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
+          PROBE_ID: r0-fee-reconciliation
+          PROBE_SCRIPT: ops-preparation/recovery_r0_fees.py
+          PROBE_OUTPUT: fees.json
+          EXPECTED_SOURCE_SHA256: c585016d078a2c3667fbcf90baba01e87a40c514c00a76b9cc3d634bce26356e
+        run: |
+          set -uo pipefail
+          set +e
+          umask 077
+
+          work="$RUNNER_TEMP/dydata104-r0"
+          private="$work/fees.private"
+          install -m 700 -d "$work" "$private"
+          stdout="$private/probe.stdout"
+          stderr="$private/probe.stderr"
+          key="$private/ssh_key"
+          known="$private/known_hosts"
+          out="$work/$PROBE_OUTPUT"
+          : > "$stdout"
+          : > "$stderr"
+          rm -f "$out"
+          trap 'rm -f "$key" "$known"; rm -rf "$private"' EXIT
+
+          shaExpected="$EXPECTED_SOURCE_SHA256"
+          shaActual="$(sha256sum "$PROBE_SCRIPT" | awk '{print $1}')"
+          shaMatch=false
+          if [ -n "$shaActual" ] && [ "$shaActual" = "$shaExpected" ]; then
+            shaMatch=true
+          fi
+          printf 'source_check_receipt probe=%s source_sha256=%s expected_sha256=%s source_hash_match=%s\n' \
+            "$PROBE_ID" "${shaActual:-missing}" "$shaExpected" "$shaMatch"
+          if [ "$shaMatch" != true ]; then
+            printf 'probe=%s source_check=failed\n' "$PROBE_ID"
+            exit 1
+          fi
+          printf 'probe=%s source_check=passed source_sha256=%s\n' "$PROBE_ID" "$shaActual" >> "$GITHUB_STEP_SUMMARY"
+
+          prep_error=""
+          if [ -z "${TENCENT_HOST:-}" ]; then
+            prep_error="${prep_error}${prep_error:+,}TENCENT_HOST_missing"
+          fi
+          if [ -z "${TENCENT_SSH_USER:-}" ]; then
+            prep_error="${prep_error}${prep_error:+,}TENCENT_SSH_USER_missing"
+          fi
+          if [ -z "${TENCENT_SSH_PORT:-}" ]; then
+            prep_error="${prep_error}${prep_error:+,}TENCENT_SSH_PORT_missing"
+          fi
+          port=0
+          if [ -n "${TENCENT_SSH_PORT:-}" ]; then
+            case "$TENCENT_SSH_PORT" in
+              *[!0-9]*)
+                prep_error="${prep_error}${prep_error:+,}TENCENT_SSH_PORT_invalid"
+                ;;
+              *)
+                if [ "${#TENCENT_SSH_PORT}" -gt 5 ]; then
+                  prep_error="${prep_error}${prep_error:+,}TENCENT_SSH_PORT_invalid"
+                else
+                  port=$((10#$TENCENT_SSH_PORT))
+                  if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+                    prep_error="${prep_error}${prep_error:+,}TENCENT_SSH_PORT_invalid"
+                  fi
+                fi
+                ;;
+            esac
+          fi
+          if [ -z "${TENCENT_SSH_KEY:-}" ]; then
+            prep_error="${prep_error}${prep_error:+,}TENCENT_SSH_KEY_missing"
+          fi
+          if [ -z "${TENCENT_KNOWN_HOSTS:-}" ]; then
+            prep_error="${prep_error}${prep_error:+,}TENCENT_KNOWN_HOSTS_missing"
+          fi
+
+          if [ -z "$prep_error" ]; then
+            printf '%s\n' "$TENCENT_SSH_KEY" | tr -d '\r' > "$key"
+            printf '%s\n' "$TENCENT_KNOWN_HOSTS" | tr -d '\r' > "$known"
+            chmod 600 "$key" "$known"
+            if [ ! -s "$key" ] || [ ! -s "$known" ]; then
+              prep_error="ssh_material_empty"
+            fi
+          fi
+          if [ -z "$prep_error" ]; then
+            host_key_name="$TENCENT_HOST"
+            if [ "$port" -ne 22 ]; then
+              host_key_name="[$TENCENT_HOST]:$port"
+            fi
+            if ! ssh-keygen -F "$host_key_name" -f "$known" >/dev/null 2>&1; then
+              prep_error="pinned_host_key_missing"
+            fi
+          fi
+          if [ -n "$prep_error" ]; then
+            printf 'probe=%s validation=failed error=preflight_%s\n' "$PROBE_ID" "$prep_error"
+            exit 1
+          fi
+
+          rc=78
+          timeout --signal=KILL 90s \
+            ssh -F /dev/null \
+              -i "$key" \
+              -p "$port" \
+              -o BatchMode=yes \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile="$known" \
+              -o GlobalKnownHostsFile=/dev/null \
+              -o ConnectTimeout=12 \
+              -o ConnectionAttempts=1 \
+              -o ServerAliveInterval=10 \
+              -o ServerAliveCountMax=2 \
+              -o PasswordAuthentication=no \
+              -o KbdInteractiveAuthentication=no \
+              -o LogLevel=ERROR \
+              "$TENCENT_SSH_USER@$TENCENT_HOST" \
+              'cd /opt/dy-dashboard/repo && sudo -n docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml exec -T -e PYTHONDONTWRITEBYTECODE=1 worker python - --confirm-read-only' \
+            < "$PROBE_SCRIPT" >"$stdout" 2>"$stderr"
+          rc=$?
+          if [ "$rc" -ne 0 ]; then
+            printf 'probe=%s validation=failed error=ssh_or_remote_failure ssh_exit_code=%s\n' "$PROBE_ID" "$rc"
+            exit 1
+          fi
+
+          SSH_EXIT_CODE="$rc" PROBE_ID="$PROBE_ID" python3 - "$stdout" "$out" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          stdout_path, output_path = sys.argv[1], sys.argv[2]
+          probe_id = os.environ["PROBE_ID"]
+          max_bytes = 262144
+
+          def reject(code):
+              print("validation_error=" + code)
+              raise SystemExit(1)
+
+          try:
+              size = os.path.getsize(stdout_path)
+          except OSError:
+              reject("response_unreadable")
+          if size > max_bytes:
+              reject("response_oversize")
+          try:
+              with open(stdout_path, "rb") as handle:
+                  raw = handle.read(max_bytes + 1)
+              if len(raw) > max_bytes:
+                  reject("response_oversize")
+              text = raw.decode("utf-8")
+          except (OSError, UnicodeDecodeError):
+              reject("response_unreadable")
+
+          credential = re.compile(
+              r"(?i)(-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----|"
+              r"postgres(?:ql)?(?:\+[a-z0-9]+)?://[^@\s:]+:[^@\s]+@|"
+              r"\b(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)\b\s*[:=]\s*[^\s,}\]]+|"
+              r"\b(?:authorization|cookie|set-cookie)\s*:\s*\S|"
+              r"\bBearer\s+[A-Za-z0-9._~+/=-]{8,}|"
+              r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b|"
+              r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AKID[A-Za-z0-9]{13,}|sk-[A-Za-z0-9]{20,})\b|"
+              r"\b(?:ssh-(?:rsa|ed25519|dss)|ecdsa-sha2-nistp\d+)\s+AAAA[A-Za-z0-9+/=]{20,})"
+          )
+          if credential.search(text):
+              reject("credential_material")
+
+          try:
+              payload = json.loads(text)
+          except json.JSONDecodeError:
+              reject("invalid_json")
+          if not isinstance(payload, dict):
+              reject("not_json_object")
+          if "error" in payload:
+              reject("probe_error")
+          if payload.get("probe") != probe_id:
+              reject("unexpected_probe")
+          if payload.get("read_only_enforced") is not True:
+              reject("read_only_not_enforced")
+          settings = payload.get("settings")
+          if not isinstance(settings, dict):
+              reject("settings_missing")
+          if str(settings.get("transaction_read_only", "")).strip().lower() != "on":
+              reject("transaction_read_only_not_on")
+          if str(settings.get("default_transaction_read_only", "")).strip().lower() != "on":
+              reject("default_transaction_read_only_not_on")
+          isolation = str(settings.get("transaction_isolation", "")).strip().lower().replace("_", " ")
+          if isolation != "repeatable read":
+              reject("isolation_not_repeatable_read")
+
+          try:
+              rendered = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+              with open(output_path, "w", encoding="utf-8", newline="\n") as handle:
+                  handle.write(rendered)
+          except (OSError, TypeError, ValueError):
+              reject("validated_write_failed")
+          PY
+          vrc=$?
+          if [ "$vrc" -ne 0 ]; then
+            rm -f "$out"
+            printf 'probe=%s validation=failed error=response_rejected ssh_exit_code=%s validator_exit_code=%s\n' "$PROBE_ID" "$rc" "$vrc"
+            exit 1
+          fi
+          printf 'probe=%s validation=passed ssh_exit_code=%s output=%s\n' "$PROBE_ID" "$rc" "$PROBE_OUTPUT"
+          printf 'probe=%s validation=passed\n' "$PROBE_ID" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Check sanitized report
         id: report_check
         if: always()
@@ -421,11 +832,14 @@ jobs:
             printf 'report_exists=false\n' >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Upload sanitized read-only report
-        if: always() && steps.report_check.outputs.report_exists == 'true'
+      - name: Upload validated read-only outputs and report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: dydata-104-readonly-resource-probe
-          path: ${{ runner.temp }}/dydata104-r0/report.txt
+          path: |
+            ${{ runner.temp }}/dydata104-r0/head-days.json
+            ${{ runner.temp }}/dydata104-r0/fees.json
+            ${{ runner.temp }}/dydata104-r0/report.txt
           if-no-files-found: error
           retention-days: 7
