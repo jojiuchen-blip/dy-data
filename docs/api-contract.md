@@ -182,3 +182,14 @@ GET `/api/v1/dashboard/douyin-ranking/export`：沿用A03页面权限和账号�
 ## 结算范围持续生效增量
 
 DYDATA-104 的账号、渠道生效月延续及显式停用接口见 [结算范围规则](api/settlement-scope-rules.md)。旧请求缺省启用保持幂等兼容，历史已确认账单不追溯。实际发布状态以开发日志为准。
+# 线索明细核销核对（2026-10-21）
+
+线索明细展示既有 `verified_store_name`，缺失名称时回退 `verified_store_id`。
+无核销信息显示“未核销”；已有核销时间或已核销状态但缺门店时显示“核销门店待同步”。
+桌面列表、移动卡片与线索详情使用同一展示规则。
+
+“仅看自店核销”使用既有查询参数 `verification_status=self_store_verified`，
+服务端以本轮 `verified_at IS NOT NULL AND is_self_store_verified = true` 筛选，
+自店指本轮获分配门店，不以当前登录账号名称或可见门店集合推断。
+列表分页和 CSV 导出使用相同筛选与既有权限范围，取消或清空恢复原范围。
+本次不改变指标看板计算、分析发布机制或数据库结构。

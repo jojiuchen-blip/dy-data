@@ -1067,6 +1067,32 @@ def test_clue_date_end_filter_includes_selected_calendar_day(
     assert order_ids == {"order-1", "order-2", "order-3"}
 
 
+def test_self_verified_filter_excludes_other_store_and_export_matches(client: TestClient, db_session: Session) -> None:
+    _seed_clue_center(db_session)
+    other = db_session.get(ClueAssignmentRound, "order-2-1")
+    other.verified_at = _dt(2)
+    other.verified_store_id = "store-2"
+    other.verified_store_name = "Store Two"
+    other.is_self_store_verified = False
+    db_session.commit()
+    _login(client)
+    url = "/api/v1/clues/assignment-rounds"
+    all_rows = client.get(url).json()["data"]["rows"]
+    assert {row["verified_store_name"] for row in all_rows} == {"Store One", "Store Two"}
+    filters = {"verification_status": "self_store_verified"}
+    response = client.get(url, params=filters)
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["pagination"]["total"] == 1
+    assert [row["order_id"] for row in data["rows"]] == ["order-1"]
+    assert data["rows"][0]["verified_store_name"] == "Store One"
+    exported = client.get(url + "/export", params=filters)
+    assert exported.status_code == 200
+    exported_rows = list(csv.DictReader(io.StringIO(exported.text.lstrip("\ufeff"))))
+    assert [row["order_id"] for row in exported_rows] == ["order-1"]
+    assert exported_rows[0]["verified_store_name"] == "Store One"
+
+
 def test_clue_rounds_can_filter_by_location_store_and_verification_status(
     client: TestClient, db_session: Session
 ) -> None:
