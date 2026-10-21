@@ -1,158 +1,431 @@
-name: Tencent Lighthouse Deploy
+# Temporary R0 relay workflow for the isolated ops ref.
+# Read-only connection/resource probe: no deploy, restart, SQL, or production file writes.
 
-# Isolated operational ref. Cleans unused builder cache only; validates
-# unchanged containers, rollback image tags and volume inventory.
-# Does not deploy or write application/database/backup data.
+name: DYDATA-104 READ ONLY resource probe
 
 "on":
   workflow_dispatch:
-  push:
-    branches:
-      - main
-
-concurrency:
-  group: tencent-lighthouse-${{ github.ref }}
-  cancel-in-progress: false
 
 permissions:
   contents: read
 
+concurrency:
+  group: dydata104-readonly-r0
+  cancel-in-progress: false
+
 jobs:
-  diagnose:
-    name: DYDATA-102/103 scoped dangling build cache maintenance
+  readonly-resource-probe:
+    name: DYDATA-104 read-only connection and resource probe
+    if: github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     env:
       TENCENT_HOST: ${{ vars.TENCENT_HOST }}
       TENCENT_SSH_PORT: ${{ vars.TENCENT_SSH_PORT }}
       TENCENT_SSH_USER: ${{ vars.TENCENT_SSH_USER }}
-      TENCENT_SSH_KEY: ${{ secrets.TENCENT_SSH_KEY }}
-      TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
     steps:
-      - name: Check required settings
+      - name: Checkout dispatched ref
+        uses: actions/checkout@v4
+        with:
+          # Exact commit selected by the dispatch event; no fixed app ref.
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Run bounded read-only probe and sanitize report
+        id: probe
+        env:
+          TENCENT_SSH_KEY: ${{ secrets.TENCENT_SSH_KEY }}
+          TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
         run: |
-          for name in TENCENT_HOST TENCENT_SSH_USER TENCENT_SSH_KEY TENCENT_KNOWN_HOSTS; do
-            [ -n "${!name}" ] || { echo "::error::$name is not configured"; exit 1; }
-          done
-      # The pinned host key is mandatory: StrictHostKeyChecking keeps its secure
-      # default and a mismatch fails the job instead of being accepted.
-      - name: Configure SSH with pinned host key
-        run: |
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$TENCENT_SSH_KEY" > ~/.ssh/tencent_lighthouse
-          chmod 600 ~/.ssh/tencent_lighthouse
-          printf '%s\n' "$TENCENT_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-          ssh-keygen -F "$TENCENT_HOST" -f ~/.ssh/known_hosts >/dev/null \
-            || { echo "::error::pinned host key does not cover TENCENT_HOST"; exit 1; }
-      - uses: actions/checkout@v4
-      - name: Upload reviewed read-only preflight
-        run: |
-          scp -i ~/.ssh/tencent_lighthouse -P "${TENCENT_SSH_PORT:-22}" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes ops-preparation/recovery_preflight.py "$TENCENT_SSH_USER@$TENCENT_HOST:/tmp/dydata102-recovery-preflight.py"
-      - name: Collect masked read-only evidence
-        run: |
-          ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" \
-            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
-            -o ServerAliveInterval=30 -o ServerAliveCountMax=5 \
-            "$TENCENT_SSH_USER@$TENCENT_HOST" 'bash -s' <<'REMOTE' > "$RUNNER_TEMP/report.txt"
-          set -euo pipefail
-          cd /opt/dy-dashboard/repo
-          compose() { sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml "$@"; }
-          for service in api worker postgres; do
-            container="$(compose ps -q "$service")"
-            test -n "$container"
-            sudo docker inspect --format '{{.Id}} name={{.Name}} started_at={{.State.StartedAt}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} oom={{.State.OOMKilled}} exit={{.State.ExitCode}}' "$container"
-            if [ "$service" != postgres ]; then
-              sudo docker exec "$container" sha256sum /app/apps/worker/projection_lineage.py /app/apps/worker/settlement.py
-            fi
-            sudo docker stats --no-stream --format '{{.Name}} memory={{.MemUsage}} percent={{.MemPerc}} cpu={{.CPUPerc}}' "$container"
-            sudo docker exec "$container" sh -c 'if test -r /sys/fs/cgroup/memory.events; then cat /sys/fs/cgroup/memory.events; fi'
-          done
-          printf 'server_historical_git_head_not_deploy_revision='
-          git rev-parse HEAD
-          python3 -c 'import json; r=json.load(open("/opt/dy-dashboard/logs/last-deploy.json")); print(json.dumps({"completed_deployment":{k:r.get(k) for k in ("ts","sha","environment","worker_started")}},sort_keys=True))'
-          curl --fail --silent --show-error --max-time 15 --output /dev/null --write-out 'public_http_status=%{http_code}\n' https://dy-business-engine.com/finance/promotion
-          compose exec -T worker python - <<'PY'
-          import json,hashlib
-          from sqlalchemy import select,func,text,literal
-          from dy_api import models as M
-          from dy_api.pdca_readonly_access import _open_pdca_readonly_session
-          scope=_open_pdca_readonly_session()
-          session=next(scope)
-          try:
-              assert session.scalar(text('SHOW transaction_read_only'))=='on'
-              def fact_hash(model,predicate):
-                  rows=session.execute(select(*model.__table__.c).where(predicate)).mappings().all()
-                  values=sorted(json.dumps(dict(row),sort_keys=True,default=str,separators=(',',':')) for row in rows)
-                  return {'rows':len(values),'sha256':hashlib.sha256('\n'.join(values).encode()).hexdigest()}
-              august_statements=select(M.SettlementStatement.statement_id).where(M.SettlementStatement.statement_month=='2026-08')
-              facts={
-                  'settlement_fee_result':fact_hash(M.SettlementFeeResult,M.SettlementFeeResult.original_business_month=='2026-08'),
-                  'settlement_fee_adjustment':fact_hash(M.SettlementFeeAdjustment,M.SettlementFeeAdjustment.original_business_month=='2026-08'),
-                  'settlement_statement':fact_hash(M.SettlementStatement,M.SettlementStatement.statement_month=='2026-08'),
-                  'settlement_statement_entry':fact_hash(M.SettlementStatementEntry,M.SettlementStatementEntry.statement_id.in_(august_statements)),
-                  'settlement_statement_confirmation':fact_hash(M.SettlementStatementConfirmation,M.SettlementStatementConfirmation.statement_id.in_(august_statements)),
-                  'settlement_scope_rule':fact_hash(M.SettlementScopeRule,M.SettlementScopeRule.effective_month=='2026-08'),
-                  'sku_fee_rule':fact_hash(M.SkuFeeRule,text('TRUE')),
-              }
-              active=session.get(M.SettlementProjectionActive,'settlement')
-              head=session.get(M.SettlementProjectionGeneration,active.generation_id) if active and active.generation_id else None
-              if head is not None:
-                  G=M.SettlementProjectionGeneration
-                  chain=select(G.generation_id,G.base_generation_id,literal(0).label('hop')).where(G.generation_id==head.generation_id).cte('resource_lineage',recursive=True)
-                  chain=chain.union_all(select(G.generation_id,G.base_generation_id,(chain.c.hop+1).label('hop')).join(chain,G.generation_id==chain.c.base_generation_id).where(chain.c.hop<65))
-                  captured=session.execute(select(chain).order_by(chain.c.hop)).mappings().all()
-                  ids=[row['generation_id'] for row in captured]
-                  assert 1<=len(ids)<=65 and len(set(ids))==len(ids) and captured[-1]['base_generation_id'] is None
-                  manifest=M.SettlementProjectionPartitionManifest
-                  partitions=select(manifest.artifact,manifest.partition_key).where(manifest.generation_id.in_(ids)).distinct().subquery()
-                  print(json.dumps({'compaction_observed_resources':{'distinct_manifest_rows':session.scalar(select(func.count()).select_from(partitions)),'closure_rows':len(ids)}}))
-                  negative=session.execute(select(manifest.artifact,func.count()).where(manifest.generation_id.in_(ids),manifest.amount_total_cent<0).group_by(manifest.artifact)).all()
-                  print(json.dumps({'negative_manifest_amount_counts':[{'artifact':artifact,'rows':count} for artifact,count in negative]}))
-                  nearest=select(manifest.artifact,manifest.partition_key,manifest.owner_state,manifest.amount_total_cent,func.row_number().over(partition_by=(manifest.artifact,manifest.partition_key),order_by=chain.c.hop).label('nearest')).join(chain,manifest.generation_id==chain.c.generation_id).subquery()
-                  effective_negative=session.execute(select(nearest.c.artifact,func.count()).where(nearest.c.nearest==1,nearest.c.owner_state=='owned',nearest.c.amount_total_cent<0).group_by(nearest.c.artifact)).all()
-                  print(json.dumps({'effective_negative_manifest_amount_counts':[{'artifact':artifact,'rows':count} for artifact,count in effective_negative]}))
-              print(json.dumps({'august_full_fact_hashes':facts,'active_head':{'generation_id':head.generation_id,'depth':head.lineage_depth,'state':head.state,'kind':head.generation_kind} if head else None},sort_keys=True))
-              rows=session.execute(select(M.SettlementScopeRule.effective_month,M.SettlementScopeRule.is_active,func.count()).where(M.SettlementScopeRule.effective_month.in_(['2026-08','2026-09','2026-10'])).group_by(M.SettlementScopeRule.effective_month,M.SettlementScopeRule.is_active)).all()
-              print(json.dumps({'monthly_scope_rule_counts':[{'month':month,'active':active,'rows':count} for month,active,count in rows]}))
-              jobs=list(session.scalars(select(M.JobRun).where(M.JobRun.job_name=='settlement_compaction').order_by(M.JobRun.started_at.desc()).limit(3)))
-              print(json.dumps({'compaction_jobs':[{'job_id':j.job_id,'status':j.status,'attempt_count':j.attempt_count,'max_attempts':j.max_attempts,'stage':(j.metadata_json or {}).get('stage'),'result':(j.metadata_json or {}).get('result')} for j in jobs]},sort_keys=True))
-              compacts=list(session.scalars(select(M.SettlementProjectionGeneration).where(M.SettlementProjectionGeneration.generation_kind=='compact').order_by(M.SettlementProjectionGeneration.created_at.desc()).limit(3)))
-              print(json.dumps({'compaction_checkpoints':[{'generation_id':g.generation_id,'state':g.state,'progress':{k:(g.checkpoint_json or {}).get(k) for k in ('phase','batch_count','partition_count','source_row_count')}} for g in compacts]},sort_keys=True))
-              heartbeats=list(session.scalars(select(M.ComponentHeartbeat).where(M.ComponentHeartbeat.component_type=='worker').order_by(M.ComponentHeartbeat.last_heartbeat_at.desc()).limit(5)))
-              print(json.dumps({'worker_resource_guards':[{'instance':h.component_instance_id,'sampled_at':str(h.last_heartbeat_at),'guard':{k:(h.activity_json or {}).get('resource_guard',{}).get(k) for k in ('state','allow_daily','allow_history','duration_seconds','reasons')}} for h in heartbeats]},sort_keys=True))
-          finally:
-              scope.close()
-          PY
-          worker_container="$(compose ps -q worker)"
-          sudo docker cp /tmp/dydata102-recovery-preflight.py "$worker_container:/tmp/dydata102-recovery-preflight.py"
-          compose exec -T worker python /tmp/dydata102-recovery-preflight.py < /dev/null
-          pg_container="$(compose ps -q postgres)"
-          pg_mount="$(sudo docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql"}}{{.Type}}|{{.Source}}{{end}}{{end}}' "$pg_container")"
-          IFS='|' read -r pg_type pg_source <<< "$pg_mount"
-          test "$pg_type" = volume
-          test "${pg_source#/}" != "$pg_source"
-          sudo test -d "$pg_source"
-          printf 'pg_volume_disk_total_available_bytes='
-          sudo df -B1 --output=size,avail "$pg_source" | tail -1 | xargs
-          free -m
-          df -B1 --output=size,avail,pcent /opt/dy-dashboard
-          sudo journalctl -k --since '10 minutes ago' --no-pager | grep -Ei 'Out of memory|Killed process|oom-kill' | tail -8 || true
-          REMOTE
-      - name: Fail closed, then publish the masked report
-        run: |
-          set -euo pipefail
-          report="$RUNNER_TEMP/report.txt"
-          test -s "$report"
-          if grep -Eqi 'BEGIN [A-Z ]*PRIVATE KEY|(Cookie|Authorization):[[:space:]]*[^ ]|postgres(ql)?(\+[a-z]+)?://[^@[:space:]]*:[^@*[:space:]]*@|eyJ[A-Za-z0-9_-]{10,}\.' "$report"; then
-            echo "::error::masking gate failed: a credential-shaped value survived masking; report withheld"
-            exit 1
+          set -uo pipefail
+          umask 077
+
+          work="$RUNNER_TEMP/dydata104-r0"
+          install -m 700 -d "$work"
+          stdout="$work/probe.stdout"
+          stderr="$work/probe.stderr"
+          report="$work/report.txt"
+          key="$work/ssh_key"
+          known="$work/known_hosts"
+          trap 'rm -f "$key" "$known"' EXIT
+          : > "$stdout"
+          : > "$stderr"
+          : > "$report"
+
+          phase_begin="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          started=$SECONDS
+          prep_error=""
+          rc=78
+          result=setup_failure
+
+          printf '=== DYDATA-104 READ-ONLY PHASE BEGIN ===\n'
+          printf 'phase_begin_utc=%s mode=connection+resource writes=runner-temp-only\n' "$phase_begin"
+
+          if [ -z "${TENCENT_HOST:-}" ]; then
+            prep_error="${prep_error}${prep_error:+,}TENCENT_HOST_missing"
           fi
+          if [ -z "${TENCENT_SSH_USER:-}" ]; then
+            prep_error="${prep_error}${prep_error:+,}TENCENT_SSH_USER_missing"
+          fi
+          if [ -z "${TENCENT_SSH_PORT:-}" ]; then
+            prep_error="${prep_error}${prep_error:+,}TENCENT_SSH_PORT_missing"
+          else
+            case "$TENCENT_SSH_PORT" in
+              *[!0-9]*)
+                prep_error="${prep_error}${prep_error:+,}TENCENT_SSH_PORT_invalid"
+                ;;
+              *)
+                if [ "${#TENCENT_SSH_PORT}" -gt 5 ]; then
+                  prep_error="${prep_error}${prep_error:+,}TENCENT_SSH_PORT_invalid"
+                else
+                  port=$((10#$TENCENT_SSH_PORT))
+                  if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+                    prep_error="${prep_error}${prep_error:+,}TENCENT_SSH_PORT_invalid"
+                  fi
+                fi
+                ;;
+            esac
+          fi
+          if [ -z "${TENCENT_SSH_KEY:-}" ]; then
+            prep_error="${prep_error}${prep_error:+,}TENCENT_SSH_KEY_missing"
+          fi
+          if [ -z "${TENCENT_KNOWN_HOSTS:-}" ]; then
+            prep_error="${prep_error}${prep_error:+,}TENCENT_KNOWN_HOSTS_missing"
+          fi
+
+          if [ -z "$prep_error" ]; then
+            printf '%s\n' "$TENCENT_SSH_KEY" | tr -d '\r' > "$key"
+            chmod 600 "$key"
+            printf '%s\n' "$TENCENT_KNOWN_HOSTS" | tr -d '\r' > "$known"
+            chmod 600 "$known"
+            if [ ! -s "$key" ] || [ ! -s "$known" ]; then
+              prep_error="ssh_material_empty"
+            fi
+          fi
+
+          if [ -z "$prep_error" ]; then
+            host_key_name="$TENCENT_HOST"
+            if [ "$port" -ne 22 ]; then
+              host_key_name="[$TENCENT_HOST]:$port"
+            fi
+            if ! ssh-keygen -F "$host_key_name" -f "$known" >/dev/null 2>&1; then
+              prep_error="pinned_host_key_missing"
+            fi
+          fi
+
+          if [ -z "$prep_error" ]; then
+            timeout --signal=TERM --kill-after=10s 90s \
+              ssh -F /dev/null \
+                -i "$key" \
+                -p "$port" \
+                -o BatchMode=yes \
+                -o IdentitiesOnly=yes \
+                -o StrictHostKeyChecking=yes \
+                -o UserKnownHostsFile="$known" \
+                -o GlobalKnownHostsFile=/dev/null \
+                -o ConnectTimeout=12 \
+                -o ConnectionAttempts=1 \
+                -o ServerAliveInterval=10 \
+                -o ServerAliveCountMax=2 \
+                -o PreferredAuthentications=publickey \
+                -o PasswordAuthentication=no \
+                -o KbdInteractiveAuthentication=no \
+                -o UpdateHostKeys=no \
+                -o LogLevel=ERROR \
+                "$TENCENT_SSH_USER@$TENCENT_HOST" \
+                'bash -s' \
+              <<'REMOTE' >"$stdout" 2>"$stderr"
+          set -u
+          export LC_ALL=C
+
+          checks=0
+          failures=0
+          failed_checks=""
+
+          record_status() {
+            local label="$1" status="$2"
+            printf 'exit=%s\n' "$status"
+            checks=$((checks + 1))
+            if [ "$status" -ne 0 ]; then
+              failures=$((failures + 1))
+              if [ -n "$failed_checks" ]; then
+                failed_checks="$failed_checks,$label"
+              else
+                failed_checks="$label"
+              fi
+            fi
+          }
+
+          run_check() {
+            local label="$1" status
+            shift
+            printf '\n[%s]\n' "$label"
+            "$@" 2>&1
+            status=$?
+            record_status "$label" "$status"
+            return 0
+          }
+
+          printf '[connection]\nssh_connection=established\n'
+
+          run_check sudo_noninteractive sudo -n true
+          run_check utc_date date -u
+          run_check hostname hostname
+          run_check repo_path test -d /opt/dy-dashboard/repo
+          run_check disk_df df -B1 /opt/dy-dashboard
+          run_check memory_free free -m
+          run_check docker_info_version sudo -n docker info --format 'docker_server_version={{.ServerVersion}}'
+          run_check docker_ps sudo -n docker ps --format 'name={{.Names}} image={{.Image}} status={{.Status}}'
+          run_check docker_stats sudo -n docker stats --no-stream --format 'name={{.Name}} memory={{.MemUsage}} cpu={{.CPUPerc}}'
+
+          printf '\n[last_deploy_selected]\n'
+          sudo -n python3 - <<'PY'
+          import json
+          path = "/opt/dy-dashboard/logs/last-deploy.json"
+          keys = ("ts", "sha", "environment", "worker_started", "browser_acceptance")
+          try:
+              with open(path, "r", encoding="utf-8") as handle:
+                  record = json.load(handle)
+              selected = {key: record.get(key) for key in keys}
+              print(json.dumps(selected, sort_keys=True, separators=(",", ":")))
+          except Exception as exc:
+              print(json.dumps({"last_deploy_error": type(exc).__name__}, sort_keys=True))
+              raise SystemExit(1)
+          PY
+          last_deploy_status=$?
+          record_status last_deploy_selected "$last_deploy_status"
+
+          printf '\n[probe_summary]\n'
+          printf 'checks=%s failures=%s failed_checks=%s\n' "$checks" "$failures" "${failed_checks:-none}"
+          if [ "$failures" -eq 0 ]; then
+            printf 'probe_status=ok\n'
+            exit 0
+          fi
+          printf 'probe_status=degraded\n'
+          exit 9
+          REMOTE
+            rc=$?
+          fi
+
+          if [ -n "$prep_error" ]; then
+            result=setup_failure
+          elif [ "$rc" -eq 0 ]; then
+            result=success
+          elif [ "$rc" -eq 9 ]; then
+            result=degraded
+          elif [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+            result=timeout
+          else
+            result=transport_failure
+          fi
+
+          PROBE_STDOUT="$stdout" \
+          PROBE_STDERR="$stderr" \
+          REPORT_PATH="$report" \
+          PROBE_RC="$rc" \
+          PREP_ERROR="$prep_error" \
+          PHASE_BEGIN="$phase_begin" \
+          PROBE_RESULT="$result" \
+          PROBE_DURATION="$((SECONDS - started))" \
+          python3 - <<'PY'
+          import os
+          import re
+          from datetime import datetime, timezone
+
+          stdout_path = os.environ["PROBE_STDOUT"]
+          stderr_path = os.environ["PROBE_STDERR"]
+          report_path = os.environ["REPORT_PATH"]
+          rc = int(os.environ["PROBE_RC"])
+          prep_error = os.environ.get("PREP_ERROR", "")
+          phase_begin = os.environ["PHASE_BEGIN"]
+          result = os.environ["PROBE_RESULT"]
+          duration = os.environ.get("PROBE_DURATION", "unknown")
+
+          def read_limited(path, limit):
+              with open(path, "rb") as handle:
+                  raw = handle.read(limit + 1)
+              return raw[:limit].decode("utf-8", "replace"), len(raw) > limit, len(raw)
+
+          stdout_raw, stdout_truncated, stdout_bytes = read_limited(stdout_path, 262144)
+          stderr_raw, stderr_truncated, stderr_bytes = read_limited(stderr_path, 65536)
+
+          pem_block = re.compile(
+              r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\Z)",
+              re.IGNORECASE | re.DOTALL,
+          )
+          sanitizers = [
+              (
+                  re.compile(
+                      r"(?i)\b([A-Z0-9_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY|SSH_KEY)[A-Z0-9_]*)\s*[:=]\s*[^\s,;]+"
+                  ),
+                  r"\1=[REDACTED]",
+              ),
+              (
+                  re.compile(r"(?i)\b(Authorization|Proxy-Authorization|Cookie|Set-Cookie)\s*:\s*[^\r\n]+"),
+                  r"\1: [REDACTED]",
+              ),
+              (re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{8,}"), "Bearer [REDACTED]"),
+              (
+                  re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@"),
+                  r"\1[REDACTED]@",
+              ),
+              (re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b"), "[REDACTED_JWT]"),
+              (
+                  re.compile(
+                      r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AKID[A-Za-z0-9]{13,}|sk-[A-Za-z0-9]{20,})\b"
+                  ),
+                  "[REDACTED_TOKEN]",
+              ),
+              (
+                  re.compile(
+                      r"(?i)\b(?:ssh-(?:rsa|ed25519|dss)|ecdsa-sha2-nistp\d+)\s+AAAA[A-Za-z0-9+/=]{20,}"
+                  ),
+                  "[REDACTED_KEY_MATERIAL]",
+              ),
+              (
+                  re.compile(r"(?i)\bpassword\s+for\s+[^:\r\n]+:\s*[^\r\n]*"),
+                  "password for [REDACTED]: [REDACTED]",
+              ),
+          ]
+          residual_secret = re.compile(
+              r"(?i)(-----BEGIN [^-]*PRIVATE KEY-----|"
+              r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.|"
+              r"Authorization\s*:\s*\S|"
+              r"postgres(?:ql)?(?:\+[a-z]+)?://[^@\s:]+:[^@\s*]+@|"
+              r"(?:gh[pousr]_|github_pat_|xox[baprs]-|AKIA|AKID|sk-)[A-Za-z0-9_-]{8,})"
+          )
+
+          def sanitize_text(text):
+              text = pem_block.sub("[REDACTED_PRIVATE_KEY]", text)
+              clean = []
+              for raw_line in text.splitlines():
+                  line = raw_line.replace("\r", "")
+                  for pattern, replacement in sanitizers:
+                      line = pattern.sub(replacement, line)
+                  if residual_secret.search(line):
+                      line = "[REDACTED_SENSITIVE_LINE]"
+                  if line.startswith("::") or line.startswith("##["):
+                      line = "OUTPUT " + line
+                  if len(line) > 4000:
+                      line = line[:4000] + " [line truncated]"
+                  clean.append(line)
+              return "\n".join(clean).strip("\n")
+
+          safe_error_patterns = [
+              re.compile(
+                  r"(?i)^(?:ssh:\s*)?connect to host .* port \d+: (?:connection timed out|connection refused|network is unreachable|no route to host)"
+              ),
+              re.compile(r"(?i)^(?:ssh:\s*)?could not resolve hostname\b"),
+              re.compile(r"(?i)^host key verification failed\.?$"),
+              re.compile(r"(?i)^permission denied \(publickey[^)]*\)\.?$"),
+              re.compile(r"(?i)^(?:kex_exchange_identification|banner exchange):"),
+              re.compile(r"(?i)^connection closed by .* port \d+$"),
+              re.compile(r"(?i)^timeout, server .* not responding$"),
+              re.compile(r"(?i)^client_loop: send disconnect"),
+          ]
+
+          def safe_error_lines(text):
+              clean = sanitize_text(text)
+              found = []
+              for line in clean.splitlines():
+                  stripped = line.strip()
+                  if not stripped:
+                      continue
+                  if any(pattern.search(stripped) for pattern in safe_error_patterns):
+                      found.append(stripped[:500])
+                  if len(found) >= 6:
+                      break
+              return found
+
+          stdout_clean = sanitize_text(stdout_raw)
+          error_lines = []
+          if result == "timeout":
+              error_lines = ["ssh_error=overall_timeout_90s"]
+          elif result == "setup_failure":
+              error_lines = ["ssh_error=preflight_configuration"]
+          elif rc not in (0, 9):
+              error_lines = safe_error_lines(stderr_raw)
+              if not error_lines:
+                  error_lines = ["ssh_error=unclassified_transport_or_ssh_failure"]
+
+          phase_end = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+          report_lines = [
+              "DYDATA-104 READ-ONLY RESOURCE PROBE REPORT",
+              "receipt=begin",
+              "phase_begin_utc=" + phase_begin,
+              "phase_end_utc=" + phase_end,
+              "workflow_mode=connection+resource",
+              "read_only=true",
+              "production_mutations=false",
+              "runner_temp_only=true",
+              "artifact_retention_days=7",
+              "overall_timeout_seconds=90",
+              "probe_result=" + result,
+              "ssh_exit_code=" + str(rc),
+              "duration_seconds=" + str(duration),
+              "preflight_error=" + (prep_error or "none"),
+              "stdout_bytes_captured=" + str(stdout_bytes),
+              "stdout_truncated=" + str(stdout_truncated).lower(),
+              "stderr_bytes_captured=" + str(stderr_bytes),
+              "stderr_truncated=" + str(stderr_truncated).lower(),
+              "masking=regex_fail_closed",
+              "scope=connection,host,repo_path,disk,memory,docker_version,container_inventory,container_stats,last_deploy_whitelist",
+              "excluded=scp,application_probe,env_inspect,production_file_write,restart,update,deploy,cancel,sql",
+              "",
+              "--- remote stdout (sanitized) ---",
+              stdout_clean if stdout_clean else "(empty)",
+          ]
+          if error_lines:
+              report_lines.extend(["", "--- safe ssh error (sanitized) ---", *error_lines])
+          report_lines.extend(
+              [
+                  "",
+                  "receipt=end",
+                  "result=" + result,
+                  "phase_end_utc=" + phase_end,
+                  "",
+              ]
+          )
+          with open(report_path, "w", encoding="utf-8", newline="\n") as handle:
+              handle.write("\n".join(report_lines))
+          PY
+
+          report_failed=0
+          if [ ! -s "$report" ]; then
+            printf 'DYDATA-104 READ-ONLY RESOURCE PROBE REPORT\nreceipt=begin\nprobe_result=report_generation_failure\nssh_exit_code=%s\nreceipt=end\n' "$rc" > "$report"
+            report_failed=1
+          fi
+
           cat "$report"
-      - name: Upload masked report
+          printf '\n=== DYDATA-104 READ-ONLY PHASE END ===\n'
+          printf 'phase_end_utc=%s result=%s ssh_exit_code=%s duration_seconds=%s\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$result" "$rc" "$((SECONDS - started))"
+
+          rm -f "$key" "$known"
+
+          if [ "$rc" -eq 0 ] && [ "$report_failed" -eq 0 ]; then
+            exit 0
+          fi
+          exit 1
+
+      - name: Check sanitized report
+        id: report_check
+        if: always()
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/dydata104-r0/report.txt"
+          if [ -s "$report" ]; then
+            printf 'report_exists=true\n' >> "$GITHUB_OUTPUT"
+          else
+            printf 'report_exists=false\n' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload sanitized read-only report
+        if: always() && steps.report_check.outputs.report_exists == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: dydata-102-103-readonly-diagnosis
-          path: ${{ runner.temp }}/report.txt
+          name: dydata-104-readonly-resource-probe
+          path: ${{ runner.temp }}/dydata104-r0/report.txt
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
