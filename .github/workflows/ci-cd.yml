@@ -42,7 +42,7 @@ jobs:
           path: ops
       - uses: actions/checkout@v4
         with:
-          ref: 5effd6efcdf28f8d04d9f79b4ba7a38a13c3ecf9
+          ref: c6f88ad68f85c67a047039d295bc1953f81fda11
           path: app
       - uses: actions/setup-python@v5
         with:
@@ -51,6 +51,24 @@ jobs:
           cache-dependency-path: app/requirements.txt
       - name: Install application dependencies
         run: python -m pip install -r app/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify suite lock, plan consistency and recovery task context
+        run: |
+          cd app
+          node .agent/project-manager-suite/tools/verify-suite-lock.mjs .
+          node .agent/project-manager-suite/skills/05-01-delivery-planner/scripts/check-plan-consistency.mjs docs/plans/delivery-plans/main-delivery-plan-dydata-104-followthrough.md --json
+          node .agent/project-manager-suite/skills/06-01-coding-standards/scripts/verify-task-context.mjs docs/plans/delivery-plans/main-delivery-plan-dydata-104-followthrough.md T2.1 --env-check
+          node .agent/project-manager-suite/skills/06-01-coding-standards/scripts/verify-task-context.mjs docs/plans/delivery-plans/main-delivery-plan-dydata-104-followthrough.md T2.1 --json
+          docker info
+          docker version
+      - name: Verify targeted recovery baseline on disposable PostgreSQL
+        env:
+          DY_RELEASE_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_release
+        run: |
+          cd app
+          python -m pytest tests/test_job_recovery_and_evidence.py tests/test_worker_subprocess_recovery.py -q -p no:cacheprovider
       - name: Verify streamed-shell and external receipt regression
         run: |
           for script in ops/ops-preparation/production_compaction.sh ops/ops-preparation/production_day_recovery.sh ops/ops-preparation/production_scope.sh; do
