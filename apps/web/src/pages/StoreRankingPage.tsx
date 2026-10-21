@@ -25,10 +25,10 @@ interface StoreRankingPageProps {
 }
 
 const PAGE_SIZE = 20;
-const displayMetricCurrency = (value: number | undefined) =>
-  value === undefined ? "暂无数据" : formatCurrency(value);
-const displayMetricCount = (value: number | undefined, unit: string) =>
-  value === undefined ? "暂无数据" : `${formatInteger(value)} ${unit}`;
+const displayMetricCurrency = (value: number | null | undefined) =>
+  value === null ? "暂不可用" : value === undefined ? "暂无数据" : formatCurrency(value);
+const displayMetricCount = (value: number | null | undefined, unit: string) =>
+  value === null ? "暂不可用" : value === undefined ? "暂无数据" : `${formatInteger(value)} ${unit}`;
 
 type RankingBasis = StoreFinanceRankingBasis;
 
@@ -109,6 +109,9 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
   const rankingError = rankingResource.rawError ? apiErrorText(rankingResource.rawError, "榜单暂不可用，请稍后重试。", { 403: "当前账号没有查看该榜单的权限。", 422: "榜单筛选条件不合法，请重新选择。" }) : rankingResource.error;
   const rows = ranking?.list ?? [];
   const totals = ranking?.totals;
+  const availability = ranking?.periodAvailability;
+  const cumulativeUnavailable = availability?.cumulativeReady === false;
+  const incompleteMonths = availability?.incompleteMonths.join("、");
 
   const columns: Column<SettlementStoreRankingRow>[] = [
     { key: "rank", title: "排名", align: "center", render: (row) => <span className="rank-badge">{row.rank}</span> },
@@ -144,11 +147,21 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
               ? "PROMOTION_FEE_CUMULATIVE"
               : current);
           setPage(1);
-        }} options={[{ value: "MONTHLY", label: "月度" }, { value: "CUMULATIVE", label: "正式累计" }]} />
+        }} options={[{ value: "MONTHLY", label: "月度" }, { value: "CUMULATIVE", label: "正式累计", disabled: cumulativeUnavailable }]} />
         <SelectField disabled={!meta} label="账期" value={activePeriodKey} onChange={(value) => { setPeriodKey(value); setPage(1); }} options={(meta?.saleMonths ?? []).map((value) => ({ value, label: value }))} />
         <SelectField disabled={!meta} label="产品范围" value={productScope} onChange={(value) => { setProductScope(value); setPage(1); }} options={(meta?.productScopes ?? []).map((value) => ({ value, label: value === "all" ? "全部产品" : value }))} />
         <FilterField label="搜索门店"><FieldInput disabled={!meta} value={query} placeholder="输入门店名称" onChange={(event) => { setQuery(event.target.value); setPage(1); }} /></FilterField>
+        <SelectField label="排行依据" value={rankingBasis} onChange={(value) => {
+          const nextBasis = value as RankingBasis;
+          setRankingBasis(nextBasis);
+          setPeriodType(periodTypeForRankingBasis(nextBasis));
+          setPage(1);
+        }} options={RANKING_BASIS_OPTIONS.map((option) => ({
+          ...option,
+          disabled: cumulativeUnavailable && option.value !== "PROMOTION_FEE_MONTH",
+        }))} />
       </FilterBar>
+      {availability?.monthlyReady && cumulativeUnavailable ? <ResourcePanel>本月数据已完整；累计数据{incompleteMonths ? `因 ${incompleteMonths} 尚未完成` : "尚未完成"}，暂不可用。</ResourcePanel> : null}
       {periodType === "CUMULATIVE" && activePeriodKey < (meta?.formalPeriodStartMonth ?? "2026-08") ? <ResourcePanel>累计排名从 {meta?.formalPeriodStartMonth ?? "2026-08"} 正式账期开始，当前账期不计入正式累计。</ResourcePanel> : null}
       {!ranking && rankingResource.loading ? <ResourcePanel>正在加载榜单…</ResourcePanel> : !ranking ? <ResourcePanel tone="error">榜单暂不可用，请稍后重试。</ResourcePanel> : (
         <>
@@ -161,12 +174,6 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
           <section className="content-section">
             <div className="section-title">
               <div><h2>门店排名</h2><p>{ranking.scopeMode === "GLOBAL_TOP_20_EXCEPTION" ? "全国前 20 展示例外；明细仍按门店权限控制" : `共 ${ranking.total} 家门店`}</p></div>
-              <SelectField label="排行依据" value={rankingBasis} onChange={(value) => {
-                const nextBasis = value as RankingBasis;
-                setRankingBasis(nextBasis);
-                setPeriodType(periodTypeForRankingBasis(nextBasis));
-                setPage(1);
-              }} options={RANKING_BASIS_OPTIONS} />
             </div>
             {rows.length ? <DataTable columns={columns} rows={rows} rowHref={ranking.scopeMode === "AUTHORIZED" ? (row) => `/settlement?storeId=${encodeURIComponent(row.storeId)}&month=${activePeriodKey}&productScope=${encodeURIComponent(productScope)}&productType=${encodeURIComponent(activeProductType)}` : undefined} /> : <ResourcePanel>当前筛选下没有门店结果。</ResourcePanel>}
             {ranking.scopeMode === "AUTHORIZED" ? <TablePagination page={ranking.page} pageSize={ranking.pageSize} total={ranking.total} totalPages={Math.max(1, Math.ceil(ranking.total / ranking.pageSize))} rowsOnPage={rows.length} loading={rankingResource.loading} onPageChange={setPage} /> : null}
