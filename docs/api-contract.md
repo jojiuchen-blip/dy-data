@@ -4,6 +4,10 @@
 
 ## 1. 基础约定
 
+### 完整月度与未完整累计分开读取（DYDATA-104，2026-10-21）
+
+门店榜单与单店月度分账新增 `data.periodAvailability`（`monthlyReady/cumulativeReady/incompleteMonths`）。当月完整时可独立展示当月金额；历史前缀未完整时累计金额/计数为 `null`，页面显示暂不可用。累计查询、累计排序及财务累计导出仍失败关闭，不把缺数据解释为零。详情见[静态发布账期契约](api/dashboard-publications.md#完整当月与未完整累计分别展示dydata-1042026-10-21)。
+
 ### PDCA 只读事件快照（2026-09-28，本地实现，未部署）
 
 新增 `GET /api/v1/admin/pdca-source-snapshots` 及同路径 `/{snapshot_id}` 分页，契约

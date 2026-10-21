@@ -60,12 +60,10 @@ def fingerprint(snapshot: dict) -> str:
     return hashlib.sha256(json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def require(snapshot: dict | None, month: str, *, cumulative: bool) -> None:
-    """Fail closed from frozen metadata only; never inspect current tasks."""
-    from .lifecycle import PublicationError
-
+def availability(snapshot: dict | None, month: str) -> dict:
+    """Assess the selected month and formal prefix using only frozen evidence."""
     if month < FORMAL_START:
-        return  # Preserve the existing explicit pre-formal history contract.
+        return {"monthly_ready": True, "cumulative_ready": True, "incomplete_months": []}
     months = snapshot.get("months") if isinstance(snapshot, dict) and snapshot.get("schema_version") == 1 else None
     # Check the requested month before expanding a prefix: future/missing
     # periods cannot trigger an unbounded range in a reader.
@@ -73,10 +71,20 @@ def require(snapshot: dict | None, month: str, *, cumulative: bool) -> None:
         required = (month,)
         months = {}
     else:
-        required = formal_months(month) if cumulative else (month,)
-    if any(
+        required = formal_months(month)
+    incomplete = [key for key in required if
         not isinstance(months.get(key), dict) or months[key].get("ready") is not True
-        for key in required
-    ):
+    ]
+    return {"monthly_ready": month not in incomplete, "cumulative_ready": not incomplete,
+        "incomplete_months": incomplete}
+
+
+def require(snapshot: dict | None, month: str, *, cumulative: bool) -> dict:
+    """Fail closed from frozen metadata only; never inspect current tasks."""
+    from .lifecycle import PublicationError
+
+    result = availability(snapshot, month)
+    if not result["cumulative_ready" if cumulative else "monthly_ready"]:
         raise PublicationError("PUBLICATION_PERIOD_NOT_READY",
             f"{month}账期数据尚未准备完成，请稍后重试；未展示未完成账期的金额。", 503)
+    return result

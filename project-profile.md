@@ -1,3 +1,6 @@
+<!-- DYDATA-104 September recovery: 2026-10-21 -->
+> 当前执行为 S4 / DYDATA-104 T3.1，承接整体业务验收。2026-10-21 九月固定恢复全链成功、30/30，452张待确认账单，两费各10,032.68元，金额差异0及保护指纹一致；T2.1转待验收。八月缺日不恢复，累计门禁保留。既有5da13df1已部署，本轮无应用代码或部署变更。当前入口见 [执行计划](docs/plans/execution-plan.md)，下方旧增量保留为历史。
+
 <!-- Unified dashboard publications: 2026-10-19 -->
 > 当前增量为用户已确认且免 Linear 的统一静态看板，保持 S4；T0.1 实现与定向验证已完成，T1.1 全仓、规模和发布准备进行中。基于已部署的 `fe02e2a8` 在独立工作树开发，原目录未提交改动保留。当前计划见 [统一静态看板](docs/plans/delivery-plans/main-delivery-plan-unified-dashboard-publications.md)，证据见 [开发日志](docs/devlog/20261019_unified_dashboard_publications.md)。本轮未生产部署，下方其他增量保留各自历史上下文。
 

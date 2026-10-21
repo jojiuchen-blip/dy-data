@@ -609,26 +609,37 @@ export interface SettlementFilterMetaData {
   timezone: string;
 }
 
+export interface SettlementPeriodAvailability {
+  monthlyReady: boolean;
+  cumulativeReady: boolean;
+  incompleteMonths: string[];
+}
+
 export interface SettlementStoreRankingRow {
   rank: number;
   storeId: string;
   storeName: string;
-  salesOrderCount: number;
-  salesAmountCent: number;
-  verifiedOrderCount: number;
-  verifiedAmountCent: number;
+  salesOrderCount: number | null;
+  salesAmountCent: number | null;
+  verifiedOrderCount: number | null;
+  verifiedAmountCent: number | null;
   promotionNetFeeCent: number;
   managementNetFeeCent: number;
   netSettlementReferenceCent: number;
-  salesOrderCountCumulative: number;
-  salesAmountCumulativeCent: number;
-  verifiedOrderCountCumulative: number;
-  verifiedAmountCumulativeCent: number;
+  salesOrderCountCumulative: number | null;
+  salesAmountCumulativeCent: number | null;
+  verifiedOrderCountCumulative: number | null;
+  verifiedAmountCumulativeCent: number | null;
   promotionMonthFeeCent: number;
-  promotionCumulativeFeeCent: number;
+  promotionCumulativeFeeCent: number | null;
+  managementMonthFeeCent?: number;
+  managementCumulativeFeeCent?: number | null;
+  netSettlementReferenceMonthCent?: number;
+  netSettlementReferenceCumulativeCent?: number | null;
 }
 
 export interface SettlementStoreRankingData {
+  periodAvailability?: SettlementPeriodAvailability;
   periodType: PeriodType;
   periodKey: string;
   rankingBasis?: StoreFinanceRankingBasis;
@@ -741,10 +752,11 @@ export interface SettlementStatementLine {
 }
 
 export interface SettlementMonthlyData {
+  periodAvailability?: SettlementPeriodAvailability;
   publicationStatement?: SettlementStatementSummary | null;
   computedCumulative?: {
-    promotionNetFeeCent: number;
-    managementNetFeeCent: number;
+    promotionNetFeeCent: number | null;
+    managementNetFeeCent: number | null;
   };
   store: { storeId: string; storeName: string };
   month: string;

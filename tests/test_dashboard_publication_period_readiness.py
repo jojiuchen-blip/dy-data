@@ -67,11 +67,22 @@ def test_real_day_recovery_changes_financial_fingerprint_but_not_frozen_reads(db
     assert sources.source_fingerprint(db_session, "sales", now=CUTOFF) == sales_before
     _assert_blocked(lambda: finance.read_finance_summary(db_session, "incomplete-finance", **FILTERS))
     _freeze(db_session, "complete-finance", "finance")
+    _freeze(db_session, "complete-settlement", "settlement")
     # September is complete without any fee result. A genuine zero is allowed.
     result = finance.read_finance_summary(db_session, "complete-finance", **FILTERS)
     assert set(result["metrics"].values()) == {0}
     assert finance.read_finance_invoices(db_session, "complete-finance", **FILTERS)["list"] == []
     assert finance.export_finance_invoices(db_session, "complete-finance", **FILTERS) == []
+    ranking = finance.read_store_ranking(db_session, "complete-settlement", {
+        "period_key": "2026-09", "ranking_basis": "PROMOTION_FEE_MONTH"})
+    assert ranking["totals"]["promotion_month_fee_cent"] == 0
+    assert ranking["totals"]["promotion_cumulative_fee_cent"] is None
+    assert ranking["period_availability"] == {"monthly_ready": True,
+        "cumulative_ready": False, "incomplete_months": ["2026-08"]}
+    monthly = finance.read_monthly_settlement(db_session, "complete-settlement", {
+        "month": "2026-09", "store_id": "none"})
+    assert set(monthly["metrics"].values()) == {0}
+    assert set(monthly["computed_cumulative"].values()) == {None}
     # August is still missing, so cumulative values must not imply completeness.
     _assert_blocked(lambda: finance.read_finance_summary(db_session, "complete-finance",
         **(FILTERS | {"metric_scope": "CUMULATIVE"})))
@@ -110,3 +121,18 @@ def test_reader_missing_metadata_and_future_period_are_unavailable(db_session):
     _assert_blocked(lambda: finance.read_finance_summary(db_session, "no-evidence", **FILTERS))
     _assert_blocked(lambda: period_readiness.require({"schema_version": 1, "months": {}},
         "9999-12", cumulative=True))
+
+
+def test_availability_distinguishes_month_from_missing_or_incomplete_prefix(monkeypatch):
+    snapshot = {"schema_version": 1, "months": {
+        "2026-09": {"ready": False}, "2026-10": {"ready": True}}}
+    assert period_readiness.availability(snapshot, "2026-10") == {
+        "monthly_ready": True, "cumulative_ready": False,
+        "incomplete_months": ["2026-08", "2026-09"]}
+    assert period_readiness.require(snapshot, "2026-10", cumulative=False)["monthly_ready"] is True
+    _assert_blocked(lambda: period_readiness.require(snapshot, "2026-10", cumulative=True))
+    assert period_readiness.availability(None, "2026-07") == {
+        "monthly_ready": True, "cumulative_ready": True, "incomplete_months": []}
+    monkeypatch.setattr(period_readiness, "formal_months", lambda *a: pytest.fail("expanded absent future month"))
+    assert period_readiness.availability(snapshot, "9999-12") == {
+        "monthly_ready": False, "cumulative_ready": False, "incomplete_months": ["9999-12"]}

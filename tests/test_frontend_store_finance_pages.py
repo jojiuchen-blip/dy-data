@@ -351,8 +351,8 @@ def test_missing_store_finance_metrics_are_not_rendered_as_real_zero_values() ->
     settlement = read_source("pages/StoreSettlementPage.tsx")
     invoice = read_source("pages/StoreInvoicePage.tsx")
 
-    assert 'const displayMetricCurrency = (value: number | undefined) =>' in ranking
-    assert 'const displayMetricCount = (value: number | undefined, unit: string) =>' in ranking
+    assert 'const displayMetricCurrency = (value: number | null | undefined) =>' in ranking
+    assert 'const displayMetricCount = (value: number | null | undefined, unit: string) =>' in ranking
     assert 'value={formatCurrency(salesAndVerificationTotals?.salesAmountCent ?? 0)}' not in ranking
 
     assert 'const displayMetricCurrency = (value: number | undefined) =>' in settlement

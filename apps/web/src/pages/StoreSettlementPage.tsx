@@ -53,8 +53,9 @@ const displayMetricCount = (value: number | undefined, unit: string) =>
   value === undefined ? "暂无数据" : `${formatInteger(value)} ${unit}`;
 // A cumulative total is only a real amount inside the formal window. Outside it
 // the pinned read legitimately returns zeros, which must not be shown as ¥0.00.
-const displayCumulativeCurrency = (value: number | undefined, inFormalWindow: boolean) => {
+const displayCumulativeCurrency = (value: number | null | undefined, inFormalWindow: boolean) => {
   if (value === undefined) return "暂无数据";
+  if (value === null) return "暂不可用";
   return inFormalWindow ? formatCurrency(value) : "不适用";
 };
 
@@ -165,6 +166,8 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
   const view = settlementResource.data?.data;
   const metrics = view?.metrics;
   const cumulativeMetrics = view?.computedCumulative;
+  const availability = view?.periodAvailability;
+  const incompleteMonths = availability?.incompleteMonths.join("、");
   // Both boundaries come from the formal API: single month = the selected
   // month, cumulative = the configured formal start month through it.
   const cumulativeStartMonth = meta?.formalPeriodStartMonth ?? "";
@@ -335,6 +338,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
           />
         </FilterField>
       </FilterBar>
+      {availability?.monthlyReady && availability.cumulativeReady === false ? <ResourcePanel>本月数据已完整；累计数据{incompleteMonths ? `因 ${incompleteMonths} 尚未完成` : "尚未完成"}，暂不可用。</ResourcePanel> : null}
 
       <section className="metric-grid store-summary-metrics" aria-label="分账指标">
             <MetricCard label="销售金额" value={displayMetricCurrency(metrics?.salesAmountCent)} meta={displayMetricCount(metrics?.salesOrderCount, "笔订单")} />
