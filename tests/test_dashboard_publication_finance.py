@@ -290,6 +290,8 @@ def test_settlement_parity_huge_integer_cent_scope_and_no_legacy_drift(db_sessio
                     scope_mode="AUTHORIZED", scope_store_ids=scope, product_scope="all",
                     product_type="all", sort_order="DESC", page=1, page_size=20)
                 expected = old.store_ranking_report(filters)
+                expected["period_availability"] = publication.period_readiness.availability(
+                    ready_periods_fixture(db_session, NOW), month)
                 actual = publication.read_store_ranking(db_session, "settlement-v1", filters)
                 assert actual == expected, filters
                 cases.append((filters, expected))
@@ -302,6 +304,8 @@ def test_settlement_parity_huge_integer_cent_scope_and_no_legacy_drift(db_sessio
         # response as the baseline and assert concrete selection separately.
         expected = old.monthly_settlement_report({**filters, "product_scope": "all", "product_type": "all"})
         expected.update(product_scope=product_scope, product_type=product_type)
+        expected["period_availability"] = publication.period_readiness.availability(
+            ready_periods_fixture(db_session, NOW), filters["month"])
         actual = publication.read_monthly_settlement(db_session, "settlement-v1", filters)
         assert actual.pop("publication_statement") == expected["statement"]
         assert actual == expected
@@ -374,6 +378,8 @@ def test_monthly_frozen_lines_match_multicoupon_refund_and_locked_facts(db_sessi
     for month in ("2026-08", "2026-09"):
         filters = dict(store_id="allowed", month=month, product_scope="all", product_type="all")
         expected = DashboardDataStore(db_session).monthly_settlement_report(filters)
+        expected["period_availability"] = publication.period_readiness.availability(
+            ready_periods_fixture(db_session, NOW), month)
         actual = publication.read_monthly_settlement(db_session, "settlement-lines", filters)
         assert publication._json_value(actual.pop("publication_statement")) == publication._json_value(expected["statement"])
         expected["statement"] = None

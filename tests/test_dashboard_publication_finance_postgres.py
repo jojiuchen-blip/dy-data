@@ -96,6 +96,12 @@ def test_postgres_settlement_parity(postgres_session, legacy_root):
     _assert_settlement_parity(postgres_session, legacy_root)
 
 
+def test_postgres_monthly_http_numeric_and_null_contract(postgres_session, monkeypatch):
+    from test_dashboard_publication_finance_monthly import assert_monthly_http_contract
+
+    assert_monthly_http_contract(postgres_session, monkeypatch)
+
+
 def test_postgres_failed_build_rollback(postgres_session, monkeypatch):
     _assert_failed_build_rollback(postgres_session, monkeypatch)
 

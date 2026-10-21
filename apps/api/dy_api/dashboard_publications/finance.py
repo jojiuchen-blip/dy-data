@@ -595,7 +595,7 @@ def _require_period(session, publication_id, month, *, cumulative=False):
     snapshot = session.scalar(select(dimensions.c.value).where(
         dimensions.c.publication_id == publication_id,
         dimensions.c.kind == "period_readiness", dimensions.c.key == "v1"))
-    period_readiness.require(snapshot, month, cumulative=cumulative)
+    return period_readiness.require(snapshot, month, cumulative=cumulative)
 
 
 def read_filters(session: Session, publication_id: str, module: str = "settlement",
@@ -637,12 +637,14 @@ def read_store_ranking(session: Session, publication_id: str, filters: dict[str,
     """Filter, sum and sort frozen ranking rows within the caller's current scope."""
     period_type = filters.get("period_type", "MONTHLY")
     month = filters["period_key"]
-    _require_period(session, publication_id, month,
-        cumulative=period_type == "CUMULATIVE" or bool(filters.get("ranking_basis")))
     basis = filters.get("ranking_basis")
+    availability = _require_period(session, publication_id, month,
+        cumulative=period_type == "CUMULATIVE" or basis in {
+            "SALES_AMOUNT_CUMULATIVE", "VERIFIED_AMOUNT_CUMULATIVE", "PROMOTION_FEE_CUMULATIVE"})
     conditions = _ranking_conditions(publication_id, filters)
     page, page_size = filters.get("page", 1), filters.get("page_size", 20)
     extra = {}
+    unavailable_metrics = set()
     metric_columns = {key: func.coalesce(func.sum(ranking.c[key]), 0).label(key)
                       for key in RANK_METRICS}
     if basis:
@@ -675,6 +677,12 @@ def read_store_ranking(session: Session, publication_id: str, filters: dict[str,
                    ("net_settlement_reference_cent", "net_settlement_reference_", "_cent"))},
         }
         metric_columns.update({key: metric_columns[value].label(key) for key, value in aliases.items()})
+        if not availability["cumulative_ready"]:
+            conditions.append(ranking.c.period_type == 1)
+            # Cumulative sales/verified compatibility aliases are unavailable
+            # too; only actual monthly fees may remain numeric in this shape.
+            unavailable_metrics = {key for key, (period, _) in specs.items() if period == 2}
+            unavailable_metrics.update(key for key, value in aliases.items() if value in unavailable_metrics)
         sort_key = {"SALES_AMOUNT_CUMULATIVE": "sales_amount_cumulative_cent",
             "VERIFIED_AMOUNT_CUMULATIVE": "verified_amount_cumulative_cent",
             "PROMOTION_FEE_MONTH": "promotion_month_fee_cent",
@@ -697,15 +705,20 @@ def read_store_ranking(session: Session, publication_id: str, filters: dict[str,
     order = grouped.c[sort_key].asc() if filters.get("sort_order") == "ASC" else grouped.c[sort_key].desc()
     rows = session.execute(select(grouped).order_by(order, grouped.c.store_id).offset(
         (page - 1) * page_size).limit(page_size)).mappings()
+
+    def metric_value(values, key):
+        return None if key in unavailable_metrics else int(values[key])
+
     return {"period_type": period_type, "period_key": month, **extra,
+        "period_availability": availability,
         "product_scope": filters.get("product_scope") or "all",
         "product_type": filters.get("product_type") or "all",
         "formal_period_start_month": FORMAL_START,
         "scope_mode": filters.get("scope_mode", "AUTHORIZED"),
-        "totals": {key: int(totals[key]) for key in metric_columns},
+        "totals": {key: metric_value(totals, key) for key in metric_columns},
         "list": [{"rank": (page - 1) * page_size + index + 1,
                   "store_id": row["store_id"], "store_name": row["store_name"],
-                  **{key: int(row[key]) for key in metric_columns}}
+                  **{key: metric_value(row, key) for key in metric_columns}}
                  for index, row in enumerate(rows)],
         "total": totals["total"], "page": page, "page_size": page_size}
 
@@ -713,7 +726,7 @@ def read_store_ranking(session: Session, publication_id: str, filters: dict[str,
 def read_monthly_settlement(session: Session, publication_id: str, filters: dict[str, Any]) -> dict:
     """Return frozen operating amounts; routes populate the live statement head."""
     store_id, month = filters["store_id"], filters["month"]
-    _require_period(session, publication_id, month, cumulative=True)
+    availability = _require_period(session, publication_id, month)
     scope = filters.get("scope_store_ids")
     allowed = scope is None or store_id in scope
     row = session.execute(select(monthly).where(monthly.c.publication_id == publication_id,
@@ -724,15 +737,17 @@ def read_monthly_settlement(session: Session, publication_id: str, filters: dict
         dimensions.c.publication_id == publication_id, dimensions.c.kind == "store",
         dimensions.c.key == store_id, allowed)) or {"store_id": store_id, "store_name": store_id}
     cumulative = read_store_ranking(session, publication_id, {**filters,
-        "period_type": "CUMULATIVE", "period_key": month, "scope_store_ids": (store_id,) if allowed else ()})
+        "period_type": "CUMULATIVE", "period_key": month,
+        "scope_store_ids": (store_id,) if allowed else ()}) if availability["cumulative_ready"] else None
     has_generation = _has_source_generation(session, publication_id)
-    return {"store": store, "month": month,
+    return {"store": store, "month": month, "period_availability": availability,
         "product_scope": filters.get("product_scope") or "all",
         "product_type": filters.get("product_type") or "all",
         "is_formal_period": month >= FORMAL_START, "statement": None,
         "publication_statement": row["statement"] if row else None,
         "metrics": {key: int(row[key]) if row else 0 for key in MONTH_METRICS},
-        "computed_cumulative": {key: cumulative["totals"][key] if has_generation else 0
+        "computed_cumulative": {key: (cumulative["totals"][key] if has_generation else 0)
+            if cumulative is not None else None
             for key in ("promotion_net_fee_cent", "management_net_fee_cent")},
         "lines": row["lines"] if row else []}
 
