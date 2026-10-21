@@ -33,6 +33,10 @@
 2026-10-20 20:46 PR57服务健康通过后，真实页面发现榜单Decimal序列化成字符串并触发前端白屏。已恢复原API/web，新后台服务及静态版本保留。PR58只将榜单计数归一为整数后沿用比例算法，补真实PG→HTTP→现有前端格式化验证及五模块类型检查。schema、builder与来源规则不变时，核对当前五head/readiness及已发布数据的数值契约后只替换API/web；不重复迁移、物化或停止采集。回退必须验证实际镜像、环境pin、代理HTTP及其余后台服务身份，服务健康不替代真实浏览器验收。
 
 **核心文件**：
+- `apps/api/dy_api/dashboard_publications/finance.py`
+- `apps/api/dy_api/dashboard_publications/period_readiness.py`
+- `apps/web/src/pages/StoreRankingPage.tsx`
+- `apps/web/src/pages/StoreSettlementPage.tsx`
 - `deploy/tencent/deploy.sh`
 - `apps/api/Dockerfile`
 - `.github/workflows/ci-cd.yml`
@@ -61,5 +65,7 @@
 
 **状态**：进行中
 
-部署与技术验收已完成；T2.1暂缓期间保留金额对账及用户业务验收，不关闭104。
+2026-10-21 用户截图验收发现九月月榜仍被八月阻断，并明确要求修复。已交叉验证九月 30/30、452 张账单、月费金额一致；缺陷是混合月/累计读端无条件检查历史前缀。当前 T3.1 增量验收：MONTHLY + PROMOTION_FEE_MONTH 和单店九月当月读取成功；累计字段及对应兼容别名为 null，并附 `period_availability`（HTTP 为 `periodAvailability`），包含 `monthly_ready`、`cumulative_ready`、`incomplete_months`。同版本累计请求/累计排序及含累计导出继续拒绝；八月和缺失元数据继续保护，完整前缀及合法零值保持原行为。前端明确显示累计未完整，不能用 0 回填；真实 PG→HTTP 数字/null、权限隔离与生产两页面验证后才记修复完成。
+
+部署与技术验收已完成；2026-10-21 T2.1 已完成九月恢复和金额交叉核验，转待验收。当前承接整体用户业务验收，包含八月的累计查询继续受保护，不关闭104。详见[九月恢复核验记录](../../ops/dydata-104-september-recovery-20261021.md)。
 

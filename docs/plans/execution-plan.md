@@ -1,7 +1,9 @@
 # 当前执行：DYDATA-104 自然月、九月恢复与静态发布验收（2026-10-20）
 
 - 用户已确认先合并 #50/#51，再在统一 main 执行 104；不新增 Linear，原工作区未提交改动保留。
-- 当前阶段 S4，Linear DYDATA-104 为 In Progress，当前 Task T3.1：静态首版发布与生产业务验收；子计划 [T3.1](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md) 进行中。
+- 当前阶段 S4，Linear DYDATA-104 为 In Progress，当前 Task T3.1：[生产业务验收](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md) 进行中；T2.1 九月恢复及金额核验已技术完成，转待验收。
+- 2026-10-21 用户恢复九月处理授权、排除八月缺日。固定 v2 全链成功，九月30/30；正常自动月结生成452张待确认账单，两费各10,032.68元，逐层金额差异0、保护指纹不变。月结自动复核0新增、452张 unchanged；实际财务页面和导出来源一致。八月缺日及累计门禁保留。详见[恢复核验记录](../ops/dydata-104-september-recovery-20261021.md)。当前会话为唯一显式恢复执行者。
+- 2026-10-21 11:58 用户截图复核：全国门店九月月榜仍不可用，页面同时请求累计指标，八月30/31触发整页保护；九月仍30/30且金额有效。T3.1保留该页面验收缺陷，本轮只读定位，尚未修复；不能把补数/月结成功称为九月所有页面完成。
 - 正式计划：[主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)、[看板](delivery-plans/task-kanban-dydata-104-followthrough.md)。
 - 代码基线 `05a7e2455d3883d0587b3dcf8bd8f014cd7b579f`，两项 PR 已合并；#51 最终 CI 3,855 通过 / 248 跳过，PG、Web 与镜像通过。合并未部署。
 - 门店账期默认值、SKU 下载反馈与月结维护按子计划并行独立推进；生产恢复先核验资源、有限重试预算及保护事实，未知退款契约不猜测。
