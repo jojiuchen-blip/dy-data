@@ -1664,12 +1664,9 @@ h2 {
 
 @media (min-width: 1380px) {
   .clue-filter-bar {
-    grid-template-columns:
-      minmax(120px, 0.8fr) minmax(120px, 0.8fr)
-      minmax(140px, 1fr) minmax(132px, 0.95fr)
-      minmax(132px, 0.95fr) minmax(116px, 0.75fr)
-      minmax(116px, 0.75fr) minmax(116px, 0.75fr)
-      minmax(92px, 0.55fr);
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
   }
 
   .detail-filter-bar--single-line {

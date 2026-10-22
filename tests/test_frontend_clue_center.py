@@ -815,7 +815,8 @@ def test_detail_filters_use_compact_single_row_desktop_contract() -> None:
     assert "detail-filter-bar--secondary" not in order_details_source
     assert ".clue-filter-bar" in desktop_density_rules
     assert ".detail-filter-bar--single-line" in desktop_density_rules
-    assert "minmax(92px, 0.55fr)" in desktop_density_rules
+    assert "grid-auto-flow: column;" in desktop_density_rules
+    assert "grid-auto-columns: minmax(0, 1fr);" in desktop_density_rules
     assert ".clue-filter-bar,\n  .clue-rule-grid {\n    grid-template-columns: 1fr;" in mobile_rules
 
 
