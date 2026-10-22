@@ -14,6 +14,7 @@ import { FinanceImportActionPanel } from "../components/FinanceImportActionPanel
 import { SelectField, TextField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import { ResourceNotice } from "../components/ResourceState";
+import { TablePagination } from "../components/TablePagination";
 import { usePublishedResource } from "../hooks/usePublishedResource";
 import type {
   BillingMetricScope,
@@ -106,6 +107,8 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
   const [metricScope, setMetricScope] = useState<BillingMetricScope>("MONTH");
   const [showImport, setShowImport] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [notice, setNotice] = useState("");
   const [noticeIsError, setNoticeIsError] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState(false);
@@ -143,10 +146,10 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
   const financeResource = usePublishedResource(async (publication_id) => {
     const summary = await fetchFinanceSummary({ ...commonQuery, publication_id });
     const id = summary.meta.publication?.id;
-    const invoices = await fetchFinanceInvoices({ ...invoiceQuery, pageSize: 50, publication_id: id });
+    const invoices = await fetchFinanceInvoices({ ...invoiceQuery, page, pageSize, publication_id: id });
     if (id && invoices.meta.publication?.id !== id) throw new Error("财务汇总与列表版本不一致，请刷新后重试。");
     return { ...summary, data: { summary: summary.data, invoices: invoices.data } };
-  }, [month, feeDirection, metricScope, search, invoiceStatus, showHistory]);
+  }, [month, feeDirection, metricScope, search, invoiceStatus, showHistory, page, pageSize]);
   const summaryResource = { ...financeResource, data: financeResource.data ? { ...financeResource.data, data: financeResource.data.data.summary } : undefined };
   const invoiceResource = { ...financeResource, data: financeResource.data ? { ...financeResource.data, data: financeResource.data.data.invoices } : undefined };
   const metrics = summaryResource.data?.data.metrics;
@@ -155,6 +158,17 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
     || summaryResource.refreshing
     || invoiceResource.loading
     || invoiceResource.refreshing;
+  const invoices = invoiceResource.data?.data;
+  const pageCount = Math.max(1, Math.ceil((invoices?.total ?? 0) / pageSize));
+
+  useEffect(() => {
+    setPage(1);
+    closeCorrection();
+  }, [month, feeDirection, metricScope, search, invoiceStatus, showHistory, pageSize]);
+
+  useEffect(() => {
+    if (invoices && !resourceBusy && !financeResource.error && page > pageCount) setPage(pageCount);
+  }, [invoices, resourceBusy, financeResource.error, page, pageCount]);
 
   const clearCorrectionAuthorization = useCallback((status: number) => {
     correctionRead.current += 1;
@@ -291,6 +305,8 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
     setSearch("");
     setInvoiceStatus("");
     setMetricScope("MONTH");
+    setShowHistory(false);
+    setPage(1);
   };
 
   const submitCorrection = async () => {
@@ -398,7 +414,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
         </div>
         <div className="finance-workbench__actions">
           <Button onClick={() => navigateTo(`${feeDirection === "PROMOTION" ? "/finance/orders/promotion" : "/finance/orders/management"}?month=${encodeURIComponent(month)}`)} variant="secondary">查看{title}订单明细</Button>
-          <Button disabled={!financeResource.data} loading={exportBusy} onClick={handleExport} variant="secondary">导出当前筛选结果</Button>
+          <Button disabled={resourceBusy || Boolean(financeResource.error) || !financeResource.data} loading={exportBusy} onClick={handleExport} variant="secondary">导出当前筛选结果</Button>
           <Button onClick={resetFilters} variant="text">重置筛选</Button>
           {feeDirection === "MANAGEMENT" ? <Button onClick={() => setShowHistory((value) => !value)} variant="text">{showHistory ? "仅看当前版本" : "查看历史版本"}</Button> : null}
         </div>
@@ -420,9 +436,10 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
           onRowDoubleClick={feeDirection === "MANAGEMENT" ? (row) => { void openCorrection(row); } : undefined}
           rowActionLabel={(row) => feeDirection === "MANAGEMENT" && row.storeId && row.statementMonth ? "更正" : undefined}
           rows={rows}
-          state={!invoiceResource.data && resourceBusy ? "loading" : !invoiceResource.data && invoiceResource.error ? "error" : "ready"}
+          state={resourceBusy ? "loading" : invoiceResource.error ? "error" : "ready"}
           tableClassName="finance-fee-table"
         />
+        <TablePagination loading={resourceBusy} onPageChange={(nextPage) => { closeCorrection(); setPage(nextPage); }} onPageSizeChange={(nextSize) => { setPageSize(nextSize); setPage(1); }} page={invoices?.page ?? page} pageSize={invoices?.pageSize ?? pageSize} pageSizeOptions={[20, 50]} rowsOnPage={rows.length} total={invoices?.total ?? 0} totalPages={pageCount} />
       </section>
 
       {feeDirection === "MANAGEMENT" && correctionTarget ? (
