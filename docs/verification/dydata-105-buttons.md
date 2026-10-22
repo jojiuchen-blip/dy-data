@@ -4,7 +4,7 @@
 
 ## 执行环境与证据
 
-- 基线：`463de801841fdf319e01c4a60b1f57bd59c87c0b`，本次测试源码SHA-256见JSON。
+- 基线：`daa88f3352e5c3ca6a7be409b99b22d51e0313b1`，本次测试源码SHA-256见JSON。
 - 本地真实 FastAPI + Vite + Chromium + 可丢弃SQLite；认证为显式合成覆盖。不是生产登录或真实PostgreSQL验收。
 - 新写入模块使用module级独立服务与数据库，避免污染其他session夹具。
 - 全部文件、金额和数据库值均为合成前置；未使用生产数据、未部署。
@@ -13,6 +13,7 @@
 |---|---:|---:|---:|
 | `output/dydata105-finance-final-browser.xml` | 58 | 0 | 0 |
 | `output/dydata105-finance-visual.xml` | 14 | 0 | 0 |
+| `output/dydata105-remaining-browser.xml` | 6 | 0 | 0 |
 
 ## 按钮台账
 
@@ -209,20 +210,55 @@
 | B105-187 | `/finance/disputes` | 详情打开后的下载成功反馈 | PASS | 打开详情后实际下载仍有用户可见成功反馈 |
 | B105-188 | `/finance/disputes` | 下载失败反馈 | PASS | 失败使用alert角色且无伪成功 |
 | B105-189 | `/finance/imports` | 错误文件下载失败反馈 | PASS | 错误下载失败可见且不伪报成功 |
+| B105-190 | `/details` | 销售月份 | PASS | 61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源 |
+| B105-191 | `/details` | 核销月份 | PASS | 61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源 |
+| B105-192 | `/details` | 数据状态 | PASS | 61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源 |
+| B105-193 | `/details` | 首页 | PASS | 61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源 |
+| B105-194 | `/details` | 上一页 | PASS | 61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源 |
+| B105-195 | `/details` | 下一页 | PASS | 61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源 |
+| B105-196 | `/details` | 末页 | PASS | 61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源 |
+| B105-197 | `/details` | 输入页码/跳转 | PASS | 61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源 |
+| B105-198 | `/details` | 61行全结果导出 | PASS | 61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源 |
+| B105-199 | `/details` | 后续调整展开 | PASS | 61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源 |
+| B105-200 | `/details` | 后续调整收起 | PASS | 61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源 |
+| B105-201 | `/details` | 上下文失效时返回单店分账 | PASS | 61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源 |
+| B105-202 | `/finance/orders/promotion` | 发票审核状态 | PASS | 审核通过+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起 |
+| B105-203 | `/finance/orders/promotion` | 结算状态 | PASS | 审核通过+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起 |
+| B105-204 | `/finance/orders/promotion` | 字段来源与计算说明展开 | PASS | 审核通过+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起 |
+| B105-205 | `/finance/orders/promotion` | 字段来源与计算说明收起 | PASS | 审核通过+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起 |
+| B105-206 | `/finance/orders/management` | 发票审核状态 | PASS | 已开票+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起 |
+| B105-207 | `/finance/orders/management` | 结算状态 | PASS | 已开票+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起 |
+| B105-208 | `/finance/orders/management` | 字段来源与计算说明展开 | PASS | 已开票+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起 |
+| B105-209 | `/finance/orders/management` | 字段来源与计算说明收起 | PASS | 已开票+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起 |
+| B105-210 | `/finance/management` | 窄屏卡片更正 | PASS | 390px实际卡片按钮，320000分新版本+1，20位新号码回读且原金额不变 |
+| B105-211 | `/finance/management` | 窄屏确认更正 | PASS | 390px实际卡片按钮，320000分新版本+1，20位新号码回读且原金额不变 |
+| B105-212 | `/finance/management` | 窄屏关闭 | PASS | 390px实际卡片按钮，320000分新版本+1，20位新号码回读且原金额不变 |
+| B105-213 | `/finance/imports` | 导入类型 | PASS | 61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条 |
+| B105-214 | `/finance/imports` | 业务账期 | PASS | 61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条 |
+| B105-215 | `/finance/imports` | 列表首页 | PASS | 61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条 |
+| B105-216 | `/finance/imports` | 列表上一页 | PASS | 61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条 |
+| B105-217 | `/finance/imports` | 列表下一页 | PASS | 61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条 |
+| B105-218 | `/finance/imports` | 列表末页 | PASS | 61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条 |
+| B105-219 | `/finance/imports` | 列表输入页码/跳转 | PASS | 61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条 |
+| B105-220 | `/finance/imports` | 列表每页20/50 | PASS | 61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条 |
+| B105-221 | `/finance/imports` | 错误页大小 | PASS | 61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条 |
+| B105-222 | `/finance/imports` | 错误首页/上一页/下一页/末页/跳转 | PASS | 61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条 |
+| B105-223 | `/finance/imports` | 撤销行页大小 | PASS | 61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条 |
+| B105-224 | `/finance/imports` | 撤销行首页/上一页/下一页/末页/跳转 | PASS | 61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条 |
+| B105-225 | `/finance/imports` | 61行业务键撤销 | PASS | 61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条 |
+| B105-226 | `/settlement/invoice/status` | 单月首页/上一页/下一页/末页禁用 | PASS | 真实终止后当前列表0且候选1；单店单月当前唯一约束下正常分页仅1页，越界拒绝；独立入口恢复上下文前后DB三表计数不变 |
+| B105-227 | `/settlement/invoice/status` | 非法页码原生拒绝 | PASS | 真实终止后当前列表0且候选1；单店单月当前唯一约束下正常分页仅1页，越界拒绝；独立入口恢复上下文前后DB三表计数不变 |
+| B105-228 | `/settlement/invoice/status` | 页1跳转 | PASS | 真实终止后当前列表0且候选1；单店单月当前唯一约束下正常分页仅1页，越界拒绝；独立入口恢复上下文前后DB三表计数不变 |
+| B105-229 | `/settlement/invoice/status` | 独立待重开项的重新开票 | PASS | 真实终止后当前列表0且候选1；单店单月当前唯一约束下正常分页仅1页，越界拒绝；独立入口恢复上下文前后DB三表计数不变 |
+| B105-230 | `/settlement/invoice` | 恢复替换（真实候选） | PASS | 恢复入口不写业务行；真实登记新号码12345分，旧票非当前、新票current且replaces_invoice_id指向旧票 |
+| B105-231 | `/settlement/invoice` | 状态页恢复后核验并登记发票 | PASS | 恢复入口不写业务行；真实登记新号码12345分，旧票非当前、新票current且replaces_invoice_id指向旧票 |
 
 ## 尚未覆盖的实际控件
 
-以下不是通过项，主线程必须补证后才可最终接受全部按钮。
+原七组缺口已由新增真实 API 浏览器模块补齐，本切片台账无剩余未测项。账户、Shell、别名、真实 PG/Nginx 与全仓结果仍见主线程集成报告。
 
 | 页面 | 控件 | 原因 |
 |---|---|---|
-| `/details` | 销售月份/核销月份/数据状态/分页 | Direct/source URL and direction/export verified; full immediate-filter and >1-page matrix remains uncovered. |
-| `/details` | 后续调整展开/上下文失效时返回单店分账 | Seeded rows have no follow-up adjustments; these conditional controls were not exercised in this new acceptance. |
-| `/settlement/invoice/status` | 分页/重新开票 | Real red-flush/void replacement verified; pagination and separate resume button have only existing mock-contract coverage. |
-| `/finance/orders/*` | 发票审核状态/结算状态 | Other complete filter/date fields verified; selectors not explicitly exercised by new browser tests. |
-| `/finance/orders/*` | 字段来源与计算说明展开 | Source disclosure summary exists; its expand/collapse action was not exercised in this new acceptance. |
-| `/finance/management` | 窄屏卡片的更正按钮 | The real current-version correction handler is verified through the desktop row keyboard action; this distinct narrow-screen button has not been clicked in the new acceptance. |
-| `/finance/imports` | 导入类型/业务账期/批次列表分页/撤销行页大小与分页/错误页大小与跳转 | Real batch histories/errors/reversal verified; exhaustive list and nested pagination controls remain uncovered. |
 
 ## 当前源码不存在的提案动作
 
@@ -242,11 +278,22 @@
 
 别名、真实Nginx及真实PG结果由主线程汇总到 [最终集成验证](dydata-105-verification.md)；B不将其他切片报告推断为本切片独立通过。
 
+## 七组补证与状态页约束
+
+新增 `tests/test_dydata105_remaining_buttons_browser.py` 的6项参数化结果覆盖原七组缺口；成功响应均来自真实本地 API，没有成功响应 mock。既有14项 visual 仍包含已注明的 mock 错误/恢复契约，两类证据分开。
+
+真实作废后，当前发票列表0条而候选API返回1项，证实旧状态页独立重开按钮不可达；主线程 `e038295` 将待重开候选独立呈现。本次真实验证开票页恢复、状态页重新开票、导航前后三表计数不变，以及新票12345分、旧票终止和 replaces 关联回读。
+
+状态页普通浏览固定单店单月，而数据库对当前分配 `(store_id, statement_month)` 唯一；精确号码查询又唯一命中。因此正常合同下此页最多1条当前发票。测试真实验证首页/上一页/下一页/末页禁用、原生越界页码拒绝及页1跳转，不绕过唯一约束制造多页，也不声称验证了真实多页状态业务。
+
+旧58项与14项结果没有冒称在新提交上重跑；JSON按各次报告保留执行提交。新6项在包含 `e038295` 的补证版本上运行。
+
 ## 命令
 
 ```powershell
 python -m pytest tests/test_dydata105_buttons_browser.py tests/test_dydata105_finance_pagination_browser.py tests/test_finance_export_browser.py -q --tb=short --junitxml=output/dydata105-finance-final-browser.xml
 python -m pytest tests/test_visual_smoke.py -q --tb=short -k 'settlement_version_conflict or settlement_does_not_offer_stale or store_invoice_preserves_422 or store_invoice_recovers_terminated or single_sap_correction or dydata_81_dispute_detection or dydata_81_store_dispute_entry or finance_pages_use_live_fastapi or finance_sibling_navigation or imports_same_path_navigation or finance_import_clears_stale' --junitxml=output/dydata105-finance-visual.xml
+python -m pytest tests/test_dydata105_remaining_buttons_browser.py -q --tb=short --junitxml=output/dydata105-remaining-browser.xml
 git diff --check
 ```
 

@@ -2,13 +2,15 @@
   "schema_version": 1,
   "issue": "DYDATA-105",
   "slice": "B finance and settlement browser acceptance",
-  "generated_at": "2026-10-22T11:06:11.418390+00:00",
-  "base_commit": "463de801841fdf319e01c4a60b1f57bd59c87c0b",
+  "generated_at": "2026-10-22T11:22:13.833440+00:00",
+  "base_commit": "daa88f3352e5c3ca6a7be409b99b22d51e0313b1",
   "source_sha256": {
     "tests/test_dydata105_buttons_browser.py": "b9762e240ec637449cc7ea4bcbd187bdfe9e609cc7bc3456a20733b969954c2d",
     "tests/test_dydata105_finance_pagination_browser.py": "44f845f20c9d6086b1c78b2634558d232d7f923dc426ec8a732b68e9b664c7ac",
     "tests/test_finance_export_browser.py": "00ce883a1278a10fa53e764f157cdea3ac28c66f9d98b9e31bbeb5de51d5147c",
-    "tests/test_visual_smoke.py": "ac74d69f83d682f1db0d32f0de5a6b6db1d1875023d1dcb20e01f47888054271"
+    "tests/test_visual_smoke.py": "ac74d69f83d682f1db0d32f0de5a6b6db1d1875023d1dcb20e01f47888054271",
+    "tests/test_dydata105_remaining_buttons_browser.py": "1b5991051f4bbef95ee51235d18d64cfbed01fd26de1d853ecae250fe4fe1f5e",
+    "apps/web/src/pages/StoreInvoiceStatusPage.tsx": "9fb9c5ae0fe71e86754eab2d6c28d50585497d10437ba3ae9504ac55835c784d"
   },
   "environment": {
     "api": "real local FastAPI",
@@ -28,6 +30,13 @@
     {
       "path": "output/dydata105-finance-visual.xml",
       "tests": 14,
+      "failures": 0,
+      "skipped": 0,
+      "exit_code": 0
+    },
+    {
+      "path": "output/dydata105-remaining-browser.xml",
+      "tests": 6,
       "failures": 0,
       "skipped": 0,
       "exit_code": 0
@@ -71,6 +80,22 @@
       "sha256": "30d518a1193bc710edff93e6eaeaa0da1b1cbaa8ddeb1cf5f16e83af3a075fbb"
     },
     {
+      "path": "pwScreenShot/dydata105/remaining-details-real.png",
+      "sha256": "42260c8a69fd2edd630d94d38461f651d2b505b54c0ee12c2bb7fea23769586e"
+    },
+    {
+      "path": "pwScreenShot/dydata105/remaining-imports-lineage-61.png",
+      "sha256": "9262b49793fb2c15eac2484c7754492e1c5063dbc817c5cda6cfb88e1a6304f5"
+    },
+    {
+      "path": "pwScreenShot/dydata105/remaining-mobile-correction.png",
+      "sha256": "aeedecb64418e96a0774bf031fe4fb022383be803b7b3bf5b9eac2e7b20d1d24"
+    },
+    {
+      "path": "pwScreenShot/dydata105/remaining-real-resumed-invoice.png",
+      "sha256": "e54a4ecd10140d7bb730fe1ef70b9cf66474fc421a7c4a64b1db4791ab763e33"
+    },
+    {
       "path": "pwScreenShot/dydata105/sap-filtered.png",
       "sha256": "34345a0de2b55a7a924ccc103d44435bbbaf15b24c654b8a8fd4c0d42cb998e4"
     },
@@ -106,7 +131,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-001",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -126,7 +153,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-002",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -146,7 +175,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-003",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -166,7 +197,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-004",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -186,7 +219,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-005",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -206,7 +241,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-006",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -226,7 +263,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-007",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -246,7 +285,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-008",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -266,7 +307,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-009",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -286,7 +329,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-010",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -306,7 +351,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-011",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -326,7 +373,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-012",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -346,7 +395,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-013",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -366,7 +417,9 @@
       "seed": "two unique B105-flow stores, 2026-09, promotion=12345 management=6789",
       "evidence_kind": "real_api_browser",
       "id": "B105-014",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -390,7 +443,9 @@
       "seed": "two unique B105-flow stores, 2026-09, promotion=12345 management=6789",
       "evidence_kind": "real_api_browser",
       "id": "B105-015",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -414,7 +469,9 @@
       "seed": "two unique B105-flow stores, 2026-09, promotion=12345 management=6789",
       "evidence_kind": "real_api_browser",
       "id": "B105-016",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -438,7 +495,9 @@
       "seed": "two unique B105-flow stores, 2026-09, promotion=12345 management=6789",
       "evidence_kind": "real_api_browser",
       "id": "B105-017",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -462,7 +521,9 @@
       "seed": "two unique B105-flow stores, 2026-09, promotion=12345 management=6789",
       "evidence_kind": "real_api_browser",
       "id": "B105-018",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -486,7 +547,9 @@
       "seed": "two unique B105-flow stores, 2026-09, promotion=12345 management=6789",
       "evidence_kind": "real_api_browser",
       "id": "B105-019",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -510,7 +573,9 @@
       "seed": "two unique B105-flow stores, 2026-09, promotion=12345 management=6789",
       "evidence_kind": "real_api_browser",
       "id": "B105-020",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -534,7 +599,9 @@
       "seed": "two unique B105-flow stores, 2026-09, promotion=12345 management=6789",
       "evidence_kind": "real_api_browser",
       "id": "B105-021",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -558,7 +625,9 @@
       "seed": "two unique B105-flow stores, 2026-09, promotion=12345 management=6789",
       "evidence_kind": "real_api_browser",
       "id": "B105-022",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -582,7 +651,9 @@
       "seed": "two unique B105-flow stores, 2026-09, promotion=12345 management=6789",
       "evidence_kind": "real_api_browser",
       "id": "B105-023",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -606,7 +677,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-024",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "a35935d114239322c8cae0dab6f94b08fa37820c"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -634,7 +707,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "explicit_mock_error_branch",
       "id": "B105-025",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "a35935d114239322c8cae0dab6f94b08fa37820c"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -654,7 +729,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-026",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -674,7 +751,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-027",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -694,7 +773,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-028",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -714,7 +795,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-029",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -734,7 +817,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-030",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -754,7 +839,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-031",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -774,7 +861,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-032",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -798,7 +887,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-033",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -822,7 +913,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-034",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -846,7 +939,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "explicit_mock_contract_browser",
       "id": "B105-035",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "a35935d114239322c8cae0dab6f94b08fa37820c"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -866,7 +961,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "explicit_mock_contract_browser",
       "id": "B105-036",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "a35935d114239322c8cae0dab6f94b08fa37820c"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -886,7 +983,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "explicit_mock_contract_browser",
       "id": "B105-037",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "a35935d114239322c8cae0dab6f94b08fa37820c"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -906,7 +1005,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-038",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -930,7 +1031,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-039",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -954,7 +1057,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-040",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -978,7 +1083,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-041",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1002,7 +1109,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-042",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1022,7 +1131,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-043",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1042,7 +1153,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-044",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1074,7 +1187,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-045",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1106,7 +1221,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-046",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1138,7 +1255,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-047",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1170,7 +1289,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-048",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1202,7 +1323,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-049",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1234,7 +1357,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-050",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1266,7 +1391,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-051",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1298,7 +1425,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-052",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1334,7 +1463,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-053",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1370,7 +1501,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-054",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1406,7 +1539,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-055",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1442,7 +1577,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-056",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1478,7 +1615,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-057",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1514,7 +1653,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-058",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1550,7 +1691,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-059",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1586,7 +1729,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-060",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1622,7 +1767,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-061",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1658,7 +1805,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-062",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1694,7 +1843,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-063",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1718,7 +1869,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-064",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1742,7 +1895,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-065",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1766,7 +1921,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-066",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1790,7 +1947,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-067",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1814,7 +1973,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-068",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1838,7 +1999,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-069",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1862,7 +2025,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-070",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1886,7 +2051,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-071",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1910,7 +2077,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-072",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1934,7 +2103,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-073",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1958,7 +2129,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-074",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -1982,7 +2155,9 @@
       "seed": "61 B105 stores with two frozen statement-entry directions",
       "evidence_kind": "real_api_browser",
       "id": "B105-075",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2006,7 +2181,9 @@
       "seed": "61 B105 stores with two frozen statement-entry directions",
       "evidence_kind": "real_api_browser",
       "id": "B105-076",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2030,7 +2207,9 @@
       "seed": "61 B105 stores with two frozen statement-entry directions",
       "evidence_kind": "real_api_browser",
       "id": "B105-077",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2054,7 +2233,9 @@
       "seed": "61 B105 stores with two frozen statement-entry directions",
       "evidence_kind": "real_api_browser",
       "id": "B105-078",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2078,7 +2259,9 @@
       "seed": "61 B105 stores with two frozen statement-entry directions",
       "evidence_kind": "real_api_browser",
       "id": "B105-079",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2102,7 +2285,9 @@
       "seed": "61 B105 stores with two frozen statement-entry directions",
       "evidence_kind": "real_api_browser",
       "id": "B105-080",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2126,7 +2311,9 @@
       "seed": "61 B105 stores with two frozen statement-entry directions",
       "evidence_kind": "real_api_browser",
       "id": "B105-081",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2150,7 +2337,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-082",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2170,7 +2359,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-083",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2190,7 +2381,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-084",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2222,7 +2415,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-085",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2254,7 +2449,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-086",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2286,7 +2483,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-087",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2318,7 +2517,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-088",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2350,7 +2551,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-089",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2382,7 +2585,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-090",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2414,7 +2619,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-091",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2446,7 +2653,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-092",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2482,7 +2691,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-093",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2518,7 +2729,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-094",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2554,7 +2767,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-095",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2590,7 +2805,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-096",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2626,7 +2843,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-097",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2662,7 +2881,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-098",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2698,7 +2919,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-099",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2734,7 +2957,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-100",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2770,7 +2995,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-101",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2806,7 +3033,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-102",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2842,7 +3071,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-103",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2866,7 +3097,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-104",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2890,7 +3123,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-105",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2914,7 +3149,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-106",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2938,7 +3175,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-107",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2962,7 +3201,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-108",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -2986,7 +3227,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-109",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3010,7 +3253,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-110",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3034,7 +3279,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-111",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3058,7 +3305,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-112",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3082,7 +3331,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-113",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3106,7 +3357,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-114",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3130,7 +3383,9 @@
       "seed": "61 B105 stores with two frozen statement-entry directions",
       "evidence_kind": "real_api_browser",
       "id": "B105-115",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3154,7 +3409,9 @@
       "seed": "61 B105 stores with two frozen statement-entry directions",
       "evidence_kind": "real_api_browser",
       "id": "B105-116",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3178,7 +3435,9 @@
       "seed": "61 B105 stores with two frozen statement-entry directions",
       "evidence_kind": "real_api_browser",
       "id": "B105-117",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3202,7 +3461,9 @@
       "seed": "61 B105 stores with two frozen statement-entry directions",
       "evidence_kind": "real_api_browser",
       "id": "B105-118",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3226,7 +3487,9 @@
       "seed": "61 B105 stores with two frozen statement-entry directions",
       "evidence_kind": "real_api_browser",
       "id": "B105-119",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3250,7 +3513,9 @@
       "seed": "61 B105 stores with two frozen statement-entry directions",
       "evidence_kind": "real_api_browser",
       "id": "B105-120",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3274,7 +3539,9 @@
       "seed": "61 B105 stores with two frozen statement-entry directions",
       "evidence_kind": "real_api_browser",
       "id": "B105-121",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3298,7 +3565,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-122",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3334,7 +3603,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-123",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3370,7 +3641,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-124",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3390,7 +3663,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-125",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3410,7 +3685,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-126",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3430,7 +3707,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-127",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3450,7 +3729,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-128",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3486,7 +3767,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-129",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3522,7 +3805,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-130",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3558,7 +3843,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-131",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3594,7 +3881,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-132",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3630,7 +3919,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-133",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3666,7 +3957,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-134",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3702,7 +3995,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-135",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3738,7 +4033,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-136",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3774,7 +4071,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-137",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3810,7 +4109,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-138",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3846,7 +4147,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-139",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3882,7 +4185,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-140",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3902,7 +4207,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-141",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3922,7 +4229,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-142",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3942,7 +4251,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-143",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3962,7 +4273,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-144",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -3994,7 +4307,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-145",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4026,7 +4341,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-146",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4058,7 +4375,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-147",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4090,7 +4409,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-148",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4122,7 +4443,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-149",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4154,7 +4477,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-150",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4186,7 +4511,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-151",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4206,7 +4533,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-152",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4226,7 +4555,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-153",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4246,7 +4577,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-154",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4282,7 +4615,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-155",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4318,7 +4653,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-156",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4354,7 +4691,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-157",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4390,7 +4729,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-158",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4426,7 +4767,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-159",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4462,7 +4805,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-160",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4498,7 +4843,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-161",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4534,7 +4881,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-162",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4570,7 +4919,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-163",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4606,7 +4957,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-164",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4642,7 +4995,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-165",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4662,7 +5017,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-166",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4682,7 +5039,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-167",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4702,7 +5061,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-168",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4722,7 +5083,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-169",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4742,7 +5105,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-170",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4762,7 +5127,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-171",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4782,7 +5149,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-172",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4814,7 +5183,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-173",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4846,7 +5217,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-174",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4878,7 +5251,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-175",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4910,7 +5285,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-176",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4942,7 +5319,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-177",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -4974,7 +5353,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-178",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -5006,7 +5387,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-179",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -5038,7 +5421,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-180",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -5070,7 +5455,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-181",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "a35935d114239322c8cae0dab6f94b08fa37820c"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -5090,7 +5477,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-182",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -5110,7 +5499,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-183",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -5130,7 +5521,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-184",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -5150,7 +5543,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-185",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -5186,7 +5581,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-186",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -5222,7 +5619,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "real_api_browser",
       "id": "B105-187",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -5242,7 +5641,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "explicit_mock_error_branch",
       "id": "B105-188",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -5262,7 +5663,9 @@
       "seed": "existing disposable synthetic fixture",
       "evidence_kind": "explicit_mock_error_branch",
       "id": "B105-189",
-      "code_version": "463de801841fdf319e01c4a60b1f57bd59c87c0b + tests_sha256",
+      "code_version": [
+        "463de801841fdf319e01c4a60b1f57bd59c87c0b"
+      ],
       "role": "synthetic admin unless scope scenario explicitly changes identity",
       "data_scope": "disposable synthetic local database; no production data",
       "result": "PASS",
@@ -5273,66 +5676,965 @@
           "report": "output/dydata105-finance-final-browser.xml"
         }
       ]
-    }
-  ],
-  "uncovered_controls": [
-    {
-      "page": "/details",
-      "button": "销售月份/核销月份/数据状态/分页",
-      "reason": "Direct/source URL and direction/export verified; full immediate-filter and >1-page matrix remains uncovered.",
-      "result": "UNTESTED",
-      "role": "synthetic",
-      "evidence": []
     },
     {
       "page": "/details",
-      "button": "后续调整展开/上下文失效时返回单店分账",
-      "reason": "Seeded rows have no follow-up adjustments; these conditional controls were not exercised in this new acceptance.",
-      "result": "UNTESTED",
-      "role": "synthetic",
-      "evidence": []
+      "button": "销售月份",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+      "expected": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "seed": "61 independent R105-D raw orders/coupons/verifications and current fee facts plus a -1 cent adjustment",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-190",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
     },
     {
-      "page": "/settlement/invoice/status",
-      "button": "分页/重新开票",
-      "reason": "Real red-flush/void replacement verified; pagination and separate resume button have only existing mock-contract coverage.",
-      "result": "UNTESTED",
-      "role": "synthetic",
-      "evidence": []
+      "page": "/details",
+      "button": "核销月份",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+      "expected": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "seed": "61 independent R105-D raw orders/coupons/verifications and current fee facts plus a -1 cent adjustment",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-191",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
     },
     {
-      "page": "/finance/orders/*",
-      "button": "发票审核状态/结算状态",
-      "reason": "Other complete filter/date fields verified; selectors not explicitly exercised by new browser tests.",
-      "result": "UNTESTED",
-      "role": "synthetic",
-      "evidence": []
+      "page": "/details",
+      "button": "数据状态",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+      "expected": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "seed": "61 independent R105-D raw orders/coupons/verifications and current fee facts plus a -1 cent adjustment",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-192",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
     },
     {
-      "page": "/finance/orders/*",
+      "page": "/details",
+      "button": "首页",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+      "expected": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "seed": "61 independent R105-D raw orders/coupons/verifications and current fee facts plus a -1 cent adjustment",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-193",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/details",
+      "button": "上一页",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+      "expected": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "seed": "61 independent R105-D raw orders/coupons/verifications and current fee facts plus a -1 cent adjustment",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-194",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/details",
+      "button": "下一页",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+      "expected": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "seed": "61 independent R105-D raw orders/coupons/verifications and current fee facts plus a -1 cent adjustment",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-195",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/details",
+      "button": "末页",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+      "expected": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "seed": "61 independent R105-D raw orders/coupons/verifications and current fee facts plus a -1 cent adjustment",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-196",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/details",
+      "button": "输入页码/跳转",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+      "expected": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "seed": "61 independent R105-D raw orders/coupons/verifications and current fee facts plus a -1 cent adjustment",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-197",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/details",
+      "button": "61行全结果导出",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+      "expected": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "seed": "61 independent R105-D raw orders/coupons/verifications and current fee facts plus a -1 cent adjustment",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-198",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/details",
+      "button": "后续调整展开",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+      "expected": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "seed": "61 independent R105-D raw orders/coupons/verifications and current fee facts plus a -1 cent adjustment",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-199",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/details",
+      "button": "后续调整收起",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+      "expected": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "seed": "61 independent R105-D raw orders/coupons/verifications and current fee facts plus a -1 cent adjustment",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-200",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/details",
+      "button": "上下文失效时返回单店分账",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+      "expected": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "seed": "61 independent R105-D raw orders/coupons/verifications and current fee facts plus a -1 cent adjustment",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-201",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61真实合成费用行；有效60/有调整1；调整展开内容及收起；CSV61行合计61*128641-1分；非法费率上下文返回422并可返回来源",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_details_months_states_pagination_adjustment_and_invalid_return",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/orders/promotion",
+      "button": "发票审核状态",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+      "expected": "审核通过+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起",
+      "seed": "existing disposable synthetic fixture",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-202",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "审核通过+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+          "report": "output/dydata105-remaining-browser.xml"
+        },
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/orders/promotion",
+      "button": "结算状态",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+      "expected": "审核通过+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起",
+      "seed": "existing disposable synthetic fixture",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-203",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "审核通过+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+          "report": "output/dydata105-remaining-browser.xml"
+        },
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/orders/promotion",
       "button": "字段来源与计算说明展开",
-      "reason": "Source disclosure summary exists; its expand/collapse action was not exercised in this new acceptance.",
-      "result": "UNTESTED",
-      "role": "synthetic",
-      "evidence": []
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+      "expected": "审核通过+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起",
+      "seed": "existing disposable synthetic fixture",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-204",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "审核通过+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+          "report": "output/dydata105-remaining-browser.xml"
+        },
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/orders/promotion",
+      "button": "字段来源与计算说明收起",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+      "expected": "审核通过+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起",
+      "seed": "existing disposable synthetic fixture",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-205",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "审核通过+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+          "report": "output/dydata105-remaining-browser.xml"
+        },
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/orders/management",
+      "button": "发票审核状态",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+      "expected": "已开票+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起",
+      "seed": "existing disposable synthetic fixture",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-206",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "已开票+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+          "report": "output/dydata105-remaining-browser.xml"
+        },
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/orders/management",
+      "button": "结算状态",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+      "expected": "已开票+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起",
+      "seed": "existing disposable synthetic fixture",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-207",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "已开票+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+          "report": "output/dydata105-remaining-browser.xml"
+        },
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/orders/management",
+      "button": "字段来源与计算说明展开",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+      "expected": "已开票+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起",
+      "seed": "existing disposable synthetic fixture",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-208",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "已开票+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+          "report": "output/dydata105-remaining-browser.xml"
+        },
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/orders/management",
+      "button": "字段来源与计算说明收起",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+      "expected": "已开票+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起",
+      "seed": "existing disposable synthetic fixture",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-209",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "已开票+已结算命中1行，改未结算命中0行；来源说明真实定义可展开/收起",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+          "report": "output/dydata105-remaining-browser.xml"
+        },
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_finance_order_status_filters_and_source_disclosure",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
     },
     {
       "page": "/finance/management",
-      "button": "窄屏卡片的更正按钮",
-      "reason": "The real current-version correction handler is verified through the desktop row keyboard action; this distinct narrow-screen button has not been clicked in the new acceptance.",
-      "result": "UNTESTED",
-      "role": "synthetic",
-      "evidence": []
+      "button": "窄屏卡片更正",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_management_mobile_correction_real_readback",
+      "expected": "390px实际卡片按钮，320000分新版本+1，20位新号码回读且原金额不变",
+      "seed": "existing disposable synthetic fixture",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-210",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "390px实际卡片按钮，320000分新版本+1，20位新号码回读且原金额不变",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_management_mobile_correction_real_readback",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/management",
+      "button": "窄屏确认更正",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_management_mobile_correction_real_readback",
+      "expected": "390px实际卡片按钮，320000分新版本+1，20位新号码回读且原金额不变",
+      "seed": "existing disposable synthetic fixture",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-211",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "390px实际卡片按钮，320000分新版本+1，20位新号码回读且原金额不变",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_management_mobile_correction_real_readback",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/management",
+      "button": "窄屏关闭",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_management_mobile_correction_real_readback",
+      "expected": "390px实际卡片按钮，320000分新版本+1，20位新号码回读且原金额不变",
+      "seed": "existing disposable synthetic fixture",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-212",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "390px实际卡片按钮，320000分新版本+1，20位新号码回读且原金额不变",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_management_mobile_correction_real_readback",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
     },
     {
       "page": "/finance/imports",
-      "button": "导入类型/业务账期/批次列表分页/撤销行页大小与分页/错误页大小与跳转",
-      "reason": "Real batch histories/errors/reversal verified; exhaustive list and nested pagination controls remain uncovered.",
-      "result": "UNTESTED",
-      "role": "synthetic",
-      "evidence": []
+      "button": "导入类型",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+      "expected": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "seed": "61 R105-I stores, 61 October preview-log seeds, real September error/commit/reversal batches",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-213",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/imports",
+      "button": "业务账期",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+      "expected": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "seed": "61 R105-I stores, 61 October preview-log seeds, real September error/commit/reversal batches",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-214",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/imports",
+      "button": "列表首页",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+      "expected": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "seed": "61 R105-I stores, 61 October preview-log seeds, real September error/commit/reversal batches",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-215",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/imports",
+      "button": "列表上一页",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+      "expected": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "seed": "61 R105-I stores, 61 October preview-log seeds, real September error/commit/reversal batches",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-216",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/imports",
+      "button": "列表下一页",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+      "expected": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "seed": "61 R105-I stores, 61 October preview-log seeds, real September error/commit/reversal batches",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-217",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/imports",
+      "button": "列表末页",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+      "expected": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "seed": "61 R105-I stores, 61 October preview-log seeds, real September error/commit/reversal batches",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-218",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/imports",
+      "button": "列表输入页码/跳转",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+      "expected": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "seed": "61 R105-I stores, 61 October preview-log seeds, real September error/commit/reversal batches",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-219",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/imports",
+      "button": "列表每页20/50",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+      "expected": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "seed": "61 R105-I stores, 61 October preview-log seeds, real September error/commit/reversal batches",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-220",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/imports",
+      "button": "错误页大小",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+      "expected": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "seed": "61 R105-I stores, 61 October preview-log seeds, real September error/commit/reversal batches",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-221",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/imports",
+      "button": "错误首页/上一页/下一页/末页/跳转",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+      "expected": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "seed": "61 R105-I stores, 61 October preview-log seeds, real September error/commit/reversal batches",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-222",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/imports",
+      "button": "撤销行页大小",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+      "expected": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "seed": "61 R105-I stores, 61 October preview-log seeds, real September error/commit/reversal batches",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-223",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/imports",
+      "button": "撤销行首页/上一页/下一页/末页/跳转",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+      "expected": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "seed": "61 R105-I stores, 61 October preview-log seeds, real September error/commit/reversal batches",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-224",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/finance/imports",
+      "button": "61行业务键撤销",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+      "expected": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "seed": "61 R105-I stores, 61 October preview-log seeds, real September error/commit/reversal batches",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-225",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "61独立合成批次列表；类型/月空集与恢复；61非法行零业务写入且完整错误下载；61有效行真实提交/撤销、全部原版本失效且撤销审计1条",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_import_list_filters_and_nested_error_reversal_pagination",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/settlement/invoice/status",
+      "button": "单月首页/上一页/下一页/末页禁用",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_status_pagination_and_real_terminated_candidate_recovery",
+      "expected": "真实终止后当前列表0且候选1；单店单月当前唯一约束下正常分页仅1页，越界拒绝；独立入口恢复上下文前后DB三表计数不变",
+      "seed": "independent R105-RESUME confirmed bill=12345 cents, rejected invoice, real VOIDED event",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-226",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "真实终止后当前列表0且候选1；单店单月当前唯一约束下正常分页仅1页，越界拒绝；独立入口恢复上下文前后DB三表计数不变",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_status_pagination_and_real_terminated_candidate_recovery",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/settlement/invoice/status",
+      "button": "非法页码原生拒绝",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_status_pagination_and_real_terminated_candidate_recovery",
+      "expected": "真实终止后当前列表0且候选1；单店单月当前唯一约束下正常分页仅1页，越界拒绝；独立入口恢复上下文前后DB三表计数不变",
+      "seed": "independent R105-RESUME confirmed bill=12345 cents, rejected invoice, real VOIDED event",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-227",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "真实终止后当前列表0且候选1；单店单月当前唯一约束下正常分页仅1页，越界拒绝；独立入口恢复上下文前后DB三表计数不变",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_status_pagination_and_real_terminated_candidate_recovery",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/settlement/invoice/status",
+      "button": "页1跳转",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_status_pagination_and_real_terminated_candidate_recovery",
+      "expected": "真实终止后当前列表0且候选1；单店单月当前唯一约束下正常分页仅1页，越界拒绝；独立入口恢复上下文前后DB三表计数不变",
+      "seed": "independent R105-RESUME confirmed bill=12345 cents, rejected invoice, real VOIDED event",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-228",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "真实终止后当前列表0且候选1；单店单月当前唯一约束下正常分页仅1页，越界拒绝；独立入口恢复上下文前后DB三表计数不变",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_status_pagination_and_real_terminated_candidate_recovery",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/settlement/invoice/status",
+      "button": "独立待重开项的重新开票",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_status_pagination_and_real_terminated_candidate_recovery",
+      "expected": "真实终止后当前列表0且候选1；单店单月当前唯一约束下正常分页仅1页，越界拒绝；独立入口恢复上下文前后DB三表计数不变",
+      "seed": "independent R105-RESUME confirmed bill=12345 cents, rejected invoice, real VOIDED event",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-229",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "真实终止后当前列表0且候选1；单店单月当前唯一约束下正常分页仅1页，越界拒绝；独立入口恢复上下文前后DB三表计数不变",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_status_pagination_and_real_terminated_candidate_recovery",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/settlement/invoice",
+      "button": "恢复替换（真实候选）",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_status_pagination_and_real_terminated_candidate_recovery",
+      "expected": "恢复入口不写业务行；真实登记新号码12345分，旧票非当前、新票current且replaces_invoice_id指向旧票",
+      "seed": "existing disposable synthetic fixture",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-230",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "恢复入口不写业务行；真实登记新号码12345分，旧票非当前、新票current且replaces_invoice_id指向旧票",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_status_pagination_and_real_terminated_candidate_recovery",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
+    },
+    {
+      "page": "/settlement/invoice",
+      "button": "状态页恢复后核验并登记发票",
+      "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_status_pagination_and_real_terminated_candidate_recovery",
+      "expected": "恢复入口不写业务行；真实登记新号码12345分，旧票非当前、新票current且replaces_invoice_id指向旧票",
+      "seed": "existing disposable synthetic fixture",
+      "evidence_kind": "real_api_browser",
+      "id": "B105-231",
+      "code_version": [
+        "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+      ],
+      "role": "synthetic admin unless scope scenario explicitly changes identity",
+      "data_scope": "disposable synthetic local database; no production data",
+      "result": "PASS",
+      "actual": "恢复入口不写业务行；真实登记新号码12345分，旧票非当前、新票current且replaces_invoice_id指向旧票",
+      "evidence": [
+        {
+          "test": "tests/test_dydata105_remaining_buttons_browser.py::test_remaining_status_pagination_and_real_terminated_candidate_recovery",
+          "report": "output/dydata105-remaining-browser.xml"
+        }
+      ]
     }
   ],
+  "uncovered_controls": [],
   "observed_absences": [
     {
       "page": "/ranking",
@@ -5380,5 +6682,17 @@
     "/finance/disputes",
     "/finance/imports"
   ],
-  "entry_count_definition": "Action evidence entries split by page and reused control; this is not the number of distinct physical buttons and not an all-buttons coverage percentage."
+  "entry_count_definition": "Action evidence entries split by page and reused control; this is not the number of distinct physical buttons and not an all-buttons coverage percentage.",
+  "run_commits": {
+    "output/dydata105-finance-final-browser.xml": "463de801841fdf319e01c4a60b1f57bd59c87c0b",
+    "output/dydata105-finance-visual.xml": "a35935d114239322c8cae0dab6f94b08fa37820c",
+    "output/dydata105-remaining-browser.xml": "daa88f3352e5c3ca6a7be409b99b22d51e0313b1"
+  },
+  "supplemental_scope": {
+    "former_gap_groups": 7,
+    "remaining_gap_groups": 0,
+    "status_recovery_fix": "e038295",
+    "success_response_mocked": false,
+    "status_pagination_limit": "The DB enforces one current allocation per store and statement month. The real page fixes one month (or exact unique invoice number), so this real test verifies the one-page disabled state, native invalid-page rejection and page-one jump; it does not invent multiple current allocations or claim a real multipage status scenario."
+  }
 }
