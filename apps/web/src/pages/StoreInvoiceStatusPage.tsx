@@ -107,10 +107,12 @@ export function StoreInvoiceStatusPage({ currentUser, searchParams }: StoreInvoi
   const promotionInvoices = data?.promotionInvoices ?? [];
   const managementInvoices = data?.managementInvoices ?? [];
   const differenceLedger = data?.differenceLedger ?? [];
-  const replacementCandidates = replacementCandidateResource.data?.data.list ?? [];
-  const replacementCandidateByInvoiceId = new Map(
-    replacementCandidates.map((candidate) => [candidate.invoice.invoiceId, candidate]),
+  const replacementCandidates = (replacementCandidateResource.data?.data.list ?? []).filter(
+    (candidate) => !normalizedInvoiceNumber || candidate.invoice.invoiceNumber === normalizedInvoiceNumber,
   );
+  const replacementCandidateError = replacementCandidateResource.rawError
+    ? apiErrorText(replacementCandidateResource.rawError, "待重新开票记录加载失败，请刷新后重试。")
+    : replacementCandidateResource.error;
   const metaError = metaResource.rawError ? apiErrorText(metaResource.rawError, "筛选条件暂不可用，请稍后重试。") : metaResource.error;
   const invoiceError = invoiceResource.rawError ? apiErrorText(invoiceResource.rawError, "发票状态暂不可用，请稍后重试。", { 403: "当前账号没有查看该门店发票的权限。", 422: "发票状态筛选条件不合法，请重新选择。" }) : invoiceResource.error;
 
@@ -201,6 +203,12 @@ export function StoreInvoiceStatusPage({ currentUser, searchParams }: StoreInvoi
     { key: "settlement", title: "结算归属", render: (row) => row.settlementBatchMonth || "暂无数据" },
     { key: "action", title: "操作", render: (row) => <Button onClick={() => setSelectedInvoiceId(row.invoiceId)} size="sm" variant={selectedInvoiceId === row.invoiceId ? "soft" : "secondary"}>查看详情</Button> },
   ];
+  const replacementColumns: Column<PromotionInvoiceReplacementCandidate>[] = [
+    { key: "number", title: "原发票号码", minWidth: 210, render: (row) => row.invoice.invoiceNumber },
+    { key: "event", title: "已登记事实", render: (row) => row.lifecycleEvent.eventType === "RED_FLUSHED" ? "红冲" : "作废" },
+    { key: "months", title: "释放账期", render: (row) => row.releasedStatementMonths.join("、") },
+    { key: "action", title: "操作", render: (row) => <Button aria-label={`重新开票 ${row.invoice.invoiceNumber}`} onClick={() => resumeReplacementCandidate(row)} size="sm" variant="primary">重新开票</Button> },
+  ];
   const managementColumns: Column<StoreManagementInvoiceStatusRow>[] = [
     { key: "service", title: "服务名称", render: () => "管理服务费" },
     { key: "month", title: "账期", render: (row) => row.statementMonth },
@@ -218,9 +226,6 @@ export function StoreInvoiceStatusPage({ currentUser, searchParams }: StoreInvoi
   const latestStatus = detail?.statusEvents[detail.statusEvents.length - 1];
   const selectedRow = selectedInvoiceId
     ? promotionInvoices.find((row) => row.invoiceId === selectedInvoiceId)
-    : undefined;
-  const selectedReplacementCandidate = selectedInvoiceId
-    ? replacementCandidateByInvoiceId.get(selectedInvoiceId)
     : undefined;
 
   return (
@@ -251,6 +256,11 @@ export function StoreInvoiceStatusPage({ currentUser, searchParams }: StoreInvoi
         <DataTable columns={promotionColumns} emptyText="暂无数据" rows={promotionInvoices} state={invoiceResource.loading ? "loading" : invoiceError ? "error" : "ready"} />
         {data ? <TablePagination loading={invoiceResource.loading} onPageChange={(nextPage) => { setInvoicePage(nextPage); setSelectedInvoiceId(null); }} page={data.page} pageSize={data.pageSize} rowsOnPage={promotionInvoices.length} total={data.promotionTotal} totalPages={Math.max(1, Math.ceil(data.promotionTotal / data.pageSize))} /> : null}
       </section>
+      {replacementCandidates.length > 0 || replacementCandidateError ? <section className="content-section" aria-label="待重新开票">
+        <div className="section-title"><div><h2>待重新开票</h2><p>此门店已登记红冲或作废、尚未完成替换的发票。重新开票将恢复原发票释放的全部账期。</p></div></div>
+        <ResourceNotice error={replacementCandidateError} loading={replacementCandidateResource.loading} />
+        <DataTable columns={replacementColumns} emptyText="暂无待重新开票记录" rows={replacementCandidates} state={replacementCandidateResource.loading ? "loading" : replacementCandidateError ? "error" : "ready"} />
+      </section> : null}
       <section className="content-section">
         <div className="section-title"><div><h2>管理服务费发票信息</h2><p>无正式记录时显示暂无数据。</p></div></div>
         <DataTable columns={managementColumns} emptyText="暂无数据" rows={managementInvoices} state={invoiceResource.loading ? "loading" : invoiceError ? "error" : "ready"} />
@@ -264,10 +274,8 @@ export function StoreInvoiceStatusPage({ currentUser, searchParams }: StoreInvoi
         {detailResource.loading ? <ResourcePanel>正在加载发票详情…</ResourcePanel> : !detail ? <ResourcePanel>暂无数据</ResourcePanel> : <>
           <div className="store-finance-status-detail__grid"><dl><div><dt>发票号码</dt><dd>{detail.invoiceNumber}</dd></div><div><dt>审核状态</dt><dd>{displayFinanceInvoiceStatus(detail.status)}</dd></div><div><dt>发票金额</dt><dd>{formatCurrency(detail.invoiceAmountCent)}</dd></div><div><dt>登记时间</dt><dd>{formatDateTime(detail.registeredAt)}</dd></div><div><dt>最近回传</dt><dd>{latestStatus ? formatDateTime(latestStatus.occurredAt) : "暂无数据"}</dd></div><div><dt>审核原因</dt><dd>{detail.status === "REJECTED_REUPLOAD" ? (latestStatus?.resultReason ?? selectedRow?.rejectionReason ?? "暂无数据") : "当前状态无需补充审核原因"}</dd></div></dl><div><h3>结算账期分配</h3>{detail.allocations.length ? <ul>{detail.allocations.map((allocation) => <li key={allocation.allocationId}>{allocation.statementMonth} · {formatCurrency(allocation.allocatedAmountCent)} · 结算归属月 {allocation.settlementBatchMonth}</li>)}</ul> : <p>暂无数据</p>}</div></div>
           {detail.status === "REJECTED_REUPLOAD" ? <div className="store-finance-status-detail__actions">
-            {selectedReplacementCandidate ? <Button onClick={() => resumeReplacementCandidate(selectedReplacementCandidate)} size="sm" variant="primary">重新开票</Button> : <>
-              <Button disabled={lifecycleInvoiceId === detail.invoiceId} loading={lifecycleInvoiceId === detail.invoiceId} onClick={() => selectedRow && void handleLifecycleEvent(selectedRow, "RED_FLUSHED")} size="sm" variant="secondary">登记红冲</Button>
-              <Button disabled={lifecycleInvoiceId === detail.invoiceId} loading={lifecycleInvoiceId === detail.invoiceId} onClick={() => selectedRow && void handleLifecycleEvent(selectedRow, "VOIDED")} size="sm" variant="secondary">登记作废</Button>
-            </>}
+            <Button disabled={lifecycleInvoiceId === detail.invoiceId} loading={lifecycleInvoiceId === detail.invoiceId} onClick={() => selectedRow && void handleLifecycleEvent(selectedRow, "RED_FLUSHED")} size="sm" variant="secondary">登记红冲</Button>
+            <Button disabled={lifecycleInvoiceId === detail.invoiceId} loading={lifecycleInvoiceId === detail.invoiceId} onClick={() => selectedRow && void handleLifecycleEvent(selectedRow, "VOIDED")} size="sm" variant="secondary">登记作废</Button>
           </div> : null}
         </>}
       </section> : null}
