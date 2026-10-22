@@ -63,7 +63,7 @@ export interface McpAuthorizationDecisionResponse {
   redirect_uri: string;
 }
 
-export type UserRole = "highest_admin" | "admin" | "store";
+export type UserRole = "admin" | "store";
 export type UserStatus = "active" | "disabled";
 export type StoreScopeMode = "all" | "specified" | "none";
 
@@ -77,6 +77,9 @@ export interface AdminUser {
   store_ids: string[];
   store_scope_mode: StoreScopeMode;
   page_keys: string[];
+  can_manage_accounts: boolean;
+  can_manage_global_settings: boolean;
+  /** @deprecated Use the explicit capabilities above. */
   is_highest_admin?: boolean;
 }
 

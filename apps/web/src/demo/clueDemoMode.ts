@@ -20,8 +20,8 @@ export function isClueDemoPathname(pathname: string): boolean {
 export const CLUE_DEMO_ADMIN_USER: AdminUser = {
   username: "demo_admin",
   user_id: "DEMO-USER-ADMIN",
-  display_name: "演示最高管理员",
-  role: "highest_admin",
+  display_name: "演示管理员",
+  role: "admin",
   status: "active",
   is_initialized: true,
   store_ids: [],
@@ -35,5 +35,7 @@ export const CLUE_DEMO_ADMIN_USER: AdminUser = {
     "D07",
     "D08",
   ],
+  can_manage_accounts: true,
+  can_manage_global_settings: true,
   is_highest_admin: true,
 };

@@ -410,7 +410,7 @@ function ChipsPreview() {
       <StatusChip tone="warning">待再分配</StatusChip>
       <StatusChip tone="danger">错误</StatusChip>
       <CountPill>共 22,332 条</CountPill>
-      <RoleBadge tone="brand">最高管理员</RoleBadge>
+      <RoleBadge tone="brand">管理员</RoleBadge>
       <FilterChip>省份：浙江</FilterChip>
     </div>
   );

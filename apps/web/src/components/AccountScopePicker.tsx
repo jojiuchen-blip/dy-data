@@ -41,7 +41,7 @@ export function AccountScopePicker({ draft, stores, onChange }: {
   const activeFields = scopeFields[mode] ?? [];
   const covered = draft.org_scope ? stores.filter(store => activeFields.every(field => draft.org_scope?.[field] && store[field] === draft.org_scope[field])) : [];
   return <div className="account-scope-picker">
-    <SelectField label="数据可见范围" value={mode} options={draft.role === 'highest_admin' ? [{ value: 'all', label: '全部门店' }] : [
+    <SelectField label="数据可见范围" value={mode} options={[
       ...(draft.role === 'admin' ? [{ value: 'all', label: '全部门店' }, ...levels.map((value, index) => ({ value, label: labels[index] }))] : []),
       { value: 'store', label: '指定门店（可多选）' },
     ]} onChange={value => {

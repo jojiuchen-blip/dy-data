@@ -329,12 +329,12 @@ function buildRuleVersionPayload(draft: RuleVersionDraft): ClueAllocationRuleVer
 
 interface AdminClueAllocationPageProps {
   activeSubview?: AllocationSubview;
-  isHighestAdmin: boolean;
+  canManageGlobalSettings: boolean;
 }
 
 export function AdminClueAllocationPage({
   activeSubview = "rules",
-  isHighestAdmin,
+  canManageGlobalSettings,
 }: AdminClueAllocationPageProps) {
   const [eligibleLeads, setEligibleLeads] = useState<ClueAllocationEligibleLead[]>([]);
   const [eligiblePagination, setEligiblePagination] = useState<Pagination>(
@@ -402,7 +402,7 @@ export function AdminClueAllocationPage({
     "global",
   );
   const [newRuleScopeTarget, setNewRuleScopeTarget] = useState("");
-  const isWritable = isHighestAdmin && !isCompactViewport;
+  const isWritable = canManageGlobalSettings && !isCompactViewport;
   const resourceRequestIds = useRef<Record<string, number>>({});
   const loadRequestId = useRef(0);
 
@@ -650,7 +650,7 @@ export function AdminClueAllocationPage({
           loadScores(),
         ]);
         succeeded = results.every(Boolean);
-        if (isHighestAdmin) {
+        if (canManageGlobalSettings) {
           succeeded = (await loadAuditLogs()) && succeeded;
         } else {
           setAuditLogs([]);
@@ -1447,13 +1447,13 @@ export function AdminClueAllocationPage({
         </div>
       </section>
 
-      {!isHighestAdmin ? (
+      {!canManageGlobalSettings ? (
         <div aria-live="polite" className="resource-notice" role="status">
           当前账号为只读权限，可查看授权门店范围内的线索分配状态、总部池和试运行记录。
         </div>
       ) : null}
 
-      {isHighestAdmin && isCompactViewport ? (
+      {canManageGlobalSettings && isCompactViewport ? (
         <div aria-live="polite" className="resource-notice" role="status">
           移动端仅可查看。为避免误分配、误发布或误重建，请使用桌面端执行线索分配操作。
         </div>
@@ -2076,7 +2076,7 @@ export function AdminClueAllocationPage({
             />
           </section>
 
-          {isHighestAdmin ? (
+          {canManageGlobalSettings ? (
             <section className="content-section">
               <div className="section-title">
                 <div>

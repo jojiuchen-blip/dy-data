@@ -337,10 +337,10 @@ function ResourceGuardPanel({
 }
 
 interface AdminSyncPageProps {
-  isHighestAdmin: boolean;
+  canManageGlobalSettings: boolean;
 }
 
-export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
+export function AdminSyncPage({ canManageGlobalSettings }: AdminSyncPageProps) {
   const [checkingSession, setCheckingSession] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
   const [password, setPassword] = useState("");
@@ -394,11 +394,6 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
   };
 
   useEffect(() => {
-    if (!isHighestAdmin) {
-      setAuthenticated(false);
-      setCheckingSession(false);
-      return undefined;
-    }
     let cancelled = false;
     setCheckingSession(true);
     fetchAdminSession()
@@ -420,14 +415,14 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
     return () => {
       cancelled = true;
     };
-  }, [isHighestAdmin]);
+  }, [canManageGlobalSettings]);
 
   useEffect(() => {
-    if (!isHighestAdmin || !authenticated) return undefined;
+    if (!authenticated) return undefined;
     loadData();
     const timer = window.setInterval(loadData, 30000);
     return () => window.clearInterval(timer);
-  }, [authenticated, isHighestAdmin]);
+  }, [authenticated, canManageGlobalSettings]);
 
   const updateDraft = (patch: Partial<ReturnType<typeof configToDraft>>) => {
     setDraft((current) => (current ? { ...current, ...patch } : current));
@@ -509,9 +504,6 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
     },
   ];
 
-  if (!isHighestAdmin) {
-    return null;
-  }
 
   const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -527,7 +519,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
   };
 
   const handleSave = async () => {
-    if (!draft) return;
+    if (!canManageGlobalSettings || !draft) return;
     setSaving(true);
     setStatusText("正在保存同步配置...");
     try {
@@ -561,6 +553,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
   };
 
   const handleManualRun = async () => {
+    if (!canManageGlobalSettings) return;
     setRunningManual(true);
     setStatusText("正在提交手动同步任务...");
     try {
@@ -642,17 +635,17 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
           {statusText}
         </div>
       ) : null}
-      <ComponentRoom
+      {!canManageGlobalSettings ? <p className="resource-notice" role="status">数据同步影响全部门店，仅全国范围管理员可以配置和执行。当前可查看同步摘要，配置与补拉操作已禁用。</p> : null}
+      {canManageGlobalSettings ? <ComponentRoom
         onCreateTask={() =>
           manualTaskRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
         }
-      />
+      /> : null}
       <ResourceGuardPanel
         guard={data?.resource_guard}
         freshness={data?.sync_freshness}
       />
-      <AdminProductSyncPanel />
-      <DouyinStoreOrgMappingPanel />
+      {canManageGlobalSettings ? <><AdminProductSyncPanel /><DouyinStoreOrgMappingPanel /></> : null}
       {remoteConfigChanged ? (
         <div
           aria-atomic="true"
@@ -801,7 +794,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
               <span>自动同步</span>
               <FieldInput
                 checked={draft.auto_sync_enabled}
-                disabled={priorityMode}
+                disabled={!canManageGlobalSettings || priorityMode}
                 onChange={(event) =>
                   updateDraft({
                     auto_sync_enabled: event.target.checked,
@@ -813,6 +806,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
             <label className="filter-field">
               <span>历史回填开始日期</span>
               <FieldInput
+                disabled={!canManageGlobalSettings}
                 onChange={(event) =>
                   updateDraft({ history_start: event.target.value })
                 }
@@ -823,6 +817,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
             <label className="filter-field">
               <span>历史回填结束日期</span>
               <FieldInput
+                disabled={!canManageGlobalSettings}
                 onChange={(event) =>
                   updateDraft({ history_end: event.target.value })
                 }
@@ -840,7 +835,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
                 }
                 type="number"
                 value={draft.history_chunk_days}
-                disabled={priorityMode}
+                disabled={!canManageGlobalSettings || priorityMode}
               />
             </label>
             <label className="filter-field">
@@ -853,7 +848,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
                 }
                 type="number"
                 value={draft.rolling_days}
-                disabled={priorityMode}
+                disabled={!canManageGlobalSettings || priorityMode}
               />
             </label>
             <SelectField
@@ -861,13 +856,13 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
               onChange={(value) => updateDraft({ interval_seconds: value })}
               options={intervalOptions}
               value={draft.interval_seconds}
-              disabled={priorityMode}
+              disabled={!canManageGlobalSettings || priorityMode}
             />
             <label className="filter-field checkbox-field">
               <span>历史回填断点续跑</span>
               <FieldInput
                 checked={draft.backfill_skip_completed}
-                disabled={priorityMode}
+                disabled={!canManageGlobalSettings || priorityMode}
                 onChange={(event) =>
                   updateDraft({
                     backfill_skip_completed: event.target.checked,
@@ -877,7 +872,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
               />
             </label>
             <Button
-              disabled={saving}
+              disabled={!canManageGlobalSettings || saving}
               onClick={handleSave}
               type="button"
               variant="primary"
@@ -900,6 +895,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
         <div className="manual-sync-grid">
           <SelectField
             label="数据表 / 任务类型"
+            disabled={!canManageGlobalSettings}
             onChange={(value) => setTarget(value as ManualSyncTarget)}
             options={targetOptions}
             value={target}
@@ -912,10 +908,11 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
               onChange={(event) => setManualDays(event.target.value)}
               type="number"
               value={manualDays}
+              disabled={!canManageGlobalSettings}
             />
           </label>
           <Button
-            disabled={runningManual}
+            disabled={!canManageGlobalSettings || runningManual}
             onClick={handleManualRun}
             type="button"
             variant="primary"

@@ -414,7 +414,7 @@ def test_dydata_19_production_finance_routes_use_live_api_contract() -> None:
         assert route in shell
 
     assert 'location.pathname === "/finance"' in app
-    assert 'window.history.replaceState(null, "", "/finance/promotion")' in app
+    assert 'window.history.replaceState(null, "", `/finance/promotion${location.search}${window.location.hash}`)' in app
     assert 'import("./pages/StoreInvoicePage")' in app
     assert "InvoiceGuidePage" not in app
     assert 'export type BillingMetricScope = "MONTH" | "CUMULATIVE"' in types

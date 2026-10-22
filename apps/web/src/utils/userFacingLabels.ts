@@ -180,8 +180,8 @@ const allocationCycleTypeLabels: LabelMap = {
 
 const userRoleLabels: LabelMap = {
   admin: "管理员",
-  highest_admin: "最高管理员",
-  super_admin: "最高管理员",
+  highest_admin: "管理员",
+  super_admin: "管理员",
   store: "门店账号",
   viewer: "只读账号",
 };

@@ -9,7 +9,6 @@ import type { AdminUser } from "../types/dashboard";
 
 interface AdminModule {
   description: string;
-  highestAdminOnly?: boolean;
   href: string;
   meta: string;
   pageKey?: string;
@@ -53,7 +52,6 @@ const adminModules: AdminModule[] = [
     description: "配置同步时间跨度、同步间隔，查看任务日志和手动补拉数据。",
     meta: "同步与任务",
     pageKey: "D10",
-    highestAdminOnly: true,
   },
 ];
 
@@ -154,9 +152,7 @@ export function AdminHomePage() {
         {adminModules
           .filter(
             (item) =>
-              !item.highestAdminOnly ||
-              (sessionUser?.is_highest_admin === true &&
-                (!item.pageKey || sessionUser.page_keys.includes(item.pageKey))),
+              !item.pageKey || sessionUser?.page_keys.includes(item.pageKey),
           )
           .map((item) => (
             <a className="admin-module-card" href={item.href} key={item.href}>

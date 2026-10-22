@@ -302,7 +302,7 @@ export class ClueDemoRepository {
       deleted_by_username: null,
       deletion_reason: null,
       operator_user_id: "DEMO-USER-ADMIN",
-      operator_username: "演示最高管理员",
+      operator_username: "演示管理员",
       created_at: createdAt,
     };
     this.state.followUpRecords.push(record);
@@ -365,7 +365,7 @@ export class ClueDemoRepository {
     record.is_deleted = true;
     record.deleted_at = deletedAt;
     record.deleted_by_user_id = "DEMO-USER-ADMIN";
-    record.deleted_by_username = "演示最高管理员";
+    record.deleted_by_username = "演示管理员";
     record.deletion_reason = "reversed_by_highest_admin";
     this.state.generatedAt = deletedAt;
     return demoResponse(record, deletedAt);
@@ -1004,7 +1004,7 @@ export class ClueDemoRepository {
       actual_impact: { ...summary },
       actor: "DEMO-USER-ADMIN",
       actor_user_id: "DEMO-USER-ADMIN",
-      actor_username: "演示最高管理员",
+      actor_username: "演示管理员",
       privileged_confirmation: privilegedConfirmation,
       requested_at: createdAt,
       created_at: createdAt,
@@ -1247,8 +1247,8 @@ export class ClueDemoRepository {
       allocation_cycle_id: allocationCycleId,
       actor: "DEMO-USER-ADMIN",
       actor_user_id: "DEMO-USER-ADMIN",
-      actor_username_snapshot: "演示最高管理员",
-      actor_role_snapshot: "highest_admin",
+      actor_username_snapshot: "演示管理员",
+      actor_role_snapshot: "admin",
       actor_scope_snapshot: { mode: "all", store_ids: [] },
       request_id: this.nextId("DEMO-REQUEST-"),
       result_status: "success",
@@ -1423,12 +1423,13 @@ export class ClueDemoRepository {
     return `${prefix}${String(this.state.sequence).padStart(6, "0")}`;
   }
 
-  private filterRounds(filters: ClueOverviewFilters): ClueAssignmentRound[] {
+  private filterRounds(filters: ClueOverviewFilters & { assigned_store_ids?: string[] | null }): ClueAssignmentRound[] {
     const storeById = new Map(
       this.state.stores.map((store) => [store.store_id, store]),
     );
     return this.state.rounds.filter((round) => {
       if (!isClueAssignedAtVisible(round.assigned_at)) return false;
+      if (filters.assigned_store_ids != null && !filters.assigned_store_ids.includes(round.assigned_store_id ?? "")) return false;
       const store = round.assigned_store_id
         ? storeById.get(round.assigned_store_id)
         : undefined;

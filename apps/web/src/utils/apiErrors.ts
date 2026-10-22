@@ -12,7 +12,12 @@ export function apiErrorText(
   statusMessages: Partial<Record<number, string>> = {},
 ): string {
   if (!(error instanceof ApiRequestError)) return fallback;
-  const parts = [isPublicationPeriodNotReady(error) ? PUBLICATION_PERIOD_NOT_READY_TEXT : statusMessages[error.status] ?? fallback];
+  const businessMessage = error.status >= 400 && error.status < 500
+    && error.code && error.message && error.message !== `API ${error.status}`
+    ? error.message : undefined;
+  const parts = [isPublicationPeriodNotReady(error)
+    ? PUBLICATION_PERIOD_NOT_READY_TEXT
+    : businessMessage ?? statusMessages[error.status] ?? fallback];
   if (Array.isArray(error.fieldErrors) && error.fieldErrors.length) {
     const fieldSummary = error.fieldErrors
       .map((item) => {

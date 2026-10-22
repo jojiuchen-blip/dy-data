@@ -268,7 +268,7 @@
 .role-permission-table__header,
 .role-permission-table__row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) repeat(3, 130px);
+  grid-template-columns: minmax(220px, 1fr) repeat(2, 130px);
   align-items: center;
   min-width: 640px;
   min-height: 44px;

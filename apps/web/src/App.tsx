@@ -344,15 +344,15 @@ export function App() {
 
   useEffect(() => {
     if (location.pathname === "/invoice") {
-      window.history.replaceState(null, "", "/settlement/invoice");
+      window.history.replaceState(null, "", `/settlement/invoice${location.search}${window.location.hash}`);
       setLocation(readLocation());
       return;
     }
     if (location.pathname === "/finance") {
-      window.history.replaceState(null, "", "/finance/promotion");
+      window.history.replaceState(null, "", `/finance/promotion${location.search}${window.location.hash}`);
       setLocation(readLocation());
     }
-  }, [location.pathname]);
+  }, [location.pathname, location.search]);
 
   const searchParams = useMemo(
     () => new URLSearchParams(location.search),
@@ -386,16 +386,16 @@ export function App() {
             <AdminSkuRulesPage />
           ) : location.pathname === "/sync-admin" ||
             location.pathname === "/admin/sync" ? (
-            <AdminSyncPage isHighestAdmin={user.is_highest_admin === true} />
+            <AdminSyncPage canManageGlobalSettings={user.can_manage_global_settings === true} />
           ) : clueAllocationSubview ? (
             <AdminClueAllocationPage
               activeSubview={clueAllocationSubview}
-              isHighestAdmin={user.is_highest_admin === true}
+              canManageGlobalSettings={user.can_manage_global_settings === true}
             />
           ) : location.pathname === "/admin/feedback" ? (
             <AdminFeedbackPage />
           ) : location.pathname === "/admin/product-types" ? (
-            <AdminProductTypeVisibilityPage />
+            <AdminProductTypeVisibilityPage canManageGlobalSettings={user.can_manage_global_settings === true} />
           ) : null;
 
         if (adminPage) {
