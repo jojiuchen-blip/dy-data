@@ -4469,8 +4469,19 @@ def test_admin_rules_uses_live_fastapi_for_save_reload_publish_and_conflict(
         fee_section.get_by_role("button", name="应用比例并检查预选", exact=True).click()
         page.get_by_role("button", name="确认发布", exact=True).first.click()
         dialog = page.get_by_role("dialog", name="分佣规则发布确认")
-        dialog.get_by_role("button", name="确认发布", exact=True).click()
-        page.get_by_text("该生效日期已存在版本", exact=False).wait_for(timeout=10000)
+        with page.expect_response(lambda response: response.request.method == "POST"
+                                  and response.url.endswith("/api/v1/admin/sku-fee-rules")) as conflict:
+            dialog.get_by_role("button", name="确认发布", exact=True).click()
+        assert conflict.value.status == 409, conflict.value.text()
+        detail = conflict.value.json()["detail"]
+        assert detail["code"] == "SKU_FEE_RULE_DATE_CONFLICT"
+        expect(page.get_by_text(detail["message"], exact=False)).to_be_visible()
+        expect(page.get_by_text("错误码：SKU_FEE_RULE_DATE_CONFLICT", exact=False)).to_be_visible()
+        rules = context.request.get(
+            f"{live_admin_fastapi_base_url}/api/v1/admin/sku-fee-rules?skuId=SKU-LIVE-ADMIN-001"
+        )
+        assert rules.status == 200
+        assert sum(row["effectiveDate"] == "2026-08-02" for row in rules.json()["data"]["list"]) == 1
     finally:
         context.close()
 
