@@ -167,6 +167,13 @@ jobs:
       - name: Run tests
         run: python -m pytest
 
+      - name: Verify large-scope exports through Nginx
+        env:
+          DY_TEST_NGINX: "1"
+        run: |
+          docker pull nginx:1.27-alpine
+          python -m pytest tests/test_dydata105_export_nginx.py -q
+
       - name: Build frontend
         working-directory: apps/web
         run: npm run build

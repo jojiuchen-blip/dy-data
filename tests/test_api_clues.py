@@ -875,7 +875,6 @@ def test_clue_assignment_rounds_export_csv_includes_plain_phone_and_scope(
     assert response.content.startswith(b"\xef\xbb\xbf")
     assert json.loads(response.headers["x-export-filters"]) == {
         "assigned_store_id": "store-1",
-        "scope_store_ids": ["store-1"],
         "store_display_status": "待跟进",
     }
     rows = list(csv.DictReader(io.StringIO(response.content.decode("utf-8-sig"))))

@@ -51,6 +51,7 @@ from apps.worker.clue_follow_up_state import (
 from src.dy_data.clue_access import can_access_clue_store
 from src.dy_data.phones import normalize_phone, mask_phone, is_online_cipher, phone_source_fingerprint
 from ..clue_phone_cache import get_phone, put_phone
+from ..export_metadata import export_filter_header
 from apps.worker.order_status import ACTIVE_ORDER_STATUSES, PAID_ORDER_STATUSES
 from apps.worker.projection_lineage import (
     MAX_LINEAGE_DEPTH,
@@ -5473,12 +5474,7 @@ class DashboardDataStore:
         return output.getvalue()
 
     def export_filter_header(self, filters: dict[str, Any]) -> str:
-        clean_filters = {
-            key: value
-            for key, value in filters.items()
-            if value not in (None, "", "all") and key not in {"page", "page_size"}
-        }
-        return json.dumps(clean_filters, ensure_ascii=True, sort_keys=True)
+        return export_filter_header(filters)
 
     def _product_type_clause(
         self,
