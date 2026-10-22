@@ -33,7 +33,7 @@ new Function('require', result.outputFiles[0].text)(require);
     return json.loads(result.stdout)
 
 
-def test_business_error_reason_survives_http_status_defaults() -> None:
+def test_business_error_reason_is_preserved_without_page_specific_guidance() -> None:
     messages = run_web_module("""
 import {apiErrorText} from './src/utils/apiErrors';
 import {ApiRequestError} from './src/api/client';
@@ -42,11 +42,29 @@ const errors = [
   new ApiRequestError(409, '幂等键已被其他内容使用', {code: 'IDEMPOTENCY_KEY_REUSED', requestId: 'retry-request'}),
   new ApiRequestError(500, 'internal SQL credentials', {code: 'INTERNAL_ERROR', requestId: 'server-request'}),
 ];
-console.log(JSON.stringify(errors.map(error => apiErrorText(error, '操作失败', {403: '旧角色提示', 409: '旧版本冲突提示'}))));
+console.log(JSON.stringify(errors.map(error => apiErrorText(error, '操作失败'))));
 """)
     assert messages[0] == "仅全国范围管理员可执行全局操作 错误码：GLOBAL_WRITE_REQUIRED 请求编号：scope-request"
     assert messages[1] == "幂等键已被其他内容使用 错误码：IDEMPOTENCY_KEY_REUSED 请求编号：retry-request"
     assert messages[2] == "操作失败 错误码：INTERNAL_ERROR 请求编号：server-request"
+
+
+def test_page_specific_guidance_keeps_error_code_and_request_id() -> None:
+    messages = run_web_module("""
+import {apiErrorText} from './src/utils/apiErrors';
+import {ApiRequestError} from './src/api/client';
+const errors = [
+  new ApiRequestError(403, 'Forbidden', {code: 'GLOBAL_WRITE_REQUIRED', requestId: 'scope-request'}),
+  new ApiRequestError(409, 'Conflict', {code: 'VERSION_CONFLICT', requestId: 'retry-request'}),
+];
+console.log(JSON.stringify(errors.map(error => apiErrorText(error, '操作失败', {
+  403: '请使用全国范围管理员账号', 409: '请重新读取当前版本后提交',
+}))));
+""")
+    assert messages == [
+        "请使用全国范围管理员账号 错误码：GLOBAL_WRITE_REQUIRED 请求编号：scope-request",
+        "请重新读取当前版本后提交 错误码：VERSION_CONFLICT 请求编号：retry-request",
+    ]
 
 
 def test_demo_selected_stores_and_export_keep_explicit_empty_filter() -> None:

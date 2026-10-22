@@ -340,7 +340,9 @@ def test_dydata105_store_confirm_invoice_lifecycle_and_replacement_real_readback
 def test_dydata105_finance_order_apply_reset_detail_and_full_filter_bytes(
     browser, vite_live_admin_api_base_url, direction, order_id, channel, amount,
 ):
-    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    # These exact UTC boundaries model a Shanghai user's selected calendar days;
+    # do not inherit the CI runner's UTC timezone or the developer host timezone.
+    context = browser.new_context(viewport={"width": 1440, "height": 900}, timezone_id="Asia/Shanghai")
     page = context.new_page()
     try:
         page.goto(vite_live_admin_api_base_url + f"/finance/orders/{direction}?month=2026-08")
