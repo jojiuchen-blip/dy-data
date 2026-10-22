@@ -4830,18 +4830,19 @@ def test_auth_and_authorization_surfaces_render_dark_signature_contract(
 
 
 @pytest.mark.parametrize(
-    ("url_path", "expected_text", "selector"),
+    ("url_path", "expected_text", "selector", "expected_rows"),
     [
-        ("/clues/details", "线索跟进列表", ".clue-filter-bar"),
-        ("/details", "推广费订单明细", ".detail-filter-bar--single-line"),
+        ("/clues/details", "线索跟进列表", ".clue-filter-bar", 2),
+        ("/details", "推广费订单明细", ".detail-filter-bar--single-line", 1),
     ],
 )
-def test_detail_filter_bars_fit_one_desktop_row(
+def test_detail_filter_bars_fit_desktop_without_overlap(
     browser: Browser,
     vite_base_url: str,
     url_path: str,
     expected_text: str,
     selector: str,
+    expected_rows: int,
 ) -> None:
     context = browser.new_context(viewport={"width": 1440, "height": 900})
     page = context.new_page()
@@ -4859,18 +4860,27 @@ def test_detail_filter_bars_fit_one_desktop_row(
               const rows = new Set(
                 children.map((child) => Math.round(child.getBoundingClientRect().bottom)),
               );
+              const boxes = children.map((child) => child.getBoundingClientRect());
+              const overlaps = boxes.flatMap((box, index) => boxes.slice(index + 1)
+                .filter((other) => Math.min(box.right, other.right) - Math.max(box.left, other.left) > 1
+                  && Math.min(box.bottom, other.bottom) - Math.max(box.top, other.top) > 1));
               return {
                 childCount: children.length,
                 clientWidth: node.clientWidth,
                 rowCount: rows.size,
                 scrollWidth: node.scrollWidth,
+                overlapCount: overlaps.length,
+                pageWidth: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+                viewportWidth: window.innerWidth,
               };
             }""",
         )
 
         assert metrics["childCount"] > 0
-        assert metrics["rowCount"] == 1
+        assert metrics["rowCount"] == expected_rows
         assert metrics["scrollWidth"] - metrics["clientWidth"] <= 2
+        assert metrics["overlapCount"] == 0
+        assert metrics["pageWidth"] - metrics["viewportWidth"] <= 2
     finally:
         context.close()
 
