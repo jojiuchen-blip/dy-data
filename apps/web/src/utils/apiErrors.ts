@@ -17,7 +17,7 @@ export function apiErrorText(
     ? error.message : undefined;
   const parts = [isPublicationPeriodNotReady(error)
     ? PUBLICATION_PERIOD_NOT_READY_TEXT
-    : businessMessage ?? statusMessages[error.status] ?? fallback];
+    : statusMessages[error.status] ?? businessMessage ?? fallback];
   if (Array.isArray(error.fieldErrors) && error.fieldErrors.length) {
     const fieldSummary = error.fieldErrors
       .map((item) => {
