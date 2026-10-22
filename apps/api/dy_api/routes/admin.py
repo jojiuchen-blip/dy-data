@@ -803,6 +803,7 @@ def admin_reset_account_password(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Password confirmation does not match",
         )
+    before = _account_audit_snapshot(store.session, user)
     user.password_hash = hash_password_pbkdf2(payload.password)
     user.is_initialized = True
     user.auth_version += 1
@@ -812,7 +813,8 @@ def admin_reset_account_password(
         action="account.password_reset",
         actor=actor,
         target=user,
-        after={"password_reset": True},
+        before=before,
+        after={**_account_audit_snapshot(store.session, user), "password_reset": True},
     )
     store.session.commit()
     data = _account_row(store.session, user)
@@ -1025,11 +1027,24 @@ def list_account_permission_audit_logs(
     ).all()
     if not actor.can_manage_global_settings:
         allowed = set(actor.store_ids)
-        rows = [row for row in rows if all(
-            snapshot.get("role", "store") == "store"
-            and snapshot.get("store_scope_mode", "specified") != "all"
-            and set(snapshot.get("store_ids", [])).issubset(allowed)
-            for snapshot in (row.before_json or {}, row.after_json or {})
+
+        def snapshot_is_visible(snapshot) -> bool:
+            # Missing historical scope cannot prove the actor was authorized.
+            # Older password-reset rows remain visible only to global admins.
+            if not isinstance(snapshot, dict):
+                return False
+            store_ids = snapshot.get("store_ids")
+            return (
+                snapshot.get("role") == "store"
+                and snapshot.get("store_scope_mode") == "specified"
+                and snapshot.get("org_scope") is None
+                and isinstance(store_ids, list) and bool(store_ids)
+                and all(isinstance(value, str) and value in allowed for value in store_ids)
+            )
+
+        rows = [row for row in rows if snapshot_is_visible(row.after_json) and (
+            (row.action == "account.created" and not row.before_json)
+            or snapshot_is_visible(row.before_json)
         )]
     data = AccountPermissionAuditListData(
         rows=[
