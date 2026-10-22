@@ -2,10 +2,12 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+import importlib.util
 import os
 from pathlib import Path
 import sys
 from threading import Barrier, Event
+from types import SimpleNamespace
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -15,6 +17,8 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.schema import CreateSchema, DropSchema
+from starlette.requests import Request
+from mcp.server.auth.provider import TokenError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
@@ -24,8 +28,10 @@ from apps.api.dy_api.models import (
     AccessPage, AccountPermissionAuditLog, Base, DimStore, RolePagePermission,
     User, UserPagePermissionOverride, UserStoreScope,
 )
-from dy_api.auth import AuthContext, hash_password_pbkdf2
+from dy_api.auth import AuthContext, create_session_token, hash_password_pbkdf2
+from dy_api.cli_auth import _auth_context_for_user, create_cli_access_token, get_current_cli_user
 from dy_api.main import create_app
+from dy_api.mcp_oauth import DatabaseMcpOAuthProvider
 from dy_api.routes._data import get_session_dependency
 
 
@@ -35,7 +41,7 @@ def pg_factory(monkeypatch):
     if not value:
         pytest.skip("Dedicated DYDATA105_AUTH_TEST_DATABASE_URL is not configured")
     url = make_url(value)
-    if url.host not in {"127.0.0.1", "localhost"} or url.port != 55435 or url.database != "dydata105_auth":
+    if url.host not in {"127.0.0.1", "localhost"} or url.database != "dydata_admin_test":
         pytest.fail("Refusing a database outside the dedicated local DYDATA-105 auth instance")
     engine = create_engine(url)
     schema = "auth105_" + uuid4().hex
@@ -127,3 +133,57 @@ def test_waiting_account_writer_rechecks_revoked_actor_after_lock(pg_factory):
             target.auth_version += 1
             first.commit()
             future.result(timeout=10)
+
+
+def test_postgres_migration_preserves_scopes_and_revokes_all_old_credentials(pg_factory, monkeypatch):
+    with pg_factory.begin() as session:
+        user = session.get(User, "beta")
+        user.role = "highest_admin"
+        user.store_scope_mode = "specified"  # Preserve even anomalous legacy restrictions.
+        session.add(UserPagePermissionOverride(user_id="beta", page_key="D02", effect="deny"))
+    with pg_factory() as session:
+        user = session.get(User, "beta")
+        before = user.password_hash, user.status, user.store_scope_mode, user.org_scope
+        old_generation, old_version, subject = user.auth_generation, user.auth_version, user.cli_subject
+        auth = _auth_context_for_user(session, user)
+        assert auth.role == "admin" and not auth.can_manage_global_settings
+        old_cli, _ = create_cli_access_token(auth, session=session)
+        old_cookie = create_session_token(user.username, user_id=user.user_id, role=user.role,
+                                          auth_type="user", auth_version=old_version)
+    path = Path(__file__).resolve().parents[1] / "alembic/versions/20261022_0064_unify_administrators.py"
+    spec = importlib.util.spec_from_file_location("migration_0064_postgres", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with pg_factory.begin() as session:
+        monkeypatch.setattr(module, "op", SimpleNamespace(get_bind=lambda: session.connection()))
+        module.upgrade()
+    with pg_factory() as session:
+        user = session.get(User, "beta")
+        assert (user.password_hash, user.status, user.store_scope_mode, user.org_scope) == before
+        assert user.role == "admin"
+        assert user.auth_version == old_version + 1 and user.auth_generation == old_generation + 1
+        assert session.scalar(select(func.count()).select_from(UserPagePermissionOverride)) == 0
+        request = Request({"type": "http", "headers": [(b"authorization", f"Bearer {old_cli}".encode())]})
+        with pytest.raises(HTTPException) as error:
+            get_current_cli_user(request, session)
+        assert error.value.status_code == 401
+        provider = DatabaseMcpOAuthProvider(session_factory=pg_factory)
+        with pytest.raises(TokenError):
+            provider._reload_auth(session, user_id="beta", username="beta", auth_type="user",
+                                  authorization_fingerprint="", issued_auth_generation=old_generation,
+                                  subject=subject)
+    app = create_app()
+
+    def dependency():
+        with pg_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_session_dependency] = dependency
+    with TestClient(app) as client:
+        client.cookies.set("dy_session", old_cookie)
+        assert client.get("/api/v1/auth/me").status_code == 401
+        client.cookies.clear()
+        logged_in = client.post("/api/v1/auth/login", json={"username": "beta", "password": "test-secret"})
+        assert logged_in.status_code == 200
+        assert logged_in.json()["data"]["role"] == "admin"
+        assert logged_in.json()["data"]["can_manage_global_settings"] is False

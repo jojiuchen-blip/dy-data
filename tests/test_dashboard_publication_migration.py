@@ -120,7 +120,7 @@ def test_clean_and_populated_full_postgres_chain_upgrade(full_pg_stack, populate
             session.commit()
     command.upgrade(config, "head")
     with Session(engine) as session:
-        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261019_0063"
+        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261022_0064"
         assert session.scalar(text("SELECT count(*) FROM dashboard_publication_source_counters")) == 42
         assert source_fingerprint(session, "sales")
         if populated:

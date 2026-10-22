@@ -7,6 +7,7 @@ disposable nginx container is created; no production service is contacted.
 from contextlib import contextmanager
 import csv
 from io import StringIO
+import json
 import os
 from pathlib import Path
 import socket
@@ -21,7 +22,7 @@ import uvicorn
 
 from test_api_clues import client, _login_user, _seed_clue_center
 from dy_api.auth import hash_password_pbkdf2
-from apps.api.dy_api.models import DimStore, User, UserStoreScope
+from apps.api.dy_api.models import DimStore, DimStoreOrgAssignment, User, UserStoreScope
 
 
 pytestmark = pytest.mark.skipif(
@@ -88,11 +89,20 @@ def _nginx_proxy(app, directory: Path):
 
 
 @pytest.mark.parametrize("empty", [True, False])
-def test_large_scope_csv_survives_real_proxy_and_keeps_data_scope(client, db_session, tmp_path, empty):
+@pytest.mark.parametrize("bulk", [False, True])
+def test_large_scope_csv_survives_real_proxy_and_keeps_data_scope(client, db_session, tmp_path, empty, bulk):
     _seed_clue_center(db_session)
     extra_ids = [f"{number:020d}" for number in range(169)]
     db_session.add_all([DimStore(store_id=value, store_name=f"Synthetic {index}", is_active=True)
                         for index, value in enumerate(extra_ids)])
+    db_session.flush()
+    # This group overlaps all 170 authorized stores and an unauthorized store.
+    # Both expanded scopes must remain server-side, and their intersection
+    # must still exclude store-2's real clue row from the exported file.
+    for index, store_id in enumerate(["store-1", "store-2", *extra_ids]):
+        code = f"NGINX-SYNTHETIC-{index}"
+        db_session.get(DimStore, store_id).service_store_code = code
+        db_session.add(DimStoreOrgAssignment(service_store_code=code, group_name="Synthetic export group"))
     user = User(
         user_id="nginx-scope-user", username="nginx-scope-user", display_name="Synthetic scope",
         external_account_id="store-1", role="store", store_scope_mode="specified",
@@ -105,17 +115,31 @@ def test_large_scope_csv_survives_real_proxy_and_keeps_data_scope(client, db_ses
     db_session.commit()
     _login_user(client, user.username, "synthetic-password")
     filters = {"assigned_date_start": "2099-01-01", "assigned_date_end": "2099-01-01"} if empty else {}
-    expected = client.get("/api/v1/clues/assignment-rounds/export", params=filters)
+    organizations = client.get("/api/v1/clues/filter-options/organizations", params={"level": "group"})
+    assert organizations.status_code == 200, organizations.text
+    options = organizations.json()["data"]["options"]
+    assert len(options) == 1
+    filters.update({"org_level": "group", "org_key": options[0]["value"]})
+    if bulk:
+        filters["assigned_store_ids"] = ["store-1", *[f"selected-{number:020d}" for number in range(999)]]
+    def export(http):
+        if bulk:
+            return http.post("/api/v1/clues/assignment-rounds/export", json={"filters": filters})
+        return http.get("/api/v1/clues/assignment-rounds/export", params=filters)
+
+    expected = export(client)
     assert expected.status_code == 200, expected.text
     with _nginx_proxy(client.app, tmp_path) as proxy:
         with httpx.Client(base_url=proxy, cookies=dict(client.cookies), trust_env=False, timeout=20) as browser:
-            response = browser.get("/api/v1/clues/assignment-rounds/export", params=filters)
+            response = export(browser)
         assert response.status_code == 200, response.text
         assert response.content == expected.content
         assert response.content.startswith(b"\xef\xbb\xbf")
         assert len(response.headers["x-export-filters"].encode("ascii")) <= 1024
         assert "scope_store_ids" not in response.headers["x-export-filters"]
         assert "organization_store_ids" not in response.headers["x-export-filters"]
+        if bulk:
+            assert json.loads(response.headers["x-export-filters"])["assigned_store_ids"] == {"count": 1000}
         rows = list(csv.DictReader(StringIO(response.content.decode("utf-8-sig"))))
         if empty:
             assert rows == []
