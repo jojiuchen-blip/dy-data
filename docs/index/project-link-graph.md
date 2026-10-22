@@ -4,8 +4,8 @@
 
 ## 1. 摘要
 
-- 文件节点：1262
-- 文件关系：1444
+- 文件节点：1272
+- 文件关系：1508
 - 诊断问题：33
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
@@ -118,9 +118,10 @@
 | docs/项目产品介绍书.md | links_to | docs/governance/authority-map.md | docs/项目产品介绍书.md:89 |
 | docs/项目产品介绍书.md | links_to | docs/runbook.md | docs/项目产品介绍书.md:87 |
 | docs/项目产品介绍书.md | links_to | project-profile.md | docs/项目产品介绍书.md:89 |
-| docs/api-contract.md | links_to | docs/api/pdca-event-snapshot.md | docs/api-contract.md:13 |
-| docs/api-contract.md | links_to | docs/api/settlement-scope-rules.md | docs/api-contract.md:180 |
-| docs/api-contract.md | links_to | docs/devlog/20260914_ranking_export.md | docs/api-contract.md:156 |
+| docs/api-contract.md | links_to | docs/api/dashboard-publications.md | docs/api-contract.md:9 |
+| docs/api-contract.md | links_to | docs/api/pdca-event-snapshot.md | docs/api-contract.md:17 |
+| docs/api-contract.md | links_to | docs/api/settlement-scope-rules.md | docs/api-contract.md:184 |
+| docs/api-contract.md | links_to | docs/devlog/20260914_ranking_export.md | docs/api-contract.md:160 |
 | docs/api-contract.md | links_to | docs/prd/foundation/foundation-api-dy-data.md | docs/api-contract.md:3 |
 | docs/api/pdca-event-snapshot.md | links_to | docs/api/pdca-event-manifest.schema.json | docs/api/pdca-event-snapshot.md:83 |
 | docs/api/pdca-event-snapshot.md | links_to | docs/api/pdca-event-page.schema.json | docs/api/pdca-event-snapshot.md:84 |
@@ -218,7 +219,6 @@
 | docs/devlog/20260908_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260908_refactor_log_jojiuchen-blip.md:70 |
 | docs/devlog/20260909_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260909_refactor_log_jojiuchen-blip.md:84 |
 | docs/devlog/20260910_refactor_log_jojiuchen-blip.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-93-admin-rules-T0.1-permissions.md | docs/devlog/20260910_refactor_log_jojiuchen-blip.md:5 |
-| docs/devlog/20260912_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260912_refactor_log_Keith_Chen.md:71 |
 
 ## 4. 诊断问题
 
