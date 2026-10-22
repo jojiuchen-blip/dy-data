@@ -1642,8 +1642,9 @@ def test_store_change_request_closes_self_owned_round_for_reassignment(
     assert round_row.reassign_reason == "request_store_change"
 
 
-def test_legacy_viewer_is_mapped_to_admin_for_follow_up_authorization(
-    client: TestClient, db_session: Session
+@pytest.mark.parametrize("store_ids,expected_status", [([], 403), (["store-2"], 403), (["store-1"], 200)])
+def test_legacy_viewer_is_mapped_to_admin_without_expanding_follow_up_store_scope(
+    client: TestClient, db_session: Session, store_ids: list[str], expected_status: int
 ) -> None:
     _seed_clue_center(db_session)
     db_session.add(
@@ -1653,13 +1654,20 @@ def test_legacy_viewer_is_mapped_to_admin_for_follow_up_authorization(
             external_account_id="viewer",
             display_name="Viewer",
             role="viewer",
+            store_scope_mode="specified",
             status="active",
             is_initialized=True,
             password_hash=hash_password_pbkdf2("viewer-secret"),
         )
     )
+    db_session.flush()
+    db_session.add_all([UserStoreScope(user_id="viewer-1", store_id=store_id) for store_id in store_ids])
     db_session.commit()
     _login_user(client, "viewer", "viewer-secret")
+    identity = client.get("/api/v1/auth/me").json()["data"]
+    assert identity["role"] == "admin"
+    assert identity["store_scope_mode"] == "specified"
+    assert identity["store_ids"] == store_ids
 
     response = client.post(
         "/api/v1/clues/orders/order-2/follow-up",
@@ -1670,7 +1678,9 @@ def test_legacy_viewer_is_mapped_to_admin_for_follow_up_authorization(
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == expected_status, response.text
+    records = list(db_session.scalars(select(ClueFollowUpRecord).where(ClueFollowUpRecord.order_id == "order-2")))
+    assert len(records) == (1 if expected_status == 200 else 0)
 
 
 def test_clue_assignment_rounds_fall_back_to_raw_masked_phone(

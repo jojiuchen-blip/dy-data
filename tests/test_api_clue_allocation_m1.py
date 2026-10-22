@@ -23,6 +23,7 @@ from apps.api.dy_api.models import (  # noqa: E402
     StoreScoreSnapshot,
     StoreScoreSnapshotRun,
     User,
+    UserStoreScope,
 )
 from dy_api.auth import hash_password_pbkdf2  # noqa: E402
 
@@ -243,7 +244,7 @@ def test_admin_can_view_and_manually_refresh_m1_store_score_snapshots(
     assert refreshed_score_run.config_json["rule_version_id"] == rule_version.rule_version_id
 
 
-def test_database_admin_can_read_store_scores_but_cannot_change_highest_admin_controls(
+def test_scoped_database_admin_can_read_store_scores_but_cannot_refresh_global_scores(
     client: TestClient,
     db_session: Session,
 ) -> None:
@@ -254,12 +255,14 @@ def test_database_admin_can_read_store_scores_but_cannot_change_highest_admin_co
             username="database-admin",
             display_name="Database Admin",
             role="admin",
-            store_scope_mode="all",
+            store_scope_mode="specified",
             status="active",
             is_initialized=True,
             password_hash=hash_password_pbkdf2("database-admin-password"),
         )
     )
+    db_session.flush()
+    db_session.add(UserStoreScope(user_id="database-admin", store_id="score-store"))
     db_session.commit()
 
     _login_user(client, "database-admin", "database-admin-password")
