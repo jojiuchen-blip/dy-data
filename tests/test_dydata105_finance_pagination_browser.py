@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import csv
 from datetime import datetime, timezone
+from decimal import Decimal
 from io import StringIO
 from pathlib import Path
 
@@ -22,9 +23,13 @@ from test_visual_smoke import (
 )
 from dy_api.models import (
     DimStore, SapSuggestion, SettlementDispute, SettlementStatement,
-    StoreFinanceProfile,
+    StoreFinanceProfile, SettlementStatementEntry,
 )
 from publication_fixture_helpers import publish_fixture
+
+# Each module owns its disposable service/database, including teardown writes.
+live_admin_fastapi_base_url = pytest.fixture(scope="module")(live_admin_fastapi_base_url.__wrapped__)
+vite_live_admin_api_base_url = pytest.fixture(scope="module")(vite_live_admin_api_base_url.__wrapped__)
 
 PREFIX = "B105-"
 MONTH = "2026-09"
@@ -67,12 +72,32 @@ def finance_scale(live_admin_fastapi_base_url):
                 contact_phone_ciphertext="synthetic", evidence_json=[],
                 submitted_by="synthetic", submitted_at=now,
             ))
+            for direction in (1, 2):
+                source_key = f"{key}-{direction}"
+                session.add(SettlementStatementEntry(
+                    statement_entry_id=source_key, statement_id=key,
+                    statement_line_id=source_key, source_type=1,
+                    source_record_id=source_key, original_fee_result_id=source_key,
+                    coupon_id=source_key, order_id=source_key, fee_direction=direction,
+                    original_business_month=MONTH, statement_posting_month=MONTH,
+                    product_scope="synthetic", product_type="synthetic",
+                    base_amount_cent=100000, fee_amount_cent=(10001 if direction == 1 else 20001) + index,
+                    rule_version="synthetic-v1", order_status_snapshot="COMPLETED",
+                    coupon_status_snapshot="USED", product_name_snapshot="合成分页商品",
+                    sku_id_snapshot=source_key, sku_name_snapshot="合成分页SKU",
+                    sale_channel_snapshot="live", sale_store_id_snapshot=key,
+                    sale_store_snapshot=f"验收分页门店{index:03d}",
+                    verify_store_id_snapshot=key, verify_store_snapshot=f"验收分页门店{index:03d}",
+                    sale_time_snapshot=now, verify_time_snapshot=now,
+                    received_amount_cent_snapshot=100000, fee_rate_snapshot=Decimal("0.1"),
+                ))
         session.commit()
         publication = publish_fixture(session, "finance")
     yield factory, publication
     with factory() as session:
         for model, field in (
             (SettlementDispute, SettlementDispute.dispute_id),
+            (SettlementStatementEntry, SettlementStatementEntry.statement_entry_id),
             (SettlementStatement, SettlementStatement.statement_id),
             (SapSuggestion, SapSuggestion.suggestion_id),
             (StoreFinanceProfile, StoreFinanceProfile.profile_id),
@@ -110,6 +135,13 @@ def test_dydata105_real_pagination_and_all_rows_download(
         expect(pagination).to_contain_text("第 1 / 2 页")
         pagination.get_by_role("button", name="下一页", exact=True).click()
         expect(pagination).to_contain_text("显示 51-61", timeout=20000)
+        pagination.get_by_role("button", name="上一页", exact=True).click()
+        expect(pagination).to_contain_text("第 1 / 2 页", timeout=20000)
+        pagination.get_by_role("button", name="末页", exact=True).click()
+        expect(pagination).to_contain_text("显示 51-61", timeout=20000)
+        pagination.get_by_role("button", name="首页", exact=True).click()
+        expect(pagination).to_contain_text("第 1 / 2 页", timeout=20000)
+        pagination.get_by_role("button", name="下一页", exact=True).click()
         params = {"month": MONTH, "page": 2, "pageSize": 50}
         if name != "disputes":
             params.update(q=query, feeDirection="MANAGEMENT" if name == "management" else "PROMOTION", metricScope="MONTH")
@@ -133,6 +165,27 @@ def test_dydata105_real_pagination_and_all_rows_download(
             assert sum(int(row["statement_amount_cent"]) for row in records) == sum(base + index for index in range(61))
         if name == "disputes":
             assert sum(int(row["disputed_amount_cent"]) for row in records) == sum(101 + index for index in range(61))
+        if name != "disputes":
+            page.get_by_label("指标口径", exact=True).click()
+            page.get_by_role("option", name="累计", exact=True).click()
+            expect(pagination).to_contain_text("共 61 条", timeout=20000)
+            page.get_by_label("指标口径", exact=True).click()
+            page.get_by_role("option", name="单月", exact=True).click()
+            expect(pagination).to_contain_text("共 61 条", timeout=20000)
+        if name in {"promotion", "management"}:
+            page.get_by_label("发票审核状态" if name == "promotion" else "开票状态", exact=True).click()
+            page.get_by_role("option", name="审核通过，已结算" if name == "promotion" else "已开票", exact=True).click()
+            expect(pagination).to_contain_text("共 0 条", timeout=20000)
+            page.get_by_label("发票审核状态" if name == "promotion" else "开票状态", exact=True).click()
+            page.get_by_role("option", name="全部状态", exact=True).click()
+            expect(pagination).to_contain_text("共 61 条", timeout=20000)
+        else:
+            page.get_by_label("费用方向", exact=True).click()
+            page.get_by_role("option", name="管理服务费", exact=True).click()
+            expect(pagination).to_contain_text("共 0 条" if name == "disputes" else "共 61 条", timeout=20000)
+            page.get_by_label("费用方向", exact=True).click()
+            page.get_by_role("option", name="推广服务费", exact=True).click()
+            expect(pagination).to_contain_text("共 61 条", timeout=20000)
         pagination.get_by_label("每页条数", exact=True).click()
         page.get_by_role("option", name="每页 20 条", exact=True).click()
         expect(pagination).to_contain_text("第 1 / 4 页", timeout=20000)
@@ -173,5 +226,36 @@ def test_dydata105_real_pagination_and_all_rows_download(
             expect(pagination).to_contain_text("共 0 条", timeout=20000)
         assert errors == []
         page.screenshot(path=tmp_path / f"{name}-filtered.png", full_page=True)
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("direction,base", [("promotion", 10001), ("management", 20001)])
+def test_dydata105_finance_orders_every_page_size_downloads_all_61(
+    browser, vite_live_admin_api_base_url, finance_scale, tmp_path, direction, base,
+):
+    """Changing page size preserves the selected direction and complete export."""
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    try:
+        page.goto(vite_live_admin_api_base_url + f"/finance/orders/{direction}?month={MONTH}&q={PREFIX}")
+        pagination = page.get_by_role("navigation", name="表格分页")
+        expect(pagination).to_contain_text("共 61 条", timeout=20000)
+        pagination.get_by_role("button", name="下一页", exact=True).click()
+        expect(pagination).to_contain_text("显示 51-61", timeout=20000)
+        for size in (20, 50, 100, 200, 500):
+            pagination.get_by_label("每页条数", exact=True).click()
+            page.get_by_role("option", name=f"每页 {size} 条", exact=True).click()
+            expect(pagination).to_contain_text(f"显示 1-{min(size, 61)} / 共 61 条", timeout=20000)
+        with page.expect_download() as pending:
+            page.get_by_role("button", name="导出全部命中结果", exact=True).click()
+        data = Path(pending.value.path()).read_bytes()
+        assert data.startswith(b"\xef\xbb\xbf")
+        rows = list(csv.DictReader(StringIO(data.decode("utf-8-sig"))))
+        assert len(rows) == 61
+        assert {row["fee_direction"] for row in rows} == {direction.upper()}
+        assert {row["store_id"] for row in rows} == {f"{PREFIX}{index:03d}" for index in range(61)}
+        assert sum(int(row["frozen_fee_amount_cent"]) for row in rows) == sum(base + index for index in range(61))
+        page.screenshot(path=tmp_path / f"orders-{direction}-all-61.png", full_page=True)
     finally:
         context.close()

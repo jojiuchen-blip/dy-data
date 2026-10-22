@@ -4,13 +4,14 @@ from __future__ import annotations
 import csv
 import re
 from datetime import datetime, timezone
-from io import StringIO
+from io import BytesIO, StringIO
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 from playwright.sync_api import expect
+from openpyxl import Workbook
 from sqlalchemy import func, select
 
 from test_visual_smoke import (
@@ -22,9 +23,14 @@ from dy_api.models import (
     InvoiceRecord, PromotionInvoice, StoreFinanceProfile,
     DimStore, SettlementStatement, SettlementStatementConfirmation,
     PromotionInvoiceAllocation, PromotionInvoiceLifecycleEvent,
-    SettlementDispute,
+    SettlementDispute, AggStoreRanking, SapSuggestion,
 )
 from publication_fixture_helpers import publish_fixture
+
+# Writes in this acceptance module must not change the session-level fixture
+# consumed by the existing export/visual regressions in a full-suite run.
+live_admin_fastapi_base_url = pytest.fixture(scope="module")(live_admin_fastapi_base_url.__wrapped__)
+vite_live_admin_api_base_url = pytest.fixture(scope="module")(vite_live_admin_api_base_url.__wrapped__)
 
 
 IMPORTS = [
@@ -134,7 +140,7 @@ def test_dydata105_four_import_error_files_are_complete_without_business_writes(
         page.goto(vite_live_admin_api_base_url + path + ("&" if "?" in path else "?") + "month=2026-08")
         page.get_by_role("button", name=open_label, exact=True).click()
         header = content.splitlines()[0]
-        invalid = header + "\nINVALID105" + "," * header.count(",") + "\nINVALID106" + "," * header.count(",") + "\n"
+        invalid = header + "\n" + "".join(f"INVALID{index:03d}" + "," * header.count(",") + "\n" for index in range(61))
         batch = upload_from_page(page, invalid)
         assert batch["errorRows"] > 0
         detail = context.request.get(live_admin_fastapi_base_url + f"/api/v1/admin/finance-imports/{batch['batchId']}").json()["data"]
@@ -147,6 +153,60 @@ def test_dydata105_four_import_error_files_are_complete_without_business_writes(
         assert all(row["reason"] and row["field"] for row in errors)
         expect(page.get_by_role("button", name="确认提交", exact=True)).to_be_disabled()
         assert business_counts() == before
+        page.get_by_role("link", name="查看导入记录", exact=True).click()
+        page.get_by_role("button", name=batch["batchId"], exact=True).click()
+        detail_panel = page.locator(".finance-import-detail")
+        pagination = detail_panel.get_by_role("navigation", name="表格分页")
+        expect(pagination).to_contain_text(f"共 {detail['errors']['total']} 条")
+        pagination.get_by_role("button", name="末页", exact=True).click()
+        expect(pagination).not_to_contain_text("第 1 /")
+        pagination.get_by_role("button", name="上一页", exact=True).click()
+        pagination.get_by_role("button", name="首页", exact=True).click()
+        expect(pagination).to_contain_text("第 1 /")
+        detail_panel.get_by_role("button", name="关闭", exact=True).click()
+        expect(detail_panel).to_have_count(0)
+        assert business_counts() == before
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("import_type,path,open_label,content", IMPORTS)
+def test_dydata105_xlsx_preview_abandon_has_zero_business_writes(
+    browser, vite_live_admin_api_base_url, live_admin_fastapi_base_url,
+    import_type, path, open_label, content,
+):
+    """All four Excel uploads preview only; hiding the panel abandons the batch."""
+    factory = LIVE_ADMIN_SESSION_FACTORIES[live_admin_fastapi_base_url]
+    models = (StoreFinanceProfile, InvoiceRecord, PromotionInvoice)
+    with factory() as session:
+        before = tuple(session.scalar(select(func.count()).select_from(model)) for model in models)
+    workbook = Workbook()
+    for row in csv.reader(StringIO(content)):
+        workbook.active.append(row)
+    data = BytesIO()
+    workbook.save(data)
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    try:
+        page.goto(vite_live_admin_api_base_url + path + ("&" if "?" in path else "?") + "month=2026-08")
+        page.get_by_role("button", name=open_label, exact=True).click()
+        page.get_by_label("文件", exact=True).set_input_files({
+            "name": "synthetic-105.xlsx",
+            "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "buffer": data.getvalue(),
+        })
+        with page.expect_response(lambda response: response.request.method == "POST" and response.url.endswith("/admin/finance-imports")) as pending:
+            page.get_by_role("button", name="上传并预览", exact=True).click()
+        response = pending.value
+        assert response.status == 200, response.text()
+        batch = response.json()["data"]
+        assert batch["errorRows"] == 0 and batch["successRows"] == 1
+        page.get_by_role("button", name=open_label, exact=True).click()
+        expect(page.get_by_role("heading", name="导入财务数据", exact=True)).to_have_count(0)
+        with factory() as session:
+            persisted = session.scalar(select(FinanceImportBatch).where(FinanceImportBatch.batch_id == batch["batchId"]))
+            assert persisted.committed_at is None
+            assert tuple(session.scalar(select(func.count()).select_from(model)) for model in models) == before
     finally:
         context.close()
 
@@ -181,6 +241,11 @@ def test_dydata105_store_confirm_invoice_lifecycle_and_replacement_real_readback
             dialog = page.get_by_role("dialog")
             dialog.get_by_role("button", name="返回查看", exact=True).click()
             expect(page.get_by_role("dialog")).to_have_count(0)
+            with factory() as session:
+                direction_code = 1 if direction == "推广服务费" else 2
+                assert session.scalar(select(func.count()).select_from(SettlementStatementConfirmation).where(
+                    SettlementStatementConfirmation.statement_id == key,
+                    SettlementStatementConfirmation.fee_direction == direction_code)) == 0
             page.get_by_role("button", name="确认" + direction, exact=True).click()
             with page.expect_response(lambda response: response.request.method == "POST" and response.url.endswith("/confirmations")) as pending:
                 page.get_by_role("dialog").get_by_role("button", name="确认提交", exact=True).click()
@@ -194,6 +259,11 @@ def test_dydata105_store_confirm_invoice_lifecycle_and_replacement_real_readback
         page.get_by_role("button", name="发起账单异议", exact=True).click()
         page.get_by_role("dialog").get_by_role("button", name="取消", exact=True).click()
         expect(page.get_by_role("dialog")).to_have_count(0)
+        page.get_by_role("button", name="发起账单异议", exact=True).click()
+        page.get_by_role("dialog").get_by_role("button", name="确认发起", exact=True).click()
+        page.get_by_role("dialog").get_by_role("button", name="取消", exact=True).click()
+        with factory() as session:
+            assert session.scalar(select(func.count()).select_from(SettlementDispute).where(SettlementDispute.statement_id == key)) == 0
         page.get_by_role("link", name="进入推广费开票", exact=True).click()
         expect(page.get_by_role("heading", name="开票确认", exact=True, level=1)).to_be_visible()
         page.get_by_role("button", name="一键复制全部开票信息", exact=True).click()
@@ -228,6 +298,14 @@ def test_dydata105_store_confirm_invoice_lifecycle_and_replacement_real_readback
             assert invoice is not None and invoice.invoice_amount_cent == 12345 and invoice.invoice_status == 4
             invoice_id = invoice.invoice_id
         page.goto(vite_live_admin_api_base_url + f"/settlement/invoice/status?storeId={key}&month=2026-09")
+        page.get_by_label("发票号码", exact=True).fill("123")
+        page.get_by_role("button", name="服务端精确查询", exact=True).click()
+        expect(page.get_by_role("alert")).to_contain_text("20")
+        page.get_by_label("发票号码", exact=True).fill(number)
+        with page.expect_response(lambda response: "/api/v1/store-invoice-status?" in response.url and f"invoiceNumber={number}" in response.url) as queried:
+            page.get_by_role("button", name="服务端精确查询", exact=True).click()
+        assert queried.value.status == 200
+        expect(page.get_by_text(number, exact=True).first).to_be_visible()
         page.get_by_role("button", name="查看详情", exact=True).click()
         page.once("dialog", lambda dialog: dialog.dismiss())
         page.get_by_role("button", name=event_label, exact=True).click()
@@ -315,8 +393,10 @@ def test_dydata105_management_correction_reads_live_version_and_persists(
     context = browser.new_context(viewport={"width": 1440, "height": 900})
     page = context.new_page()
     try:
-        page.goto(vite_live_admin_api_base_url + "/finance/management?month=2026-08&q=store-1")
-        page.get_by_role("button", name="更正", exact=True).first.click()
+        page.goto(vite_live_admin_api_base_url + "/finance/management?month=2026-08")
+        # Desktop exposes the whole row as the keyboard action; the labelled
+        # "更正" button is the narrow-screen card action.
+        page.locator("tr[role=button]").filter(has_text="store-1").press("Enter")
         panel = page.locator(".finance-correction-panel")
         expect(panel.get_by_label("发票金额（分）", exact=True)).to_have_value("320000", timeout=20000)
         panel.get_by_role("button", name="读取当前记录", exact=True).click()
@@ -338,6 +418,49 @@ def test_dydata105_management_correction_reads_live_version_and_persists(
         context.close()
 
 
+def test_dydata105_sap_detail_cancel_then_correct_database_version(
+    browser, vite_live_admin_api_base_url, live_admin_fastapi_base_url,
+):
+    """Closing SAP correction is read-only; confirmed correction versions the fact."""
+    factory = LIVE_ADMIN_SESSION_FACTORIES[live_admin_fastapi_base_url]
+    with factory() as session:
+        session.add(DimStore(store_id="B105-SAP", store_name="合成SAP矫正店", is_active=True))
+        session.add(StoreFinanceProfile(profile_id="B105-SAP", store_id="B105-SAP", profile_type=1,
+            source_type=3, version_no=1, is_current=True, store_name_snapshot="合成SAP矫正店", sap_code="OLD105"))
+        session.add(SapSuggestion(suggestion_id="B105-SAP", store_id="B105-SAP", version_no=1,
+            is_current=True, suggested_sap_code="REQUESTED105", suggestion_status=1, suggestion_note="合成差异",
+            submitted_by="synthetic", submitted_at=datetime.now(timezone.utc)))
+        session.commit()
+        before_count = session.scalar(select(func.count()).select_from(StoreFinanceProfile))
+        before = session.scalar(select(StoreFinanceProfile).where(
+            StoreFinanceProfile.store_id == "B105-SAP", StoreFinanceProfile.is_current.is_(True)))
+        version = before.version_no
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    try:
+        page.goto(vite_live_admin_api_base_url + "/finance/stores?month=2026-08&tab=sap&q=B105-SAP")
+        page.get_by_role("button", name="查看详情", exact=True).click()
+        drawer = page.get_by_role("complementary", name="SAP 差异详情")
+        drawer.get_by_label("最终有效 SAP", exact=True).fill("SYNTHETIC105")
+        drawer.get_by_role("button", name="关闭", exact=True).click()
+        expect(drawer).to_have_count(0)
+        with factory() as session:
+            assert session.scalar(select(func.count()).select_from(StoreFinanceProfile)) == before_count
+        page.get_by_role("button", name="查看详情", exact=True).click()
+        drawer.get_by_label("最终有效 SAP", exact=True).fill("SYNTHETIC105")
+        drawer.get_by_label("矫正原因", exact=True).fill("合成SAP按钮验收")
+        with page.expect_response(lambda response: response.request.method == "POST" and response.url.endswith("/sap-corrections")) as pending:
+            drawer.get_by_role("button", name="确认矫正并生成新版本", exact=True).click()
+        assert pending.value.status == 200, pending.value.text()
+        with factory() as session:
+            current = session.scalar(select(StoreFinanceProfile).where(
+                StoreFinanceProfile.store_id == "B105-SAP", StoreFinanceProfile.is_current.is_(True)))
+            assert current.sap_code == "SYNTHETIC105" and current.version_no > version
+            assert session.scalar(select(func.count()).select_from(StoreFinanceProfile)) == before_count + 1
+    finally:
+        context.close()
+
+
 def test_dydata105_dispute_real_detection_transition_and_readback(
     browser, vite_live_admin_api_base_url, live_admin_fastapi_base_url,
 ):
@@ -348,6 +471,9 @@ def test_dydata105_dispute_real_detection_transition_and_readback(
         page.goto(vite_live_admin_api_base_url + "/finance/disputes?month=2026-08")
         page.get_by_role("button", name="处理", exact=True).first.click()
         drawer = page.get_by_role("complementary", name="账单异议详情")
+        drawer.get_by_role("button", name="关闭", exact=True).click()
+        expect(drawer).to_have_count(0)
+        page.get_by_role("button", name="处理", exact=True).first.click()
         drawer.get_by_role("button", name="启动系统检测", exact=True).click()
         expect(drawer.get_by_text("系统检测完成", exact=True)).to_be_visible(timeout=20000)
         drawer.get_by_role("button", name="重新检测", exact=True).click()
@@ -362,7 +488,6 @@ def test_dydata105_dispute_real_detection_transition_and_readback(
             dispute = session.scalar(select(SettlementDispute).where(SettlementDispute.dispute_id == "uat-dispute-001"))
             assert dispute.status == 5
             assert dispute.resolution_note == "合成异议人工核验不成立"
-        drawer.get_by_role("button", name="关闭", exact=True).click()
         expect(drawer).to_have_count(0)
         page.reload()
         expect(page.get_by_role("cell", name="不成立", exact=True).first).to_be_visible(timeout=20000)
@@ -393,36 +518,85 @@ def test_dydata105_finance_download_scope_and_expired_session_are_enforced(
 
 
 def test_dydata105_ranking_filters_drill_and_order_fee_direction_downloads(
-    browser, vite_live_admin_api_base_url,
+    browser, vite_live_admin_api_base_url, live_admin_fastapi_base_url,
 ):
+    factory = LIVE_ADMIN_SESSION_FACTORIES[live_admin_fastapi_base_url]
+    with factory() as session:
+        for index in range(60):
+            store_id = f"B105-RANK-{index:03d}"
+            session.add(DimStore(store_id=store_id, store_name=f"合成排行店{index:03d}", is_active=True))
+            session.add(AggStoreRanking(
+                period_type=1, period_key="2026-08", month="2026-08",
+                store_id=store_id, store_name=f"合成排行店{index:03d}",
+                product_scope="all", product_type="all", sales_order_count=1,
+                sales_amount_cent=10000, verified_order_count=1, verified_amount_cent=10000,
+                promotion_net_fee_cent=100, management_net_fee_cent=50, net_settlement_reference_cent=50,
+            ))
+        for period_type in (1, 2):
+            for product_scope in ("all", "原产品范围"):
+                session.add(AggStoreRanking(
+                    period_type=period_type, period_key="2026-08", month="2026-08",
+                    store_id="store-1", store_name="深圳临港认证服务店",
+                    product_scope=product_scope, product_type="all",
+                    sales_order_count=2, sales_amount_cent=1606405,
+                    verified_order_count=2, verified_amount_cent=1606405,
+                    promotion_net_fee_cent=128641, management_net_fee_cent=32000,
+                    net_settlement_reference_cent=96641,
+                ))
+        publish_fixture(session, "settlement")
     context = browser.new_context(viewport={"width": 1440, "height": 900})
     page = context.new_page()
     try:
         page.goto(vite_live_admin_api_base_url + "/ranking?periodKey=2026-08")
         expect(page.get_by_role("heading", name="全国门店月度榜单", exact=True)).to_be_visible()
+        pagination = page.get_by_role("navigation", name="表格分页")
+        expect(pagination).to_contain_text("共 61 条", timeout=20000)
+        pagination.get_by_role("button", name="下一页", exact=True).click()
+        expect(pagination).to_contain_text("第 2 / 4 页", timeout=20000)
+        pagination.get_by_role("button", name="末页", exact=True).click()
+        expect(pagination).to_contain_text("显示 61-61", timeout=20000)
+        pagination.get_by_role("button", name="上一页", exact=True).click()
+        expect(pagination).to_contain_text("第 3 / 4 页", timeout=20000)
+        pagination.get_by_role("button", name="首页", exact=True).click()
+        expect(pagination).to_contain_text("第 1 / 4 页", timeout=20000)
+        pagination.get_by_label("输入页码", exact=True).fill("2")
+        pagination.get_by_role("button", name="跳转", exact=True).click()
+        expect(pagination).to_contain_text("第 2 / 4 页", timeout=20000)
+        page.get_by_label("账期", exact=True).click()
+        page.get_by_role("option", name="2026-08", exact=True).click()
         expect(page.get_by_text("深圳临港认证服务店", exact=True).first).to_be_visible(timeout=20000)
         page.get_by_label("搜索门店", exact=True).fill("不存在105门店")
         expect(page.get_by_text("当前筛选下没有门店结果。", exact=True)).to_be_visible()
         page.get_by_label("搜索门店", exact=True).fill("深圳")
         expect(page.get_by_text("深圳临港认证服务店", exact=True).first).to_be_visible()
-        for label, option in (("排行依据", "累计推广服务费"), ("统计方式", "月度"), ("产品范围", "精诚养车")):
+        for label, option in (("排行依据", "累计推广服务费"), ("统计方式", "月度"), ("产品范围", "原产品范围")):
             page.get_by_label(label, exact=True).click()
             page.get_by_role("option", name=option, exact=True).click()
             expect(page.get_by_text("深圳临港认证服务店", exact=True).first).to_be_visible(timeout=20000)
         page.get_by_role("link").filter(has_text="深圳临港认证服务店").click()
         expect(page).to_have_url(re.compile(r"/settlement\?.*storeId=store-1"))
+        page.get_by_label("账期", exact=True).click()
+        page.get_by_role("option", name="2026-08", exact=True).click()
+        store_select = page.get_by_role("combobox", name="门店", exact=True)
+        store_select.fill("杭州")
+        page.get_by_role("option", name="杭州滨江直营服务店", exact=True).click()
+        expect(store_select).to_have_value("杭州滨江直营服务店")
+        store_select.fill("深圳")
+        page.get_by_role("option", name="深圳临港认证服务店", exact=True).click()
+        expect(store_select).to_have_value("深圳临港认证服务店")
         for tab in ("管理费明细", "推广费明细"):
             page.get_by_role("tab", name=tab, exact=True).click()
             expect(page.get_by_role("tab", name=tab, exact=True)).to_have_attribute("aria-selected", "true")
         page.goto(vite_live_admin_api_base_url + "/details?storeId=store-1&month=2026-08")
         for label, order_id, amount in (("推广服务费", "DY2026071900842", 128641), ("管理服务费", "DY20260622001935", 32000)):
+            page.get_by_label("搜索", exact=True).fill("")
             page.get_by_role("button", name=label, exact=True).click()
-            expect(page.get_by_role("cell", name=order_id, exact=True).first).to_be_visible(timeout=20000)
+            expect(page.get_by_text(order_id, exact=True).first).to_be_visible(timeout=20000)
             page.get_by_label("搜索", exact=True).fill("missing105")
             expect(page.get_by_text("当前筛选下没有费用记录。", exact=True)).to_be_visible()
             expect(page.get_by_role("button", name="导出", exact=True)).to_be_disabled()
             page.get_by_label("搜索", exact=True).fill(order_id)
-            expect(page.get_by_role("cell", name=order_id, exact=True).first).to_be_visible()
+            expect(page.get_by_text(order_id, exact=True).first).to_be_visible()
             with page.expect_download() as pending:
                 page.get_by_role("button", name="导出", exact=True).click()
             records = list(csv.DictReader(StringIO(Path(pending.value.path()).read_bytes().decode("utf-8-sig"))))
