@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
-from apps.api.dy_api.models import ClueAllocationAuditLog, DimStore, User  # noqa: E402
+from apps.api.dy_api.models import ClueAllocationAuditLog, DimStore, User, UserStoreScope  # noqa: E402
 from dy_api.auth import hash_password_pbkdf2  # noqa: E402
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
@@ -82,10 +82,20 @@ def _seed_users(session: Session) -> None:
                 username="database-admin",
                 display_name="Database Admin",
                 role="admin",
-                store_scope_mode="all",
+                store_scope_mode="specified",
                 status="active",
                 is_initialized=True,
                 password_hash=hash_password_pbkdf2("database-admin-password"),
+            ),
+            User(
+                user_id="national-admin",
+                username="national-admin",
+                display_name="National Admin",
+                role="admin",
+                store_scope_mode="all",
+                status="active",
+                is_initialized=True,
+                password_hash=hash_password_pbkdf2("national-admin-password"),
             ),
             User(
                 user_id="store-user",
@@ -99,10 +109,18 @@ def _seed_users(session: Session) -> None:
         ]
     )
     session.add(DimStore(store_id="store-1", store_name="Store 1", is_active=True))
+    session.flush()
+    session.add(UserStoreScope(user_id="database-admin", store_id="store-1"))
     session.commit()
 
 
-def test_rule_version_apis_enforce_read_and_write_permissions(client: TestClient, db_session: Session) -> None:
+@pytest.mark.parametrize("writer,password,actor_id", [
+    ("system-admin", "test-password", "environment:system-admin"),
+    ("national-admin", "national-admin-password", "national-admin"),
+])
+def test_rule_version_apis_enforce_read_and_write_permissions(
+    client: TestClient, db_session: Session, writer: str, password: str, actor_id: str,
+) -> None:
     _seed_users(db_session)
 
     assert client.get("/api/v1/admin/clue-allocation/rules").status_code == 401
@@ -119,7 +137,7 @@ def test_rule_version_apis_enforce_read_and_write_permissions(client: TestClient
         json={"name": "Global default", "scope": {"scope_type": "global"}},
     ).status_code == 403
 
-    _login(client, "system-admin", "test-password")
+    _login(client, writer, password)
     created_rule = client.post(
         "/api/v1/admin/clue-allocation/rules",
         json={"name": "Global default", "scope": {"scope_type": "global"}},
@@ -152,7 +170,7 @@ def test_rule_version_apis_enforce_read_and_write_permissions(client: TestClient
         json=_version_payload(),
     ).status_code == 403
 
-    _login(client, "system-admin", "test-password")
+    _login(client, writer, password)
     assert client.put(
         f"/api/v1/admin/clue-allocation/rule-versions/{version_id}",
         json=_version_payload(),
@@ -169,8 +187,8 @@ def test_rule_version_apis_enforce_read_and_write_permissions(client: TestClient
         "rule_version_created",
         "rule_version_published",
     ]
-    assert all(row.actor_user_id == "environment:system-admin" for row in audit_rows)
-    assert all(row.actor_role_snapshot == "highest_admin" for row in audit_rows)
+    assert all(row.actor_user_id == actor_id for row in audit_rows)
+    assert all(row.actor_role_snapshot == "admin" for row in audit_rows)
     assert all(row.request_id for row in audit_rows)
     assert audit_rows[0].after_snapshot["rule_id"] == rule_id
     assert audit_rows[1].after_snapshot["rule_version_id"] == version_id
@@ -178,9 +196,14 @@ def test_rule_version_apis_enforce_read_and_write_permissions(client: TestClient
     assert audit_rows[2].after_snapshot["status"] == "published"
 
 
-def test_highest_admin_can_manage_store_group_members(client: TestClient, db_session: Session) -> None:
+@pytest.mark.parametrize("writer,password", [
+    ("system-admin", "test-password"), ("national-admin", "national-admin-password"),
+])
+def test_national_admin_can_manage_store_group_members_but_scoped_admin_cannot(
+    client: TestClient, db_session: Session, writer: str, password: str,
+) -> None:
     _seed_users(db_session)
-    _login(client, "system-admin", "test-password")
+    _login(client, writer, password)
 
     created = client.post(
         "/api/v1/admin/clue-allocation/store-groups",
@@ -190,6 +213,12 @@ def test_highest_admin_can_manage_store_group_members(client: TestClient, db_ses
     group_id = created.json()["data"]["store_group_id"]
     assert created.json()["data"]["member_store_ids"] == ["store-1"]
 
+    _login(client, "database-admin", "database-admin-password")
+    listed = client.get("/api/v1/admin/clue-allocation/store-groups")
+    assert listed.status_code == 200
+    assert listed.json()["data"]["rows"][0]["store_group_id"] == group_id
+
+    _login(client, writer, password)
     updated = client.put(
         f"/api/v1/admin/clue-allocation/store-groups/{group_id}/members",
         json={"member_store_ids": []},
@@ -200,7 +229,7 @@ def test_highest_admin_can_manage_store_group_members(client: TestClient, db_ses
     _login(client, "database-admin", "database-admin-password")
     listed = client.get("/api/v1/admin/clue-allocation/store-groups")
     assert listed.status_code == 200
-    assert listed.json()["data"]["rows"][0]["store_group_id"] == group_id
+    assert listed.json()["data"]["rows"] == []
     assert client.put(
         f"/api/v1/admin/clue-allocation/store-groups/{group_id}/members",
         json={"member_store_ids": ["store-1"]},

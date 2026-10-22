@@ -49,6 +49,7 @@ function displaySettlementRebuildStatus(value: SettlementRebuildStatus): string 
 }
 
 interface AdminSkuRuleImportDrawerProps {
+  canManageGlobalSettings: boolean;
   batches: ImportBatchItem[];
   initialBatch: ImportBatchItem | null;
   onChanged: () => Promise<void>;
@@ -57,6 +58,7 @@ interface AdminSkuRuleImportDrawerProps {
 }
 
 export function AdminSkuRuleImportDrawer({
+  canManageGlobalSettings,
   batches,
   initialBatch,
   onChanged,
@@ -75,6 +77,7 @@ export function AdminSkuRuleImportDrawer({
   const [notice, setNotice] = useState("");
 
   const uploadImport = async () => {
+    if (!canManageGlobalSettings) return;
     if (!importFile) {
       setNotice("请先选择 UTF-8 CSV 或 XLSX 文件。");
       return;
@@ -91,7 +94,11 @@ export function AdminSkuRuleImportDrawer({
           ? "全量预校验通过，可以确认原子提交。"
           : "预校验发现错误，整批未写入。请按行号、字段和原因修改文件后重新上传。",
       );
-      await onChanged();
+      try {
+        await onChanged();
+      } catch (error) {
+        setNotice(`预校验结果已保存，但批次列表刷新失败。 ${apiErrorText(error, "请稍后读取最新结果。")}`);
+      }
     } catch (error) {
       setNotice(apiErrorText(error, "文件上传或预校验失败。", {
         422: "文件内容或生效日期不符合导入要求。",
@@ -102,6 +109,7 @@ export function AdminSkuRuleImportDrawer({
   };
 
   const commitImport = async () => {
+    if (!canManageGlobalSettings) return;
     if (!activeBatch || activeBatch.batchStatus !== "PENDING_COMMIT" || !importReason.trim()) {
       setNotice("只有全量校验通过的批次才能提交，并且必须填写变更原因。");
       return;
@@ -129,13 +137,14 @@ export function AdminSkuRuleImportDrawer({
       setNotice(
         `整批已原子写入 ${formatInteger(response.data.batch.successCount)} 条规则，结算重算任务${displaySettlementRebuildStatus(rebuild.rebuildStatus)}（任务编号：${rebuild.jobId}）。`,
       );
-      await onChanged();
       importCommitIntent.current = null;
+      try {
+        await onChanged();
+      } catch (error) {
+        setNotice(`整批已原子写入 ${formatInteger(response.data.batch.successCount)} 条规则，结算重算任务${displaySettlementRebuildStatus(rebuild.rebuildStatus)}（任务编号：${rebuild.jobId}）。批次列表刷新失败。 ${apiErrorText(error, "请稍后读取最新结果。")}`);
+      }
     } catch (error) {
-      setNotice(apiErrorText(error, "整批原子提交失败，正式规则未部分写入。", {
-        403: "当前账号不是最高管理员，不能提交正式规则。",
-        409: "提交时发现版本冲突，整批已回滚。",
-      }));
+      setNotice(apiErrorText(error, "整批原子提交未完成，请检查批次状态后重试。"));
     } finally {
       setWorking(false);
     }
@@ -167,7 +176,7 @@ export function AdminSkuRuleImportDrawer({
             关闭
           </Button>
           <Button
-            disabled={working || activeBatch?.batchStatus !== "PENDING_COMMIT"}
+            disabled={!canManageGlobalSettings || working || activeBatch?.batchStatus !== "PENDING_COMMIT"}
             onClick={() => void commitImport()}
             type="button"
             variant="primary"
@@ -183,6 +192,7 @@ export function AdminSkuRuleImportDrawer({
       panelClassName="admin-import-drawer"
       title="批量导入设置"
     >
+      {!canManageGlobalSettings ? <p className="resource-notice" role="status">批量导入会发布全局分账规则，仅全国范围管理员可以上传和提交。</p> : null}
       {notice ? <div aria-live="polite" className="resource-notice" role="status">{notice}</div> : null}
       {download.message ? <p className="resource-notice" role={download.isError ? "alert" : "status"}>{download.message}</p> : null}
 
@@ -191,6 +201,7 @@ export function AdminSkuRuleImportDrawer({
           <span>CSV / XLSX 文件</span>
           <FieldInput
             accept=".csv,.xlsx"
+            disabled={!canManageGlobalSettings || working}
             onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
             type="file"
           />
@@ -208,7 +219,7 @@ export function AdminSkuRuleImportDrawer({
           <Button loading={download.busy} onClick={() => void download.run(downloadSkuFeeRuleImportTemplate, "模板已下载。")} type="button">
             下载标准模板
           </Button>
-          <Button disabled={working || !importFile} onClick={() => void uploadImport()} type="button">
+          <Button disabled={!canManageGlobalSettings || working || !importFile} onClick={() => void uploadImport()} type="button">
             上传并预校验
           </Button>
         </div>

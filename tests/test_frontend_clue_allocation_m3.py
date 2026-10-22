@@ -23,7 +23,7 @@ def test_m3_allocation_control_is_admin_readable_and_highest_admin_writable() ->
     assert '{ href: "/admin/clue-allocation", label: "线索分配规则", pageKey: "D05" }' in shell_source
     assert 'href: "/admin/clue-allocation"' in home_source
     assert 'title: "线索分配"' in home_source
-    assert "isHighestAdmin" in _read("pages/AdminClueAllocationPage.tsx")
+    assert "canManageGlobalSettings" in _read("pages/AdminClueAllocationPage.tsx")
 
 
 def test_m3_allocation_control_uses_preview_then_confirmed_execution() -> None:
@@ -111,8 +111,8 @@ def test_m3_each_allocation_subview_only_loads_its_own_api_group() -> None:
     assert "const loadPaginatedResource = async" in page_source
     assert "fetchClueAllocationEligibleLeads," in page_source
     assert "const loadAuditLogs = (" in page_source
-    assert "if (isHighestAdmin)" in page_source
-    assert "{isHighestAdmin ? (" in page_source
+    assert "if (canManageGlobalSettings)" in page_source
+    assert "{canManageGlobalSettings ? (" in page_source
     assert "fetchClueHeadquartersPool({" in page_source
     assert "fetchClueAllocationRules," in page_source
 

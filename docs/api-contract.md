@@ -4,6 +4,15 @@
 
 ## 1. 基础约定
 
+### 管理员能力、范围与导出元数据（DYDATA-105，候选实现）
+
+- 对外角色统一为 `admin` / `store`，旧 `highest_admin` 兼容读取并迁移为 `admin`。管理员固定拥有全部页面；数据范围继续由 `store_scope_mode`、门店集合和组织范围决定，角色合并不扩大数据范围。
+- 当前身份返回 `can_manage_accounts` 与 `can_manage_global_settings`。全部门店范围管理员可管理全部账号、角色默认值和全局配置；受限管理员只能新增或变更完全属于自身范围的门店账号，不能管理管理员或扩大授权。账号无删除接口。旧 `is_highest_admin` 仅兼容表示全局管理能力。
+- 账号变更在 PostgreSQL 事务锁后重新校验操作者和目标；最后一名有效的全部门店范围管理员不可被降级、停用或收窄为受限范围。迁移保留密码、状态、门店及组织绑定，审计旧角色和页面覆盖，递增会话版本并要求旧凭据重新认证。含账号历史的迁移不支持猜测式降级恢复。
+- SKU、角色默认权限、商品可见性、同步与全局重算使用全局能力门禁；受限管理员可读取同步摘要，运维详细控制接口仍限定全局能力。规则发布成功与随后列表刷新失败分别反馈；业务错误保留错误码和请求编号。
+- CSV 的 `X-Export-Filters` 仅为有界提示，不作为审计或权限依据：不返回内部 `scope_store_ids`、`organization_store_ids` 或分页；集合只返回数量；以 ASCII JSON 编码，最多 1024 字节，超出则返回省略标记。实际查询及导出仍重验完整授权条件。财务订单中文筛选可以导出；SAP 差异候选集超过上限返回 413 `EXPORT_LIMIT_EXCEEDED`，不返回截断文件。
+- 管理费厂家结果再次上传相同内容，且原导入行对应的发票仍为当前有效版本时，返回 `NO_CHANGE`；权限、格式与变更内容校验继续执行。`NO_CHANGE` 批次不能再次提交生成发票。
+
 ### 完整月度与未完整累计分开读取（DYDATA-104，2026-10-21）
 
 门店榜单与单店月度分账新增 `data.periodAvailability`（`monthlyReady/cumulativeReady/incompleteMonths`）。当月完整时可独立展示当月金额；历史前缀未完整时累计金额/计数为 `null`，页面显示暂不可用。累计查询、累计排序及财务累计导出仍失败关闭，不把缺数据解释为零。详情见[静态发布账期契约](api/dashboard-publications.md#完整当月与未完整累计分别展示dydata-1042026-10-21)。
@@ -45,7 +54,7 @@
 
 - API 前缀：`/api/v1`。
 - 会话：Web 请求携带会话 Cookie；业务接口默认需要登录。
-- 授权：普通业务接口校验当前用户和门店范围；`/admin/*` 使用管理员或最高管理员依赖。
+- 授权：普通业务接口校验当前用户和门店范围；`/admin/*` 分别校验管理员身份、数据范围与全局管理能力。
 - 响应：业务成功响应沿用 `{ data, definitions?, meta }`，具体字段由对应 schema 定义。
 - 错误：使用 HTTP 状态和结构化详情表达认证、授权、输入和服务错误；前端不得只判断一个自定义成功码。
 - 时间、金额、ID 和状态口径以 schema、模型和数据库字段为准，变更时必须同步测试和前端类型。
@@ -96,12 +105,23 @@
 - `GET /clues/overview`
 - `GET /clues/assignment-rounds`
 - `GET /clues/assignment-rounds/export`
+- `POST /clues/assignment-rounds`
+- `POST /clues/assignment-rounds/export`
+- `POST /clues/filter-options/stores/resolve`
 - `GET /clues/orders/{order_id}`
 - `POST /clues/orders/{order_id}/follow-up`
 - `DELETE /clues/follow-up-records/{follow_up_record_id}`
 - `GET /clues/orders/{order_id}/phone`
 
 详情、电话和跟进操作必须校验用户角色、订单归属和门店范围。
+
+DYDATA-105 批量门店筛选：
+
+- 解析请求为 `{raw_input: string}`，只读当前账户 ID（`DimAwemeAccount.account_id`）和 POI ID（`DimStorePoiMapping.poi_id`）映射；不把任意内部 `store_id` 当作粘贴 ID 回退匹配。NFKC 规范宽度，支持空格、分号、斜杠、换行与 tab，保留长 ID 和前导零。一对多匹配全部授权门店；命名空间冲突返回授权匹配并标注来源；不存在与无权统一计为未匹配。
+- 返回 `stores`（含 `store_id/store_name/matches`）及输入、去重、匹配和未匹配数量。原始输入最多 128000 字符，单 ID 最多 128 字符，去重后最多 1000 个输入 ID，匹配和合并选择最多 1000 家门店；任一超限整次拒绝，不截断。
+- POST 列表请求 `{filters, page, page_size}`，POST 导出请求 `{filters}`。公共 `filters.assigned_store_ids` 为规范门店 ID 字符串数组，`null`/省略表示无额外条件，`[]` 明确表示零结果。同一选择集取 OR，与其他条件及服务端授权取 AND；列表总数与导出使用同一条件。客户端不得提交内部授权字段，未知字段拒绝。旧 GET 保持兼容。
+- 页面合并名称选择和 ID 匹配，展示选中项并可逐项移除；移除最后一项保持零结果，显式清空恢复无额外门店条件。大选择集经 JSON 请求体传输，避免 URL 过长。
+- 管理员撤销跟进需在业务行锁后重新验证该轮次门店权限，越权与不存在统一 404；历史已撤销记录仅对有该门店权限的管理员可见。账号禁删不改变跟进撤销的审计语义。
 
 DYDATA-88 修复后的运行约定：
 
@@ -162,10 +182,10 @@ GET `/api/v1/dashboard/douyin-ranking/export`：沿用A03页面权限和账号�
 
 ## 账号组织范围与批量开通（2026-09-15）
 
-- `AccountUpsertRequest` / `AccountRow` 增加可空 `org_scope`：group需group_name；service_center需service_center_name；district需service_center_name+district_name；area需service_center_name+district_name+area_name。集团与服务中心互不隶属；旧服务层级绑定的额外group_name读取时忽略。仅admin+specified可绑定，最高管理员创建。批量表格对不适用列报错并要求留空。
+- `AccountUpsertRequest` / `AccountRow` 增加可空 `org_scope`：group需group_name；service_center需service_center_name；district需service_center_name+district_name；area需service_center_name+district_name+area_name。集团与服务中心互不隶属；旧服务层级绑定的额外group_name读取时忽略。仅admin+specified可绑定，由全部门店范围管理员创建。批量表格对不适用列报错并要求留空。
 - `GET /api/v1/admin/account-store-catalog` 返回可分配门店及组织路径；账号管理鉴权。
 - `GET /api/v1/admin/account-store-import/template` 下载门店名单xlsx；`POST .../preview` 接收multipart file，返回store_ids、stores、duplicate_count、errors（row/store_id/reason）；不写入账号。
-- `GET /api/v1/admin/account-bulk-import/template` 下载账号开通xlsx；仅最高管理员。
+- `GET /api/v1/admin/account-bulk-import/template` 下载账号开通xlsx；按当前管理能力提供可用类型与门店。受限管理员只可批量开通自身范围内门店账号。
 - `POST /api/v1/admin/account-bulk-import/preview` 接收multipart file，返回rows、errors、digest；不创建账号。
 - `POST /api/v1/admin/account-bulk-import/commit` 接收multipart file和digest；确认时重新校验，成功返回含初始密码的xlsx（Cache-Control: no-store），错误整批回滚。超过5MB/200账号或格式错误422，文件变化409，权限不足403。
 - 所有有效登录账号对A03排行与导出固定允许，使用全量scope；其他业务端点继续校验所选范围。

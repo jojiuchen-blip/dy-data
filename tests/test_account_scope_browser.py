@@ -1,14 +1,37 @@
 """Real FastAPI + browser coverage; Browser plugin not available, use Playwright."""
-from test_visual_smoke import browser, live_admin_fastapi_base_url, vite_live_admin_api_base_url
+from test_visual_smoke import (
+    LIVE_ADMIN_SESSION_FACTORIES,
+    browser,
+    live_admin_fastapi_base_url,
+    vite_live_admin_api_base_url,
+)
+from apps.api.dy_api.access_control import ensure_access_control_seed
+from apps.api.dy_api.auth import hash_password_pbkdf2
+from apps.api.dy_api.models import User
 from playwright.sync_api import expect
 from pathlib import Path
 import pytest
 
 
+@pytest.fixture(scope='module', autouse=True)
+def persisted_account_operator(live_admin_fastapi_base_url):
+    """Match the synthetic request identity to the real write-time DB identity."""
+    with LIVE_ADMIN_SESSION_FACTORIES[live_admin_fastapi_base_url]() as session:
+        ensure_access_control_seed(session)
+        if session.get(User, 'live-admin') is None:
+            session.add(User(
+                user_id='live-admin', username='live-admin', display_name='Live admin',
+                role='admin', status='active', is_initialized=True,
+                store_scope_mode='all', auth_version=1,
+                password_hash=hash_password_pbkdf2('IsolatedBrowser123!'),
+            ))
+        session.commit()
+
+
 @pytest.mark.parametrize('width', [390, 1440])
 def test_store_search_multi_select_import_and_save(browser, vite_live_admin_api_base_url, live_admin_fastapi_base_url, width):
     context = browser.new_context(viewport={'width': width, 'height': 900})
-    context.add_cookies([{'name': 'dy_e2e_role', 'value': 'highest_admin', 'url': live_admin_fastapi_base_url}])
+    context.add_cookies([{'name': 'dy_e2e_role', 'value': 'admin', 'url': live_admin_fastapi_base_url}])
     page = context.new_page()
     errors = []
     page.on('pageerror', lambda error: errors.append(str(error)))
@@ -54,7 +77,7 @@ def test_store_search_multi_select_import_and_save(browser, vite_live_admin_api_
 def test_bulk_account_import_real_api(browser, vite_live_admin_api_base_url, live_admin_fastapi_base_url):
     from test_account_bulk_import import workbook
     context = browser.new_context(viewport={'width': 1440, 'height': 900})
-    context.add_cookies([{'name': 'dy_e2e_role', 'value': 'highest_admin', 'url': live_admin_fastapi_base_url}])
+    context.add_cookies([{'name': 'dy_e2e_role', 'value': 'admin', 'url': live_admin_fastapi_base_url}])
     page = context.new_page()
     try:
         page.goto(vite_live_admin_api_base_url + '/admin/accounts')
@@ -76,7 +99,7 @@ def test_bulk_account_import_real_api(browser, vite_live_admin_api_base_url, liv
 
 def test_org_picker_does_not_require_group_for_service_hierarchy(browser, vite_live_admin_api_base_url, live_admin_fastapi_base_url):
     context = browser.new_context(viewport={'width': 1440, 'height': 900})
-    context.add_cookies([{'name': 'dy_e2e_role', 'value': 'highest_admin', 'url': live_admin_fastapi_base_url}])
+    context.add_cookies([{'name': 'dy_e2e_role', 'value': 'admin', 'url': live_admin_fastapi_base_url}])
     page = context.new_page()
     catalog = [{'store_id': f'org-{i}', 'store_name': f'门店{i}', 'group_name': group, 'service_center_name': '共同中心', 'district_name': '共同大区', 'area_name': '共同区域'} for i, group in enumerate(['集团甲', '集团乙'])]
     page.route('**/api/v1/admin/account-store-catalog', lambda route: route.fulfill(json={'data': {'stores': catalog}}))

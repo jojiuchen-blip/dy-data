@@ -77,6 +77,6 @@ def test_allocation_module_has_exactly_four_subviews_and_sync_has_no_legacy_main
     assert "rebuildClueAllocationTrial" in allocation_source
     assert '"/admin/clue-allocation/rebuild-cycles"' in client_source
     assert '"/admin/clue-allocation/cycles/rebuild"' not in client_source
-    assert "<AdminSyncPage isHighestAdmin={user.is_highest_admin === true} />" in app_source
+    assert "<AdminSyncPage canManageGlobalSettings={user.can_manage_global_settings === true} />" in app_source
     assert "hasPageAccess(user, location.pathname)" in app_source
-    assert 'user.is_highest_admin ? "最高管理员" : "管理员"' in shell_source
+    assert 'user.role === "admin" ? "管理员" : "门店账号"' in shell_source

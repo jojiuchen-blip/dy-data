@@ -153,7 +153,7 @@ def soft_delete_follow_up_record(
 ) -> FollowUpStateResult:
     """Audit-reverse one follow-up record without reopening a past transition."""
 
-    if not _actor_is_highest_admin(actor):
+    if _text(actor.get("role")) not in {"admin", "highest_admin"}:
         return FollowUpStateResult("forbidden")
     round_id = session.scalar(
         select(ClueFollowUpRecord.assignment_round_id)
@@ -163,7 +163,9 @@ def soft_delete_follow_up_record(
     if round_id is None:
         return FollowUpStateResult("not_found")
     round_row, lead = _locked_round_state(session, round_id)
-    if round_row is None or round_row.execution_mode != BUSINESS_EXECUTION_MODE:
+    if round_row is None or not can_access_clue_store(actor, round_row.assigned_store_id):
+        return FollowUpStateResult("not_found")
+    if round_row.execution_mode != BUSINESS_EXECUTION_MODE:
         return FollowUpStateResult("conflict")
     record = session.scalar(
         select(ClueFollowUpRecord)
@@ -454,10 +456,6 @@ def _is_current_self_owned_round(lead: ClueMasterLead, round_row: ClueAssignment
 
 def _actor_can_operate_round(round_row: ClueAssignmentRound | None, actor: dict[str, Any]) -> bool:
     return round_row is not None and can_access_clue_store(actor, round_row.assigned_store_id)
-
-
-def _actor_is_highest_admin(actor: dict[str, Any]) -> bool:
-    return bool(actor.get("is_highest_admin") and _text(actor.get("auth_type")) == "env_admin")
 
 
 def _aware(value: datetime | None) -> datetime:

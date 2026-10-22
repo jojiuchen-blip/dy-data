@@ -388,7 +388,7 @@ def test_m3_preview_is_nonpersistent_and_trial_requires_confirmation(
     audit_row = audits.json()["data"]["rows"][0]
     assert audit_row["event_type"] == "trial_executed"
     assert audit_row["actor_username_snapshot"] == "system-admin"
-    assert audit_row["actor_role_snapshot"] == "highest_admin"
+    assert audit_row["actor_role_snapshot"] == "admin"
     assert audit_row["actor_scope_snapshot"] == {"mode": "all", "store_ids": []}
     assert audit_row["request_id"]
     assert audit_row["result_status"] == "completed"
@@ -577,55 +577,41 @@ def test_m3_trial_idempotency_key_rejects_a_different_preview_request(
     assert "idempotency_key_conflict" in conflict.json()["detail"]
 
 
-def test_m3_allocation_page_permissions_match_each_subview_api_contract(
-    client: TestClient, db_session: Session
+@pytest.mark.parametrize("role,scope_mode", [
+    ("admin", "all"), ("admin", "specified"),
+    ("highest_admin", "all"), ("highest_admin", "specified"),
+    ("store", "specified"),
+])
+def test_m3_allocation_fixed_admin_pages_preserve_store_role_boundary(
+    client: TestClient, db_session: Session, role: str, scope_mode: str
 ) -> None:
-    def login_with_only(page_key: str) -> None:
-        user_id = f"admin-{page_key.lower()}"
-        user = User(
-            user_id=user_id,
-            username=user_id,
-            display_name=user_id,
-            role="admin",
-            status="active",
-            is_initialized=True,
-            password_hash=hash_password_pbkdf2("permission-password"),
-        )
-        db_session.add(user)
-        db_session.flush()
+    user_id = "allocation-permissions-user"
+    user = User(
+        user_id=user_id, username=user_id, display_name=user_id,
+        role=role, store_scope_mode=scope_mode, status="active", is_initialized=True,
+        password_hash=hash_password_pbkdf2("permission-password"),
+    )
+    db_session.add_all([user, DimStore(store_id="permission-store", store_name="Permission Store", is_active=True)])
+    db_session.flush()
+    db_session.add(UserStoreScope(user_id=user_id, store_id="permission-store"))
+    if role == "store":
         replace_user_overrides(
-            db_session,
-            user,
-            extra_allow={page_key},
-            extra_deny=set(ALL_PAGE_KEYS) - {page_key},
-            updated_by="system-admin",
+            db_session, user, extra_allow={"D06", "D07", "D08"},
+            extra_deny=set(ALL_PAGE_KEYS) - {"D06", "D07", "D08"}, updated_by="system-admin",
         )
-        db_session.commit()
-        client.cookies.clear()
-        login = client.post(
-            "/api/v1/auth/login",
-            json={"username": user_id, "password": "permission-password"},
-        )
-        assert login.status_code == 200
-
-    login_with_only("D06")
-    assert client.get("/api/v1/admin/clue-allocation/eligible-leads").status_code == 200
-    assert client.get("/api/v1/admin/clue-allocation/cycles").status_code == 200
-    assert client.get("/api/v1/admin/clue-allocation/decisions").status_code == 403
-    assert client.get("/api/v1/admin/clue-allocation/headquarters-pool").status_code == 403
-
-    login_with_only("D07")
-    assert client.get("/api/v1/admin/clue-allocation/cycles").status_code == 200
-    assert client.get("/api/v1/admin/clue-allocation/decisions").status_code == 200
-    assert client.get("/api/v1/admin/clue-allocation/master-leads").status_code == 200
-    assert client.get("/api/v1/admin/clue-allocation/eligible-leads").status_code == 403
-    assert client.get("/api/v1/admin/clue-allocation/headquarters-pool").status_code == 403
-
-    login_with_only("D08")
-    assert client.get("/api/v1/admin/clue-allocation/headquarters-pool").status_code == 200
-    assert client.get("/api/v1/admin/clue-allocation/cycles").status_code == 403
-    assert client.get("/api/v1/admin/clue-allocation/decisions").status_code == 403
-    assert client.get("/api/v1/admin/clue-allocation/eligible-leads").status_code == 403
+    else:
+        with pytest.raises(ValueError, match="Administrator permissions are fixed"):
+            replace_user_overrides(db_session, user, extra_allow={"D06"}, extra_deny={"D07"}, updated_by="system-admin")
+        assert db_session.scalar(select(UserPagePermissionOverride).where(UserPagePermissionOverride.user_id == user_id)) is None
+    db_session.commit()
+    login = client.post("/api/v1/auth/login", json={"username": user_id, "password": "permission-password"})
+    assert login.status_code == 200
+    if role != "store":
+        assert login.json()["data"]["role"] == "admin"
+        assert set(login.json()["data"]["page_keys"]) == set(ALL_PAGE_KEYS)
+    for subview in ("eligible-leads", "cycles", "decisions", "master-leads", "headquarters-pool"):
+        response = client.get(f"/api/v1/admin/clue-allocation/{subview}")
+        assert response.status_code == (403 if role == "store" else 200), (subview, response.text)
 
 
 def test_m3_read_models_are_restricted_to_the_admin_store_scope(

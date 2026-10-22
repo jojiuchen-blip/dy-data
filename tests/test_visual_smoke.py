@@ -19,7 +19,7 @@ from pathlib import Path
 from threading import Thread
 
 import pytest
-from fastapi import Request
+from fastapi import HTTPException, Request
 from playwright.sync_api import Browser, Page, expect, sync_playwright
 from openpyxl import Workbook
 from sqlalchemy import create_engine
@@ -118,6 +118,21 @@ from dy_api.access_control import ALL_PAGE_KEYS, STORE_DEFAULT_PAGE_KEYS  # noqa
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes import admin as admin_routes  # noqa: E402
 from dy_api.routes._data import get_data_store, get_session_dependency  # noqa: E402
+
+
+def browser_auth_context(request: Request, store_id: str) -> AuthContext:
+    """Explicit synthetic identity and scope, independent of the admin role name."""
+    identity = request.cookies.get("dy_e2e_role", "admin")
+    if identity == "anonymous":
+        raise HTTPException(status_code=401, detail="Synthetic expired session")
+    is_store = identity == "store"
+    scope = "specified" if identity in {"store", "admin_restricted"} else "none" if identity == "admin_none" else "all"
+    return AuthContext(
+        user_id=f"live-{identity}", username=f"live-{identity}", display_name=f"Live {identity}",
+        role="store" if is_store else "admin", auth_type="user",
+        store_scope_mode=scope, store_ids=(store_id,) if scope == "specified" else (),
+        page_keys=tuple(STORE_DEFAULT_PAGE_KEYS) if is_store else tuple(ALL_PAGE_KEYS),
+    )
 from apps.api.dy_api.models import (  # noqa: E402
     Base,
     AggStoreRanking,
@@ -130,6 +145,7 @@ from apps.api.dy_api.models import (  # noqa: E402
     JobRun,
     PromotionInvoice,
     PromotionInvoiceAllocation,
+    PromotionInvoiceNumberRegistry,
     SapSuggestion,
     SettlementDispute,
     SettlementDisputeOrder,
@@ -536,21 +552,7 @@ def live_fastapi_base_url(tmp_path_factory) -> Generator[str]:
             yield store
 
     def current_user(request: Request):
-        role = request.cookies.get("dy_e2e_role", "admin")
-        return AuthContext(
-            user_id=f"live-{role}",
-            username=f"live-{role}",
-            display_name=f"Live {role.title()}",
-            role=role,
-            store_ids=("store_001",) if role == "store" else (),
-            auth_type="user" if role == "store" else "env_admin",
-            store_scope_mode="specified" if role == "store" else "all",
-            page_keys=(
-                tuple(STORE_DEFAULT_PAGE_KEYS)
-                if role == "store"
-                else tuple(ALL_PAGE_KEYS)
-            ),
-        )
+        return browser_auth_context(request, "store_001")
 
     app.dependency_overrides[get_current_user] = current_user
     app.dependency_overrides[get_data_store] = data_store
@@ -607,6 +609,9 @@ def vite_live_api_base_url(live_fastapi_base_url: str) -> Generator[str]:
         yield base_url
     finally:
         stop_process_tree(process)
+
+
+LIVE_ADMIN_SESSION_FACTORIES: dict[str, sessionmaker] = {}
 
 
 @pytest.fixture(scope="session")
@@ -1116,6 +1121,16 @@ def live_admin_fastapi_base_url(tmp_path_factory) -> Generator[str]:
             ]
         )
         session.commit()
+        # Real invoice writes need the same physical-invoice lock records as production.
+        session.add_all([
+            PromotionInvoiceNumberRegistry(invoice_number=number, physical_invoice_id=physical,
+                first_invoice_id=invoice_id, store_id=store_id)
+            for number, physical, invoice_id, store_id in (
+                ("25322000001784352160", "uat-promotion-physical-approved", "uat-promotion-invoice-approved", "store-1"),
+                ("25322000001784352171", "uat-promotion-physical-rejected", "uat-promotion-invoice-rejected", "store-2"),
+            )
+        ])
+        session.commit()
         # Analytical browser reads share one explicit initial background publication.
         publish_fixture(session, "finance")
         publish_fixture(session, "settlement")
@@ -1169,22 +1184,7 @@ def live_admin_fastapi_base_url(tmp_path_factory) -> Generator[str]:
     app = create_app()
 
     def current_user(request: Request):
-        role = request.cookies.get("dy_e2e_role", "admin")
-        is_store = role == "store"
-        return AuthContext(
-            user_id=f"live-{role}",
-            username=f"live-{role}",
-            display_name=f"Live {role.title()}",
-            role=role,
-            store_ids=("store-1",) if is_store else (),
-            auth_type="user" if is_store else "env_admin",
-            store_scope_mode="specified" if is_store else "all",
-            page_keys=(
-                tuple(STORE_DEFAULT_PAGE_KEYS)
-                if is_store
-                else tuple(ALL_PAGE_KEYS)
-            ),
-        )
+        return browser_auth_context(request, "store-1")
 
     def session_dependency():
         with factory() as session:
@@ -1197,10 +1197,12 @@ def live_admin_fastapi_base_url(tmp_path_factory) -> Generator[str]:
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
     base_url = f"http://{HOST}:{port}"
+    LIVE_ADMIN_SESSION_FACTORIES[base_url] = factory
     try:
         wait_for_url(f"{base_url}/docs")
         yield base_url
     finally:
+        LIVE_ADMIN_SESSION_FACTORIES.pop(base_url, None)
         server.should_exit = True
         thread.join(timeout=10)
         for sync_thread in sync_threads:
@@ -1312,8 +1314,10 @@ def install_api_routes(page: Page) -> None:
         "username": "visual-admin",
         "user_id": "visual-admin",
         "display_name": "Visual Admin",
-        "role": "highest_admin",
+        "role": "admin",
         "is_highest_admin": True,
+        "can_manage_accounts": True,
+        "can_manage_global_settings": True,
         "status": "active",
         "is_initialized": True,
         "store_ids": [],
@@ -1973,6 +1977,8 @@ def install_settlement_user_route(page: Page, role: str) -> None:
                     "display_name": f"Visual {role.title()}",
                     "role": role,
                     "is_highest_admin": role == "admin",
+                    "can_manage_accounts": role == "admin",
+                    "can_manage_global_settings": role == "admin",
                     "status": "active",
                     "is_initialized": True,
                     "store_ids": [] if role == "admin" else ["store_001"],
@@ -4463,8 +4469,19 @@ def test_admin_rules_uses_live_fastapi_for_save_reload_publish_and_conflict(
         fee_section.get_by_role("button", name="应用比例并检查预选", exact=True).click()
         page.get_by_role("button", name="确认发布", exact=True).first.click()
         dialog = page.get_by_role("dialog", name="分佣规则发布确认")
-        dialog.get_by_role("button", name="确认发布", exact=True).click()
-        page.get_by_text("该生效日期已存在版本", exact=False).wait_for(timeout=10000)
+        with page.expect_response(lambda response: response.request.method == "POST"
+                                  and response.url.endswith("/api/v1/admin/sku-fee-rules")) as conflict:
+            dialog.get_by_role("button", name="确认发布", exact=True).click()
+        assert conflict.value.status == 409, conflict.value.text()
+        detail = conflict.value.json()["detail"]
+        assert detail["code"] == "SKU_FEE_RULE_DATE_CONFLICT"
+        expect(page.get_by_text(detail["message"], exact=False)).to_be_visible()
+        expect(page.get_by_text("错误码：SKU_FEE_RULE_DATE_CONFLICT", exact=False)).to_be_visible()
+        rules = context.request.get(
+            f"{live_admin_fastapi_base_url}/api/v1/admin/sku-fee-rules?skuId=SKU-LIVE-ADMIN-001"
+        )
+        assert rules.status == 200
+        assert sum(row["effectiveDate"] == "2026-08-02" for row in rules.json()["data"]["list"]) == 1
     finally:
         context.close()
 
@@ -4824,18 +4841,19 @@ def test_auth_and_authorization_surfaces_render_dark_signature_contract(
 
 
 @pytest.mark.parametrize(
-    ("url_path", "expected_text", "selector"),
+    ("url_path", "expected_text", "selector", "expected_rows"),
     [
-        ("/clues/details", "线索跟进列表", ".clue-filter-bar"),
-        ("/details", "推广费订单明细", ".detail-filter-bar--single-line"),
+        ("/clues/details", "线索跟进列表", ".clue-filter-bar", 2),
+        ("/details", "推广费订单明细", ".detail-filter-bar--single-line", 1),
     ],
 )
-def test_detail_filter_bars_fit_one_desktop_row(
+def test_detail_filter_bars_fit_desktop_without_overlap(
     browser: Browser,
     vite_base_url: str,
     url_path: str,
     expected_text: str,
     selector: str,
+    expected_rows: int,
 ) -> None:
     context = browser.new_context(viewport={"width": 1440, "height": 900})
     page = context.new_page()
@@ -4853,18 +4871,27 @@ def test_detail_filter_bars_fit_one_desktop_row(
               const rows = new Set(
                 children.map((child) => Math.round(child.getBoundingClientRect().bottom)),
               );
+              const boxes = children.map((child) => child.getBoundingClientRect());
+              const overlaps = boxes.flatMap((box, index) => boxes.slice(index + 1)
+                .filter((other) => Math.min(box.right, other.right) - Math.max(box.left, other.left) > 1
+                  && Math.min(box.bottom, other.bottom) - Math.max(box.top, other.top) > 1));
               return {
                 childCount: children.length,
                 clientWidth: node.clientWidth,
                 rowCount: rows.size,
                 scrollWidth: node.scrollWidth,
+                overlapCount: overlaps.length,
+                pageWidth: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+                viewportWidth: window.innerWidth,
               };
             }""",
         )
 
         assert metrics["childCount"] > 0
-        assert metrics["rowCount"] == 1
+        assert metrics["rowCount"] == expected_rows
         assert metrics["scrollWidth"] - metrics["clientWidth"] <= 2
+        assert metrics["overlapCount"] == 0
+        assert metrics["pageWidth"] - metrics["viewportWidth"] <= 2
     finally:
         context.close()
 

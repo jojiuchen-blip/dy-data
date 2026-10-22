@@ -1,3 +1,4 @@
+import type { ClueListFilters, ClueStoreResolution } from "../types/clueFilters";
 import type { PublicationModule } from "../types/dashboard";
 import {
   defaultMonth,
@@ -242,7 +243,7 @@ interface SalesDashboardQuery {
 }
 
 interface ClueRoundQuery {
-  filters: ClueOverviewFilters;
+  filters: ClueListFilters;
   page: number;
   pageSize: number;
 }
@@ -425,10 +426,13 @@ function filenameFromContentDisposition(disposition: string | null): string | nu
 async function requestDownload(
   path: string,
   params?: QueryParams,
+  body?: unknown,
 ): Promise<void> {
   const response = await fetch(apiUrl(path, params), {
     credentials: "include",
-    headers: { Accept: "text/csv" },
+    method: body === undefined ? "GET" : "POST",
+    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: { Accept: "text/csv", ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
   });
 
   if (!response.ok) {
@@ -880,7 +884,7 @@ function mockStoreDisplayStatus(row: ClueAssignmentRoundData["rows"][number]): s
 }
 
 function mockFilterClueRounds(
-  filters: ClueOverviewFilters,
+  filters: ClueListFilters,
 ): ClueAssignmentRoundData["rows"] {
   return clueCenterResponses.assignment_rounds.data.rows.filter((row) => {
     if (!isClueAssignedAtVisible(row.assigned_at)) {
@@ -892,6 +896,7 @@ function mockFilterClueRounds(
     ) {
       return false;
     }
+    if (filters.assigned_store_ids != null && !filters.assigned_store_ids.includes(row.assigned_store_id ?? "")) return false;
     const assignedDate = clueAssignedDateInShanghai(row.assigned_at);
     if (filters.assigned_date_start && assignedDate < filters.assigned_date_start) {
       return false;
@@ -1132,8 +1137,8 @@ function mockDeleteClueFollowUpRecordResponse(
       const record = records[index];
       record.is_deleted = true;
       record.deleted_at = generatedAt();
-      record.deleted_by_username = "最高管理员";
-      record.deletion_reason = "reversed_by_highest_admin";
+      record.deleted_by_username = "管理员";
+      record.deletion_reason = "reversed_by_admin";
       return {
         data: record,
         meta: {
@@ -1153,8 +1158,8 @@ function mockDeleteClueFollowUpRecordResponse(
       const record = records[index];
       record.is_deleted = true;
       record.deleted_at = generatedAt();
-      record.deleted_by_username = "最高管理员";
-      record.deletion_reason = "reversed_by_highest_admin";
+      record.deleted_by_username = "管理员";
+      record.deletion_reason = "reversed_by_admin";
       return {
         data: record,
         meta: {
@@ -1796,7 +1801,9 @@ export function fetchClueAssignmentRounds(
   }
   return withMockFallback(
     () =>
-      requestJson<ClueAssignmentRoundData>("/clues/assignment-rounds", {
+      query.filters.assigned_store_ids != null
+        ? sendJson<ClueAssignmentRoundData>("/clues/assignment-rounds", { body: { filters: query.filters, page: query.page, page_size: query.pageSize } })
+        : requestJson<ClueAssignmentRoundData>("/clues/assignment-rounds", {
         ...query.filters,
         page: query.page,
         page_size: query.pageSize,
@@ -1804,6 +1811,10 @@ export function fetchClueAssignmentRounds(
     () => mockClueAssignmentRoundsResponse(query),
     { fallbackOnError: false },
   );
+}
+
+export function resolveClueStores(raw_input: string): Promise<ApiResponse<ClueStoreResolution>> {
+  return sendJson<ClueStoreResolution>("/clues/filter-options/stores/resolve", { body: { raw_input } });
 }
 
 export function fetchClueOrderDetail(
@@ -1823,7 +1834,7 @@ export function fetchClueOrderDetail(
 }
 
 export function exportClueAssignmentRounds(
-  filters: ClueOverviewFilters,
+  filters: ClueListFilters,
 ): Promise<void> {
   if (isClueDemoRuntime()) {
     const file = clueDemoRepository.exportAssignmentRounds(filters);
@@ -1838,7 +1849,9 @@ export function exportClueAssignmentRounds(
     URL.revokeObjectURL(objectUrl);
     return Promise.resolve();
   }
-  return requestDownload("/clues/assignment-rounds/export", { ...filters });
+  return filters.assigned_store_ids != null
+    ? requestDownload("/clues/assignment-rounds/export", undefined, { filters })
+    : requestDownload("/clues/assignment-rounds/export", { ...filters });
 }
 
 export function fetchClueOrderPhone(

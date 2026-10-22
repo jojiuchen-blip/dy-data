@@ -12,6 +12,7 @@ import { DataTable, type Column } from "../components/DataTable";
 import { SelectField, TextareaField, TextField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
+import { TablePagination } from "../components/TablePagination";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
   FeeDirection,
@@ -69,6 +70,8 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
   const [storeId, setStoreId] = useState(searchParams.get("storeId") ?? "");
   const [feeDirection, setFeeDirection] = useState<FeeDirection | "">(searchParams.get("feeDirection") as FeeDirection | "" ?? "");
   const [status, setStatus] = useState(searchParams.get("status") ?? "");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [selected, setSelected] = useState<FinanceDisputeRow | null>(null);
   const [detection, setDetection] = useState<FinanceDisputeDetection | null>(null);
   const [detectionBusy, setDetectionBusy] = useState(false);
@@ -90,13 +93,24 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
     storeId: storeId || undefined,
     feeDirection: feeDirection || undefined,
     status: status || undefined,
-    pageSize: 50,
   };
-  const resource = useApiResource(() => fetchFinanceDisputes(query), [month, storeId, feeDirection, status]);
+  const resource = useApiResource(() => fetchFinanceDisputes({ ...query, page, pageSize }), [month, storeId, feeDirection, status, page, pageSize], { clearOnReload: true });
   const resourceBusy = resource.loading || resource.refreshing;
   const metrics = resource.data?.data.metrics;
   const currentDetection = detection ?? selected?.latestDetection ?? null;
   const transitionOptions = selected ? transitionOptionsFor(selected.status) : [];
+  const result = resource.data?.data;
+  const pageCount = Math.max(1, Math.ceil((result?.total ?? 0) / pageSize));
+
+  useEffect(() => {
+    setPage(1);
+    setSelected(null);
+    setDetection(null);
+  }, [month, storeId, feeDirection, status, pageSize]);
+
+  useEffect(() => {
+    if (result && !resourceBusy && !resource.error && page > pageCount) setPage(pageCount);
+  }, [result, resourceBusy, resource.error, page, pageCount]);
 
   useEffect(() => {
     if (!selected || !currentDetection || !isDetectionActive(currentDetection)) return undefined;
@@ -262,6 +276,7 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
       <section className="content-section">
         <div className="section-title"><div><h2>异议清单</h2><p>共 {resource.data?.data.total ?? 0} 条；检测进度与失败原因刷新后仍由正式 API 恢复。</p></div></div>
         <DataTable columns={columns} emptyText="当前筛选下暂无账单异议" rows={resource.data?.data.list ?? []} state={resourceBusy ? "loading" : resource.error ? "error" : "ready"} tableClassName="finance-dispute-table" />
+        <TablePagination loading={resourceBusy} onPageChange={(nextPage) => { setSelected(null); setDetection(null); setPage(nextPage); }} onPageSizeChange={(nextSize) => { setPageSize(nextSize); setPage(1); }} page={result?.page ?? page} pageSize={result?.pageSize ?? pageSize} pageSizeOptions={[20, 50]} rowsOnPage={result?.list.length ?? 0} total={result?.total ?? 0} totalPages={pageCount} />
       </section>
 
       {selected ? (

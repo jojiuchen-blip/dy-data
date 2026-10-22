@@ -7,6 +7,10 @@ from apps.api.dy_api.clue_organization import organization_options, organization
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from apps.api.dy_api.models import ClueMasterLead
+from apps.api.dy_api.clue_store_filters import (
+    ClueExportQueryRequest, ClueQueryRequest, ClueStoreResolveRequest,
+    resolve_store_identifiers,
+)
 
 from dy_api.auth import AuthContext, get_current_user
 from dy_api.routes._data import get_data_store, generated_at, with_utf8_bom
@@ -130,6 +134,55 @@ def _organization_scope(store, user, org_level, org_key):
         return selected if org_key else None
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/clues/filter-options/stores/resolve")
+def clue_store_resolve(
+    payload: ClueStoreResolveRequest,
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    """Preview exact authorized account/POI matches without changing data."""
+    store = _require_available_store(store)
+    try:
+        data = resolve_store_identifiers(store.session, payload.raw_input, _scope_store_ids(current_user))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": "CLUE_STORE_FILTER_LIMIT", "message": str(exc)}) from exc
+    return {"data": data, "meta": {"generated_at": generated_at(), "source": "postgres"}}
+
+
+def _posted_clue_filters(payload, current_user, store):
+    filters = payload.filters.model_dump()
+    org_level = filters.pop("org_level")
+    org_key = filters.pop("org_key")
+    filters["scope_store_ids"] = _scope_store_ids(current_user)
+    filters["organization_store_ids"] = _organization_scope(store, current_user, org_level, org_key)
+    return filters
+
+
+@router.post("/clues/assignment-rounds")
+def clue_assignment_rounds_query(
+    payload: ClueQueryRequest,
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    """Query the live list with bounded JSON selections and current authorization."""
+    store = _require_available_store(store)
+    filters = _posted_clue_filters(payload, current_user, store)
+    filters.update(page=payload.page, page_size=payload.page_size)
+    data = ClueAssignmentRoundData(**store.clue_assignment_rounds(filters, _operation_actor(current_user)))
+    return {"data": dump_model(data), "meta": {"generated_at": generated_at(), "source": "postgres"}}
+
+
+@router.post("/clues/assignment-rounds/export")
+def clue_assignment_rounds_export_query(
+    payload: ClueExportQueryRequest,
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    """Export the identical authorized selection without pagination or URL limits."""
+    store = _require_available_store(store)
+    return _clue_export_response(_posted_clue_filters(payload, current_user, store), current_user, store)
 
 
 @router.get("/clues/filter-options/organizations")
@@ -309,6 +362,10 @@ def clue_assignment_rounds_export(
         "scope_store_ids": _scope_store_ids(current_user),
         "organization_store_ids": _organization_scope(store, current_user, org_level, org_key),
     }
+    return _clue_export_response(filters, current_user, store)
+
+
+def _clue_export_response(filters, current_user, store):
     generated = generated_at().isoformat()
     filename = quote(f"clue-assignment-rounds-{generated[:10]}.csv")
     return Response(
@@ -369,16 +426,18 @@ def delete_clue_follow_up_record(
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
-    if not current_user.is_highest_admin:
+    if not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Highest administrator access required",
+            detail="Administrator access required",
         )
     store = _require_available_store(store)
     result_status, record = store.delete_clue_follow_up_record(
         follow_up_record_id,
         _operation_actor(current_user),
     )
+    if result_status == "forbidden":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrator access required")
     if result_status == "not_found":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

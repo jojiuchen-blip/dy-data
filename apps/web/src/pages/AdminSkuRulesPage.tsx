@@ -145,7 +145,7 @@ export function AdminSkuRulesPage() {
   const stepRefs = useRef<Array<HTMLElement | null>>([]);
   const [checkingSession, setCheckingSession] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
-  const [canRebuild, setCanRebuild] = useState(false);
+  const [canManageGlobalSettings, setCanManageGlobalSettings] = useState(false);
   const [password, setPassword] = useState("");
   const [activeTab, setActiveTab] = useState<RulesTab>("settings");
   const [skuListTab, setSkuListTab] = useState<SkuListTab>("enabled");
@@ -179,6 +179,7 @@ export function AdminSkuRulesPage() {
   const handleAuthError = (error: unknown): boolean => {
     if (error instanceof ApiRequestError && error.status === 401) {
       setAuthenticated(false);
+      setCanManageGlobalSettings(false);
       setNotice("登录已过期，请重新输入管理密码。");
       return true;
     }
@@ -240,7 +241,7 @@ export function AdminSkuRulesPage() {
     fetchAdminSession()
       .then((response) => {
         if (cancelled) return;
-        setCanRebuild(response.data.is_highest_admin === true);
+        setCanManageGlobalSettings(response.data.can_manage_global_settings === true);
         setAuthenticated(true);
       })
       .catch(() => !cancelled && setAuthenticated(false))
@@ -350,6 +351,7 @@ export function AdminSkuRulesPage() {
   };
 
   const openPublishConfirmation = () => {
+    if (!canManageGlobalSettings) return;
     setPublishFeedback("");
     setPublishProgress(null);
     setConfirmOpen(true);
@@ -361,7 +363,7 @@ export function AdminSkuRulesPage() {
   };
 
   const openRebuildConfirmation = () => {
-    if (!canRebuild) return;
+    if (!canManageGlobalSettings) return;
     if (!effectiveRuleMap.size) {
       setNotice("当前没有已生效的分佣规则可供重建。");
       return;
@@ -376,7 +378,7 @@ export function AdminSkuRulesPage() {
   };
 
   const rebuildSettlementProjection = async () => {
-    if (!canRebuild) return;
+    if (!canManageGlobalSettings) return;
     const updatedRuleCount = effectiveRuleMap.size;
     if (!updatedRuleCount) return;
     const fingerprint = JSON.stringify(
@@ -405,9 +407,7 @@ export function AdminSkuRulesPage() {
     } catch (error) {
       if (handleAuthError(error)) return;
       setRebuildFeedback(
-        apiErrorText(error, "结算重算任务提交失败，请保持当前页面重试。", {
-          403: "当前账号不是最高管理员，不能提交结算重算。",
-        }),
+        apiErrorText(error, "结算重算任务提交失败，请保持当前页面重试。"),
       );
     } finally {
       setWorking(false);
@@ -415,12 +415,14 @@ export function AdminSkuRulesPage() {
   };
 
   const publishSelectedRules = async () => {
+    if (!canManageGlobalSettings) return;
     const promotion = percentInputToRate(promotionRate);
     const management = percentInputToRate(managementRate);
     if (!promotion || !management || !selectedRows.length) return;
+    const total = selectedRows.length;
     setWorking(true);
     setPublishFeedback("");
-    setPublishProgress({ completed: 0, total: selectedRows.length });
+    setPublishProgress({ completed: 0, total });
     let completed = 0;
     try {
       for (const row of selectedRows) {
@@ -437,34 +439,35 @@ export function AdminSkuRulesPage() {
         publishIntent.current.set(fingerprint, idempotencyKey);
         await publishSkuFeeRule(payload, idempotencyKey);
         completed += 1;
-        setPublishProgress({ completed, total: selectedRows.length });
+        setPublishProgress({ completed, total });
       }
-      await refreshFeeDataAndRows();
-      setConfirmOpen(false);
-      setSelectedSkuMap(new Map());
-      setRateApplied(false);
-      setChangeReason("");
-      publishIntent.current.clear();
-      setPublishProgress(null);
-      setNotice(
-        `已发布 ${completed} 个 SKU 的双费率版本，结算重算任务已自动排队。`,
-      );
     } catch (error) {
-      const fallback = completed === selectedRows.length
-          ? `已发布 ${completed} 个 SKU，结算重算任务已自动排队，但页面刷新失败，请稍后刷新。`
-          : `发布中断，已完成 ${completed} 个 SKU；可使用相同内容重试。`;
-      const feedback = apiErrorText(error, fallback, {
-        403: "当前账号不是最高管理员，不能发布费率版本。",
-        409: "所选 SKU 在该生效日期已存在版本。",
-      });
-      setPublishProgress({ completed, total: selectedRows.length });
-      setPublishFeedback(feedback);
+      if (handleAuthError(error)) setNotice(`登录已过期，已发布 ${completed} 个 SKU；重新登录后可使用相同内容安全重试。`);
+      setPublishFeedback(`发布中断，已完成 ${completed} 个 SKU；可使用相同内容重试。 ${apiErrorText(error, "发布未完成，请稍后重试。")}`);
+      setPublishProgress({ completed, total });
+      setWorking(false);
+      return;
+    }
+    // Publishing is committed before the read-back. A failed refresh must not invite a second publish.
+    setConfirmOpen(false);
+    setSelectedSkuMap(new Map());
+    setRateApplied(false);
+    setChangeReason("");
+    publishIntent.current.clear();
+    setPublishProgress(null);
+    const publishedMessage = `已发布 ${completed} 个 SKU 的双费率版本，结算重算任务已自动排队。`;
+    setNotice(publishedMessage);
+    try {
+      await refreshFeeDataAndRows();
+    } catch (error) {
+      setNotice(`${publishedMessage} 页面刷新失败，请读取最新结果。 ${apiErrorText(error, "最新结果暂时无法读取。")}`);
     } finally {
       setWorking(false);
     }
   };
 
   const saveExceptions = async () => {
+    if (!canManageGlobalSettings) return;
     const accounts = parseOwnerAccountInput(nonCommissionAccountText);
     setWorking(true);
     try {
@@ -507,7 +510,7 @@ export function AdminSkuRulesPage() {
     try {
       await loginAdmin(password);
       const response = await fetchAdminSession();
-      setCanRebuild(response.data.is_highest_admin === true);
+      setCanManageGlobalSettings(response.data.can_manage_global_settings === true);
       setAuthenticated(true);
       setPassword("");
       setNotice("");
@@ -532,6 +535,7 @@ export function AdminSkuRulesPage() {
       <section className="admin-header">
         <div><h1>商品分账规则管理</h1><p className="admin-muted">先批量选择商品规格（SKU），再确认分佣比例，检查预选后发布不可变规则版本。</p></div>
       </section>
+      {!canManageGlobalSettings ? <p className="resource-notice" role="status">商品分账规则和例外账号影响全部门店，仅全国范围管理员可以发布、导入或重新计算结算结果。当前可查看规则。</p> : null}
       {notice ? <div aria-live="polite" className="resource-notice" role="status">{notice}</div> : null}
 
       <Tabs<RulesTab> ariaLabel="分佣规则页面" onChange={setActiveTab} options={[
@@ -551,7 +555,7 @@ export function AdminSkuRulesPage() {
           <div className="commission-workspace">
             <main className="commission-workspace__main">
               <section className="content-section commission-step-card" data-step="1" ref={registerStep(1)}>
-                <div className="section-title"><div><h2>1. SKU 查询与批量选择</h2><p>支持单个、批量选择；批量 SKU ID 可使用换行、空格、中英文逗号或分号分隔，自动去重。</p></div><div className="section-title-actions"><StatusChip tone="brand">已选 {selectedRows.length}</StatusChip><Button onClick={() => setImportDrawerOpen(true)} type="button" variant="primary">批量导入设置</Button></div></div>
+                <div className="section-title"><div><h2>1. SKU 查询与批量选择</h2><p>支持单个、批量选择；批量 SKU ID 可使用换行、空格、中英文逗号或分号分隔，自动去重。</p></div><div className="section-title-actions"><StatusChip tone="brand">已选 {selectedRows.length}</StatusChip><Button disabled={!canManageGlobalSettings} onClick={() => setImportDrawerOpen(true)} type="button" variant="primary">批量导入设置</Button></div></div>
                 <div className="admin-tools commission-query-tools">
                   <label className="filter-field commission-query-tools__input"><span>SKU ID</span><FieldTextarea onChange={(event) => setLookupInput(event.target.value)} placeholder="SKU-10231，SKU-10246；SKU-10302" rows={3} value={lookupInput} /></label>
                   <Button disabled={working} onClick={() => void lookupAndSelect()} type="button" variant="primary">查询并选择</Button>
@@ -578,7 +582,7 @@ export function AdminSkuRulesPage() {
               </section>
 
               <section className="content-section commission-step-card" data-step="4" ref={registerStep(4)}>
-                <div className="section-title"><div><h2>4. 发布确认</h2><p>手工多 SKU 发布会逐个创建不可变版本；文件批量导入才使用原子提交。</p>{!canRebuild ? <p className="admin-muted">发布成功后系统自动安排重算；仅最高管理员可手动重建。</p> : null}</div><div className="section-title-actions"><Button disabled={!canRebuild || !effectiveRuleMap.size || working} onClick={openRebuildConfirmation} type="button">重建结算投影</Button><Button disabled={!rateApplied || working} onClick={openPublishConfirmation} type="button" variant="primary">确认发布</Button></div></div>
+                <div className="section-title"><div><h2>4. 发布确认</h2><p>手工多 SKU 发布会逐个创建不可变版本；文件批量导入才使用原子提交。</p><p className="admin-muted">正常规则发布成功后系统自动安排重算；手动重新计算仅限全国范围管理员。不补采数据、不确认账单、不执行付款。</p></div><div className="section-title-actions"><Button disabled={!canManageGlobalSettings || !effectiveRuleMap.size || working} onClick={openRebuildConfirmation} type="button">重新计算结算结果</Button><Button disabled={!canManageGlobalSettings || !rateApplied || working} onClick={openPublishConfirmation} type="button" variant="primary">确认发布</Button></div></div>
               </section>
             </main>
             <aside className="content-section commission-preselection"><h2>预选窗口</h2><p className="admin-muted">持续汇总当前选择。</p><strong>{selectedRows.length} 个 SKU</strong><span>推广 {promotionRate}%</span><span>管理 {managementRate}%</span></aside>
@@ -601,19 +605,19 @@ export function AdminSkuRulesPage() {
       ) : null}
 
       {activeTab === "exceptions" ? (
-        <section className="content-section non-commission-rule-panel"><div className="section-title"><div><h2>订单归属账号不分佣</h2><p>每行填写一个订单归属账号，保存后会触发后台重建结算结果。</p></div><StatusChip tone="neutral">当前 {nonCommissionAccountCount} 个</StatusChip></div><label className="filter-field"><span>不分佣账号列表</span><FieldTextarea onChange={(event) => setNonCommissionAccountText(event.target.value)} rows={8} value={nonCommissionAccountText} /></label><div className="commission-card-actions"><Button disabled={working} onClick={() => void saveExceptions()} type="button" variant="primary">保存账号规则并重建</Button></div></section>
+        <section className="content-section non-commission-rule-panel"><div className="section-title"><div><h2>订单归属账号不分佣</h2><p>每行填写一个订单归属账号，保存后会触发后台重建结算结果。</p></div><StatusChip tone="neutral">当前 {nonCommissionAccountCount} 个</StatusChip></div><label className="filter-field"><span>不分佣账号列表</span><FieldTextarea disabled={!canManageGlobalSettings} onChange={(event) => setNonCommissionAccountText(event.target.value)} rows={8} value={nonCommissionAccountText} /></label><div className="commission-card-actions"><Button disabled={working || !canManageGlobalSettings} onClick={() => void saveExceptions()} type="button" variant="primary">保存账号规则并重建</Button></div></section>
       ) : null}
 
-      <Dialog actions={<><Button disabled={working} onClick={closePublishConfirmation} type="button">返回修改</Button><Button disabled={working} onClick={() => void publishSelectedRules()} type="button" variant="primary">{working ? "正在发布..." : "确认发布"}</Button></>} closeDisabled={working} description="确认后将为每个选中 SKU 创建新的不可变规则版本。" onClose={closePublishConfirmation} open={confirmOpen} title="分佣规则发布确认">
+      <Dialog actions={<><Button disabled={working} onClick={closePublishConfirmation} type="button">返回修改</Button><Button disabled={working || !canManageGlobalSettings} onClick={() => void publishSelectedRules()} type="button" variant="primary">{working ? "正在发布..." : "确认发布"}</Button></>} closeDisabled={working} description="确认后将为每个选中 SKU 创建新的不可变规则版本。" onClose={closePublishConfirmation} open={confirmOpen} title="分佣规则发布确认">
         {publishProgress ? <p aria-live="polite" className="resource-notice" role="status">{working ? "正在发布：" : "本次发布结束："}已完成 {publishProgress.completed} / {publishProgress.total} 个 SKU{!working && publishFeedback ? "，可检查错误后重试。" : "。"}</p> : null}
         {publishFeedback ? <p aria-live="assertive" className="resource-notice resource-notice--error" role="alert">{publishFeedback}</p> : null}
         <dl className="commission-confirmation-list"><div><dt>SKU 数量</dt><dd>{selectedRows.length} 个</dd></div><div><dt>推广服务费比例</dt><dd>{promotionRate}%</dd></div><div><dt>管理服务费比例</dt><dd>{managementRate}%</dd></div><div><dt>生效日期</dt><dd>{effectiveDate}</dd></div><div><dt>规则状态</dt><dd>{ruleStatus === "ACTIVE" ? "启用" : "停用"}</dd></div><div><dt>变更原因</dt><dd>{changeReason}</dd></div></dl>
       </Dialog>
-      <Dialog actions={<><Button disabled={working} onClick={closeRebuildConfirmation} type="button">返回</Button><Button disabled={working} onClick={() => void rebuildSettlementProjection()} type="button" variant="primary">{working ? "正在提交..." : "确认重建"}</Button></>} closeDisabled={working} description="仅重算当前已生效分佣规则对应的结算投影，不创建或修改规则版本。" onClose={closeRebuildConfirmation} open={rebuildConfirmOpen} title="结算投影重建确认">
+      <Dialog actions={<><Button disabled={working} onClick={closeRebuildConfirmation} type="button">返回</Button><Button disabled={working || !canManageGlobalSettings} onClick={() => void rebuildSettlementProjection()} type="button" variant="primary">{working ? "正在提交..." : "确认重新计算"}</Button></>} closeDisabled={working} description="规则发布后系统会自动排队重算。手动操作仅重新计算已生效规则的结算结果，不补采数据、不确认账单、不执行付款。" onClose={closeRebuildConfirmation} open={rebuildConfirmOpen} title="重新计算结算结果确认">
         <p>当前将重算 {effectiveRuleMap.size} 个已生效 SKU。重算完成后，符合正式订单资格的数据才会进入门店榜单和结算页面。</p>
         {rebuildFeedback ? <p aria-live="assertive" className="resource-notice resource-notice--error" role="alert">{rebuildFeedback}</p> : null}
       </Dialog>
-      <AdminSkuRuleImportDrawer batches={batches} initialBatch={null} onChanged={() => refreshFeeDataAndRows().then(() => undefined)} onClose={() => setImportDrawerOpen(false)} open={importDrawerOpen} />
+      <AdminSkuRuleImportDrawer canManageGlobalSettings={canManageGlobalSettings} batches={batches} initialBatch={null} onChanged={() => refreshFeeDataAndRows().then(() => undefined)} onClose={() => setImportDrawerOpen(false)} open={importDrawerOpen} />
     </div>
   );
 }

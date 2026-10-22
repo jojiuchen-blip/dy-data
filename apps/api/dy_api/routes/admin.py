@@ -65,6 +65,10 @@ from apps.api.dy_api.access_control import (
 )
 from apps.api.dy_api.db import get_session_factory
 from apps.api.dy_api.user_auth_state import replace_user_store_scopes
+from apps.api.dy_api.account_permissions import (
+    account_error, begin_account_mutation, can_manage_user,
+    manageable_user_condition, protect_last_global_admin,
+)
 from apps.worker.backfill import iter_backfill_windows, successful_window_keys
 from apps.worker.collectors.types import CollectionWindow
 from apps.worker.collectors.windows import resolve_collection_window
@@ -112,6 +116,7 @@ from dy_api.auth import (
     AuthContext,
     get_current_admin,
     get_current_super_admin,
+    get_current_global_admin,
     get_current_user,
     hash_password_pbkdf2,
     normalize_account_value,
@@ -295,7 +300,7 @@ def _require_clue_super_admin_context(
     if not current_user.is_highest_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Highest administrator access required",
+            detail={"code": "GLOBAL_WRITE_REQUIRED", "message": "仅全部门店范围管理员可以执行该全局操作", "errors": []},
         )
     return current_user
 
@@ -477,8 +482,7 @@ def list_accounts(
     store = _require_available_store(store)
     _require_account_manager(actor)
     statement = select(User).order_by(User.created_at, User.username)
-    if not actor.is_highest_admin:
-        statement = statement.where(User.role == "store")
+    statement = statement.where(manageable_user_condition(actor))
     users = store.session.execute(statement).scalars().all()
     data = AccountListData(rows=[_account_row(store.session, user) for user in users])
     return {
@@ -496,7 +500,10 @@ def list_unactivated_store_accounts(
     store = _require_available_store(store)
     _require_account_manager(actor)
     data = UnactivatedStoreAccountListData(
-        rows=_unactivated_store_account_rows(store.session, q=q)
+        rows=_unactivated_store_account_rows(
+            store.session, q=q,
+            scope_store_ids=None if actor.has_global_data_access else actor.store_ids,
+        )
     )
     return {
         "data": dump_model(data),
@@ -573,7 +580,7 @@ def _preview_bulk_accounts(content, filename, session, actor):
             if level in ORG_LEVELS:
                 scope = {'level': level, **dict(zip(ORG_FIELDS, [group, center, district, area]))}
             payload = AccountUpsertRequest(username=username, display_name=name,
-                role="highest_admin" if kind == "最高管理员" else "store" if kind == "门店账号" else "admin",
+                role="store" if kind == "门店账号" else "admin",
                 store_scope_mode="all" if level is None else "specified", org_scope=scope,
                 external_account_id=external or None, store_ids=[value.strip() for value in ids.replace("；", ";").split(";") if value.strip()])
             _ensure_actor_can_manage_role(actor, payload.role)
@@ -587,10 +594,13 @@ def _preview_bulk_accounts(content, filename, session, actor):
             payloads.append(payload)
         except (ValueError, ValidationError, HTTPException) as exc:
             reason = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+            if not actor.can_manage_global_settings and isinstance(exc, HTTPException):
+                reason = "该行账号或门店范围不可用，请核对后重试"
             errors.append({'row': number, 'reason': reason})
     if not source_rows:
         errors.append({'row': 2, 'reason': '账号开通表没有填写账号'})
-    return {'rows': rows, 'errors': errors, 'digest': sha256(content).hexdigest()}, payloads
+    return {'rows': rows, 'errors': errors, 'digest': sha256(content).hexdigest(),
+            'allowed_account_types': list(TYPES) if actor.can_manage_global_settings else ['门店账号']}, payloads
 
 
 @router.get("/account-bulk-import/template")
@@ -598,9 +608,11 @@ def download_bulk_account_template(actor: AuthContext = Depends(get_current_user
     from fastapi.responses import Response
     from apps.api.dy_api.account_bulk_import import account_template
     store = _require_available_store(store)
-    if not actor.is_highest_admin:
-        raise HTTPException(status_code=403, detail="批量开通账号仅限最高管理员")
-    return Response(account_template(account_store_catalog(store.session, actor)),
+    _require_account_manager(actor)
+    return Response(account_template(
+        account_store_catalog(store.session, actor),
+        allowed_types=None if actor.can_manage_global_settings else ("门店账号",),
+    ),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": 'attachment; filename="account-onboarding-template.xlsx"', "Cache-Control": "no-store"})
 
@@ -608,8 +620,8 @@ def download_bulk_account_template(actor: AuthContext = Depends(get_current_user
 @router.post("/account-bulk-import/preview")
 def preview_bulk_accounts(file: UploadFile = File(...), actor: AuthContext = Depends(get_current_user), store=Depends(get_data_store)):
     store = _require_available_store(store)
-    if not actor.is_highest_admin:
-        raise HTTPException(status_code=403, detail="批量开通账号仅限最高管理员")
+    actor = begin_account_mutation(store.session, actor)
+    _require_account_manager(actor)
     content = file.file.read(5 * 1024 * 1024 + 1)
     preview, _ = _preview_bulk_accounts(content, file.filename or "", store.session, actor)
     return {"data": preview}
@@ -620,8 +632,8 @@ def commit_bulk_accounts(file: UploadFile = File(...), digest: str = Form(...), 
     from fastapi.responses import Response
     from apps.api.dy_api.account_bulk_import import credential_workbook, INITIAL_ACCOUNT_PASSWORD
     store = _require_available_store(store)
-    if not actor.is_highest_admin:
-        raise HTTPException(status_code=403, detail="批量开通账号仅限最高管理员")
+    actor = begin_account_mutation(store.session, actor)
+    _require_account_manager(actor)
     content = file.file.read(5 * 1024 * 1024 + 1)
     if sha256(content).hexdigest() != digest:
         raise HTTPException(status_code=409, detail="文件已变化，请重新校验")
@@ -658,6 +670,7 @@ def create_account(
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
+    actor = begin_account_mutation(store.session, actor)
     _require_account_manager(actor)
     _ensure_actor_can_manage_role(actor, payload.role)
     _validate_password_payload(payload.password, payload.password_confirm, required=True)
@@ -711,22 +724,22 @@ def update_account(
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
+    actor = begin_account_mutation(store.session, actor)
     _require_account_manager(actor)
-    user = store.session.get(User, user_id)
+    user = store.session.get(User, user_id, populate_existing=True, with_for_update=True)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
-    _ensure_actor_can_manage_user(actor, user)
+    _ensure_actor_can_manage_user(actor, user, store.session)
     _ensure_actor_can_manage_role(actor, payload.role)
-    if user.role == "highest_admin" and payload.role != "highest_admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Highest administrator accounts cannot be downgraded",
-        )
     if actor.user_id == user.user_id and payload.status != "active":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You cannot disable your own account",
         )
+    protect_last_global_admin(
+        store.session, user, role=payload.role, status=payload.status,
+        scope_mode=payload.store_scope_mode,
+    )
     before = _account_audit_snapshot(store.session, user)
     _validate_password_payload(payload.password, payload.password_confirm, required=False)
     technical_username = payload.username or user.username
@@ -742,6 +755,10 @@ def update_account(
     user.external_account_id = _optional_account_value(payload.external_account_id)
     user.display_name = normalize_account_value(payload.display_name)
     user.role = payload.role
+    if payload.role == "admin":
+        store.session.execute(delete(UserPagePermissionOverride).where(
+            UserPagePermissionOverride.user_id == user.user_id
+        ))
     user.store_scope_mode = _normalized_scope_mode(payload.role, payload.store_scope_mode)
     user.org_scope = payload.org_scope
     user.status = payload.status
@@ -775,16 +792,18 @@ def admin_reset_account_password(
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
+    actor = begin_account_mutation(store.session, actor)
     _require_account_manager(actor)
-    user = store.session.get(User, user_id)
+    user = store.session.get(User, user_id, populate_existing=True, with_for_update=True)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
-    _ensure_actor_can_manage_user(actor, user)
+    _ensure_actor_can_manage_user(actor, user, store.session)
     if payload.password != payload.password_confirm:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Password confirmation does not match",
         )
+    before = _account_audit_snapshot(store.session, user)
     user.password_hash = hash_password_pbkdf2(payload.password)
     user.is_initialized = True
     user.auth_version += 1
@@ -794,7 +813,8 @@ def admin_reset_account_password(
         action="account.password_reset",
         actor=actor,
         target=user,
-        after={"password_reset": True},
+        before=before,
+        after={**_account_audit_snapshot(store.session, user), "password_reset": True},
     )
     store.session.commit()
     data = _account_row(store.session, user)
@@ -812,16 +832,14 @@ def update_account_page_permissions(
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
+    actor = begin_account_mutation(store.session, actor)
     _require_account_manager(actor)
-    user = store.session.get(User, user_id)
+    user = store.session.get(User, user_id, populate_existing=True, with_for_update=True)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
-    _ensure_actor_can_manage_user(actor, user)
-    if user.role == "highest_admin":
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Highest administrator permissions are fixed",
-        )
+    _ensure_actor_can_manage_user(actor, user, store.session)
+    if user.role in {"admin", "highest_admin"}:
+        raise account_error(422, "ADMIN_PERMISSIONS_FIXED", "管理员固定拥有全部页面权限")
     before = _account_audit_snapshot(store.session, user)
     try:
         replace_user_overrides(
@@ -887,7 +905,7 @@ def get_access_control(
         ],
         role_permissions={
             role: list(role_default_page_keys(store.session, role))
-            for role in ("highest_admin", "admin", "store")
+            for role in ("admin", "store")
         },
     )
     store.session.commit()
@@ -939,6 +957,7 @@ def update_role_page_permissions(
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
+    actor = begin_account_mutation(store.session, actor)
     _ensure_actor_can_manage_role_defaults(actor, role)
     if not payload.confirmed:
         raise HTTPException(
@@ -1000,12 +1019,33 @@ def list_account_permission_audit_logs(
         statement = statement.where(AccountPermissionAuditLog.created_at >= created_from)
     if created_to:
         statement = statement.where(AccountPermissionAuditLog.created_at <= created_to)
-    if not actor.is_highest_admin:
-        store_user_ids = select(User.user_id).where(User.role == "store")
-        statement = statement.where(AccountPermissionAuditLog.target_user_id.in_(store_user_ids))
+    if not actor.can_manage_global_settings:
+        visible_user_ids = select(User.user_id).where(manageable_user_condition(actor))
+        statement = statement.where(AccountPermissionAuditLog.target_user_id.in_(visible_user_ids))
     rows = store.session.scalars(
         statement.order_by(AccountPermissionAuditLog.created_at.desc()).limit(500)
     ).all()
+    if not actor.can_manage_global_settings:
+        allowed = set(actor.store_ids)
+
+        def snapshot_is_visible(snapshot) -> bool:
+            # Missing historical scope cannot prove the actor was authorized.
+            # Older password-reset rows remain visible only to global admins.
+            if not isinstance(snapshot, dict):
+                return False
+            store_ids = snapshot.get("store_ids")
+            return (
+                snapshot.get("role") == "store"
+                and snapshot.get("store_scope_mode") == "specified"
+                and snapshot.get("org_scope") is None
+                and isinstance(store_ids, list) and bool(store_ids)
+                and all(isinstance(value, str) and value in allowed for value in store_ids)
+            )
+
+        rows = [row for row in rows if snapshot_is_visible(row.after_json) and (
+            (row.action == "account.created" and not row.before_json)
+            or snapshot_is_visible(row.before_json)
+        )]
     data = AccountPermissionAuditListData(
         rows=[
             AccountPermissionAuditRow(
@@ -1141,7 +1181,7 @@ def lookup_sku_rules(
 @router.put("/sku-rules")
 def update_sku_rules(
     payload: SkuRuleBulkUpdateRequest,
-    _username: str = Depends(get_current_admin),
+    _username: str = Depends(get_current_global_admin),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
@@ -1189,7 +1229,7 @@ def list_non_commission_owner_accounts(
 @router.put("/non-commission-owner-accounts")
 def update_non_commission_owner_accounts(
     payload: NonCommissionOwnerAccountBulkUpdateRequest,
-    username: str = Depends(get_current_admin),
+    username: str = Depends(get_current_global_admin),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
@@ -1793,7 +1833,7 @@ def preview_clue_allocation_cycle(
     if not current_user.is_highest_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Highest administrator access required",
+            detail={"code": "GLOBAL_WRITE_REQUIRED", "message": "仅全部门店范围管理员可以执行该全局操作", "errors": []},
         )
     store = _require_available_store(store)
     try:
@@ -1832,7 +1872,7 @@ def execute_clue_allocation_trial(
     if not current_user.is_highest_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Highest administrator access required",
+            detail={"code": "GLOBAL_WRITE_REQUIRED", "message": "仅全部门店范围管理员可以执行该全局操作", "errors": []},
         )
     if payload.confirmation_text != "确认试运行":
         raise HTTPException(
@@ -1892,7 +1932,7 @@ def rebuild_clue_allocation_trial(
     if not current_user.is_highest_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Highest administrator access required",
+            detail={"code": "GLOBAL_WRITE_REQUIRED", "message": "仅全部门店范围管理员可以执行该全局操作", "errors": []},
         )
     if payload.confirmation_text != "确认重建试运行":
         raise HTTPException(
@@ -3112,7 +3152,7 @@ def get_product_type_visibility(
 @router.put("/product-type-visibility")
 def update_product_type_visibility(
     payload: ProductTypeVisibilityUpdate,
-    username: str = Depends(get_current_admin),
+    username: str = Depends(get_current_global_admin),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
@@ -3210,7 +3250,7 @@ def create_product_sync_run(
     background_tasks: BackgroundTasks,
     request: Request,
     idempotency_key: str = Header(alias="Idempotency-Key", min_length=16, max_length=128),
-    _username: str = Depends(get_current_admin),
+    _username: str = Depends(get_current_global_admin),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
@@ -3504,7 +3544,7 @@ def upload_douyin_store_org_mapping(
 @router.put("/sync/config")
 def update_sync_config(
     payload: SyncConfigUpdate,
-    _username: str = Depends(get_current_admin),
+    _username: str = Depends(get_current_global_admin),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
@@ -3530,7 +3570,7 @@ def update_sync_config(
 def run_sync_now(
     payload: ManualSyncRequest,
     background_tasks: BackgroundTasks,
-    _username: str = Depends(get_current_admin),
+    _username: str = Depends(get_current_global_admin),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
@@ -4162,6 +4202,8 @@ def _account_row(session, user: User) -> AccountRow:
         .order_by(DimStore.store_name, DimStore.store_id)
     ).all()
     allow, deny = user_override_sets(session, user.user_id)
+    if user.role in {"admin", "highest_admin", "viewer"}:
+        allow, deny = set(), set()
     scope = user.org_scope
     if scope:
         try:
@@ -4173,7 +4215,7 @@ def _account_row(session, user: User) -> AccountRow:
         username=user.username,
         external_account_id=user.external_account_id,
         display_name=user.display_name,
-        role=user.role,
+        role="admin" if user.role in {"highest_admin", "viewer"} else user.role,
         status=user.status,
         store_scope_mode=user.store_scope_mode,
         org_scope=scope,
@@ -4196,11 +4238,13 @@ def _unactivated_store_account_rows(
     session,
     *,
     q: str | None = None,
+    scope_store_ids: tuple[str, ...] | None = None,
 ) -> list[UnactivatedStoreAccountRow]:
     stores = (
         session.execute(
             select(DimStore)
             .where(DimStore.is_active.is_(True))
+            .where(True if scope_store_ids is None else DimStore.store_id.in_(scope_store_ids))
             .order_by(DimStore.store_name, DimStore.store_id)
         )
         .scalars()
@@ -4392,57 +4436,38 @@ def _ensure_store_ids_exist(session, store_ids: list[str]) -> None:
 
 
 def _require_account_manager(actor: AuthContext) -> None:
-    if actor.role not in {"highest_admin", "admin"} or not actor.has_global_data_access:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account management access required",
-        )
+    if not actor.can_manage_accounts:
+        raise account_error(403, "ACCOUNT_SCOPE_FORBIDDEN", "当前账号不能管理账号")
 
 
 def _ensure_actor_can_manage_role(actor: AuthContext, role: str) -> None:
-    if actor.is_highest_admin:
+    _require_account_manager(actor)
+    if actor.can_manage_global_settings or role == "store":
         return
-    if actor.role == "admin" and role == "store":
-        return
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Administrators can manage store accounts only",
-    )
+    raise account_error(403, "ACCOUNT_SCOPE_FORBIDDEN", "受限管理员只能管理授权范围内的门店账号")
 
 
-def _ensure_actor_can_manage_user(actor: AuthContext, user: User) -> None:
-    if actor.is_highest_admin:
-        return
-    if actor.role == "admin" and user.role == "store":
-        return
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Administrators can manage store accounts only",
-    )
+def _ensure_actor_can_manage_user(actor: AuthContext, user: User, session) -> None:
+    _require_account_manager(actor)
+    if not can_manage_user(session, actor, user):
+        raise HTTPException(status_code=404, detail="Account not found")
 
 
 def _ensure_actor_can_manage_role_defaults(actor: AuthContext, role: str) -> None:
-    if role not in {"admin", "store"}:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Highest administrator permissions are fixed",
-        )
-    if actor.is_highest_admin or (actor.role == "admin" and role == "store"):
-        return
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Role permission management access required",
-    )
+    if role != "store":
+        raise account_error(422, "ADMIN_PERMISSIONS_FIXED", "管理员固定拥有全部页面权限")
+    if not actor.can_manage_global_settings:
+        raise account_error(403, "GLOBAL_WRITE_REQUIRED", "仅全部门店范围管理员可以修改全局默认权限")
 
 
 def _normalized_scope_mode(role: str, scope_mode: str) -> str:
-    return "all" if role == "highest_admin" else scope_mode
+    return scope_mode
 
 
 def _resolve_account_scope(session, actor, payload):
     if payload.org_scope is not None:
-        if not actor.is_highest_admin or payload.role != "admin" or payload.store_scope_mode != "specified":
-            raise HTTPException(status_code=403, detail="组织账号必须由最高管理员创建并选择指定范围")
+        if not actor.can_manage_global_settings or payload.role != "admin" or payload.store_scope_mode != "specified":
+            raise HTTPException(status_code=403, detail="组织账号必须由全部门店范围管理员创建并选择指定范围")
         try:
             payload.org_scope = normalize_org_scope(payload.org_scope)
         except ValueError as exc:
@@ -4461,13 +4486,6 @@ def _validated_scope_store_ids(
     role: str, scope_mode: str, store_ids: list[str]
 ) -> list[str]:
     normalized_ids = sorted({normalize_account_value(value) for value in store_ids if normalize_account_value(value)})
-    if role == "highest_admin":
-        if scope_mode != "all":
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Highest administrators must have all-store scope",
-            )
-        return []
     if scope_mode == "all":
         if role != "admin":
             raise HTTPException(

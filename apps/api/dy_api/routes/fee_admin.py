@@ -43,7 +43,7 @@ from apps.api.dy_api.models import (
     utcnow,
 )
 from apps.worker.repositories import queue_job_run
-from dy_api.auth import get_current_admin, get_current_super_admin
+from dy_api.auth import get_current_admin, get_current_super_admin, get_current_global_admin
 from dy_api.routes._data import generated_at, get_data_store
 from dy_api.schemas import (
     SettlementScopeRuleCreateRequest,
@@ -203,7 +203,7 @@ def list_sku_products(
 def bulk_update_sku_products(
     payload: dict[str, Any],
     request: Request,
-    username: str = Depends(get_current_admin),
+    username: str = Depends(get_current_global_admin),
     store=Depends(get_data_store),
 ):
     store = _require_store(store, request)
@@ -245,7 +245,7 @@ def update_sku_product(
     sku_id: str,
     payload: dict[str, Any],
     request: Request,
-    username: str = Depends(get_current_admin),
+    username: str = Depends(get_current_global_admin),
     store=Depends(get_data_store),
 ):
     store = _require_store(store, request)
@@ -314,7 +314,7 @@ def download_sku_product_import_template(
 @router.post("/sku-product-imports")
 async def upload_sku_product_import(
     request: Request,
-    username: str = Depends(get_current_admin),
+    username: str = Depends(get_current_global_admin),
     store=Depends(get_data_store),
 ):
     store = _require_store(store, request)
@@ -466,7 +466,7 @@ def get_sku_product_import(
 def commit_sku_product_import(
     batch_id: str,
     request: Request,
-    username: str = Depends(get_current_admin),
+    username: str = Depends(get_current_global_admin),
     store=Depends(get_data_store),
 ):
     store = _require_store(store, request)
@@ -629,7 +629,7 @@ def create_sku_fee_rule(
     payload: dict[str, Any],
     request: Request,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-    username: str = Depends(get_current_admin),
+    username: str = Depends(get_current_global_admin),
     store=Depends(get_data_store),
 ):
     store = _require_store(store, request)
@@ -1041,7 +1041,7 @@ def list_sku_fee_rule_imports(
 @router.post("/sku-fee-rule-imports")
 async def upload_sku_fee_rule_import(
     request: Request,
-    username: str = Depends(get_current_admin),
+    username: str = Depends(get_current_global_admin),
     store=Depends(get_data_store),
 ):
     store = _require_store(store, request)
@@ -1229,7 +1229,7 @@ def commit_sku_fee_rule_import(
     payload: dict[str, Any],
     request: Request,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-    username: str = Depends(get_current_admin),
+    username: str = Depends(get_current_global_admin),
     store=Depends(get_data_store),
 ):
     store = _require_store(store, request)

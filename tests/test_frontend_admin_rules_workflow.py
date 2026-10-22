@@ -10,10 +10,10 @@ def read_source(relative_path: str) -> str:
 
 def test_manual_rebuild_is_guarded_by_server_session_role() -> None:
     page = read_source("pages/AdminSkuRulesPage.tsx")
-    assert 'setCanRebuild(response.data.is_highest_admin === true)' in page
-    assert 'disabled={!canRebuild || !effectiveRuleMap.size || working}' in page
-    assert 'if (!canRebuild) return;' in page
-    assert '仅最高管理员可手动重建' in page
+    assert 'setCanManageGlobalSettings(response.data.can_manage_global_settings === true)' in page
+    assert 'disabled={!canManageGlobalSettings || !effectiveRuleMap.size || working}' in page
+    assert 'if (!canManageGlobalSettings) return;' in page
+    assert '手动重新计算仅限全国范围管理员' in page
 
 
 def test_rules_page_exposes_three_tabs_and_four_step_workflow() -> None:
@@ -171,7 +171,7 @@ def test_rules_publish_and_import_report_settlement_rebuild_job() -> None:
     ]
     assert "triggerSkuFeeRuleRebuild" not in publish_flow
     assert "结算重算任务已自动排队" in publish_flow
-    assert "重建结算投影" in page
-    assert 'title="结算投影重建确认"' in page
+    assert "重新计算结算结果" in page
+    assert 'title="重新计算结算结果确认"' in page
     assert "settlementRebuild" in drawer
     assert "任务编号" in drawer

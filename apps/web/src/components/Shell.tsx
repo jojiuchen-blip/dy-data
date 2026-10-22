@@ -291,13 +291,7 @@ function activeSecondaryNavHref(
 }
 
 function roleLabel(user: AdminUser): string {
-  if (user.role === "highest_admin") {
-    return "最高管理员";
-  }
-  if (user.role === "admin") {
-    return user.is_highest_admin ? "最高管理员" : "管理员";
-  }
-  return "门店账号";
+  return user.role === "admin" ? "管理员" : "门店账号";
 }
 
 export function Shell({

@@ -40,6 +40,8 @@ class AdminUser(BaseModel):
     store_scope_mode: Literal["all", "specified", "none"] = "all"
     page_keys: list[str] = Field(default_factory=list)
     is_highest_admin: bool = False
+    can_manage_accounts: bool = False
+    can_manage_global_settings: bool = False
 
 
 class CliDeviceStartResponse(BaseModel):
@@ -187,7 +189,7 @@ class AccountRow(BaseModel):
     username: str
     external_account_id: str | None = None
     display_name: str
-    role: Literal["highest_admin", "admin", "store"] = "store"
+    role: Literal["admin", "store"] = "store"
     status: Literal["active", "disabled"] = "active"
     store_scope_mode: Literal["all", "specified", "none"] = "specified"
     is_initialized: bool = False
@@ -222,7 +224,7 @@ class AccountUpsertRequest(BaseModel):
     org_scope: dict[str, str] | None = None
     username: str | None = None
     display_name: str
-    role: Literal["highest_admin", "admin", "store"] = "store"
+    role: Literal["admin", "store"] = "store"
     status: Literal["active", "disabled"] = "active"
     store_scope_mode: Literal["all", "specified", "none"] = "specified"
     external_account_id: str | None = None

@@ -1625,10 +1625,11 @@ def _control_plane_client(
     return client
 
 
+@pytest.mark.parametrize("operator", ["system-admin", "global-admin"])
 def test_management_api_recover_is_available_authorized_and_idempotent(
-    monkeypatch: pytest.MonkeyPatch, db_session: Session
+    monkeypatch: pytest.MonkeyPatch, db_session: Session, operator: str,
 ) -> None:
-    from apps.api.dy_api.models import JobEvent, User
+    from apps.api.dy_api.models import DimStore, JobEvent, User, UserStoreScope
     from apps.api.dy_api.auth import hash_password_pbkdf2
 
     parent_id, _child, _attempts = _exhausted_day_plan(db_session)
@@ -1641,16 +1642,22 @@ def test_management_api_recover_is_available_authorized_and_idempotent(
             status="active",
             is_initialized=True,
             password_hash=hash_password_pbkdf2("secret"),
-            store_scope_mode="all",
+            store_scope_mode="specified",
         )
     )
+    db_session.add(DimStore(store_id="recover-scope-store", store_name="Synthetic recovery scope", is_active=True))
+    db_session.add(User(user_id="global-admin", username="global-admin", display_name="Global Admin",
+                        role="admin", status="active", is_initialized=True,
+                        password_hash=hash_password_pbkdf2("secret"), store_scope_mode="all"))
+    db_session.flush()
+    db_session.add(UserStoreScope(user_id="ordinary-admin", store_id="recover-scope-store"))
     db_session.commit()
     client = _control_plane_client(monkeypatch, db_session)
 
     path = f"/api/v1/admin/operations/jobs/{parent_id}/recover"
     body = {"reason": "repair the exhausted day"}
-    # A plain admin is not the control-plane role; the session must be re-issued
-    # for the ordinary user rather than reusing the super-admin cookie.
+    # Fixed page permissions do not grant a scoped admin global recovery rights.
+    # Issue its own session instead of reusing the global administrator cookie.
     client.cookies.clear()
     assert (
         client.post(
@@ -1662,7 +1669,7 @@ def test_management_api_recover_is_available_authorized_and_idempotent(
     denied = client.post(
         path, headers={"Idempotency-Key": "denied-ordinary-admin-recover"}, json=body
     )
-    assert denied.status_code == 403, "recovery stays behind the control-plane role"
+    assert denied.status_code == 403, "recovery requires all-store administrator scope"
     db_session.expire_all()
     assert day_recovery.recovery_generations(db_session.get(JobRun, parent_id)) == []
 
@@ -1670,7 +1677,7 @@ def test_management_api_recover_is_available_authorized_and_idempotent(
     assert (
         client.post(
             "/api/v1/auth/login",
-            json={"username": "system-admin", "password": "test-password"},
+            json={"username": operator, "password": "test-password" if operator == "system-admin" else "secret"},
         ).status_code
         == 200
     )
@@ -1700,7 +1707,7 @@ def test_management_api_recover_is_available_authorized_and_idempotent(
         )
     )
     assert [row.event_type for row in events].count("admin_recover_requested") == 1
-    assert all(row.actor_id == "system-admin" for row in events)
+    assert all(row.actor_id == operator for row in events)
     assert all(row.reason for row in events)
 
 

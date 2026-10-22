@@ -35,6 +35,7 @@ import type {
   UserStatus,
 } from "../types/dashboard";
 import { formatDateTime } from "../utils/format";
+import { apiErrorText } from "../utils/apiErrors";
 
 const emptyDraft: AccountUpsertPayload = {
   username: "",
@@ -79,8 +80,7 @@ function compactPayload(
     role: draft.role,
     org_scope: draft.role === "admin" ? draft.org_scope ?? null : null,
     status: draft.status,
-    store_scope_mode:
-      draft.role === "highest_admin" ? "all" : draft.store_scope_mode,
+    store_scope_mode: draft.store_scope_mode,
     external_account_id: draft.external_account_id?.trim() || null,
     store_ids: draft.store_scope_mode === "specified" ? draft.store_ids : [],
     password: includePassword || password || passwordConfirm ? password : null,
@@ -90,9 +90,6 @@ function compactPayload(
 }
 
 function roleLabel(role: UserRole): string {
-  if (role === "highest_admin") {
-    return "最高管理员";
-  }
   if (role === "admin") {
     return "管理员";
   }
@@ -380,7 +377,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
         <span className="mono-cell">{account.external_account_id || "-"}</span>
       ),
     },
-    { key: "role", title: "角色", render: (account) => account.org_scope ? ({ group: "集团账号", service_center: "服务中心账号", district: "大区账号", area: "区域账号" }[account.org_scope.level] ?? roleLabel(account.role)) : roleLabel(account.role) },
+    { key: "role", title: "角色", render: (account) => roleLabel(account.role) },
     {
       key: "status",
       title: "状态",
@@ -426,6 +423,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
 
   const handleSave = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!currentUser.can_manage_accounts) return;
     const payload = compactPayload(draft, editingUserId === null);
     if (editingUserId === null) {
       setPendingCreatePayload(payload);
@@ -448,8 +446,8 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
       setEditingUserId(result.data.user_id);
       setDraft(accountDraft(result.data));
       setStatusText("账号已保存。");
-    } catch {
-      setStatusText("保存失败，请检查所属账户编号、密码确认和门店绑定。");
+    } catch (error) {
+      setStatusText(apiErrorText(error, "保存失败，请检查所属账户编号、密码确认和门店绑定。"));
     } finally {
       setSaving(false);
     }
@@ -462,7 +460,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
   };
 
   const confirmCreateAccount = async () => {
-    if (!pendingCreatePayload || saving) return;
+    if (!currentUser.can_manage_accounts || !pendingCreatePayload || saving) return;
     setSaving(true);
     setStatusText("");
     try {
@@ -482,8 +480,8 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
       setPendingCreatePayload(null);
       setShowCreatePassword(false);
       setStatusText("账号已创建。");
-    } catch {
-      setStatusText("创建失败，请检查所属账户编号、密码确认和门店绑定。");
+    } catch (error) {
+      setStatusText(apiErrorText(error, "创建失败，请检查所属账户编号、密码确认和门店绑定。"));
     } finally {
       setSaving(false);
     }
@@ -510,8 +508,8 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
       setResetPassword("");
       setResetPasswordConfirm("");
       setStatusText("密码已重置。");
-    } catch {
-      setStatusText("密码重置失败，请检查两次输入是否一致。");
+    } catch (error) {
+      setStatusText(apiErrorText(error, "密码重置失败，请检查两次输入是否一致。"));
     } finally {
       setSaving(false);
     }
@@ -552,8 +550,8 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
       setStatusText("账号页面权限已保存并立即生效。");
       const auditResponse = await fetchAccountPermissionAuditLogs();
       setAuditRows(auditResponse.data.rows);
-    } catch {
-      setStatusText("页面权限保存失败，请检查权限项后重试。");
+    } catch (error) {
+      setStatusText(apiErrorText(error, "页面权限保存失败，请检查权限项后重试。"));
     } finally {
       setSaving(false);
     }
@@ -572,8 +570,8 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
       setExtraAllow(new Set());
       setExtraDeny(new Set());
       setStatusText("已恢复角色默认权限。");
-    } catch {
-      setStatusText("恢复角色默认权限失败。");
+    } catch (error) {
+      setStatusText(apiErrorText(error, "恢复角色默认权限失败。"));
     } finally {
       setSaving(false);
     }
@@ -588,6 +586,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
   };
 
   const saveRolePermissions = async (role: "admin" | "store") => {
+    if (role !== "store" || !currentUser.can_manage_global_settings) return;
     const pageKeys = Array.from(roleDrafts[role]);
     setSaving(true);
     try {
@@ -607,8 +606,8 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
       setAccounts(accountResponse.data.rows);
       setAuditRows(auditResponse.data.rows);
       setStatusText("角色默认权限已保存并立即生效。");
-    } catch {
-      setStatusText("角色默认权限保存失败。");
+    } catch (error) {
+      setStatusText(apiErrorText(error, "角色默认权限保存失败。"));
     } finally {
       setSaving(false);
     }
@@ -752,10 +751,11 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
         </section>
       ) : null}
 
-      {currentUser.is_highest_admin && <div hidden={activeTab !== "accounts"}><AccountBulkImport onCreated={() => {
+      {currentUser.can_manage_accounts && <div hidden={activeTab !== "accounts"}><AccountBulkImport onCreated={() => {
         void fetchAccounts().then(response => setAccounts(response.data.rows)).catch(() => setStatusText("账号列表刷新失败，请刷新页面核对创建结果"));
       }} /></div>}
 
+      {activeTab === "accounts" ? <p className="resource-notice">管理员可新增、变更其管理范围内的账号；账号不提供删除。{!currentUser.can_manage_global_settings ? "当前仅可管理授权门店范围内的门店账号。" : "账号的数据范围单独设置，不随页面权限扩大。"}</p> : null}
       <section className="content-section account-admin-layout" hidden={activeTab !== "accounts"}>
         <div className="account-admin-main">
           <div className="section-title">
@@ -833,15 +833,14 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
                 setDraftField("org_scope", null);
                 setDraftField(
                   "store_scope_mode",
-                  role === "highest_admin" || role === "admin" ? "all" : "specified",
+                  role === "admin" ? "all" : "specified",
                 );
               }}
               options={
-                currentUser.is_highest_admin
+                currentUser.can_manage_global_settings
                   ? [
                       { value: "store", label: "门店账号" },
                       { value: "admin", label: "管理员" },
-                      { value: "highest_admin", label: "最高管理员" },
                     ]
                   : [{ value: "store", label: "门店账号" }]
               }
@@ -878,7 +877,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
               />
             </label>
             <Button
-              disabled={saving}
+              disabled={saving || !currentUser.can_manage_accounts}
               type="submit"
               variant="primary"
             >
@@ -886,7 +885,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
             </Button>
           </form>
 
-          {editingAccount && editingAccount.role !== "highest_admin" && accessControl ? (
+          {editingAccount && editingAccount.role === "store" && accessControl ? (
             <section className="content-section account-form permission-editor">
               <div className="section-title">
                 <div>
@@ -972,35 +971,35 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
         </aside>
       </section>
 
+      {editingAccount?.role === "admin" && activeTab === "accounts" ? <p className="resource-notice">管理员页面权限固定为全部页面，数据可见范围由账号范围单独控制。</p> : null}
       <section className="content-section" hidden={activeTab !== "roles"}>
         <div className="section-title">
           <div>
             <h2>角色默认页面权限</h2>
-            <p>最高管理员固定拥有全部页面；已自定义账号在角色默认值变化后保持当前有效权限。</p>
+            <p>管理员固定拥有全部页面；门店账号默认页面可配置，自定义账号保留当前有效权限。页面权限不会扩大数据范围。</p>
+            {!currentUser.can_manage_global_settings ? <p className="admin-muted">门店账号默认权限影响全部账号，仅全国范围管理员可以修改。</p> : null}
           </div>
         </div>
         {accessControl ? (
           <div className="role-permission-table" role="table" aria-label="角色页面权限矩阵">
             <div className="role-permission-table__header" role="row">
               <strong>页面</strong>
-              <strong>最高管理员</strong>
               <strong>管理员</strong>
               <strong>门店账号</strong>
             </div>
             {accessControl.pages.map((page) => (
               <div className="role-permission-table__row" key={page.page_key} role="row">
                 <span><strong>{page.page_key}</strong> {page.page_name}</span>
-                <FieldInput aria-label={`${page.page_name} 最高管理员`} checked disabled readOnly type="checkbox" />
                 <FieldInput
                   aria-label={`${page.page_name} 管理员`}
-                  checked={page.page_key === "A03" || roleDrafts.admin.has(page.page_key)}
-                  disabled={!currentUser.is_highest_admin || page.page_key === "A03"}
-                  onChange={() => toggleRolePermission("admin", page.page_key)}
+                  checked
+                  disabled
+                  readOnly
                   type="checkbox"
                 />
                 <FieldInput
                   aria-label={`${page.page_name} 门店账号`}
-                  disabled={page.page_key === "A03"}
+                  disabled={!currentUser.can_manage_global_settings || page.page_key === "A03"}
                   checked={page.page_key === "A03" || roleDrafts.store.has(page.page_key)}
                   onChange={() => toggleRolePermission("store", page.page_key)}
                   type="checkbox"
@@ -1008,12 +1007,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
               </div>
             ))}
             <div className="table-action-row role-permission-table__actions">
-              {currentUser.is_highest_admin ? (
-                <Button disabled={saving} onClick={() => saveRolePermissions("admin")} type="button">
-                  保存管理员默认权限
-                </Button>
-              ) : null}
-              <Button disabled={saving} onClick={() => saveRolePermissions("store")} type="button" variant="primary">
+              <Button disabled={saving || !currentUser.can_manage_global_settings} onClick={() => saveRolePermissions("store")} type="button" variant="primary">
                 保存门店账号默认权限
               </Button>
             </div>

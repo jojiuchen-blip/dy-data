@@ -53,10 +53,8 @@ def _unauthorized() -> HTTPException:
 def _auth_context_for_user(session: Session, user: User) -> AuthContext:
     if user.status != "active" or not user.is_initialized:
         raise _unauthorized()
-    role = "admin" if user.role == "viewer" else user.role
-    scope_mode = "all" if user.role == "viewer" else user.store_scope_mode
-    if role == "highest_admin":
-        scope_mode = "all"
+    role = "admin" if user.role in {"highest_admin", "viewer"} else user.role
+    scope_mode = user.store_scope_mode
     return AuthContext(
         user_id=user.user_id,
         username=user.username,
@@ -88,12 +86,12 @@ def _current_auth(
             user_id=None,
             username=username,
             display_name=username,
-            role="highest_admin",
+            role="admin",
             store_ids=(),
             auth_type="env_admin",
             store_scope_mode="all",
             page_keys=(
-                effective_page_keys(session, None, role="highest_admin")
+                effective_page_keys(session, None, role="admin")
                 if session is not None
                 else ALL_PAGE_KEYS
             ),

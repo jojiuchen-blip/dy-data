@@ -54,7 +54,7 @@ function errorMessage(error: unknown): string {
   return userFacingError(error, "操作未完成，请稍后重试。");
 }
 
-export function AdminProductTypeVisibilityPage() {
+export function AdminProductTypeVisibilityPage({ canManageGlobalSettings }: { canManageGlobalSettings: boolean }) {
   const download = useDownloadFeedback();
   const [viewMode, setViewMode] = useState<ViewMode>(modeFromUrl);
   const [rows, setRows] = useState<SkuProductItem[]>([]);
@@ -142,6 +142,7 @@ export function AdminProductTypeVisibilityPage() {
   };
 
   const openEditor = (mode: Exclude<EditorMode, null>, row?: SkuProductItem) => {
+    if (!canManageGlobalSettings) return;
     setEditorMode(mode);
     setEditingRow(row ?? null);
     setScopeMode("keep");
@@ -158,6 +159,7 @@ export function AdminProductTypeVisibilityPage() {
   };
 
   const saveEditor = async () => {
+    if (!canManageGlobalSettings) return;
     const payload = buildUpdate();
     if (!payload) {
       setNotice("请至少设置产品范围或商品类型中的一项。");
@@ -186,6 +188,7 @@ export function AdminProductTypeVisibilityPage() {
   };
 
   const uploadImport = async () => {
+    if (!canManageGlobalSettings) return;
     if (!importFile) return;
     setSaving(true);
     try {
@@ -200,6 +203,7 @@ export function AdminProductTypeVisibilityPage() {
   };
 
   const commitImport = async () => {
+    if (!canManageGlobalSettings) return;
     if (!importPreview || importPreview.batch.batchStatus !== "PENDING_COMMIT") return;
     setSaving(true);
     try {
@@ -229,8 +233,8 @@ export function AdminProductTypeVisibilityPage() {
     { key: "type", title: "商品类型", minWidth: 150, render: (row) => row.productType || "未设置" },
     { key: "status", title: "配置状态", width: 110, render: (row) => <span className={`product-types-status is-${row.configurationStatus.toLowerCase()}`}>{statusLabels[row.configurationStatus]}</span> },
     { key: "modified", title: "最后修改", minWidth: 170, render: (row) => row.manualModifiedAt ? <>{formatDateTime(row.manualModifiedAt)}<small>{row.manualModifiedBy || "-"}</small></> : "-" },
-    { key: "action", title: "操作", width: 100, render: (row) => <Button onClick={() => openEditor("single", row)} size="sm" variant="secondary">设置</Button> },
-  ], [selected]);
+    { key: "action", title: "操作", width: 100, render: (row) => <Button disabled={!canManageGlobalSettings} onClick={() => openEditor("single", row)} size="sm" variant="secondary">设置</Button> },
+  ], [selected, canManageGlobalSettings]);
 
   return (
     <div className="admin-page product-types-workbench">
@@ -240,9 +244,10 @@ export function AdminProductTypeVisibilityPage() {
           <h1>商品口径</h1>
           <p className="admin-muted">产品范围和商品类型会同时用于线索中心、核销表现和订单分佣。所有商品都可展示；订单分佣还要求商品存在有效分佣规则。</p>
         </div>
-        <Button onClick={() => setImportOpen(true)} variant="secondary">批量导入</Button>
+        <Button disabled={!canManageGlobalSettings} onClick={() => setImportOpen(true)} variant="secondary">批量导入</Button>
       </section>
 
+      {!canManageGlobalSettings ? <p className="resource-notice" role="status">商品口径影响全部门店，仅全国范围管理员可以设置或导入；当前可查看商品列表。</p> : null}
       <nav aria-label="商品口径配置状态" className="product-types-tabs">
         <Button onClick={() => switchView("pending")} variant={viewMode === "pending" ? "primary" : "secondary"}>待完善 <span>{counts.unconfigured + counts.partial}</span></Button>
         <Button onClick={() => switchView("configured")} variant={viewMode === "configured" ? "primary" : "secondary"}>已配置 <span>{counts.configured}</span></Button>
@@ -260,7 +265,7 @@ export function AdminProductTypeVisibilityPage() {
           <div className="product-types-selection">
             <span>已跨页选择 <strong>{selected.size}</strong> 个 SKU</span>
             <Button disabled={!selected.size} onClick={() => setSelected(new Set())} variant="text">清空</Button>
-            <Button disabled={!selected.size} onClick={() => openEditor("bulk")} variant="primary">批量设置</Button>
+            <Button disabled={!canManageGlobalSettings || !selected.size} onClick={() => openEditor("bulk")} variant="primary">批量设置</Button>
           </div>
         </div>
         <p className="product-types-hint">待完善默认按“未配置 → 部分配置”排列；默认每页 50 条。筛选和翻页不会清除已勾选 SKU。</p>
@@ -268,7 +273,7 @@ export function AdminProductTypeVisibilityPage() {
         <TablePagination loading={loading} onPageChange={setPage} page={page} pageSize={PAGE_SIZE} rowsOnPage={rows.length} total={total} totalPages={Math.max(1, Math.ceil(total / PAGE_SIZE))} />
       </section>
 
-      <Dialog actions={<><Button disabled={saving} onClick={() => setEditorMode(null)} variant="secondary">取消</Button><Button disabled={saving} onClick={() => void saveEditor()} variant="primary">确认设置</Button></>} description={editorMode === "bulk" ? `将修改已跨页选择的 ${selected.size} 个 SKU；未选择设置的字段保持原值。` : `SKU ${editingRow?.skuId ?? ""}；未选择设置的字段保持原值。`} onClose={() => setEditorMode(null)} open={editorMode !== null} panelClassName="product-types-drawer" title={editorMode === "bulk" ? "批量设置商品口径" : "设置商品口径"}>
+      <Dialog actions={<><Button disabled={saving} onClick={() => setEditorMode(null)} variant="secondary">取消</Button><Button disabled={!canManageGlobalSettings || saving} onClick={() => void saveEditor()} variant="primary">确认设置</Button></>} description={editorMode === "bulk" ? `将修改已跨页选择的 ${selected.size} 个 SKU；未选择设置的字段保持原值。` : `SKU ${editingRow?.skuId ?? ""}；未选择设置的字段保持原值。`} onClose={() => setEditorMode(null)} open={editorMode !== null} panelClassName="product-types-drawer" title={editorMode === "bulk" ? "批量设置商品口径" : "设置商品口径"}>
         <div className="product-types-editor-field">
           <SelectField label="产品范围处理方式" onChange={(value) => setScopeMode(value as FieldMode)} options={[{ label: "保持原值", value: "keep" }, { label: "设置新值", value: "set" }]} value={scopeMode} />
           {scopeMode === "set" ? <><TextField helperText="可输入新值，也可选择已有建议。" label="产品范围" list="product-scope-suggestions" onChange={(event) => setScopeValue(event.target.value)} placeholder="输入或选择产品范围" value={scopeValue} /><datalist id="product-scope-suggestions">{productScopes.map((value) => <option key={value} value={value} />)}</datalist></> : null}
@@ -279,8 +284,8 @@ export function AdminProductTypeVisibilityPage() {
         </div>
       </Dialog>
 
-      <Dialog actions={<><Button disabled={saving} onClick={() => setImportOpen(false)} variant="secondary">取消</Button>{importPreview?.batch.batchStatus === "PENDING_COMMIT" ? <Button disabled={saving} onClick={() => void commitImport()} variant="primary">确认写入 {importPreview.batch.validCount} 条</Button> : <Button disabled={saving || !importFile} onClick={() => void uploadImport()} variant="primary">上传并预校验</Button>}</>} description="支持 UTF-8 CSV 或 XLSX。字段为 skuId、productScope、productType；单项不修改请填写 KEEP，空白和两个 KEEP 都会阻止整批写入。" onClose={() => setImportOpen(false)} open={importOpen} panelClassName="product-types-drawer" title="批量导入商品口径">
-        <div className="product-types-import-actions"><Button loading={download.busy} onClick={() => void download.run(downloadSkuProductImportTemplate, "模板已下载。")} variant="secondary">下载模板</Button><FieldInput accept=".csv,.xlsx" aria-label="选择商品口径导入文件" onChange={(event) => { setImportFile(event.target.files?.[0] ?? null); setImportPreview(null); }} type="file" /></div>
+      <Dialog actions={<><Button disabled={saving} onClick={() => setImportOpen(false)} variant="secondary">取消</Button>{importPreview?.batch.batchStatus === "PENDING_COMMIT" ? <Button disabled={!canManageGlobalSettings || saving} onClick={() => void commitImport()} variant="primary">确认写入 {importPreview.batch.validCount} 条</Button> : <Button disabled={!canManageGlobalSettings || saving || !importFile} onClick={() => void uploadImport()} variant="primary">上传并预校验</Button>}</>} description="支持 UTF-8 CSV 或 XLSX。字段为 skuId、productScope、productType；单项不修改请填写 KEEP，空白和两个 KEEP 都会阻止整批写入。" onClose={() => setImportOpen(false)} open={importOpen} panelClassName="product-types-drawer" title="批量导入商品口径">
+        <div className="product-types-import-actions"><Button loading={download.busy} onClick={() => void download.run(downloadSkuProductImportTemplate, "模板已下载。")} variant="secondary">下载模板</Button><FieldInput disabled={!canManageGlobalSettings || saving} accept=".csv,.xlsx" aria-label="选择商品口径导入文件" onChange={(event) => { setImportFile(event.target.files?.[0] ?? null); setImportPreview(null); }} type="file" /></div>
         {download.message ? <p className="resource-notice" role={download.isError ? "alert" : "status"}>{download.message}</p> : null}
         {importPreview ? <div className="product-types-import-summary"><strong>{importPreview.batch.batchStatus === "PENDING_COMMIT" ? "预校验通过" : "预校验未通过"}</strong><span>总计 {importPreview.batch.totalCount} / 有效 {importPreview.batch.validCount} / 错误 {importPreview.batch.failedCount}</span>{importPreview.errorPreview.slice(0, 10).map((row) => <p key={row.rowNumber}>第 {row.rowNumber} 行：{row.errors.map(({ message }) => message).join("；")}</p>)}</div> : null}
       </Dialog>

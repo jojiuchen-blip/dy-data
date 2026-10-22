@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -190,7 +191,7 @@ def test_admin_and_assigned_store_can_write_but_master_pool_pointer_is_authorita
     assert highest_admin.status == "conflict"
 
 
-def test_only_highest_admin_can_soft_delete_without_reopening_a_terminal_round(db_session: Session) -> None:
+def test_admin_can_soft_delete_without_reopening_a_terminal_round(db_session: Session) -> None:
     lead, round_row = _active_formal_round()
     db_session.add_all([lead, round_row])
     db_session.commit()
@@ -207,7 +208,7 @@ def test_only_highest_admin_can_soft_delete_without_reopening_a_terminal_round(d
     denied = soft_delete_follow_up_record(
         db_session,
         follow_up_record_id=created.record.follow_up_record_id,
-        actor={"username": "ordinary-admin", "role": "admin", "store_scope_mode": "all", "auth_type": "user", "is_highest_admin": False},
+        actor={"username": "store-user", "role": "store", "store_scope_mode": "specified", "store_ids": ["store-1"], "auth_type": "user"},
         reason="correction",
         now=_dt(3),
     )
@@ -231,6 +232,39 @@ def test_only_highest_admin_can_soft_delete_without_reopening_a_terminal_round(d
     assert created.record.deletion_reason == "correction"
     assert round_row.round_status == "closed_reassigned"
     assert lead.current_assignment_round_id is None
+
+
+@pytest.mark.parametrize("historical", [False, True])
+@pytest.mark.parametrize("role,store_ids,expected", [
+    ("admin", ["store-1"], "ok"),
+    ("admin", ["outside"], "not_found"),
+    ("admin", [], "not_found"),
+    ("store", ["store-1"], "forbidden"),
+])
+def test_reversal_requires_locked_round_store_scope(db_session, historical, role, store_ids, expected):
+    lead, round_row = _active_formal_round()
+    db_session.add_all([lead, round_row])
+    db_session.commit()
+    created = apply_follow_up_action(db_session, order_id="order-1", assignment_round_id="round-1",
+        follow_result="appointment", actor={"role": "admin", "store_scope_mode": "all", "username": "seed"}, now=_dt(2))
+    if historical:
+        round_row.round_status = "closed_reassigned"
+        lead.current_assignment_round_id = None
+    db_session.flush()
+    result = soft_delete_follow_up_record(db_session, follow_up_record_id=created.record.follow_up_record_id,
+        actor={"role": role, "store_scope_mode": "specified", "store_ids": store_ids, "username": "scoped"},
+        reason="reversed_by_admin", now=_dt(3))
+    assert result.status == expected
+    assert (created.record.deleted_at is not None) is (expected == "ok")
+    if historical:
+        assert round_row.round_status == "closed_reassigned"
+        assert lead.current_assignment_round_id is None
+    if expected == "not_found":
+        created.record.deleted_at = _dt(3)
+        db_session.flush()
+        repeated = soft_delete_follow_up_record(db_session, follow_up_record_id=created.record.follow_up_record_id,
+            actor={"role": role, "store_scope_mode": "specified", "store_ids": store_ids}, reason="repeat")
+        assert repeated.status == "not_found"
 
 
 def test_soft_delete_rejects_trial_evidence_without_mutating_round_or_projection(

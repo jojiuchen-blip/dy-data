@@ -54,6 +54,35 @@ def _assert_waiting(engine, pid: int) -> None:
     pytest.fail("competing transaction never waited on a PostgreSQL row lock")
 
 
+def test_admin_reversal_rechecks_store_after_waiting_for_master_lock(postgres_engine):
+    """A cached authorized store cannot authorize a round reassigned while waiting."""
+    with Session(postgres_engine) as setup:
+        record_id = apply_action(setup, "appointment").record.follow_up_record_id
+        setup.commit()
+    ready = Event()
+    pids = []
+    actor = {"role": "admin", "store_scope_mode": "specified", "store_ids": ["audit-store"], "username": "scoped"}
+    def reverse():
+        with Session(postgres_engine, autoflush=False) as session:
+            cached = session.get(ClueAssignmentRound, "audit-round")
+            assert cached.assigned_store_id == "audit-store"
+            pids.append(session.execute(text("SELECT pg_backend_pid()")).scalar_one())
+            ready.set()
+            result = soft_delete_follow_up_record(session, follow_up_record_id=record_id, actor=actor, reason="scoped-reversal")
+            session.commit()
+            return result.status
+    with ThreadPoolExecutor(max_workers=1) as executor, Session(postgres_engine) as mover:
+        mover.execute(select(ClueMasterLead).where(ClueMasterLead.lead_key == "audit-lead").with_for_update())
+        future = executor.submit(reverse)
+        assert ready.wait(3)
+        _assert_waiting(postgres_engine, pids[0])
+        mover.get(ClueAssignmentRound, "audit-round").assigned_store_id = "outside-store"
+        mover.commit()
+        assert future.result(timeout=5) == "not_found"
+    with Session(postgres_engine) as verify:
+        assert verify.get(ClueFollowUpRecord, record_id).deleted_at is None
+
+
 @pytest.mark.parametrize("closure", ["lost", "request_store_change", "due"])
 def test_follow_up_waits_and_rechecks_committed_closure(postgres_engine, closure):
     ready = Event()

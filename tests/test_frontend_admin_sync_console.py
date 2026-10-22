@@ -16,7 +16,8 @@ def test_component_room_and_task_rail_use_live_operations_contract() -> None:
     client = read_source("api/client.ts")
     types = read_source("types/dashboard.ts")
 
-    assert "if (!isHighestAdmin)" in page
+    assert "if (!canManageGlobalSettings || !draft) return;" in page
+    assert "if (!canManageGlobalSettings) return;" in page
     assert "<ComponentRoom" in page
     assert page.index("<ComponentRoom") < page.index("<AdminProductSyncPanel")
     assert "fetchAdminOperationsOverview" in room
@@ -46,13 +47,15 @@ def test_detail_drawer_reuses_accessible_dialog_and_restores_focus() -> None:
     assert "prefers-reduced-motion" in read_source("styles.css")
 
 
-def test_admin_home_hides_d10_sync_entry_without_both_permission_and_highest_admin() -> None:
+def test_admin_home_uses_page_access_and_sync_writes_use_global_capability() -> None:
     home = read_source("pages/AdminHomePage.tsx")
 
     assert 'pageKey: "D10"' in home
-    assert "highestAdminOnly: true" in home
-    assert "sessionUser?.is_highest_admin === true" in home
-    assert "sessionUser.page_keys.includes(item.pageKey)" in home
+    assert "highestAdminOnly" not in home
+    assert "sessionUser?.page_keys.includes(item.pageKey)" in home
+    sync = read_source("pages/AdminSyncPage.tsx")
+    assert "disabled={!canManageGlobalSettings || saving}" in sync
+    assert "disabled={!canManageGlobalSettings || runningManual}" in sync
     assert "setSessionUser(response.data)" in home
 
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ApiRequestError,
   correctFinanceStoreSap,
@@ -13,6 +13,7 @@ import { FinanceImportActionPanel } from "../components/FinanceImportActionPanel
 import { SelectField, TextField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import { ResourceNotice } from "../components/ResourceState";
+import { TablePagination } from "../components/TablePagination";
 import { Tabs } from "../components/SelectionControls";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
@@ -45,6 +46,8 @@ export function FinanceStoresPage({ currentUser, searchParams }: FinanceStoresPa
   const [feeDirection, setFeeDirection] = useState<FeeDirection>("PROMOTION");
   const [metricScope, setMetricScope] = useState<BillingMetricScope>("MONTH");
   const [showImport, setShowImport] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [selectedRow, setSelectedRow] = useState<FinanceStoreRow | null>(null);
   const [finalSapCode, setFinalSapCode] = useState("");
   const [changeReason, setChangeReason] = useState("");
@@ -60,17 +63,28 @@ export function FinanceStoresPage({ currentUser, searchParams }: FinanceStoresPa
     metricScope,
     q: query.trim() || undefined,
     sapDiscrepanciesOnly: tab === "sap",
-    pageSize: 50,
   };
   const financeResource = useApiResource(
-    () => fetchFinanceStores(financeQuery),
-    [month, feeDirection, metricScope, query, tab],
+    () => fetchFinanceStores({ ...financeQuery, page, pageSize }),
+    [month, feeDirection, metricScope, query, tab, page, pageSize],
+    { clearOnReload: true },
   );
   const resourceBusy = financeResource.loading || financeResource.refreshing;
   const rows = financeResource.data?.data.list ?? [];
   const sapMetrics = financeResource.data?.data.sapMetrics;
-  const roleContext = currentUser.role === "highest_admin" ? "最高管理员" : "财务管理员";
+  const roleContext = "can_manage_global_settings" in currentUser && currentUser.can_manage_global_settings === true ? "全国范围管理员" : "财务管理员";
   const expectedConfirmedVersion = selectedRow?.confirmedVersion ?? 0;
+  const result = financeResource.data?.data;
+  const pageCount = Math.max(1, Math.ceil((result?.total ?? 0) / pageSize));
+
+  useEffect(() => {
+    setPage(1);
+    setSelectedRow(null);
+  }, [month, feeDirection, metricScope, query, tab, pageSize]);
+
+  useEffect(() => {
+    if (result && !resourceBusy && !financeResource.error && page > pageCount) setPage(pageCount);
+  }, [result, resourceBusy, financeResource.error, page, pageCount]);
 
   const baseColumns: Column<FinanceStoreRow>[] = [
     { key: "storeId", title: "门店ID（所属账户关联poi-id）", minWidth: 230, sticky: true, render: (row) => row.storeId },
@@ -250,6 +264,8 @@ export function FinanceStoresPage({ currentUser, searchParams }: FinanceStoresPa
           <DataTable columns={sapColumns} emptyText="当前筛选下暂无 SAP 差异" rows={rows} state={resourceBusy ? "loading" : financeResource.error ? "error" : "ready"} tableClassName="finance-sap-table" />
         </section>
       )}
+
+      <TablePagination loading={resourceBusy} onPageChange={(nextPage) => { setSelectedRow(null); setPage(nextPage); }} onPageSizeChange={(nextSize) => { setPageSize(nextSize); setPage(1); }} page={result?.page ?? page} pageSize={result?.pageSize ?? pageSize} pageSizeOptions={[20, 50]} rowsOnPage={rows.length} total={result?.total ?? 0} totalPages={pageCount} />
 
       {selectedRow ? (
         <aside className="finance-detail-drawer" aria-label="SAP 差异详情">

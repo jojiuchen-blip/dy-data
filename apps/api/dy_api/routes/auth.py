@@ -66,6 +66,8 @@ def _session_response(auth: AuthContext) -> dict:
         store_scope_mode=auth.store_scope_mode,
         page_keys=list(auth.page_keys),
         is_highest_admin=auth.is_highest_admin,
+        can_manage_accounts=auth.can_manage_accounts,
+        can_manage_global_settings=auth.can_manage_global_settings,
     )
     return {
         "data": dump_model(data),
@@ -81,12 +83,8 @@ def login(
 ):
     user = verify_user_credentials(session, payload.username, payload.password)
     if user is not None:
-        role = "admin" if user.role == "viewer" else user.role
-        scope_mode = (
-            "all"
-            if user.role == "viewer" or role == "highest_admin"
-            else user.store_scope_mode
-        )
+        role = "admin" if user.role in {"highest_admin", "viewer"} else user.role
+        scope_mode = user.store_scope_mode
         auth = AuthContext(
             user_id=user.user_id,
             username=user.username,
@@ -119,11 +117,11 @@ def login(
             user_id=None,
             username=payload.username,
             display_name=payload.username,
-            role="highest_admin",
+            role="admin",
             store_ids=(),
             auth_type="env_admin",
             store_scope_mode="all",
-            page_keys=effective_page_keys(session, None, role="highest_admin") if session is not None else ALL_PAGE_KEYS,
+            page_keys=effective_page_keys(session, None, role="admin") if session is not None else ALL_PAGE_KEYS,
         )
     )
 
