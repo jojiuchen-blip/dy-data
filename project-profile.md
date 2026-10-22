@@ -1,5 +1,5 @@
 <!-- DYDATA-105 current increment: 2026-10-22 -->
-> 当前增量为 DYDATA-105，用户已在调查后确认管理员可新增/变更账号但不能删除，其余按已呈现方案执行。当前 S4 / T0.1：管理员统一、导出响应头修复与线索批量门店筛选；[正式计划](docs/plans/delivery-plans/main-delivery-plan-dydata-105.md)、[看板](docs/plans/delivery-plans/task-kanban-dydata-105.md)、[执行驾驶舱](docs/plans/execution-plan.md)。本轮尚未实现、测试或生产部署。下方其他增量提示和旧日志保留历史事实，不作为当前阶段、部署或授权结论。
+> 当前增量为 DYDATA-105，用户已确认管理员可新增/变更账号但不能删除，其余按已呈现方案执行。当前 S4 / T1.1：A/B/C 实现与定向验证已完成，正在收尾全按钮、全仓及交付证据；[正式计划](docs/plans/delivery-plans/main-delivery-plan-dydata-105.md)、[看板](docs/plans/delivery-plans/task-kanban-dydata-105.md)、[执行驾驶舱](docs/plans/execution-plan.md)、[验证记录](docs/verification/dydata-105-verification.md)。本轮未生产部署，业务接受尚未完成。下方其他增量和旧日志保留历史事实，不作为当前阶段、部署或授权结论。
 
 <!-- DYDATA-104 September recovery: 2026-10-21 -->
 > 当前执行为 S4 / DYDATA-104 T3.1，承接整体业务验收。2026-10-21 九月固定恢复全链成功、30/30，452张待确认账单，两费各10,032.68元，金额差异0及保护指纹一致；T2.1转待验收。八月缺日不恢复，累计门禁保留。既有5da13df1已部署，本轮无应用代码或部署变更。当前入口见 [执行计划](docs/plans/execution-plan.md)，下方旧增量保留为历史。
@@ -22,7 +22,7 @@
 - 项目名称：`【用户确认】 dy-data（抖音经营引擎）`
 - 项目 slug：`【主入口回写】 dy-data`
 - 项目一句话目标：`【用户确认】 面向汽车经销商集团及门店，统一承载抖音经营数据分析、跨店核销与分账复核、线索分配与跟进、后台运营管理，以及数据采集和生产运行。`
-- 当前阶段：`【主入口回写】 S4 DYDATA-105 T0.1 管理员统一、导出修复与批量门店筛选；本轮尚未生产部署`
+- 当前阶段：`【主入口回写】 S4 DYDATA-105 T1.1 全按钮、全仓与交付验证；实现已集成，本轮尚未生产部署`
 - 当前 Linear issue：`【主入口回写】 DYDATA-105 In Progress，Keith 为当前唯一负责人；其他需求保留各自独立验收状态`
 - 协作模式：`【系统推断】 业务单人 + AI执行`
 
