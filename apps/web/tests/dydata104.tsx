@@ -12,12 +12,13 @@ import "../src/styles.css";
 
 const params = new URLSearchParams(location.search);
 const user: AdminUser = { username: "ui104", role: "admin", status: "active",
-  is_initialized: true, store_ids: [], store_scope_mode: "all", page_keys: [] };
+  is_initialized: true, store_ids: [], store_scope_mode: "all", page_keys: [],
+  can_manage_accounts: true, can_manage_global_settings: true };
 const surface = params.get("surface");
 const batches = surface === "drawer" ? (await fetchSkuFeeRuleImports({ pageSize: 10 })).data.list : [];
 const content = surface === "drawer"
-  ? <AdminSkuRuleImportDrawer open batches={batches} initialBatch={batches[0] ?? null} onChanged={async () => {}} onClose={() => {}} />
+  ? <AdminSkuRuleImportDrawer canManageGlobalSettings={user.can_manage_global_settings} open batches={batches} initialBatch={batches[0] ?? null} onChanged={async () => {}} onClose={() => {}} />
   : surface === "governance" ? <AdminSkuGovernancePanel />
-  : surface === "product" ? <AdminProductTypeVisibilityPage />
+  : surface === "product" ? <AdminProductTypeVisibilityPage canManageGlobalSettings={user.can_manage_global_settings} />
   : <DashboardPublicationProvider><StoreSettlementPage currentUser={user} searchParams={params} /></DashboardPublicationProvider>;
 createRoot(document.getElementById("root")!).render(content);
