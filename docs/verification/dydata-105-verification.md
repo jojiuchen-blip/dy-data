@@ -11,6 +11,7 @@
 - 财务费用、门店、异议补齐分页；管理费重复导入只在原发票仍是当前有效版本且内容完全相同时返回无变化，避免重复生成正式发票。
 - 已作废/红冲发票的重新开票候选独立展示，保留当前发票列表与金额口径；财务同查询刷新保留上一完整发布结果及其导出版本。
 - 账号审计按事件发生时的前后范围快照检查；转店前记录和缺少范围的历史记录对受限管理员隐藏，全国管理员保留完整历史，审计不记录密码或哈希。
+- 门店搜索框重新聚焦、输入、选中或卸载时取消旧离焦回调，避免快速重新输入被上次选中项覆盖；正常离焦仍回显当前选择。
 
 ## 已取得的证据
 
@@ -31,10 +32,11 @@
 | 最终按钮与账号集成 | `python -m pytest tests/test_dydata105_remaining_buttons_browser.py tests/test_account_scope_browser.py -q` | 10 passed，56.82 秒；其中新增 6 项真实 API 用例补齐 7 组按钮证据，另 4 项账号选择/导入验证 |
 | 财务 PostgreSQL 并发 | `python scripts/verify_postgres_finance_import_concurrency.py` | 退出 0；一个版本 1 提交成功，另一并发提交返回 VERSION_CONFLICT |
 | 重新开票候选与剩余按钮集成 | `python -m pytest tests/test_dydata105_candidate_scope_browser.py tests/test_dydata105_remaining_buttons_browser.py -q` | 9 passed，68.07 秒；门店 A 到 B 的真实候选请求延迟时清除 A，正常响应仅 B；401/403 为明确错误注入，成功响应均来自真实 API，业务计数与金额不变 |
-| Web 构建 | `npm --prefix apps/web run build` | 退出 0，7.77 秒（重新开票入口修复后）；存在既有的打包块大于 500 kB 提示 |
+| 结算范围连续性与角色边界 | `python -m pytest tests/test_settlement_scope_continuity.py -q` | 25 passed，18.01 秒；全国管理员可停用并幂等重试，受限管理员/门店/匿名被拒且无业务写入；原月份延续和冻结账单断言保留 |
+| Web 构建 | `npm --prefix apps/web run build` | 退出 0，9.88 秒（源码 `c9213fe`，含重新开票范围、门店搜索框及错误提示优先级修复）；后续仅测试/文档变更。存在既有的打包块大于 500 kB 提示 |
 | 治理套包 | `npm --prefix .agent/project-manager-suite run test:ai-pm` | 122 passed；锁定 suite 2.0.1、协议与全局文件门禁通过 |
 
-全仓 pytest 和 PR/CI 结果在收尾时追加，未记录的结果不视为通过。[财务按钮台账](dydata-105-buttons.md) 逐项区分真实 API、mock 和页面无此入口；231 条动作记录不是独立按钮数或覆盖率。原 7 组待补证交互已由新增真实 API 用例覆盖。
+最终集成补证：七个浏览器模块 **91 passed，245.61 秒**；接口/迁移等九模块 **225 passed，557.81 秒**；错误提示修正后六组浏览器 **43 passed，279.47 秒**；筛选布局/线索分页 **9 passed，16.68 秒**。各组合可能重叠，均无失败或跳过。[财务按钮台账](dydata-105-buttons.md) 逐项区分真实 API、mock 和页面无此入口；231 条动作记录不是独立按钮数或覆盖率。原 7 组待补证交互已由新增真实 API 用例覆盖。
 
 合成截图：[受限管理员权限](../../pwScreenShot/dydata105/admin-scoped-permissions.png)、[管理员规则发布](../../pwScreenShot/dydata105/admin-rule-published.png)、[线索桌面批量筛选](../../pwScreenShot/dydata105/clue-bulk-1440.png)、[手机批量输入超限反馈](../../pwScreenShot/dydata105/clue-bulk-390.png)。
 
@@ -46,9 +48,20 @@
 
 首次全仓测试使用系统 Python 时被用户目录中已安装的同名 `tests` 包遮蔽，8 项在收集阶段报错；切换独立虚拟环境后收集恢复。一次中间全仓运行在合并最后测试修正前主动停止，不能计为通过。完整结果以最终运行记录为准。
 
+## 完整扫描与失败复验
+
+19:05 启动的完整扫描运行至 20:08：**4496 项，4167 passed、34 failed、295 skipped，3785.69 秒，退出 1**。进程启动时的 Python 测试夹具在运行期间没有重新导入；期间修复的功能和测试由后续独立进程验证，不能把此记录改称全仓绿色。
+
+失败分为已确认需求导致的旧角色/能力夹具与断言、旧迁移用例未固定目标版本、页面分页/两行筛选的旧断言，以及回归中确认的财务旧发布结果隐藏、门店搜索框过期回调和错误提示优先级。规则冲突用例改为核对真实 409、稳定错误码、页面业务消息及冲突后仍只有一个业务版本，不再依赖旧通用文案。受限范围拒绝和拒绝后零写入断言保留并加强。
+
+295 个跳过项：283 个未在完整扫描进程启用的 PostgreSQL 专项、4 个 opt-in Nginx、2 个镜像运行检查、4 个规模测试、2 个 Windows 平台条件。与本需求直接相关的真实 PG、Nginx 已独立执行，见上表；未执行的其他可选测试不计为通过。
+
+原 34 个失败映射到当前 32 个完整测试函数（包含重命名、额外范围负向和全国管理员正向），在代码 `4c4c85d` 统一复验：**69 passed，0 failed / error / skipped，188.72 秒，退出 0**。全部原失败均有对应验证，记录为完整扫描后修复与复验，不声称一次全仓全绿。Linear 已转 In Review；草稿 PR 的最终 CI 待审核，生产未部署。
+
 ## 交付与剩余事项
 
 - Foundation 变更已记录在 [契约回捞请求](../plans/foundation-plans/foundation-change-requests-dydata-105.md)，当前运行合同同步至 [API 契约](../api-contract.md)。历史 Foundation 不作为本轮已同步完成的证据。
 - 按钮证据需标明真实 API / 浏览器、mock、未测或页面本无入口；不能以组件存在或一次点击代替数据结果。
 - 链接索引命令退出 0、mode=noop，但诊断仍有 33 个既有历史断链和 4 个 PNG 不入索引造成的误报；4 个本轮截图文件均实际存在，不将此报告说成全库链接零问题。
+- 0064 会撤销旧管理员凭据；部署需同步前后端并完成正常备份门禁。有账号迁移历史时禁止自动 downgrade，回滚需审阅备份恢复方案。
 - 生产迁移、部署、上线核验及业务接受仍未执行；DYDATA-105 在这些条件完成前不关闭。

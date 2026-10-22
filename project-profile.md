@@ -1,5 +1,5 @@
 <!-- DYDATA-105 current increment: 2026-10-22 -->
-> 当前增量为 DYDATA-105，用户已确认管理员可新增/变更账号但不能删除，其余按已呈现方案执行。当前 S4 / T1.1：A/B/C 实现与定向验证已完成，正在收尾全按钮、全仓及交付证据；[正式计划](docs/plans/delivery-plans/main-delivery-plan-dydata-105.md)、[看板](docs/plans/delivery-plans/task-kanban-dydata-105.md)、[执行驾驶舱](docs/plans/execution-plan.md)、[验证记录](docs/verification/dydata-105-verification.md)。本轮未生产部署，业务接受尚未完成。下方其他增量和旧日志保留历史事实，不作为当前阶段、部署或授权结论。
+> 当前增量为 DYDATA-105，用户已确认管理员可新增/变更账号但不能删除，其余按已呈现方案执行。当前 S4 / T1.1：A/B/C 实现与定向验证已完成，本地完整扫描及全部失败复验已记录，进入草稿PR/CI和业务审核；[正式计划](docs/plans/delivery-plans/main-delivery-plan-dydata-105.md)、[看板](docs/plans/delivery-plans/task-kanban-dydata-105.md)、[执行驾驶舱](docs/plans/execution-plan.md)、[验证记录](docs/verification/dydata-105-verification.md)。本轮未生产部署，业务接受尚未完成。下方其他增量和旧日志保留历史事实，不作为当前阶段、部署或授权结论。
 
 <!-- DYDATA-104 September recovery: 2026-10-21 -->
 > 当前执行为 S4 / DYDATA-104 T3.1，承接整体业务验收。2026-10-21 九月固定恢复全链成功、30/30，452张待确认账单，两费各10,032.68元，金额差异0及保护指纹一致；T2.1转待验收。八月缺日不恢复，累计门禁保留。既有5da13df1已部署，本轮无应用代码或部署变更。当前入口见 [执行计划](docs/plans/execution-plan.md)，下方旧增量保留为历史。
@@ -22,8 +22,8 @@
 - 项目名称：`【用户确认】 dy-data（抖音经营引擎）`
 - 项目 slug：`【主入口回写】 dy-data`
 - 项目一句话目标：`【用户确认】 面向汽车经销商集团及门店，统一承载抖音经营数据分析、跨店核销与分账复核、线索分配与跟进、后台运营管理，以及数据采集和生产运行。`
-- 当前阶段：`【主入口回写】 S4 DYDATA-105 T1.1 全按钮、全仓与交付验证；实现已集成，本轮尚未生产部署`
-- 当前 Linear issue：`【主入口回写】 DYDATA-105 In Progress，Keith 为当前唯一负责人；其他需求保留各自独立验收状态`
+- 当前阶段：`【主入口回写】 S4 DYDATA-105 T1.1 审核与交付验证；本地实现及失败复验完成，CI/业务审核待完成，未生产部署`
+- 当前 Linear issue：`【主入口回写】 DYDATA-105 In Review，Keith 为当前唯一负责人；其他需求保留各自独立验收状态`
 - 协作模式：`【系统推断】 业务单人 + AI执行`
 
 ## 2. 身份识别
@@ -113,7 +113,7 @@
 
 - 当前最适合进入的阶段：`【主入口回写】 S4，正式计划结构与状态一致性通过后进入 coding-standards`
 - 当前轮应输出的交付物：`【主入口回写】 DYDATA-105 A/B/C 集成代码、定向测试与全按钮验收证据；计划见 docs/plans/delivery-plans/main-delivery-plan-dydata-105.md`
-- 当前最大不确定项：`【主入口回写】 原管理员发布失败场景仍需候选复现；全按钮、真实代理/PG 和最终文件内容验证尚未执行，不能以历史 CI 替代`
+- 当前最大不确定项：`【主入口回写】 原管理员发布失败反馈仍未复现；本轮按钮、真实代理/PG和下载内容已有证据，完整扫描后全部失败复验通过；最终CI、发布和业务接受待完成`
 - 当前任务执行主体：`【主入口回写】 当前 Codex 主线程独占 DYDATA-105 方案与集成，worker 只在隔离写集执行，Keith 审核业务结果`
 
 ## 9. 待确认

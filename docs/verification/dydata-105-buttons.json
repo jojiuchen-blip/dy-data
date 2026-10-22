@@ -6694,5 +6694,41 @@
     "status_recovery_fix": "e038295",
     "success_response_mocked": false,
     "status_pagination_limit": "The DB enforces one current allocation per store and statement month. The real page fixes one month (or exact unique invoice number), so this real test verifies the one-page disabled state, native invalid-page rejection and page-one jump; it does not invent multiple current allocations or claim a real multipage status scenario."
+  },
+  "integration_verification": {
+    "code_commit": "35b6108",
+    "source_sha256": {
+      "tests/test_dydata105_buttons_browser.py": "0c157399a83cf1c942c83d39529a05f04727fdaa77e225398a45e351e93c5118",
+      "tests/test_dydata105_finance_pagination_browser.py": "44f845f20c9d6086b1c78b2634558d232d7f923dc426ec8a732b68e9b664c7ac",
+      "tests/test_finance_export_browser.py": "00ce883a1278a10fa53e764f157cdea3ac28c66f9d98b9e31bbeb5de51d5147c",
+      "tests/test_dydata105_remaining_buttons_browser.py": "1b5991051f4bbef95ee51235d18d64cfbed01fd26de1d853ecae250fe4fe1f5e",
+      "tests/test_dydata105_candidate_scope_browser.py": "747235f7e98470d6491cd7f4da42dc6dd9a7c2622d7a9c899314f7004b15e936",
+      "tests/test_dydata104_ui_browser.py": "cce53d5bcddf1eb32ae3306b9dd5a2d553c5e9c258a8ad0a9978b02307977f36",
+      "tests/test_clue_bulk_filter_browser.py": "66ac171c95984182cf783c1cb2a2b076af3ab9b8654d885a0ce3dcb790f67eea",
+      "apps/web/src/components/SearchableStoreSelect.tsx": "ef00dad267c41714520378323a833cc9f8519448d8d4362084a9eaea23f190ae"
+    },
+    "report": {
+      "path": "logs/dydata105/final-browser.xml",
+      "tests": 91,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "duration_seconds": 245.586,
+      "exit_code": 0
+    },
+    "scope": "Seven browser modules including finance, settlement, downloads, replacement candidates, DYDATA-104 and mobile/desktop clue filters. Full-suite and later focused error-message reruns are recorded separately in dydata-105-verification.md.",
+    "production_touched": false,
+    "failure_recheck": {
+      "code_commit": "4c4c85d",
+      "original_failed_cases": 34,
+      "current_functions": 32,
+      "report": "logs/dydata105/all-failures-rechecked.xml",
+      "tests": 69,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "duration_seconds": 188.72,
+      "exit_code": 0
+    }
   }
 }
