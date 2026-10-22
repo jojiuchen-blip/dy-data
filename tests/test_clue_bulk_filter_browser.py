@@ -3,7 +3,7 @@ import csv
 import io
 from datetime import datetime, timezone
 from threading import Thread
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import uvicorn
@@ -136,6 +136,69 @@ def test_bulk_name_merge_pagination_export_remove_clear_and_zero(browser, vite_r
         expect(page.locator(".result-count")).to_have_text("共 0 条")
         page.screenshot(path=str(tmp_path / f"bulk-filters-{width}.png"), full_page=True)
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
+        assert commits == []
+        assert errors == []
+    finally:
+        page.unroute_all(behavior="wait")
+        context.close()
+
+
+def test_mobile_collapsed_store_summary_keeps_zero_selection_and_clears_to_unfiltered(
+    browser, vite_real_api_base_url, bulk_backend,
+):
+    base, _requests, commits = bulk_backend
+    context = browser.new_context(viewport={"width": 390, "height": 844})
+    page = context.new_page()
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+
+    def forward(route):
+        parts = urlsplit(route.request.url)
+        route.fulfill(response=route.fetch(url=base + parts.path + ("?" + parts.query if parts.query else "")))
+
+    page.route("**/api/v1/**", forward)
+    summary = page.locator(".clue-filter-mobile-summary")
+
+    def clear_summary(label):
+        with page.expect_request(lambda request: urlsplit(request.url).path.endswith("/clues/assignment-rounds")) as cleared:
+            summary.get_by_role("button", name=label, exact=True).click()
+        assert cleared.value.method == "GET"
+        assert not {"assigned_store_ids", "assigned_store_id"} & parse_qs(urlsplit(cleared.value.url).query).keys()
+        expect(page.locator(".result-count")).to_have_text("共 26 条")
+        expect(page.get_by_role("spinbutton", name="输入页码")).to_have_value("1")
+        expect(summary.locator(".clue-filter-chips")).to_have_count(0)
+
+    try:
+        page.goto(vite_real_api_base_url + "/clues/details?product_type=all")
+        expect(page.locator(".result-count")).to_have_text("共 26 条")
+        page.locator(".clue-filter-toggle").click()
+        picker = page.get_by_placeholder("搜索门店名称并多选")
+        picker.fill("Store Two")
+        page.get_by_role("option", name="Store Two", exact=True).click()
+        expect(page.locator(".result-count")).to_have_text("共 1 条")
+        page.get_by_role("button", name="收起筛选", exact=True).click()
+        expect(summary.get_by_role("button", name="门店：1家", exact=True)).to_be_visible()
+        expect(page.locator(".clue-filter-toggle")).to_have_text("筛选 (1)")
+
+        page.locator(".clue-filter-toggle").click()
+        page.get_by_role("button", name="批量粘贴 ID", exact=True).click()
+        page.get_by_label("所属账户 ID / 门店位置编号（POI ID）").fill("222")
+        page.get_by_role("button", name="解析并加入筛选").click()
+        expect(page.locator(".result-count")).to_have_text("共 26 条")
+        page.get_by_role("button", name="收起筛选", exact=True).click()
+        page.get_by_role("button", name="下一页", exact=True).click()
+        expect(page.get_by_role("spinbutton", name="输入页码")).to_have_value("2")
+        clear_summary("门店：2家")
+
+        page.locator(".clue-filter-toggle").click()
+        page.get_by_role("button", name="批量粘贴 ID", exact=True).click()
+        page.get_by_label("所属账户 ID / 门店位置编号（POI ID）").fill("missing-only")
+        page.get_by_role("button", name="解析并加入筛选").click()
+        expect(page.locator(".result-count")).to_have_text("共 0 条")
+        page.get_by_role("button", name="收起筛选", exact=True).click()
+        expect(summary.get_by_role("button", name="门店：无匹配", exact=True)).to_be_visible()
+        expect(page.locator(".clue-filter-toggle")).to_have_text("筛选 (1)")
+        clear_summary("门店：无匹配")
         assert commits == []
         assert errors == []
     finally:

@@ -84,6 +84,7 @@ type ClueFilterKey =
   | "province"
   | "city"
   | "assignedStoreId"
+  | "selectedStores"
   | "assignedDateStart"
   | "assignedDateEnd"
   | "storeDisplayStatus"
@@ -508,6 +509,9 @@ export function ClueCenterPage({
 
   const activeFilterChips: ActiveClueFilter[] = useMemo(() => {
     const chips: ActiveClueFilter[] = [];
+    if (isDetailsView && selectedStores !== null) {
+      chips.push({ key: "selectedStores", label: "门店", value: selectedStores.length ? `${selectedStores.length}家` : "无匹配" });
+    }
     if (isDetailsView && orgKey) {
       chips.push({key: "organization", label: "组织", value: orgResource.data?.data.options.find(item => item.value === orgKey)?.label ?? orgKey});
     }
@@ -556,6 +560,7 @@ export function ClueCenterPage({
     }
     return chips;
   }, [
+    selectedStores,
     activeProductType,
     selfStoreVerified,
     isDetailsView, orgKey, orgResource.data,
@@ -1013,6 +1018,8 @@ export function ClueCenterPage({
       setCity("");
     } else if (key === "assignedStoreId") {
       setAssignedStoreId("");
+    } else if (key === "selectedStores") {
+      setSelectedStores(null);
     } else if (key === "assignedDateStart") {
       setAssignedDateStart("");
     } else if (key === "assignedDateEnd") {
