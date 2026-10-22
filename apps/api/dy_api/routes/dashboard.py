@@ -21,6 +21,7 @@ from sqlalchemy.orm import sessionmaker
 
 from dy_api.auth import AuthContext, get_current_user
 from dy_api.db import get_session_factory
+from dy_api.export_metadata import export_filter_header
 from dy_api.routes._data import (
     ReportingPermissionError,
     ReportingValidationError,
@@ -4752,7 +4753,7 @@ def export_admin_finance_order_details(
         headers={
             "Content-Disposition": f"attachment; filename*=UTF-8''{filename}",
             "X-Export-Generated-At": generated,
-            "X-Export-Filters": json.dumps(audit_filters, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+            "X-Export-Filters": export_filter_header(audit_filters),
             "X-Request-ID": request_id(request),
             "X-Export-Result": export_result,
         },
@@ -5566,6 +5567,15 @@ def export_admin_finance_sap_discrepancies(
         q=q,
         scope_store_ids=_finance_scope_store_ids(current_user),
     )
+    # The candidate query uses limit + 1. Filtering that partial set first
+    # would silently hide differences in the rest of the authorized stores.
+    if len(all_items) > MAX_FINANCE_ORDER_EXPORT_ROWS:
+        _raise_reporting_error(
+            request,
+            status.HTTP_413_CONTENT_TOO_LARGE,
+            "EXPORT_LIMIT_EXCEEDED",
+            f"参与差异检查的门店超过 {MAX_FINANCE_ORDER_EXPORT_ROWS} 家，请缩小筛选范围",
+        )
     items = [
         item
         for item in all_items
@@ -6604,7 +6614,7 @@ def _require_finance_import_batch_scope(
 
 
 def _finance_operator_role(current_user: AuthContext) -> int:
-    if current_user.role == "highest_admin":
+    if current_user.is_admin and current_user.has_global_data_access:
         return 3
     if current_user.is_admin:
         return 2
@@ -7000,17 +7010,6 @@ def _validate_final_finance_import_row(
     invoice_date = parse_date("invoiceDate")
     deduction_date = parse_date("deductionDate")
     deduction_amount, amount_valid = parse_positive_cent("deductionAmountCent")
-    _append_management_amount_errors(
-        session,
-        errors=errors,
-        row_number=row_number,
-        business_key=business_key,
-        store_id=store_id,
-        statement_month=statement_month,
-        amount_text=str(deduction_amount or ""),
-        amount_cent=deduction_amount or 0,
-        amount_is_valid=amount_valid,
-    )
     normalized_payload.update(
         {
             "storeId": store_id,
@@ -7021,7 +7020,41 @@ def _validate_final_finance_import_row(
             "deductionAmountCent": deduction_amount,
         }
     )
+    # An identical, still-current imported result is a valid no-op. Validate
+    # syntax and scope as usual, but do not reject the invoice it created.
+    if not _management_import_payload_is_current(session, normalized_payload):
+        _append_management_amount_errors(
+            session,
+            errors=errors,
+            row_number=row_number,
+            business_key=business_key,
+            store_id=store_id,
+            statement_month=statement_month,
+            amount_text=str(deduction_amount or ""),
+            amount_cent=deduction_amount or 0,
+            amount_is_valid=amount_valid,
+        )
     return business_key, normalized_payload, errors
+
+
+def _management_import_payload_is_current(session, payload: dict) -> bool:
+    """Recognize an exact imported row only while its invoice remains current."""
+    current_row = session.scalar(
+        select(FinanceImportRow)
+        .join(InvoiceRecord, InvoiceRecord.invoice_id == FinanceImportRow.target_record_id)
+        .join(FinanceImportBatch, FinanceImportBatch.batch_id == FinanceImportRow.batch_id)
+        .where(
+            InvoiceRecord.store_id == payload.get("storeId"),
+            InvoiceRecord.statement_month == payload.get("statementMonth"),
+            InvoiceRecord.fee_direction == 2,
+            InvoiceRecord.is_current.is_(True),
+            InvoiceRecord.import_batch_id == FinanceImportRow.batch_id,
+            FinanceImportBatch.import_type == FINANCE_IMPORT_TYPE_TO_DB["MANAGEMENT_FACTORY_RESULT"],
+            FinanceImportBatch.batch_status.in_((5, 8)),
+            FinanceImportRow.row_status == 5,
+        )
+    )
+    return current_row is not None and current_row.normalized_payload == payload
 
 
 def _validate_finance_import_row(
