@@ -5,3 +5,14 @@
 .clue-store-filter__selected { max-height: 12rem; overflow-y: auto; margin-block-start: var(--space-2); }
 .clue-store-filter__selected > span { width: 100%; }
 .clue-store-filter__unmatched { overflow-wrap: anywhere; }
+.clue-store-filter__selected .ui-filter-chip { max-width: 100%; white-space: normal; text-align: start; }
+.clue-store-filter__selected .ui-filter-chip > span { min-width: 0; overflow-wrap: anywhere; }
+@media (min-width: 768px) {
+  .clue-filter-bar > .clue-store-filter-field { grid-column: span 2; }
+}
+@media (min-width: 1380px) {
+  .clue-filter-bar:has(> .clue-store-filter-field) {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}

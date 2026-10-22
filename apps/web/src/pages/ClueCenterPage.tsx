@@ -1295,7 +1295,7 @@ export function ClueCenterPage({
                 }}
               />
             </FilterField>
-            <div className="filter-field" role="group" aria-label="门店筛选">
+            <div className={`filter-field${isDetailsView ? " clue-store-filter-field" : ""}`} role="group" aria-label="门店筛选">
               <span>门店</span>
               {isDetailsView ? <ClueStoreFilter selection={selectedStores} options={storeOptions}
                 loading={storeOptionsResource.loading} scopeKey={currentUser.user_id ?? currentUser.username} resetKey={storeFilterResetKey}

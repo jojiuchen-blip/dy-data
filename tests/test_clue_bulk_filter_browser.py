@@ -101,6 +101,11 @@ def test_bulk_name_merge_pagination_export_remove_clear_and_zero(browser, vite_r
         expect(page.locator(".clue-store-filter [role=status]")).to_contain_text("重复 1 项")
         expect(page.locator(".clue-store-filter__selected")).to_contain_text("已选 2 家")
         expect(page.locator(".result-count")).to_have_text("共 26 条")
+        assert page.locator(".clue-store-filter__selected").evaluate(
+            "element => element.scrollWidth <= element.clientWidth + 1"
+        )
+        if width >= 1380:
+            assert page.locator(".clue-store-filter").bounding_box()["width"] >= 240
         page.screenshot(path=str(tmp_path / f"bulk-applied-{width}.png"), full_page=True)
         page.get_by_role("button", name="下一页", exact=True).click()
         expect(page.get_by_role("spinbutton", name="输入页码")).to_have_value("2")
