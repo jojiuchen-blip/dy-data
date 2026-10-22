@@ -28,7 +28,7 @@ import { DataTable, type Column } from "../components/DataTable";
 import { Dialog } from "../components/Dialog";
 import { GuidedTour } from "../components/GuidedTour";
 import { FilterBar, FilterField } from "../components/Filters";
-import { FieldInput, FieldTextarea, SelectField } from "../components/FormControls";
+import { CheckboxField, FieldInput, FieldTextarea, SelectField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import {
   ResourceNotice,
@@ -86,6 +86,7 @@ type ClueFilterKey =
   | "assignedDateStart"
   | "assignedDateEnd"
   | "storeDisplayStatus"
+  | "selfStoreVerified"
   | "productType"
   | "organization";
 
@@ -341,6 +342,11 @@ function currentDetailRound(
   );
 }
 
+function verificationStoreText(row: ClueAssignmentRound): string {
+  return row.verified_store_name?.trim() || row.verified_store_id?.trim() ||
+    (row.verified_at || getStoreDisplayStatus(row) === "已核销" ? "核销门店待同步" : "未核销");
+}
+
 function recordsForRound(
   detail: ClueOrderDetail,
   assignmentRoundId: string,
@@ -395,6 +401,9 @@ export function ClueCenterPage({
     searchParams.get("product_type") ?? "",
   );
   const [page, setPage] = useState(1);
+  const [selfStoreVerified, setSelfStoreVerified] = useState(
+    searchParams.get("verification_status") === "self_store_verified",
+  );
   const [pageSize, setPageSize] = useState(DEFAULT_CLUE_PAGE_SIZE);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [selectedRound, setSelectedRound] = useState<ClueAssignmentRound | null>(
@@ -470,6 +479,7 @@ export function ClueCenterPage({
       assigned_date_end: assignedDateEnd,
       store_display_status: storeDisplayStatus,
       product_type: activeProductType,
+      verification_status: isDetailsView && selfStoreVerified ? "self_store_verified" : "",
       org_level: isDetailsView ? orgLevel : "all",
       org_key: isDetailsView ? orgKey : "",
       province: showStoreLocationFilters ? province : "",
@@ -480,6 +490,7 @@ export function ClueCenterPage({
       assignedDateEnd,
       assignedDateStart,
       activeProductType,
+      selfStoreVerified,
       orgLevel, orgKey, isDetailsView,
       city,
       province,
@@ -530,12 +541,16 @@ export function ClueCenterPage({
         value: storeDisplayStatus,
       });
     }
+    if (isDetailsView && selfStoreVerified) {
+      chips.push({ key: "selfStoreVerified", label: "核销", value: "仅看自店核销" });
+    }
     if (activeProductType && activeProductType !== "all") {
       chips.push({ key: "productType", label: "商品", value: ({jingcheng: "精诚养车", byd: "比亚迪本品"} as Record<string, string>)[activeProductType] ?? activeProductType });
     }
     return chips;
   }, [
     activeProductType,
+    selfStoreVerified,
     isDetailsView, orgKey, orgResource.data,
     assignedDateEnd,
     assignedDateStart,
@@ -556,6 +571,7 @@ export function ClueCenterPage({
       city,
       page,
       pageSize,
+      selfStoreVerified,
       activeProductType,
       orgLevel, orgKey, isDetailsView,
       province,
@@ -971,6 +987,7 @@ export function ClueCenterPage({
     setAssignedDateStart("");
     setAssignedDateEnd("");
     setStoreDisplayStatus("");
+    setSelfStoreVerified(false);
     setProductType("");
     setPage(1);
   };
@@ -992,6 +1009,8 @@ export function ClueCenterPage({
       setAssignedDateEnd("");
     } else if (key === "storeDisplayStatus") {
       setStoreDisplayStatus("");
+    } else if (key === "selfStoreVerified") {
+      setSelfStoreVerified(false);
     } else if (key === "productType") {
       setProductType("all");
     }
@@ -1092,6 +1111,12 @@ export function ClueCenterPage({
         const status = getStoreDisplayStatus(row);
         return <StatusChip tone={clueStatusTone(status)}>{status}</StatusChip>;
       },
+    },
+    {
+      key: "verified_store_name",
+      title: "核销门店",
+      minWidth: 200,
+      render: (row) => verificationStoreText(row),
     },
     {
       key: "round_no",
@@ -1328,6 +1353,17 @@ export function ClueCenterPage({
           options={[{value: "all", label: "全部商品"}, {value: "jingcheng", label: "精诚养车"}, {value: "byd", label: "比亚迪本品"}]}
           value={activeProductType}
         />
+        {isDetailsView && (
+          <CheckboxField
+            label="仅看自店核销"
+            description="核销门店与本轮分配门店相同"
+            checked={selfStoreVerified}
+            onChange={(event) => {
+              setSelfStoreVerified(event.target.checked);
+              setPage(1);
+            }}
+          />
+        )}
         <Button onClick={resetFilters} type="button">
           清空筛选
         </Button>
@@ -1451,6 +1487,10 @@ export function ClueCenterPage({
                           <span>{displayValue(row.product_type)}</span>
                         </div>
                         <dl className="clue-card__meta">
+                          <div>
+                            <dt>核销门店</dt>
+                            <dd>{verificationStoreText(row)}</dd>
+                          </div>
                           <div>
                             <dt>最近跟进</dt>
                             <dd>{formatDateTime(row.followed_at)}</dd>
@@ -1692,6 +1732,10 @@ export function ClueCenterPage({
                         <div>
                           <dt>核销状态</dt>
                           <dd>{detailVerificationStatus}</dd>
+                        </div>
+                        <div>
+                          <dt>核销门店</dt>
+                          <dd>{activeDetailRound ? verificationStoreText(activeDetailRound) : "-"}</dd>
                         </div>
                       </dl>
                     </section>

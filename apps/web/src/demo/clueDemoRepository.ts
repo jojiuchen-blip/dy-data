@@ -1454,6 +1454,10 @@ export class ClueDemoRepository {
       if (filters.lead_status && round.lead_status !== filters.lead_status) {
         return false;
       }
+      if (filters.verification_status === "self_store_verified" &&
+          (!round.verified_at || !round.is_self_store_verified)) {
+        return false;
+      }
       if (
         filters.store_display_status &&
         round.store_display_status !== filters.store_display_status

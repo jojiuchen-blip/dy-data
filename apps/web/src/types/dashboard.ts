@@ -1372,6 +1372,7 @@ export interface OrderDetailsData {
 }
 
 export interface ClueOverviewFilters {
+  verification_status?: "" | "self_store_verified";
   org_level?: string;
   org_key?: string;
   assigned_store_id?: string;

@@ -142,6 +142,7 @@ def test_clue_center_list_field_order_and_removed_internal_fields() -> None:
         [
             'title: "联系方式"',
             'title: "线索状态"',
+            'title: "核销门店"',
             'title: "分配轮次"',
             'title: "本轮跟进时间"',
             'title: "商品名称"',
@@ -155,7 +156,6 @@ def test_clue_center_list_field_order_and_removed_internal_fields() -> None:
         "线索轮次ID",
         "当前轮次",
         "距离再分配剩余时间",
-        "自店核销",
         "轮次状态",
         "再分配时间",
     ]:
@@ -195,7 +195,8 @@ def test_clue_center_does_not_display_douyin_follow_store_as_our_assignment() ->
     source = read_source("pages/ClueCenterPage.tsx")
 
     assert "线索当前归属" not in source
-    assert "分配门店" not in source
+    assert 'title: "分配门店"' not in source
+    assert '<dt>分配门店</dt>' not in source
     assert "归属门店" not in source
     assert "current_assigned_store_name" not in source
 
@@ -814,7 +815,8 @@ def test_detail_filters_use_compact_single_row_desktop_contract() -> None:
     assert "detail-filter-bar--secondary" not in order_details_source
     assert ".clue-filter-bar" in desktop_density_rules
     assert ".detail-filter-bar--single-line" in desktop_density_rules
-    assert "minmax(92px, 0.55fr)" in desktop_density_rules
+    assert "grid-auto-flow: column;" in desktop_density_rules
+    assert "grid-auto-columns: minmax(0, 1fr);" in desktop_density_rules
     assert ".clue-filter-bar,\n  .clue-rule-grid {\n    grid-template-columns: 1fr;" in mobile_rules
 
 
