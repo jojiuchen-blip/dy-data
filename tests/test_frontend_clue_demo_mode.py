@@ -28,7 +28,9 @@ def test_demo_mode_requires_dev_and_explicit_flag() -> None:
     assert 'VITE_DEMO_MODE === "true"' in source
     assert "CLUE_DEMO_MODE" in source
     assert 'user_id: "DEMO-USER-ADMIN"' in source
-    assert 'role: "highest_admin"' in source
+    assert 'role: "admin"' in source
+    assert 'can_manage_accounts: true' in source
+    assert 'can_manage_global_settings: true' in source
     assert 'store_scope_mode: "all"' in source
     assert "page_keys: [" in source
     assert '"A01"' in source
@@ -36,7 +38,7 @@ def test_demo_mode_requires_dev_and_explicit_flag() -> None:
     assert '"B01"' not in source
     assert '"C01"' not in source
     assert '"D01"' not in source
-    assert 'display_name: "演示最高管理员"' in source
+    assert 'display_name: "演示管理员"' in source
     assert package["scripts"]["dev:demo"] == "vite --host 127.0.0.1 --mode demo"
     assert "VITE_DEMO_MODE=true" in demo_env
     assert "VITE_USE_MOCKS=true" in demo_env

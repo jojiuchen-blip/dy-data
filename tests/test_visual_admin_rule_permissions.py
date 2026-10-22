@@ -19,6 +19,7 @@ from test_visual_smoke import (
 from dy_api.main import create_app
 from dy_api.models import Base, DimStore, User, UserStoreScope
 from dy_api.auth import hash_password_pbkdf2
+from dy_api.access_control import ensure_access_control_seed
 from dy_api.routes._data import get_session_dependency
 
 
@@ -49,6 +50,9 @@ def rule_api(monkeypatch: pytest.MonkeyPatch, tmp_path):
     # Only uvicorn owns the application lifespan; the MCP manager is single-use.
     client = TestClient(app)
     with factory() as session:
+        # A migrated installation has this catalog before parallel page reads.
+        ensure_access_control_seed(session)
+        session.commit()
         _seed_sku(session, "SKU-PERMISSION-BROWSER", "权限浏览器测试商品")
         _login_rule_operator(client, session)
         session.add_all([
@@ -210,5 +214,75 @@ def test_legacy_alias_preserves_filters_and_fragment(
         suffix = "?store_id=store-1&month=2026-08&context=keep%2Fvalue#receipt"
         page.goto(f"{rule_web}{alias}{suffix}", wait_until="domcontentloaded")
         expect(page).to_have_url(f"{rule_web}{canonical}{suffix}")
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("username,global_scope", [
+    ("rule-operator", True), ("scoped-rule-operator", False),
+])
+def test_admin_creates_updates_store_account_and_sees_fixed_role_matrix(
+    browser: Browser, rule_api: str, rule_web: str, username: str, global_scope: bool,
+) -> None:
+    """Use the real account writes, reloads and scope-filtered directory."""
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    try:
+        assert context.request.post(f"{rule_api}/api/v1/auth/login", data={
+            "username": username, "password": "isolated-password",
+        }).status == 200
+        page = context.new_page()
+        page.goto(f"{rule_web}/admin/accounts", wait_until="domcontentloaded")
+        expect(page.get_by_role("heading", name="新建账号", exact=True)).to_be_visible()
+        expect(page.get_by_role("heading", name="批量开通账号", exact=True)).to_be_visible()
+        expect(page.get_by_role("button", name="删除账号", exact=True)).to_have_count(0)
+        page.get_by_label("角色", exact=True).click()
+        expect(page.get_by_role("option", name="管理员", exact=True)).to_have_count(1 if global_scope else 0)
+        expect(page.get_by_role("option", name="最高管理员", exact=True)).to_have_count(0)
+        page.keyboard.press("Escape")
+        page.get_by_role("button", name="门店权限 · 已选 0 家", exact=True).click()
+        dialog = page.get_by_role("dialog", name="选择门店权限")
+        dialog.locator(".account-scope-row input").check()
+        dialog.get_by_role("button", name="完成选择（1 家）", exact=True).click()
+        page.get_by_label("显示名称", exact=True).fill("隔离账号新增")
+        page.get_by_label("所属账户编号", exact=True).fill(f"new-{username}")
+        page.get_by_label("密码", exact=True).fill("AccountTest123!")
+        page.get_by_label("确认密码", exact=True).fill("AccountTest123!")
+        page.locator("form.account-form button[type=submit]").click()
+        with page.expect_response(lambda response: response.url.endswith("/admin/accounts") and response.request.method == "POST") as created:
+            page.get_by_role("button", name="确认创建", exact=True).click()
+        assert created.value.status == 200, created.value.text()
+        account = created.value.json()["data"]
+        assert account["role"] == "store"
+        assert [store["store_id"] for store in account["stores"]] == ["store-1"]
+        expect(page.get_by_text("账号已创建。", exact=True)).to_be_visible()
+        page.get_by_label("显示名称", exact=True).fill("隔离账号已变更")
+        with page.expect_response(lambda response: response.url.endswith(f"/admin/accounts/{account['user_id']}") and response.request.method == "PUT") as updated:
+            page.get_by_role("button", name="保存账号", exact=True).click()
+        assert updated.value.status == 200, updated.value.text()
+        rows = context.request.get(f"{rule_api}/api/v1/admin/accounts").json()["data"]["rows"]
+        assert next(row for row in rows if row["user_id"] == account["user_id"])["display_name"] == "隔离账号已变更"
+        page.reload(wait_until="domcontentloaded")
+        expect(page.get_by_role("cell").get_by_text("隔离账号已变更", exact=True)).to_be_visible()
+        expect(page.get_by_role("button", name="删除账号", exact=True)).to_have_count(0)
+        page.get_by_role("tab", name="角色权限", exact=True).click()
+        pages = context.request.get(f"{rule_api}/api/v1/admin/access-control").json()["data"]["pages"]
+        for registered_page in pages:
+            permission = page.get_by_role("checkbox", name=f"{registered_page['page_name']} 管理员", exact=True)
+            expect(permission).to_be_checked()
+            expect(permission).to_be_disabled()
+        button = page.get_by_role("button", name="保存门店账号默认权限", exact=True)
+        if global_scope:
+            expect(button).to_be_enabled()
+        else:
+            expect(button).to_be_disabled()
+        proof = Path("output/dydata105-admin")
+        proof.mkdir(parents=True, exist_ok=True)
+        page.screenshot(path=str(proof / f"account-{username}-updated.png"), full_page=True)
+    except Exception:
+        proof = Path("output/dydata105-admin")
+        proof.mkdir(parents=True, exist_ok=True)
+        for index, current_page in enumerate(context.pages):
+            current_page.screenshot(path=str(proof / f"account-{username}-failure-{index}.png"), full_page=True)
+        raise
     finally:
         context.close()
