@@ -1,6 +1,10 @@
 name: Tencent Lighthouse Deploy
 "on":
   workflow_dispatch:
+    inputs:
+      diagnose:
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -9,7 +13,41 @@ concurrency:
   group: tencent-lighthouse-refs/heads/main
   cancel-in-progress: false
 jobs:
+  diagnose:
+    if: inputs.diagnose
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TENCENT_HOST: ${{ vars.TENCENT_HOST }}
+      TENCENT_SSH_USER: ${{ vars.TENCENT_SSH_USER }}
+      TENCENT_SSH_PORT: ${{ vars.TENCENT_SSH_PORT }}
+      TENCENT_SSH_KEY: ${{ secrets.TENCENT_SSH_KEY }}
+      TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
+    steps:
+      - name: Read image identities without changing services
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$TENCENT_SSH_KEY" > ~/.ssh/tencent_lighthouse
+          printf '%s\n' "$TENCENT_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/tencent_lighthouse ~/.ssh/known_hosts
+          ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" -o StrictHostKeyChecking=yes -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "$TENCENT_SSH_USER@$TENCENT_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          echo EXPECTED
+          cat /tmp/clue-web-39705930694/image-id.txt
+          echo LOADED
+          sudo docker image inspect --format '{{.Id}}' dy-dashboard-web:clue-f9320d788e81
+          echo RUNNING
+          sudo docker ps -q --filter label=com.docker.compose.service=web | xargs -r sudo docker inspect --format '{{.Image}}'
+          python3 - <<'PY'
+          import tarfile,json,hashlib
+          with tarfile.open('/tmp/clue-web-39705930694/web-image.tar.gz') as t:
+              m=json.load(t.extractfile('manifest.json'))
+              print('ARCHIVE_CONFIG', 'sha256:'+hashlib.sha256(t.extractfile(m[0]['Config']).read()).hexdigest())
+          PY
+          REMOTE
   web:
+    if: ${{ !inputs.diagnose }}
     name: Release clue verification frontend only
     runs-on: ubuntu-latest
     timeout-minutes: 20
