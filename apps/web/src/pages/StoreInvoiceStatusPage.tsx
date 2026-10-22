@@ -100,7 +100,7 @@ export function StoreInvoiceStatusPage({ currentUser, searchParams }: StoreInvoi
   const replacementCandidateResource = useApiResource(
     () => fetchPromotionInvoiceReplacementCandidates(activeStoreId),
     [activeStoreId],
-    { enabled: Boolean(meta && activeStoreId) },
+    { enabled: Boolean(meta && activeStoreId), clearOnReload: true },
   );
   const data = invoiceResource.data?.data;
   const metrics = data?.metrics;
@@ -113,6 +113,7 @@ export function StoreInvoiceStatusPage({ currentUser, searchParams }: StoreInvoi
   const replacementCandidateError = replacementCandidateResource.rawError
     ? apiErrorText(replacementCandidateResource.rawError, "待重新开票记录加载失败，请刷新后重试。")
     : replacementCandidateResource.error;
+  const replacementCandidatesLoading = replacementCandidateResource.loading || replacementCandidateResource.refreshing;
   const metaError = metaResource.rawError ? apiErrorText(metaResource.rawError, "筛选条件暂不可用，请稍后重试。") : metaResource.error;
   const invoiceError = invoiceResource.rawError ? apiErrorText(invoiceResource.rawError, "发票状态暂不可用，请稍后重试。", { 403: "当前账号没有查看该门店发票的权限。", 422: "发票状态筛选条件不合法，请重新选择。" }) : invoiceResource.error;
 
@@ -256,10 +257,10 @@ export function StoreInvoiceStatusPage({ currentUser, searchParams }: StoreInvoi
         <DataTable columns={promotionColumns} emptyText="暂无数据" rows={promotionInvoices} state={invoiceResource.loading ? "loading" : invoiceError ? "error" : "ready"} />
         {data ? <TablePagination loading={invoiceResource.loading} onPageChange={(nextPage) => { setInvoicePage(nextPage); setSelectedInvoiceId(null); }} page={data.page} pageSize={data.pageSize} rowsOnPage={promotionInvoices.length} total={data.promotionTotal} totalPages={Math.max(1, Math.ceil(data.promotionTotal / data.pageSize))} /> : null}
       </section>
-      {replacementCandidates.length > 0 || replacementCandidateError ? <section className="content-section" aria-label="待重新开票">
+      {replacementCandidates.length > 0 || replacementCandidateError || replacementCandidatesLoading ? <section className="content-section" aria-label="待重新开票">
         <div className="section-title"><div><h2>待重新开票</h2><p>此门店已登记红冲或作废、尚未完成替换的发票。重新开票将恢复原发票释放的全部账期。</p></div></div>
-        <ResourceNotice error={replacementCandidateError} loading={replacementCandidateResource.loading} />
-        <DataTable columns={replacementColumns} emptyText="暂无待重新开票记录" rows={replacementCandidates} state={replacementCandidateResource.loading ? "loading" : replacementCandidateError ? "error" : "ready"} />
+        <ResourceNotice error={replacementCandidateError} loading={replacementCandidatesLoading} />
+        <DataTable columns={replacementColumns} emptyText="暂无待重新开票记录" rows={replacementCandidates} state={replacementCandidatesLoading ? "loading" : replacementCandidateError ? "error" : "ready"} />
       </section> : null}
       <section className="content-section">
         <div className="section-title"><div><h2>管理服务费发票信息</h2><p>无正式记录时显示暂无数据。</p></div></div>
