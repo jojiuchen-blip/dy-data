@@ -1360,7 +1360,7 @@ def test_admin_can_delete_follow_up_record_and_summary_rolls_back(
     assert len(history) == 1
     assert history[0]["is_deleted"] is True
     assert history[0]["deleted_by_username"] == "system-admin"
-    assert history[0]["deletion_reason"] == "reversed_by_highest_admin"
+    assert history[0]["deletion_reason"] == "reversed_by_admin"
 
     second_delete = client.delete(f"/api/v1/clues/follow-up-records/{record_id}")
     assert second_delete.status_code == 409
@@ -1408,7 +1408,7 @@ def test_store_cannot_delete_follow_up_record(
     assert db_session.get(ClueFollowUpRecord, "record-store-delete-forbidden") is not None
 
 
-def test_database_admin_can_write_follow_up_but_cannot_soft_delete(
+def test_database_admin_can_write_and_soft_delete_follow_up(
     client: TestClient, db_session: Session
 ) -> None:
     _seed_clue_center(db_session)
@@ -1447,8 +1447,8 @@ def test_database_admin_can_write_follow_up_but_cannot_soft_delete(
     deleted = client.delete("/api/v1/clues/follow-up-records/ordinary-admin-record")
 
     assert follow_up.status_code == 200
-    assert deleted.status_code == 403
-    assert db_session.get(ClueFollowUpRecord, "ordinary-admin-record").deleted_at is None
+    assert deleted.status_code == 200
+    assert db_session.get(ClueFollowUpRecord, "ordinary-admin-record").deleted_at is not None
 
 
 def test_lost_follow_up_moves_order_to_pending_reassign_and_blocks_phone_reveal(

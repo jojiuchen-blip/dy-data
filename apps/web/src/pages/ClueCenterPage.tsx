@@ -1,3 +1,5 @@
+import { ClueStoreFilter } from "../components/ClueStoreFilter";
+import type { ClueListFilters, ClueSelectedStore } from "../types/clueFilters";
 import { usePublishedResource } from "../hooks/usePublishedResource";
 import { usePublishedView } from "../hooks/usePublishedView";
 import { fetchClueOrganizationOptions } from "../api/client";
@@ -46,7 +48,6 @@ import type {
   ClueFollowUpAction,
   ClueFollowUpRecord,
   ClueOrderDetail,
-  ClueOverviewFilters,
   AdminUser,
 } from "../types/dashboard";
 import { formatDateTime, formatInteger, formatPercent } from "../utils/format";
@@ -384,6 +385,11 @@ export function ClueCenterPage({
   const [assignedStoreId, setAssignedStoreId] = useState(
     searchParams.get("assigned_store_id") ?? "",
   );
+  const [selectedStores, setSelectedStores] = useState<ClueSelectedStore[] | null>(() => {
+    const legacy = searchParams.get("assigned_store_id");
+    return legacy ? [{ store_id: legacy, store_name: legacy }] : null;
+  });
+  const [storeFilterResetKey, setStoreFilterResetKey] = useState(0);
   const [storeOptionQuery, setStoreOptionQuery] = useState("");
   const [storeOptionsEnabled, setStoreOptionsEnabled] = useState(
     Boolean(searchParams.get("assigned_store_id")),
@@ -472,9 +478,10 @@ export function ClueCenterPage({
     ? liveStoreOptionsResource.data?.data.stores ?? meta?.assigned_stores ?? []
     : publishedStoreOptionsResource.data?.data.stores ?? [];
 
-  const filters: ClueOverviewFilters = useMemo(
+  const filters: ClueListFilters = useMemo(
     () => ({
-      assigned_store_id: showStoreLocationFilters ? assignedStoreId : "",
+      assigned_store_id: !isDetailsView && showStoreLocationFilters ? assignedStoreId : "",
+      assigned_store_ids: isDetailsView ? selectedStores?.map(store => store.store_id) ?? null : null,
       assigned_date_start: assignedDateStart,
       assigned_date_end: assignedDateEnd,
       store_display_status: storeDisplayStatus,
@@ -486,7 +493,7 @@ export function ClueCenterPage({
       city: showStoreLocationFilters ? city : "",
     }),
     [
-      assignedStoreId,
+      assignedStoreId, selectedStores,
       assignedDateEnd,
       assignedDateStart,
       activeProductType,
@@ -510,7 +517,7 @@ export function ClueCenterPage({
     if (showStoreLocationFilters && city) {
       chips.push({ key: "city", label: "城市", value: city });
     }
-    if (showStoreLocationFilters && assignedStoreId) {
+    if (!isDetailsView && showStoreLocationFilters && assignedStoreId) {
       chips.push({
         key: "assignedStoreId",
         label: "门店",
@@ -565,6 +572,7 @@ export function ClueCenterPage({
   const roundsResource = useApiResource(
     () => fetchClueAssignmentRounds({ filters, page, pageSize }),
     [
+      selectedStores,
       assignedStoreId,
       assignedDateEnd,
       assignedDateStart,
@@ -644,7 +652,7 @@ export function ClueCenterPage({
   const canEditFollowUp = activeDetailRound
     ? canOperateCurrentRound(activeDetailRound)
     : false;
-  const canDeleteFollowUpRecords = currentUser.is_highest_admin === true;
+  const canDeleteFollowUpRecords = currentUser.role === "admin";
   const handleExportClues = async () => {
     setExportingClues(true);
     setExportError(null);
@@ -984,6 +992,8 @@ export function ClueCenterPage({
     setProvince("");
     setCity("");
     setAssignedStoreId("");
+    setSelectedStores(null);
+    setStoreFilterResetKey(value => value + 1);
     setAssignedDateStart("");
     setAssignedDateEnd("");
     setStoreDisplayStatus("");
@@ -1285,8 +1295,12 @@ export function ClueCenterPage({
                 }}
               />
             </FilterField>
-            <FilterField label="门店">
-              <SearchableStoreSelect
+            <div className="filter-field" role="group" aria-label="门店筛选">
+              <span>门店</span>
+              {isDetailsView ? <ClueStoreFilter selection={selectedStores} options={storeOptions}
+                loading={storeOptionsResource.loading} scopeKey={currentUser.user_id ?? currentUser.username} resetKey={storeFilterResetKey}
+                onOpen={() => setStoreOptionsEnabled(true)} onSearch={setStoreOptionQuery}
+                onChange={stores => { setPage(1); setSelectedStores(stores); }} /> : <SearchableStoreSelect
                 allowEmpty
                 emptyMessage="未找到门店"
                 loading={storeOptionsResource.loading}
@@ -1302,9 +1316,9 @@ export function ClueCenterPage({
                   setPage(1);
                   setAssignedStoreId(value);
                 }}
-              />
+              />}
               {storeOptionsResource.error ? <p role="alert">{storeOptionsResource.error}</p> : null}
-            </FilterField>
+            </div>
           </>
         ) : null}
         <FilterField label="线索生成日期起">
@@ -1834,7 +1848,7 @@ export function ClueCenterPage({
                                                 .join(" · ")}
                                             </p>
                                           ) : null}
-                                          {canDeleteFollowUpRecords && !record.is_deleted ? (
+                                          {canDeleteFollowUpRecords && !record.is_deleted && (currentUser.store_scope_mode === "all" || currentUser.store_ids.includes(record.assigned_store_id ?? "")) ? (
                                             <IconButton
                                               className="clue-followup-delete-record"
                                               disabled={

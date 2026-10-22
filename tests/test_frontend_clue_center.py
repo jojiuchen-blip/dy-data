@@ -233,7 +233,7 @@ def test_clue_center_detail_follow_up_layout_and_actions() -> None:
     assert "本次跟进结论/备注" in source
     assert "保存本次跟进" in source
     assert "canDeleteFollowUpRecords" in source
-    assert "currentUser.is_highest_admin === true" in source
+    assert 'currentUser.role === "admin"' in source
     assert "handleDeleteFollowUpRecord" in source
     assert "deleteClueFollowUpRecord(record.follow_up_record_id)" in source
     assert 'label="删除跟进历史"' in source
@@ -377,7 +377,7 @@ def test_clue_center_filters_follow_store_scope_spec() -> None:
             "showStoreLocationFilters",
             'label="省份"',
             'label="城市"',
-            'label="门店"',
+            'aria-label="门店筛选"',
             'label="线索生成日期起"',
             'label="线索生成日期止"',
             'label="线索状态"',
@@ -1042,7 +1042,8 @@ def test_p3_follow_up_actions_and_permissions_are_frontend_gated() -> None:
     assert 'value="failed"' not in action_form
     assert "保存本次跟进" in page_source
     assert "canOperateCurrentRound" in page_source
-    assert "currentUser.is_highest_admin === true" in page_source
+    assert 'currentUser.role === "admin"' in page_source
+    assert 'currentUser.store_ids.includes(record.assigned_store_id ?? "")' in page_source
     assert 'title="删除跟进历史"' in page_source
     assert "canDeleteFollowUpRecords && !record.is_deleted" in page_source
     assert "已删除" in page_source

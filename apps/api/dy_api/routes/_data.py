@@ -5076,8 +5076,11 @@ class DashboardDataStore:
                 "clue_min_assigned_at": self._clue_query_datetime(CLUE_VISIBLE_ASSIGNED_AT),
             },
         )
+        deleted_scope_sql, deleted_scope_params = self._store_scope_clause(
+            "follow_round.assigned_store_id", scope_store_ids, prefix="deleted_history_scope",
+        )
         record_rows = self._execute(
-            """
+            f"""
             SELECT follow_record.follow_up_record_id,
                    follow_record.order_id,
                    follow_record.assignment_round_id,
@@ -5098,13 +5101,14 @@ class DashboardDataStore:
             WHERE follow_record.order_id = :order_id
               AND follow_round.execution_mode = 'formal'
               AND follow_round.assigned_at >= :clue_min_assigned_at
-              AND (:include_deleted = true OR follow_record.deleted_at IS NULL)
+              AND (follow_record.deleted_at IS NULL OR (:include_deleted = true {deleted_scope_sql}))
             ORDER BY follow_record.created_at, follow_record.follow_up_record_id
             """,
             {
                 "order_id": order_id,
                 "clue_min_assigned_at": self._clue_query_datetime(CLUE_VISIBLE_ASSIGNED_AT),
-                "include_deleted": bool(actor and actor.get("is_highest_admin")),
+                "include_deleted": bool(actor and actor.get("role") in {"admin", "highest_admin"}),
+                **deleted_scope_params,
             },
         )
         order = orders[0]
@@ -5349,7 +5353,7 @@ class DashboardDataStore:
             self.session,
             follow_up_record_id=follow_up_record_id,
             actor=actor,
-            reason="reversed_by_highest_admin",
+            reason="reversed_by_admin",
             now=generated_at(),
         )
         return result.status, _follow_up_record_payload(result.record)
@@ -5877,6 +5881,13 @@ class DashboardDataStore:
                 "(lower(c.order_id) LIKE :q OR lower(c.assigned_store_name) LIKE :q)"
             )
             params["q"] = f"%{query}%"
+
+        selected_store_ids = filters.get("assigned_store_ids")
+        if selected_store_ids is not None:
+            placeholders, selected_params = _in_clause_params("clue_selected_store", selected_store_ids)
+            column = "r.assigned_store_id" if include_round else "c.assigned_store_id"
+            clauses.append(f"{column} IN ({placeholders})" if placeholders else "1 = 0")
+            params.update(selected_params)
 
         organization_store_ids = filters.get("organization_store_ids")
         if organization_store_ids is not None:
