@@ -45,8 +45,29 @@ test "$(printf '%s\n' "$before" | wc -l)" = 6
 rollback_tag="dy-dashboard-web:rollback-clue-${stage##*-}"
 sudo docker tag "$old_image" "$rollback_tag"
 sudo docker load -i "$stage/web-image.tar.gz"
-expected_image="$(cat "$stage/image-id.txt")"
-test "$(sudo docker image inspect --format '{{.Id}}' "$image")" = "$expected_image"
+build_config="$(cat "$stage/image-id.txt")"
+loaded_layers="$(sudo docker image inspect --format '{{json .RootFS.Layers}}' "$image")"
+loaded_platform="$(sudo docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
+# Docker classic and containerd stores expose different .Id values. Verify
+# the loaded image's exact config bytes before using its server-local ID.
+sudo docker save "$image" | python3 -c '
+import hashlib,json,sys,tarfile
+expected,tag,layers,platform=sys.argv[1:]; small={}
+with tarfile.open(fileobj=sys.stdin.buffer,mode="r|") as archive:
+    for member in archive:
+        if member.isfile() and member.size < 2*1024*1024:
+            small[member.name]=archive.extractfile(member).read()
+records=[r for r in json.loads(small["manifest.json"]) if tag in (r.get("RepoTags") or [])]
+assert len(records)==1, "Loaded tag must identify one manifest"
+payload=small[records[0]["Config"]]
+assert "sha256:"+hashlib.sha256(payload).hexdigest()==expected, "Loaded tag config differs from build"
+config=json.loads(payload)
+assert config["os"]=="linux" and config["rootfs"]["type"]=="layers"
+assert config["os"]+"/"+config["architecture"]==platform
+assert config["rootfs"]["diff_ids"]==json.loads(layers)
+print("LOADED_IMAGE_CONFIG_VERIFIED",expected)
+' "$build_config" "$image" "$loaded_layers" "$loaded_platform"
+expected_image="$(sudo docker image inspect --format '{{.Id}}' "$image")"
 backup="/opt/dy-dashboard/backups/clue-web-${stage##*-}"
 sudo install -d -m 700 "$backup"
 sudo install -m 600 /opt/dy-dashboard/env/production.env "$backup/production.env"
