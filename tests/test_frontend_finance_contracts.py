@@ -191,7 +191,7 @@ def test_store_page_has_base_and_sap_contract_actions_and_single_correction() ->
     assert "submitSapSuggestion" not in page
     assert "decideSapSuggestion" not in page
     assert 'sapDiscrepanciesOnly: tab === "sap"' in page
-    assert "[month, feeDirection, metricScope, query, tab]" in page
+    assert "[month, feeDirection, metricScope, query, tab, page, pageSize]" in page
 
 
 def test_disputes_use_persisted_async_detection_without_fake_progress() -> None:
@@ -469,5 +469,5 @@ def test_finance_fee_month_control_updates_state_url_and_request_params() -> Non
     # The summary, the list and the export all read the same state value.
     assert "month," in fees
     assert "fetchFinanceSummary({ ...commonQuery, publication_id })" in fees
-    assert "fetchFinanceInvoices({ ...invoiceQuery, pageSize: 50, publication_id: id })" in fees
+    assert "fetchFinanceInvoices({ ...invoiceQuery, page, pageSize, publication_id: id })" in fees
     assert "downloadFinanceInvoices({ ...invoiceQuery, publication_id: financeResource.data?.meta.publication?.id })" in fees
