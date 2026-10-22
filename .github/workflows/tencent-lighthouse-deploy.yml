@@ -3,46 +3,94 @@ name: Tencent Lighthouse Deploy
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
+  pull-requests: read
 concurrency:
   group: tencent-lighthouse-refs/heads/main
   cancel-in-progress: false
 jobs:
-  inspect:
+  web:
+    name: Release clue verification frontend only
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     env:
+      GH_TOKEN: ${{ github.token }}
       TENCENT_HOST: ${{ vars.TENCENT_HOST }}
       TENCENT_SSH_USER: ${{ vars.TENCENT_SSH_USER }}
       TENCENT_SSH_PORT: ${{ vars.TENCENT_SSH_PORT }}
       TENCENT_SSH_KEY: ${{ secrets.TENCENT_SSH_KEY }}
       TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
     steps:
-      - name: Inspect current web deployment without changing services
-        shell: bash
+      - uses: actions/checkout@v4
+        with:
+          path: release
+      - name: Require exact successful CI and merged current main tree
         run: |
           set -euo pipefail
+          gh api repos/${{ github.repository }}/actions/runs/39701816955 > "$RUNNER_TEMP/ci.json"
+          gh api repos/${{ github.repository }}/pulls/60 > "$RUNNER_TEMP/pr.json"
+          gh api repos/${{ github.repository }}/git/commits/f9320d788e815dc6ed6fcc95eb0e9c16144456b2 > "$RUNNER_TEMP/source.json"
+          gh api repos/${{ github.repository }}/commits/main > "$RUNNER_TEMP/main.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          d=Path(os.environ['RUNNER_TEMP'])
+          c=json.loads((d/'ci.json').read_text()); p=json.loads((d/'pr.json').read_text())
+          source=json.loads((d/'source.json').read_text()); main=json.loads((d/'main.json').read_text())
+          assert c['head_sha']=='f9320d788e815dc6ed6fcc95eb0e9c16144456b2' and c['conclusion']=='success'
+          assert p['merged'] and p['head']['sha']==c['head_sha']
+          assert main['sha']==p['merge_commit_sha'], 'Main advanced; review required'
+          assert main['commit']['tree']['sha']==source['tree']['sha'], 'Merged source differs from tested source'
+          print('EXACT_CI_AND_MAIN_VERIFIED',main['sha'])
+          PY
+      - uses: actions/checkout@v4
+        with:
+          ref: 5accdf7bd4567dc751216cee98b4105a8db787a9
+          path: baseline
+      - uses: actions/checkout@v4
+        with:
+          ref: f9320d788e815dc6ed6fcc95eb0e9c16144456b2
+          path: source
+      - name: Prepare baseline source manifest
+        run: |
+          cd baseline
+          python3 - <<'PY'
+          import subprocess,hashlib,json
+          from pathlib import Path
+          paths=subprocess.check_output(['git','ls-files','apps/web']).decode().splitlines()
+          Path('../manifest.json').write_text(json.dumps({p:hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in paths}))
+          PY
+      - name: Build verified frontend image
+        run: |
+          set -euo pipefail
+          image=dy-dashboard-web:clue-f9320d788e81
+          docker build --build-arg NPM_CONFIG_REGISTRY=https://registry.npmjs.org -t "$image" source/apps/web
+          docker image inspect --format '{{.Id}}' "$image" > image-id.txt
+          docker save "$image" | gzip > web-image.tar.gz
+          sha256sum web-image.tar.gz > image.sha256
+      - name: Configure pinned SSH
+        run: |
+          set -euo pipefail
+          test -n "$TENCENT_HOST"; test -n "$TENCENT_SSH_USER"; test -n "$TENCENT_SSH_KEY"; test -n "$TENCENT_KNOWN_HOSTS"
           install -m 700 -d ~/.ssh
           printf '%s\n' "$TENCENT_SSH_KEY" > ~/.ssh/tencent_lighthouse
           printf '%s\n' "$TENCENT_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/tencent_lighthouse ~/.ssh/known_hosts
-          ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" -o StrictHostKeyChecking=yes -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "$TENCENT_SSH_USER@$TENCENT_HOST" 'bash -s' <<'REMOTE'
+      - name: Capacity and source guards then web-only cutover
+        run: |
           set -euo pipefail
-          cd /opt/dy-dashboard/repo
-          sudo docker ps --format '{{.Names}} {{.Image}} {{.Status}}'
-          sudo docker ps -q --filter label=com.docker.compose.service=web | while read -r id; do
-            sudo docker inspect --format '{{.Image}} {{index .Config.Labels "com.docker.compose.project.config_files"}} {{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$id"
-          done
-          sudo python3 - <<'PY'
-          import json, hashlib, os
-          from pathlib import Path
-          p=Path('/opt/dy-dashboard/logs/last-deploy.json')
-          if p.exists():
-              d=json.loads(p.read_text())
-              print('release',json.dumps({k:v for k,v in d.items() if k in ('sha','target_sha','web_image','web_image_id','api_image','status','browser_acceptance')}))
-          for p in sorted(Path('apps/web').rglob('*')):
-              if p.is_file() and not any(x in p.parts for x in ('node_modules','dist','.git')):
-                  print('WEB_SOURCE',p.as_posix(),hashlib.sha256(p.read_bytes()).hexdigest())
-          s=os.statvfs('/opt/dy-dashboard'); print('DISK',s.f_bavail*s.f_frsize,s.f_blocks*s.f_frsize)
-          PY
-          curl --fail --silent --show-error --max-time 15 http://127.0.0.1:8080/ | head -c 2500
-          REMOTE
+          stage="/tmp/clue-web-$GITHUB_RUN_ID"
+          image=dy-dashboard-web:clue-f9320d788e81
+          bytes="$(stat -c %s web-image.tar.gz)"
+          image_bytes="$(docker image inspect --format '{{.Size}}' "$image")"
+          target="$TENCENT_SSH_USER@$TENCENT_HOST"
+          opts=(-i ~/.ssh/tencent_lighthouse -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=5)
+          ssh "${opts[@]}" -p "${TENCENT_SSH_PORT:-22}" "$target" "umask 077; mkdir -p '$stage/source/src/pages' '$stage/source/src/types' '$stage/source/src/demo'"
+          scp "${opts[@]}" -P "${TENCENT_SSH_PORT:-22}" manifest.json image.sha256 image-id.txt release/ops/clue-verification/deploy-web.sh release/ops/clue-verification/verify-readonly.py "$target:$stage/"
+          scp "${opts[@]}" -P "${TENCENT_SSH_PORT:-22}" source/apps/web/src/pages/ClueCenterPage.tsx "$target:$stage/source/src/pages/"
+          scp "${opts[@]}" -P "${TENCENT_SSH_PORT:-22}" source/apps/web/src/types/dashboard.ts "$target:$stage/source/src/types/"
+          scp "${opts[@]}" -P "${TENCENT_SSH_PORT:-22}" source/apps/web/src/demo/clueDemoRepository.ts "$target:$stage/source/src/demo/"
+          scp "${opts[@]}" -P "${TENCENT_SSH_PORT:-22}" source/apps/web/src/styles.css "$target:$stage/source/src/"
+          ssh "${opts[@]}" -p "${TENCENT_SSH_PORT:-22}" "$target" "bash '$stage/deploy-web.sh' preflight '$stage' '$image' '$bytes' '$image_bytes'"
+          scp "${opts[@]}" -P "${TENCENT_SSH_PORT:-22}" web-image.tar.gz "$target:$stage/"
+          ssh "${opts[@]}" -p "${TENCENT_SSH_PORT:-22}" "$target" "bash '$stage/deploy-web.sh' deploy '$stage' '$image' '$bytes' '$image_bytes'"
