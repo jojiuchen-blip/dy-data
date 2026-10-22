@@ -8,8 +8,9 @@ import pytest
 from sqlalchemy import delete, func, select
 
 from apps.api.dy_api.models import (
-    DataQualityIssue, JobRun, SettlementFeeResult, SettlementScopeRule, SettlementStatement,
+    DataQualityIssue, DimStore, JobRun, SettlementFeeResult, SettlementScopeRule, SettlementStatement,
     SettlementStatementConfirmation, SettlementStatementEntry, SettlementStatementLine,
+    UserStoreScope,
 )
 from apps.worker import settlement
 from test_api_fee_admin import client, _login, _login_rule_operator, _seed_sku
@@ -148,14 +149,39 @@ def test_scope_api_rejects_non_boolean_active(client, db_session, active):
     assert db_session.scalar(select(func.count()).select_from(SettlementScopeRule)) == 0
 
 
-@pytest.mark.parametrize("role", ["anonymous", "admin", "store"])
-def test_scope_api_preserves_highest_admin_boundary(client, db_session, role):
+@pytest.mark.parametrize("role", ["anonymous", "scoped_admin", "store"])
+def test_scope_api_requires_global_admin_scope(client, db_session, role):
     if role != "anonymous":
-        _login_rule_operator(client, db_session, role)
+        operator = _login_rule_operator(client, db_session, "admin" if role == "scoped_admin" else role)
+        if role == "scoped_admin":
+            operator.store_scope_mode = "specified"
+            db_session.add(DimStore(store_id="scope-only-store", store_name="Scope test store", is_active=True))
+            db_session.flush()
+            db_session.add(UserStoreScope(user_id=operator.user_id, store_id="scope-only-store"))
+            db_session.commit()
+            client.cookies.clear()
+            assert client.post("/api/v1/auth/login", json={
+                "username": operator.username, "password": "isolated-password",
+            }).status_code == 200
     response = _publish(client, _payload(isActive=False), "role-scope-key-00001")
     assert response.status_code == (401 if role == "anonymous" else 403)
     assert db_session.scalar(select(func.count()).select_from(SettlementScopeRule)) == 0
     assert db_session.scalar(select(func.count()).select_from(JobRun)) == 0
+
+
+def test_global_admin_can_publish_scope_stop_idempotently(client, db_session):
+    _seed_sku(db_session, "scope-sku", "scope sku")
+    operator = _login_rule_operator(client, db_session, "admin")
+    payload = _payload(isActive=False)
+    first = _publish(client, payload, "global-admin-stop-0001")
+    retry = _publish(client, payload, "global-admin-stop-0001")
+    assert first.status_code == retry.status_code == 200, first.text
+    assert first.json()["data"] == retry.json()["data"]
+    rules = list(db_session.scalars(select(SettlementScopeRule)))
+    assert len(rules) == 1
+    assert rules[0].is_active is False
+    assert rules[0].created_by == operator.username
+    assert db_session.scalar(select(func.count()).select_from(JobRun)) == 1
 
 
 def test_scope_stop_still_requires_real_owner_source(client, db_session):
