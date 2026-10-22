@@ -518,7 +518,7 @@ def test_dydata105_finance_download_scope_and_expired_session_are_enforced(
 
 
 def test_dydata105_ranking_filters_drill_and_order_fee_direction_downloads(
-    browser, vite_live_admin_api_base_url, live_admin_fastapi_base_url,
+    browser, vite_live_admin_api_base_url, live_admin_fastapi_base_url, tmp_path,
 ):
     factory = LIVE_ADMIN_SESSION_FACTORIES[live_admin_fastapi_base_url]
     with factory() as session:
@@ -546,6 +546,12 @@ def test_dydata105_ranking_filters_drill_and_order_fee_direction_downloads(
         publish_fixture(session, "settlement")
     context = browser.new_context(viewport={"width": 1440, "height": 900})
     page = context.new_page()
+    page.clock.install(time="2026-10-22T00:00:00Z")
+    request_order = []
+    page.on("request", lambda request: request_order.append(("request", request.url))
+            if "/monthly-settlement?" in request.url else None)
+    page.on("response", lambda response: request_order.append(("response", response.url, response.status))
+            if "/monthly-settlement?" in response.url else None)
     try:
         page.goto(vite_live_admin_api_base_url + "/ranking?periodKey=2026-08")
         expect(page.get_by_role("heading", name="全国门店月度榜单", exact=True)).to_be_visible()
@@ -577,16 +583,53 @@ def test_dydata105_ranking_filters_drill_and_order_fee_direction_downloads(
         expect(page).to_have_url(re.compile(r"/settlement\?.*storeId=store-1"))
         page.get_by_label("账期", exact=True).click()
         page.get_by_role("option", name="2026-08", exact=True).click()
-        store_select = page.get_by_role("combobox", name="门店", exact=True)
+        expect(page.get_by_role("combobox", name="门店", exact=True)).to_be_visible()
+        store_select = page.locator(".searchable-store-select").get_by_role("combobox")
+        expect(store_select).to_be_enabled()
+        page.evaluate("""() => {
+          window.storeSelectionEvents = [];
+          for (const type of ['focus', 'blur', 'input']) {
+            document.addEventListener(type, (event) => {
+              if (event.target.matches?.('.searchable-store-select input')) {
+                window.storeSelectionEvents.push({ type, value: event.target.value,
+                  expanded: event.target.getAttribute('aria-expanded'), time: performance.now() });
+              }
+            }, true);
+          }
+        }""")
         store_select.fill("杭州")
         page.get_by_role("option", name="杭州滨江直营服务店", exact=True).click()
         expect(store_select).to_have_value("杭州滨江直营服务店")
+        expect(store_select).to_be_enabled()
+        # Re-enter before the preceding blur callback runs. This models native
+        # keyboard focus changes, using virtual time rather than a fixed sleep.
+        page.clock.pause_at(datetime.fromtimestamp(page.evaluate("Date.now() + 1000") / 1000, tz=timezone.utc))
+        store_select.click()
+        store_select.press("Tab")
         store_select.fill("深圳")
+        expect(store_select).to_have_value("深圳")
+        expect(store_select).to_have_attribute("aria-expanded", "true")
+        page.clock.fast_forward(150)
+        expect(store_select).to_have_value("深圳")
+        expect(store_select).to_have_attribute("aria-expanded", "true")
         page.get_by_role("option", name="深圳临港认证服务店", exact=True).click()
         expect(store_select).to_have_value("深圳临港认证服务店")
+        expect(store_select).to_be_enabled()
+        store_select.fill("不存在105门店")
+        store_select.press("Tab")
+        page.clock.fast_forward(150)
+        expect(store_select).to_have_value("深圳临港认证服务店")
+        expect(store_select).to_have_attribute("aria-expanded", "false")
+        page.clock.resume()
         for tab in ("管理费明细", "推广费明细"):
             page.get_by_role("tab", name=tab, exact=True).click()
             expect(page.get_by_role("tab", name=tab, exact=True)).to_have_attribute("aria-selected", "true")
+        (tmp_path / "store-selection-events.txt").write_text(str({
+            "input_events": page.evaluate("window.storeSelectionEvents || []"),
+            "request_order": request_order,
+            "dom": page.locator(".searchable-store-select").evaluate_all("items => items.map(item => item.outerHTML)"),
+        }), encoding="utf-8")
+        page.screenshot(path=str(tmp_path / "store-selection-restored.png"), full_page=True)
         page.goto(vite_live_admin_api_base_url + "/details?storeId=store-1&month=2026-08")
         for label, order_id, amount in (("推广服务费", "DY2026071900842", 128641), ("管理服务费", "DY20260622001935", 32000)):
             page.get_by_label("搜索", exact=True).fill("")
@@ -602,5 +645,13 @@ def test_dydata105_ranking_filters_drill_and_order_fee_direction_downloads(
             records = list(csv.DictReader(StringIO(Path(pending.value.path()).read_bytes().decode("utf-8-sig"))))
             assert len(records) == 1 and records[0]["订单ID"] == order_id
             assert int(records[0]["调整后净额"]) == amount
+    except Exception:
+        page.screenshot(path=str(tmp_path / "store-selection-failure.png"), full_page=True)
+        (tmp_path / "store-selection-events.txt").write_text(str({
+            "input_events": page.evaluate("window.storeSelectionEvents || []"),
+            "request_order": request_order,
+            "dom": page.locator(".searchable-store-select").evaluate_all("items => items.map(item => item.outerHTML)"),
+        }), encoding="utf-8")
+        raise
     finally:
         context.close()

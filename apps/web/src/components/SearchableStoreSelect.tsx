@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { SelectOption } from "../types/dashboard";
 import { SolarIcon } from "./SolarIcon";
 import "./SearchableStoreSelect.css";
@@ -48,6 +48,18 @@ export function SearchableStoreSelect({
   );
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const blurTimer = useRef<number | null>(null);
+
+  const cancelPendingBlur = () => {
+    if (blurTimer.current !== null) {
+      window.clearTimeout(blurTimer.current);
+      blurTimer.current = null;
+    }
+  };
+
+  useEffect(() => () => {
+    if (blurTimer.current !== null) window.clearTimeout(blurTimer.current);
+  }, []);
 
   const allOptions = useMemo(() => {
     const unique = new Map<string, SelectOption>();
@@ -78,6 +90,7 @@ export function SearchableStoreSelect({
   }, [allOptions, inputValue]);
 
   const selectOption = (option: SelectOption) => {
+    cancelPendingBlur();
     onChange(option.value);
     setInputValue(option.label);
     setIsOpen(false);
@@ -101,12 +114,16 @@ export function SearchableStoreSelect({
         role="combobox"
         value={inputValue}
         onBlur={() => {
-          window.setTimeout(() => {
+          cancelPendingBlur();
+          blurTimer.current = window.setTimeout(() => {
+            blurTimer.current = null;
+            // Closing restores the current selection through the effect above,
+            // without a delayed callback capturing old options or value.
             setIsOpen(false);
-            setInputValue(displayValue(allOptions, value));
           }, 120);
         }}
         onChange={(event) => {
+          cancelPendingBlur();
           const nextValue = event.target.value;
           setInputValue(nextValue);
           onSearch?.(nextValue);
@@ -114,6 +131,7 @@ export function SearchableStoreSelect({
           setActiveIndex(-1);
         }}
         onFocus={() => {
+          cancelPendingBlur();
           setInputValue("");
           onOpen?.();
           onSearch?.("");
