@@ -2849,7 +2849,9 @@ def test_account_access_control_migration_maps_legacy_roles_and_is_reversible(
             {"now": now},
         )
 
-    command.upgrade(config, "head")
+    # This tests the historical role split and its own reversible boundary.
+    # The later administrator unification intentionally changes both contracts.
+    command.upgrade(config, "20260721_0018")
     upgraded = inspect(engine)
     assert {
         "access_pages",
@@ -2933,7 +2935,9 @@ def test_cli_authorization_migration_is_reversible(tmp_path: Path) -> None:
                 },
             )
 
-    command.upgrade(config, "head")
+    # Pin the migration under test: later identity migrations revoke credentials
+    # and require backup recovery instead of an inferred role downgrade.
+    command.upgrade(config, "20260722_0019")
 
     upgraded = inspect(engine)
     assert {"cli_device_authorizations", "cli_refresh_tokens"}.issubset(upgraded.get_table_names())

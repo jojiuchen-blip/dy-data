@@ -366,7 +366,7 @@ export class ClueDemoRepository {
     record.deleted_at = deletedAt;
     record.deleted_by_user_id = "DEMO-USER-ADMIN";
     record.deleted_by_username = "演示管理员";
-    record.deletion_reason = "reversed_by_highest_admin";
+    record.deletion_reason = "reversed_by_admin";
     this.state.generatedAt = deletedAt;
     return demoResponse(record, deletedAt);
   }

@@ -414,7 +414,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
         </div>
         <div className="finance-workbench__actions">
           <Button onClick={() => navigateTo(`${feeDirection === "PROMOTION" ? "/finance/orders/promotion" : "/finance/orders/management"}?month=${encodeURIComponent(month)}`)} variant="secondary">查看{title}订单明细</Button>
-          <Button disabled={resourceBusy || Boolean(financeResource.error) || !financeResource.data} loading={exportBusy} onClick={handleExport} variant="secondary">导出当前筛选结果</Button>
+          <Button disabled={!financeResource.data} loading={exportBusy} onClick={handleExport} variant="secondary">导出当前筛选结果</Button>
           <Button onClick={resetFilters} variant="text">重置筛选</Button>
           {feeDirection === "MANAGEMENT" ? <Button onClick={() => setShowHistory((value) => !value)} variant="text">{showHistory ? "仅看当前版本" : "查看历史版本"}</Button> : null}
         </div>
@@ -436,7 +436,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
           onRowDoubleClick={feeDirection === "MANAGEMENT" ? (row) => { void openCorrection(row); } : undefined}
           rowActionLabel={(row) => feeDirection === "MANAGEMENT" && row.storeId && row.statementMonth ? "更正" : undefined}
           rows={rows}
-          state={resourceBusy ? "loading" : invoiceResource.error ? "error" : "ready"}
+          state={invoiceResource.data ? "ready" : invoiceResource.loading ? "loading" : invoiceResource.error ? "error" : "ready"}
           tableClassName="finance-fee-table"
         />
         <TablePagination loading={resourceBusy} onPageChange={(nextPage) => { closeCorrection(); setPage(nextPage); }} onPageSizeChange={(nextSize) => { setPageSize(nextSize); setPage(1); }} page={invoices?.page ?? page} pageSize={invoices?.pageSize ?? pageSize} pageSizeOptions={[20, 50]} rowsOnPage={rows.length} total={invoices?.total ?? 0} totalPages={pageCount} />

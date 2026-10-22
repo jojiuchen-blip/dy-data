@@ -185,7 +185,7 @@ export function AdminSkuGovernancePanel() {
       setChangeReason("");
     } catch (error) {
       setNotice(apiErrorText(error, "双费率版本发布失败。", {
-        403: "当前账号不是最高管理员，不能发布费率版本。",
+        403: "仅全部门店范围管理员可以发布全局费率版本。",
         409: "该 SKU 在所选生效日已有版本，请选择其他自然日。",
         422: "费率、生效日或变更原因不合法。",
       }));
@@ -246,7 +246,7 @@ export function AdminSkuGovernancePanel() {
       await Promise.all([loadBatches(), loadFeeRules()]);
     } catch (error) {
       setNotice(apiErrorText(error, "整批原子提交失败，正式规则未部分写入。", {
-        403: "当前账号不是最高管理员，不能提交正式规则。",
+        403: "仅全部门店范围管理员可以提交全局规则。",
         409: "提交时发现版本冲突，整批已回滚。",
       }));
     } finally {
