@@ -112,6 +112,7 @@ def test_authorized_admin_can_publish_fee_rules(client: TestClient, db_session: 
 def test_rule_write_preserves_page_and_role_boundaries(client: TestClient, db_session: Session, role: str) -> None:
     operator = _login_rule_operator(client, db_session, role)
     if role == "admin":
+        operator.store_scope_mode = "specified"
         db_session.merge(UserPagePermissionOverride(
             user_id=operator.user_id, page_key="D03", effect="deny",
         ))
@@ -123,8 +124,10 @@ def test_rule_write_preserves_page_and_role_boundaries(client: TestClient, db_se
     assert db_session.scalar(select(func.count()).select_from(JobRun)) == 0
 
 
-def test_admin_cannot_use_highest_only_rebuild_or_scope(client: TestClient, db_session: Session) -> None:
-    _login_rule_operator(client, db_session)
+def test_scoped_admin_cannot_use_global_rebuild_or_scope(client: TestClient, db_session: Session) -> None:
+    operator = _login_rule_operator(client, db_session)
+    operator.store_scope_mode = "specified"
+    db_session.commit()
     for path in ["/api/v1/admin/sku-fee-rules/rebuild", "/api/v1/admin/settlement-scope-rules"]:
         response = client.post(path, json={}, headers={"Idempotency-Key": "highest-only-test-0001"})
         assert response.status_code == 403

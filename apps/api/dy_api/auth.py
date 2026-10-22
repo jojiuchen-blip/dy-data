@@ -71,7 +71,16 @@ class AuthContext:
 
     @property
     def is_highest_admin(self) -> bool:
-        return self.auth_type == "env_admin" or self.role == "highest_admin"
+        """Deprecated internal alias for the all-store administrator capability."""
+        return self.can_manage_global_settings
+
+    @property
+    def can_manage_accounts(self) -> bool:
+        return self.is_admin
+
+    @property
+    def can_manage_global_settings(self) -> bool:
+        return self.is_admin and self.has_global_data_access
 
     @property
     def has_global_data_access(self) -> bool:
@@ -497,11 +506,11 @@ def get_current_user(
             user_id=None,
             username=username,
             display_name=username,
-            role="highest_admin",
+            role="admin",
             store_ids=(),
             auth_type="env_admin",
             store_scope_mode="all",
-            page_keys=effective_page_keys(session, None, role="highest_admin") if session is not None else ALL_PAGE_KEYS,
+            page_keys=effective_page_keys(session, None, role="admin") if session is not None else ALL_PAGE_KEYS,
         )
         _enforce_page_permission(request, auth)
         return auth
@@ -521,12 +530,8 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Session is no longer valid"
         )
-    role = "admin" if user.role == "viewer" else user.role
+    role = "admin" if user.role in {"highest_admin", "viewer"} else user.role
     scope_mode = user.store_scope_mode
-    if user.role == "viewer":
-        scope_mode = "all"
-    if role == "highest_admin":
-        scope_mode = "all"
     auth = AuthContext(
         user_id=user.user_id,
         username=user.username,
@@ -543,6 +548,22 @@ def get_current_user(
 
 
 def _enforce_page_permission(request: Request, auth: AuthContext) -> None:
+    # Page access never grants a scoped administrator a global mutation.
+    global_paths = (
+        "/api/v1/admin/sync", "/api/v1/admin/operations", "/api/v1/jobs",
+        "/api/v1/admin/product-sync-runs", "/api/v1/admin/product-type-visibility",
+        "/api/v1/admin/sku-products", "/api/v1/admin/sku-product-imports",
+        "/api/v1/admin/sku-fee-rules", "/api/v1/admin/sku-fee-rule-imports",
+        "/api/v1/admin/settlement-scope-rules", "/api/v1/admin/non-commission",
+    )
+    global_write = request.method not in {"GET", "HEAD", "OPTIONS"} and (
+        request.url.path.startswith(global_paths)
+        or request.url.path == "/api/v1/admin/sku-rules"
+    )
+    if global_write and not auth.can_manage_global_settings:
+        raise HTTPException(status_code=403, detail={
+            "code": "GLOBAL_WRITE_REQUIRED", "message": "仅全部门店范围管理员可以修改全局配置", "errors": [],
+        })
     page_keys = required_page_keys_for_api_path(request.url.path, request.method)
     if page_keys is not None and not any(page_key in auth.page_keys for page_key in page_keys):
         raise HTTPException(
@@ -565,10 +586,14 @@ def get_current_admin(
 def get_current_super_admin(
     current_user: AuthContext = Depends(get_current_user),
 ) -> str:
-    """Allow M1 allocation controls only for the environment-backed highest administrator."""
+    """Compatibility dependency for global administrator operations."""
     if not current_user.is_highest_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Highest administrator access required",
+            detail={"code": "GLOBAL_WRITE_REQUIRED", "message": "仅全部门店范围管理员可以修改全局配置", "errors": []},
         )
     return current_user.username
+
+
+# New callers name the actual capability; old route dependencies remain compatible.
+get_current_global_admin = get_current_super_admin

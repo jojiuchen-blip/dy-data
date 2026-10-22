@@ -93,6 +93,7 @@ def _seed(session: Session) -> None:
                 external_account_id=None,
                 display_name="Viewer User",
                 role="viewer",
+                store_scope_mode="all",
                 status="active",
                 is_initialized=True,
                 password_hash=hash_password_pbkdf2("secret"),
@@ -689,7 +690,8 @@ def test_legacy_viewer_is_mapped_to_global_admin(client: TestClient, db_session:
 
     admin_accounts = client.get("/api/v1/admin/accounts")
     assert admin_accounts.status_code == 200
-    assert all(row["role"] == "store" for row in admin_accounts.json()["data"]["rows"])
+    assert any(row["role"] == "admin" for row in admin_accounts.json()["data"]["rows"])
+    assert all(row["role"] in {"admin", "store"} for row in admin_accounts.json()["data"]["rows"])
 
 
 def test_unlocked_monthly_statement_reads_current_preview_not_frozen_lines(

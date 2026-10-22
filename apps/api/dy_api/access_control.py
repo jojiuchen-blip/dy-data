@@ -57,7 +57,7 @@ PAGE_DEFINITIONS = (
 ALL_PAGE_KEYS = tuple(page.page_key for page in PAGE_DEFINITIONS)
 ALL_PAGE_KEY_SET = frozenset(ALL_PAGE_KEYS)
 STORE_DEFAULT_PAGE_KEYS = frozenset({"A01", "A02", "A03", "B01", "B02", "B03", "C01"})
-VALID_ROLES = frozenset({"highest_admin", "admin", "store"})
+VALID_ROLES = frozenset({"admin", "store"})
 VALID_SCOPE_MODES = frozenset({"all", "specified", "none"})
 
 
@@ -89,12 +89,10 @@ def ensure_access_control_seed(session: Any) -> None:
     }
     for role in ("admin", "store"):
         for page_key in ALL_PAGE_KEYS:
-            allowed = (
-                role == "admin" and page_key != "D10"
-            ) or page_key in STORE_DEFAULT_PAGE_KEYS
+            allowed = role == "admin" or page_key in STORE_DEFAULT_PAGE_KEYS
             existing_default = existing_defaults.get((role, page_key))
             if existing_default is not None:
-                if page_key == "D10" and existing_default.is_allowed:
+                if role == "store" and page_key == "D10" and existing_default.is_allowed:
                     existing_default.is_allowed = False
                     existing_default.updated_by = "system-seed"
                     existing_default.updated_at = now
@@ -123,7 +121,7 @@ def page_rows(session: Any) -> list[AccessPage]:
 
 
 def role_default_page_keys(session: Any, role: str) -> tuple[str, ...]:
-    if role == "highest_admin":
+    if role in {"highest_admin", "admin", "viewer"}:
         return tuple(row.page_key for row in page_rows(session))
     ensure_access_control_seed(session)
     values = set(
@@ -153,8 +151,8 @@ def user_override_sets(session: Any, user_id: str) -> tuple[set[str], set[str]]:
 
 
 def effective_page_keys(session: Any, user: User | None, *, role: str | None = None) -> tuple[str, ...]:
-    resolved_role = role or (user.role if user is not None else "highest_admin")
-    if resolved_role == "highest_admin":
+    resolved_role = role or (user.role if user is not None else "admin")
+    if resolved_role in {"highest_admin", "admin", "viewer"}:
         return tuple(row.page_key for row in page_rows(session))
     defaults = set(role_default_page_keys(session, resolved_role))
     if user is None:
@@ -163,9 +161,6 @@ def effective_page_keys(session: Any, user: User | None, *, role: str | None = N
     values = (defaults | allow) - deny
     values.add("A03")
     values.discard("D10")
-    # Legacy viewers are normalized to global admins by authentication.
-    if user.role != "viewer" and user.store_scope_mode != "all" and resolved_role == "admin":
-        values.discard("D02")
     return tuple(key for key in ALL_PAGE_KEYS if key in values)
 
 
@@ -185,10 +180,12 @@ def replace_user_overrides(
     extra_deny: Iterable[str],
     updated_by: str,
 ) -> None:
+    if user.role in {"highest_admin", "admin", "viewer"}:
+        raise ValueError("Administrator permissions are fixed")
     allow = validate_page_keys(extra_allow)
     deny = validate_page_keys(extra_deny)
-    if user.role != "highest_admin" and "D10" in allow:
-        raise ValueError("D10 is reserved for the highest administrator")
+    if "D10" in allow:
+        raise ValueError("D10 is reserved for administrators")
     if allow & deny:
         raise ValueError("A page cannot be both allowed and denied")
     session.execute(
@@ -227,11 +224,11 @@ def update_role_defaults_preserving_customizations(
     page_keys: Iterable[str],
     updated_by: str,
 ) -> dict[str, int]:
-    if role not in {"admin", "store"}:
-        raise ValueError("Highest administrator defaults are fixed")
+    if role != "store":
+        raise ValueError("Administrator defaults are fixed")
     desired = validate_page_keys(page_keys)
     if "D10" in desired:
-        raise ValueError("D10 is reserved for the highest administrator")
+        raise ValueError("D10 is reserved for administrators")
     ensure_access_control_seed(session)
     customized_users = list(
         session.scalars(

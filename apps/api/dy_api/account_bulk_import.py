@@ -10,7 +10,7 @@ from openpyxl.formatting.rule import FormulaRule
 
 HEADERS = ['登录账号', '显示名称', '账号类型', '集团', '服务中心', '大区', '区域', '门店ID（多个用英文分号分隔）', '所属账户编号（选填）']
 INITIAL_ACCOUNT_PASSWORD = '123456'
-TYPES = {'最高管理员': None, '管理员': None, '集团账号': 'group', '服务中心账号': 'service_center', '大区账号': 'district', '区域账号': 'area', '门店账号': 'store'}
+TYPES = {'管理员': None, '集团账号': 'group', '服务中心账号': 'service_center', '大区账号': 'district', '区域账号': 'area', '门店账号': 'store'}
 
 
 def _save(book):
@@ -37,22 +37,25 @@ def _save(book):
     return output.getvalue()
 
 
-def account_template(catalog=None):
+def account_template(catalog=None, *, allowed_types=None):
+    available_types = {key: value for key, value in TYPES.items() if allowed_types is None or key in allowed_types}
     book = Workbook(); sheet = book.active; sheet.title = '账号开通'
     sheet.append(HEADERS)
     for row in range(2, 202):
         for column in (1, 8, 9):
             sheet.cell(row, column).number_format = '@'
-    choices = DataValidation(type='list', formula1='"' + ','.join(TYPES) + '"', allow_blank=False)
+    choices = DataValidation(type='list', formula1='"' + ','.join(available_types) + '"', allow_blank=False)
     choices.errorTitle = '请选择账号类型'; choices.error = '请使用下拉列表中的账号类型'; choices.showErrorMessage = True
     sheet.add_data_validation(choices); choices.add('C2:C201')
     guide = book.create_sheet('填写说明')
     guide.append(['账号类型', '登录账号', '显示名称', '集团', '服务中心', '大区', '区域', '门店ID'])
     required = {
         '集团账号': {'集团'}, '服务中心账号': {'服务中心'}, '大区账号': {'服务中心', '大区'},
-        '区域账号': {'服务中心', '大区', '区域'}, '门店账号': {'门店ID'}, '管理员': set(), '最高管理员': set(),
+        '区域账号': {'服务中心', '大区', '区域'}, '门店账号': {'门店ID'}, '管理员': set(),
     }
     for kind, names in required.items():
+        if kind not in available_types:
+            continue
         guide.append([kind, '必填', '必填', *['必填' if name in names else '留空' for name in ['集团', '服务中心', '大区', '区域', '门店ID']]])
         for cell in guide[guide.max_row][1:]:
             cell.fill = PatternFill('solid', fgColor='E9F3E7' if cell.value == '必填' else 'F2F2F2')
@@ -66,7 +69,7 @@ def account_template(catalog=None):
         ('密码', f'无需填写。初始密码统一为{INITIAL_ACCOUNT_PASSWORD}；开通后在“我的→修改密码”自行修改。'),
         ('怎么交表', '填完后把原xlsx发回管理员。只导入“账号开通”；示例表不导入，不要改表头或工作表名称。'),
         ('发现错误', '先校验再开通；错误按行号和原因提示。任一行有误整批不创建，修正后再上传，不覆盖已有账号。'),
-        ('权限提醒', '管理员及最高管理员是全局权限；组织管理人员请选对应组织账号类型。三个打榜指标始终全量可见。'),
+        ('权限提醒', '管理员页面权限固定；全局写入仅全部门店范围管理员可用。受限管理员只可开通本人范围内门店账号。'),
         ('先看示例', '“示例（不导入）”展示各类型正确填法，请替换示例名称。创建成功后可下载含初始密码的开通结果。'),
     ]
     for number, (label, note) in enumerate(notes, 10):
@@ -86,7 +89,9 @@ def account_template(catalog=None):
         ['district_wang', '王经理', '大区账号', '', '示例中心', '示例大区', '', '', ''],
         ['area_zhao', '赵经理', '区域账号', '', '示例中心', '示例大区', '示例区域', '', ''],
         ['store_qian', '钱店长', '门店账号', '', '', '', '', '00123;00456', ''],
-    ]: examples.append(values)
+    ]:
+        if values[2] in available_types:
+            examples.append(values)
     options = book.create_sheet('可选门店'); options.append(['门店ID', '门店名称', '集团', '服务中心', '大区', '区域'])
     for store in catalog or []:
         options.append([store.get(key, '') for key in ['store_id', 'store_name', 'group_name', 'service_center_name', 'district_name', 'area_name']])

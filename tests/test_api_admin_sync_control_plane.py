@@ -171,17 +171,17 @@ def _seed_observability(session: Session) -> None:
     session.commit()
 
 
-def test_d10_is_fixed_to_highest_admin_and_control_api_rechecks_role(
+def test_d10_is_fixed_to_admin_and_control_api_rechecks_global_capability(
     control_client: TestClient, db_session: Session
 ) -> None:
     admin = db_session.scalar(select(User).where(User.username == "ordinary-admin"))
     assert admin is not None
-    assert "D10" not in role_default_page_keys(db_session, "admin")
-    assert "D10" not in effective_page_keys(db_session, admin)
+    assert "D10" in role_default_page_keys(db_session, "admin")
+    assert "D10" in effective_page_keys(db_session, admin)
     assert required_page_key_for_api_path("/api/v1/admin/operations/overview") == "D10"
 
     _login(control_client, "ordinary-admin")
-    assert control_client.get("/api/v1/admin/operations/overview").status_code == 403
+    assert control_client.get("/api/v1/admin/operations/overview").status_code == 200
     control_client.post("/api/v1/auth/logout")
 
     _login(control_client, "system-admin", "test-password")

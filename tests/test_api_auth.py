@@ -89,7 +89,7 @@ def test_login_sets_http_only_cookie_and_logout_clears_session(client: TestClien
 
     assert response.status_code == 200
     assert response.json()["data"]["username"] == "system-admin"
-    assert response.json()["data"]["role"] == "highest_admin"
+    assert response.json()["data"]["role"] == "admin"
     set_cookie = response.headers["set-cookie"].lower()
     assert "httponly" in set_cookie
     assert "samesite=lax" in set_cookie

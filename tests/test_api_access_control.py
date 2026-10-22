@@ -77,7 +77,7 @@ def test_highest_admin_can_read_page_registry_and_role_defaults(client: TestClie
         "D01", "D02", "D03", "D04", "D05", "D06", "D07", "D08", "D09", "D10",
         "FIN01", "FIN02", "FIN03", "FIN04", "FIN05", "FIN06",
     ]
-    assert data["role_permissions"]["highest_admin"] == [row["page_key"] for row in data["pages"]]
+    assert data["role_permissions"]["admin"] == [row["page_key"] for row in data["pages"]]
     assert "D02" in data["role_permissions"]["admin"]
     assert data["role_permissions"]["admin"][-6:] == [
         "FIN01", "FIN02", "FIN03", "FIN04", "FIN05", "FIN06"
@@ -85,7 +85,7 @@ def test_highest_admin_can_read_page_registry_and_role_defaults(client: TestClie
     assert data["role_permissions"]["store"] == ["A01", "A02", "A03", "B01", "B02", "B03", "C01"]
 
 
-def test_admin_can_manage_store_accounts_but_not_admin_accounts(client: TestClient) -> None:
+def test_all_scope_admin_can_manage_store_and_admin_accounts(client: TestClient) -> None:
     _login(client, "db-admin")
 
     created = client.post(
@@ -114,7 +114,7 @@ def test_admin_can_manage_store_accounts_but_not_admin_accounts(client: TestClie
             "store_ids": [],
         },
     )
-    assert forbidden.status_code == 403
+    assert forbidden.status_code == 200
 
 
 def test_empty_store_scope_is_never_treated_as_all_stores(client: TestClient) -> None:
@@ -264,6 +264,11 @@ def test_admin_with_specified_store_scope_does_not_receive_global_data_access(
     client: TestClient,
 ) -> None:
     _login(client, "system-admin", "test-password")
+    backup = client.post("/api/v1/admin/accounts", json={
+        "username": "backup-admin", "display_name": "Backup", "role": "admin",
+        "store_scope_mode": "all", "password": "secret", "password_confirm": "secret",
+    })
+    assert backup.status_code == 200
     updated = client.put(
         "/api/v1/admin/accounts/db-admin",
         json={
