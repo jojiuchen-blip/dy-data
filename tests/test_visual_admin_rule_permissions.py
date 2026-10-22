@@ -191,3 +191,24 @@ def test_committed_publish_survives_refresh_failure(browser: Browser, rule_api: 
         assert rows[0]["changeReason"] == "isolated refresh failure"
     finally:
         context.close()
+
+
+@pytest.mark.parametrize("alias,canonical", [
+    ("/invoice", "/settlement/invoice"),
+    ("/finance", "/finance/promotion"),
+])
+def test_legacy_alias_preserves_filters_and_fragment(
+    browser: Browser, rule_api: str, rule_web: str, alias: str, canonical: str,
+) -> None:
+    """Exercise the actual App redirect with a real signed-in session."""
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    try:
+        assert context.request.post(f"{rule_api}/api/v1/auth/login", data={
+            "username": "rule-operator", "password": "isolated-password",
+        }).status == 200
+        page = context.new_page()
+        suffix = "?store_id=store-1&month=2026-08&context=keep%2Fvalue#receipt"
+        page.goto(f"{rule_web}{alias}{suffix}", wait_until="domcontentloaded")
+        expect(page).to_have_url(f"{rule_web}{canonical}{suffix}")
+    finally:
+        context.close()
