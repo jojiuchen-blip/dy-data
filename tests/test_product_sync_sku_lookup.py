@@ -26,7 +26,7 @@ class Client:
         return {"data": {"products": self.rows if kwargs["status"] == 1 else [], "has_more": False, "next_cursor": ""}}
     def query_online_products_by_id(self, product_ids):
         self.id_calls.append(list(product_ids))
-        return {"data": {"product_onlines": self.rows}}
+        return {"data": {"product_onlines": [row for row in self.rows if row["product"]["product_id"] in product_ids]}}
     def query_product_skus(self, product_id, sku_ids):
         self.calls.append((product_id, list(sku_ids)))
         if isinstance(self.reply, Exception):
@@ -40,26 +40,35 @@ def adapter(client, ids=None):
     return DouyinProductSyncAdapter(client, known_products={"product-known": set(ids or ["sku-a", "sku-b"])})
 
 
-def test_empty_online_skus_filled_once_without_id_refetch():
-    client = Client(); sync = adapter(client)
+def consume_pages(sync):
     cursor, items = None, []
     while True:
         page = sync.fetch_page(mode="FULL", cursor=cursor)
         items.extend(page.items)
-        if not page.has_more: break
+        if not page.has_more:
+            return items
         cursor = page.next_cursor
+
+
+def test_empty_online_skus_are_filled_once_after_list_scan_and_id_fallback():
+    client = Client(); sync = adapter(client)
+    first_page = sync.fetch_page(mode="FULL", cursor=None)
+    assert first_page.items == () and client.calls == [] and client.id_calls == []
+    items = consume_pages(sync)
     assert {item.sku_id for item in items} == {"sku-a", "sku-b"}
     assert all(item.sync_status == "SUCCESS" and item.owner_account_id == "owner-known" for item in items)
     assert client.calls == [("product-known", ["sku-a", "sku-b"])]
-    assert client.id_calls == []
-    repeated = sync.fetch_page(mode="FULL", cursor=None)
-    assert len(repeated.items) == 2 and len(client.calls) == 1
+    assert client.id_calls == [["product-known"]]
+    # The completed coverage set suppresses further scoped requests even if
+    # another ID page is replayed on the same adapter.
+    assert not sync._fetch_id_page(0).items
+    assert len(client.calls) == 1
 
 
 def test_partial_inline_skus_query_only_missing_and_do_not_mutate_source():
     source = record(present=("sku-a",)); client = Client(rows=[source]); sync = adapter(client)
-    page = sync.fetch_page(mode="FULL", cursor=None)
-    assert {item.sku_id for item in page.items} == {"sku-a", "sku-b"}
+    items = consume_pages(sync)
+    assert {item.sku_id for item in items} == {"sku-a", "sku-b"}
     assert client.calls == [("product-known", ["sku-b"])]
     assert len(source["skus"]) == 1
 
@@ -73,7 +82,7 @@ def test_id_fallback_with_empty_skus_uses_scoped_completion():
 
 def test_lookup_is_batched_to_fifty_known_ids():
     client = Client(); sync = adapter(client, [f"sku-{index:03}" for index in range(101)])
-    assert len(sync.fetch_page(mode="FULL", cursor=None).items) == 101
+    assert len(consume_pages(sync)) == 101
     assert [len(ids) for _, ids in client.calls] == [50, 50, 1]
 
 
@@ -107,9 +116,9 @@ def test_no_lookup_for_untrusted_or_unknown_product(case):
     else: source["product"].pop("owner_account_id")
     client = Client(rows=[source]); sync = adapter(client)
     if case == "unknown-product":
-        assert not sync.fetch_page(mode="FULL", cursor=None).items
+        assert all(item.sync_status == "NOT_FOUND" for item in consume_pages(sync))
     else:
-        with pytest.raises(ProductSyncPayloadError): sync.fetch_page(mode="FULL", cursor=None)
+        with pytest.raises(ProductSyncPayloadError): consume_pages(sync)
     assert client.calls == []
 
 
@@ -146,6 +155,7 @@ def test_completed_known_skus_restore_normal_sync_without_losing_manual_fields(d
 
 def test_id_lookup_must_not_accept_an_unrequested_product():
     client = Client(rows=[{**record(), "product": {**record()["product"], "product_id": "wrong-product"}}])
+    client.query_online_products_by_id = lambda product_ids: {"data": {"product_onlines": client.rows}}
     with pytest.raises(ProductSyncPayloadError, match="unexpected product"):
         adapter(client)._fetch_id_page(0)
     assert client.calls == []
@@ -154,3 +164,12 @@ def test_id_lookup_must_not_accept_an_unrequested_product():
 def test_known_sku_cannot_belong_to_two_products():
     with pytest.raises(ProductSyncPayloadError, match="conflicting product"):
         DouyinProductSyncAdapter(Client(), known_products={"product-a": {"same-sku"}, "product-b": {"same-sku"}})
+
+
+def test_detail_omitting_listed_variant_queries_only_globally_unseen_sku():
+    source = record(present=("sku-a",))
+    client = Client(rows=[source])
+    client.query_online_products_by_id = lambda product_ids: {"data": {"product_onlines": [record()]}}
+    items = consume_pages(adapter(client))
+    assert [item.sku_id for item in items] == ["sku-a", "sku-b"]
+    assert client.calls == [("product-known", ["sku-b"])]

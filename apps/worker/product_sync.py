@@ -229,9 +229,9 @@ class DouyinProductSyncAdapter:
         rows = data.get("products")
         if not isinstance(rows, list):
             raise ProductSyncPayloadError("Product list response products must be a list")
-        normalized_rows, skipped_count = _normalize_douyin_online_rows(
-            self._supplement_known_skus(rows)
-        )
+        # List pages can expose different variants of the same product. Wait
+        # for every page/status before the frozen product-ID gap fallback.
+        normalized_rows, skipped_count = _normalize_douyin_online_rows(rows)
         self._observe_product_skus(normalized_rows)
         has_more = data.get("has_more")
         if not isinstance(has_more, bool):
@@ -304,7 +304,7 @@ class DouyinProductSyncAdapter:
                     if sku_id in cache and _canonical_sha256(cache[sku_id]) != _canonical_sha256(row):
                         raise ProductSyncPayloadError("Conflicting repeated known SKU metadata")
                     cache[sku_id] = row
-            missing = sorted(known - present)
+            missing = sorted(known - present - self._seen_product_skus.get(product_id, set()))
             if not missing:
                 result.append(record)
                 continue
