@@ -194,7 +194,9 @@ class DouyinOpenApiClient:
             PRODUCT_ONLINE_GET_URL,
             {
                 "account_id": self.credentials.account_id,
-                "product_ids": cleaned,
+                # requests expands a Python list into repeated query keys;
+                # this endpoint expects one JSON-encoded array value.
+                "product_ids": json.dumps(cleaned, separators=(",", ":")),
             },
         )
 

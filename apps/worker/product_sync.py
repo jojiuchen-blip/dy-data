@@ -175,8 +175,23 @@ class DouyinProductSyncAdapter:
         }
         self._page_size = page_size
         self._goods_query_type = goods_query_type
-        self._seen_product_ids: set[str] = set()
+        self._seen_product_skus: dict[str, set[str]] = {}
         self._fallback_product_ids: list[str] | None = None
+
+    def _observe_product_skus(self, rows: list[dict[str, Any]]) -> None:
+        for row in rows:
+            product_id = row.get("productId")
+            sku_id = row.get("skuId")
+            if product_id and sku_id:
+                self._seen_product_skus.setdefault(product_id, set()).add(sku_id)
+
+    def _products_with_sku_gaps(self) -> list[str]:
+        return sorted(
+            product_id
+            for product_id, sku_ids in self._known_products.items()
+            if product_id not in self._seen_product_skus
+            or sku_ids - self._seen_product_skus[product_id]
+        )
 
     def fetch_page(self, *, mode: str, cursor: str | None) -> ProductSyncPage:
         _ = mode
@@ -208,9 +223,7 @@ class DouyinProductSyncAdapter:
         if not isinstance(rows, list):
             raise ProductSyncPayloadError("Product list response products must be a list")
         normalized_rows, skipped_count = _normalize_douyin_online_rows(rows)
-        self._seen_product_ids.update(
-            row["productId"] for row in normalized_rows if row.get("productId")
-        )
+        self._observe_product_skus(normalized_rows)
         has_more = data.get("has_more")
         if not isinstance(has_more, bool):
             raise ProductSyncPayloadError("Product list response has_more must be a boolean")
@@ -231,9 +244,9 @@ class DouyinProductSyncAdapter:
                 status_index=status_index + 1,
             )
         else:
-            self._fallback_product_ids = sorted(
-                set(self._known_products) - self._seen_product_ids
-            )
+            # Freeze the gap set only after every list page/status. Each product
+            # is looked up at most once, even if its details omit known variants.
+            self._fallback_product_ids = self._products_with_sku_gaps()
             next_cursor = (
                 _encode_douyin_product_cursor(stage="ids", offset=0)
                 if self._fallback_product_ids
@@ -250,9 +263,7 @@ class DouyinProductSyncAdapter:
 
     def _fetch_id_page(self, offset: int) -> ProductSyncPage:
         if self._fallback_product_ids is None:
-            self._fallback_product_ids = sorted(
-                set(self._known_products) - self._seen_product_ids
-            )
+            self._fallback_product_ids = self._products_with_sku_gaps()
         batch = self._fallback_product_ids[offset : offset + 10]
         if not batch:
             return parse_normalized_product_page(
@@ -269,11 +280,20 @@ class DouyinProductSyncAdapter:
         returned_product_ids = {
             row["productId"] for row in normalized_rows if row.get("productId")
         }
-        self._seen_product_ids.update(returned_product_ids)
+        # Details may repeat list observations. Emit only new variants so a
+        # later snapshot of an already seen SKU cannot conflict with that page.
+        normalized_rows = [
+            row for row in normalized_rows
+            if row.get("skuId") not in self._seen_product_skus.get(row.get("productId"), set())
+        ]
+        self._observe_product_skus(normalized_rows)
         for product_id in batch:
             if product_id in returned_product_ids:
                 continue
-            for sku_id in sorted(self._known_products.get(product_id, set())):
+            for sku_id in sorted(
+                self._known_products.get(product_id, set())
+                - self._seen_product_skus.get(product_id, set())
+            ):
                 normalized_rows.append(
                     {
                         "skuId": sku_id,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import requests
@@ -668,10 +670,62 @@ def test_query_online_products_by_id_batches_at_ten():
     assert http.calls[1]["url"].endswith("/goodlife/v1/goods/product/online/get/")
     assert http.calls[1]["params"] == {
         "account_id": "acct-1",
-        "product_ids": ["product-1", "product-2"],
+        "product_ids": '["product-1","product-2"]',
     }
     with pytest.raises(ValueError, match="at most 10"):
         client.query_online_products_by_id([str(index) for index in range(11)])
+
+
+@pytest.mark.parametrize("transport_retry", [False, True])
+def test_product_details_prepares_one_json_array_query_with_auth_and_governor(
+    transport_retry: bool,
+) -> None:
+    class PreparedTransport(requests.adapters.BaseAdapter):
+        def __init__(self) -> None:
+            self.prepared: list[requests.PreparedRequest] = []
+            self.fail_next_detail = transport_retry
+
+        def send(self, request, **kwargs):
+            self.prepared.append(request)
+            if request.method == "POST":
+                payload = {"data": {"access_token": "test-token"}}
+            else:
+                if self.fail_next_detail:
+                    self.fail_next_detail = False
+                    raise requests.ConnectionError("transient transport failure")
+                payload = {"data": {"product_onlines": []}}
+            response = requests.Response()
+            response.status_code = 200
+            response._content = json.dumps(payload).encode("utf-8")
+            response.request = request
+            response.url = request.url
+            return response
+
+        def close(self) -> None:
+            pass
+
+    transport = PreparedTransport()
+    governor = RecordingGovernor()
+    with requests.Session() as http:
+        http.trust_env = False
+        http.mount("https://", transport)
+        client = DouyinOpenApiClient(
+            DouyinCredentials("app-1", "test-secret", "account-1"),
+            http=http,
+            request_governor=governor,
+            sleep=lambda _seconds: None,
+        )
+        client.query_online_products_by_id([" product-1 ", "product&2", "product-1", ""])
+    detail_requests = [request for request in transport.prepared if request.method == "GET"]
+    assert len(detail_requests) == (2 if transport_retry else 1)
+    for prepared in detail_requests:
+        query = parse_qs(urlsplit(prepared.url).query)
+        assert query["account_id"] == ["account-1"]
+        assert query["product_ids"] == ['["product-1","product&2"]']
+        assert json.loads(query["product_ids"][0]) == ["product-1", "product&2"]
+        assert prepared.headers["access-token"] == "test-token"
+        assert prepared.headers["Rpc-Transit-Life-Account"] == "account-1"
+    assert governor.endpoint_keys == ["oauth_client_token"] + ["product_detail"] * len(detail_requests)
 
 def test_modified_order_pagination_keeps_window_and_governor():
     http = FakeHttp([
