@@ -3060,7 +3060,16 @@ def _materialize_dual_fee_direction(
         if order.sku_id
         else None
     )
-    if product is None or not product.is_active_product:
+    # A successful platform observation of delisting must not erase historical
+    # paid/redemption eligibility. It only opens the remaining identity, scope,
+    # effective-rule and receipt checks; it never changes the platform status.
+    if product is None or not (
+        product.is_active_product
+        or (
+            product.product_status_normalized == "INACTIVE"
+            and product.sync_status == "SUCCESS"
+        )
+    ):
         _block_dual_fee(
             session,
             calculation_run_id,
