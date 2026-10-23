@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from .schema import source_counters
 
 _FINANCE_SHARED = (
+    "historical_sale_attribution_decisions",
     "dim_stores", "dim_sku_product_rules", "clue_center_orders", "raw_douyin_orders",
     "raw_douyin_verify_records", "settlement_order_details", "agg_store_ranking",
     "agg_store_monthly_settlement", "settlement_ranking_overlay", "settlement_monthly_overlay",

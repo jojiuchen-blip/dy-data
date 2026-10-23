@@ -266,20 +266,39 @@ def test_dydata105_store_confirm_invoice_lifecycle_and_replacement_real_readback
             assert session.scalar(select(func.count()).select_from(SettlementDispute).where(SettlementDispute.statement_id == key)) == 0
         page.get_by_role("link", name="进入推广费开票", exact=True).click()
         expect(page.get_by_role("heading", name="开票确认", exact=True, level=1)).to_be_visible()
+        invoice_info = page.locator(".store-finance-invoice-info")
+        expect(invoice_info).to_contain_text("¥123.45")
         page.get_by_role("button", name="一键复制全部开票信息", exact=True).click()
         assert "比亚迪汽车销售有限公司" in page.evaluate("navigator.clipboard.readText()")
 
         def register(number):
-            for label, value in (("购买方名称", "比亚迪汽车销售有限公司"), ("填写人电话", "13812345678"), ("税率", "6"),
-                                 ("开票日期", datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()), ("20 位数电专票号码", number),
-                                 ("不含税金额", "116.46"), ("税额", "6.99"), ("价税合计", "123.45")):
+            preview = context.request.get(live_admin_fastapi_base_url + "/api/v1/store-settlements",
+                params={"storeId": key, "month": "2026-09", "metricScope": "MONTH", "feeDirection": "PROMOTION"})
+            assert preview.status == 200, preview.text()
+            summary = preview.json()["data"]["promotionInvoiceSummary"]
+            assert summary == {"invoiceAmountCent": 12345, "netAmountCent": 11646,
+                               "taxAmountCent": 699, "taxRatePercent": 6, "requiredStatementIds": [key]}
+            for label, amount in (("价税合计（含税总额）", "¥123.45"), ("不含税金额", "¥116.46"), ("税额（6%）", "¥6.99")):
+                expect(invoice_info.locator("dl > div").filter(has=page.locator("dt", has_text=label))).to_contain_text(amount)
+            for label in ("购买方名称", "税率", "不含税金额", "税额", "价税合计"):
+                expect(page.get_by_label(label, exact=True)).to_have_count(0)
+            for label, value in (("填写人电话", "13812345678"),
+                                 ("开票日期", datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()), ("20 位数电专票号码", number)):
                 page.get_by_label(label, exact=True).fill(value)
             with page.expect_response(lambda response: response.request.method == "POST" and response.url.endswith("/promotion-invoices")) as pending:
-                page.get_by_role("button", name="核验并登记发票", exact=True).click()
+                page.get_by_role("button", name="校验并登记发票", exact=True).click()
             assert pending.value.status == 200, pending.value.text()
-            return pending.value.json()["data"]
+            payload = pending.value.request.post_data_json
+            assert not {"buyerName", "taxRatePercent", "netAmountCent", "taxAmountCent", "invoiceAmountCent"}.intersection(payload)
+            assert len(payload["allocations"]) == 1
+            assert payload["allocations"][0]["statementId"] == key
+            assert payload["allocations"][0]["readVersion"] == 1
+            assert "allocatedAmountCent" not in payload["allocations"][0]
+            data = pending.value.json()["data"]
+            assert (data["invoiceAmountCent"], data["netAmountCent"], data["taxAmountCent"], data["taxRatePercent"]) == (12345, 11646, 699, 6)
+            return data
 
-        page.get_by_role("button", name="核验并登记发票", exact=True).click()
+        page.get_by_role("button", name="校验并登记发票", exact=True).click()
         expect(page.get_by_text("系统校验结果", exact=True)).to_be_visible()
         number = "1050000000000000000" + suffix
         register(number)
@@ -550,6 +569,9 @@ def test_dydata105_ranking_filters_drill_and_order_fee_direction_downloads(
     page = context.new_page()
     page.clock.install(time="2026-10-22T00:00:00Z")
     request_order = []
+    ranking_requests = []
+    page.on("request", lambda request: ranking_requests.append(request.url)
+            if "/dashboard/store-ranking?" in request.url else None)
     page.on("request", lambda request: request_order.append(("request", request.url))
             if "/monthly-settlement?" in request.url else None)
     page.on("response", lambda response: request_order.append(("response", response.url, response.status))
@@ -577,10 +599,18 @@ def test_dydata105_ranking_filters_drill_and_order_fee_direction_downloads(
         expect(page.get_by_text("当前筛选下没有门店结果。", exact=True)).to_be_visible()
         page.get_by_label("搜索门店", exact=True).fill("深圳")
         expect(page.get_by_text("深圳临港认证服务店", exact=True).first).to_be_visible()
-        for label, option in (("排行依据", "累计推广服务费"), ("统计方式", "月度"), ("产品范围", "原产品范围")):
+        expect(page.get_by_label("统计方式", exact=True)).to_have_count(0)
+        for label, option in (("排行依据", "累计推广服务费"), ("产品范围", "原产品范围")):
             page.get_by_label(label, exact=True).click()
-            page.get_by_role("option", name=option, exact=True).click()
+            with page.expect_response(lambda response: "/dashboard/store-ranking?" in response.url) as ranked:
+                page.get_by_role("option", name=option, exact=True).click()
+            assert ranked.value.status == 200, ranked.value.text()
+            data = ranked.value.json()["data"]
+            assert data["periodType"] == "MONTHLY"
+            assert data["rankingBasis"] == "PROMOTION_FEE_CUMULATIVE"
+            assert data["totals"]["promotionMonthFeeCent"] == 128641
             expect(page.get_by_text("深圳临港认证服务店", exact=True).first).to_be_visible(timeout=20000)
+        assert ranking_requests and all(parse_qs(urlparse(url).query)["periodType"] == ["MONTHLY"] for url in ranking_requests)
         page.get_by_role("link").filter(has_text="深圳临港认证服务店").click()
         expect(page).to_have_url(re.compile(r"/settlement\?.*storeId=store-1"))
         page.get_by_label("账期", exact=True).click()

@@ -1717,6 +1717,7 @@ def install_api_routes(page: Page) -> None:
         "**/api/v1/store-settlements?*",
         lambda route: route.fulfill(status=200, content_type="application/json", body=api_payload({
             "list": [statement], "total": 1, "page": 1, "page_size": 50,
+            "promotionInvoiceSummary": {"invoiceAmountCent": 38000, "netAmountCent": 35849, "taxAmountCent": 2151, "taxRatePercent": 6, "requiredStatementIds": ["STMT-VISUAL-001"]},
             "metric_scope": "MONTHLY", "metrics": billing_metrics,
             "pageSize": 50, "metricScope": "MONTH",
             "metrics": {"month": {"promotionAmountCent": 38000, "managementAmountCent": 9000}},
@@ -5925,17 +5926,12 @@ def test_store_invoice_preserves_422_input_then_reads_back_success(
             f"{vite_base_url}/settlement/invoice?storeId=store_001&month=2026-08",
             wait_until="domcontentloaded",
         )
-        page.get_by_label("购买方名称").fill("比亚迪汽车销售有限公司")
         page.get_by_label("填写人电话").fill("13800000000")
-        page.get_by_label("税率").fill("6")
         number = page.get_by_label("20 位数电专票号码")
         invoice_date = page.get_by_label("开票日期")
         number.fill("12345678901234567891")
         invoice_date.fill("2026-08-08")
-        page.get_by_label("不含税金额").fill("358.49")
-        page.get_by_label("税额").fill("21.51")
-        page.get_by_label("价税合计").fill("380.00")
-        page.get_by_role("button", name="核验并登记发票").click()
+        page.get_by_role("button", name="校验并登记发票").click()
         page.get_by_text(
             "提交内容未通过校验，请检查后重试。",
             exact=True,
@@ -5943,12 +5939,10 @@ def test_store_invoice_preserves_422_input_then_reads_back_success(
         assert number.input_value() == "12345678901234567891"
         assert invoice_date.input_value() == "2026-08-08"
 
-        page.get_by_role("button", name="核验并登记发票").click()
+        page.get_by_role("button", name="校验并登记发票").click()
         page.get_by_text("发票信息已登记，状态已更新。", exact=True).wait_for(timeout=10000)
         assert page.get_by_label("20 位数电专票号码").input_value() == ""
-        assert posted_payloads[-1]["buyerName"] == "比亚迪汽车销售有限公司"
-        assert posted_payloads[-1]["taxRatePercent"] == 6
-        assert posted_payloads[-1]["invoiceAmountCent"] == 38000
+        assert not {"buyerName", "taxRatePercent", "netAmountCent", "taxAmountCent", "invoiceAmountCent"}.intersection(posted_payloads[-1])
         assert posted_payloads[-1]["allocations"][0]["readVersion"] == 2
     finally:
         context.close()
@@ -6072,6 +6066,7 @@ def test_store_invoice_recovers_terminated_history_and_refreshes_chain_after_rep
                 content_type="application/json",
                 body=api_payload({
                     "list": [statement], "total": 1, "page": 1, "pageSize": 50,
+                    "promotionInvoiceSummary": {"invoiceAmountCent": 38000, "netAmountCent": 35849, "taxAmountCent": 2151, "taxRatePercent": 6, "requiredStatementIds": ["STMT-VISUAL-001"]},
                     "metricScope": "MONTH",
                     "metrics": {"month": {"promotionAmountCent": 38000, "managementAmountCent": 9000}},
                 }),
@@ -6129,15 +6124,10 @@ def test_store_invoice_recovers_terminated_history_and_refreshes_chain_after_rep
         page.get_by_text("替换原发票 12345678901234567890", exact=False).wait_for()
         page.reload(wait_until="domcontentloaded")
         page.get_by_text("替换原发票 12345678901234567890", exact=False).wait_for()
-        page.get_by_label("购买方名称").fill("比亚迪汽车销售有限公司")
         page.get_by_label("填写人电话").fill("13800000000")
-        page.get_by_label("税率").fill("6")
         page.get_by_label("20 位数电专票号码").fill("12345678901234567891")
         page.get_by_label("开票日期").fill("2026-08-21")
-        page.get_by_label("不含税金额").fill("358.49")
-        page.get_by_label("税额").fill("21.51")
-        page.get_by_label("价税合计").fill("380.00")
-        page.get_by_role("button", name="核验并登记发票").click()
+        page.get_by_role("button", name="校验并登记发票").click()
         page.get_by_text("发票信息已登记，状态已更新。", exact=True).wait_for()
         assert registered_payloads[-1]["replacesInvoiceId"] == "INV-TERMINATED-001"
     finally:

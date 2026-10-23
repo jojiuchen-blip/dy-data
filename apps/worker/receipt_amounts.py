@@ -13,7 +13,9 @@ non-negative number of cents with an unambiguous coupon/item attribution:
   is present but unusable, resolution fails closed instead of falling back;
 * for a multi-coupon order a ``sub_order_amount_infos`` entry may be used only
   when the coupon's ``order_item_id`` points at exactly one usable entry and no
-  other coupon in the same order shares that item;
+  other coupon in the same order shares that item; sub-order entries may name
+  that identifier ``order_item_id`` or ``sub_order_id``. If both are present,
+  they must agree;
 * for a single-coupon order the order basis is the sum of every
   ``sub_order_amount_infos`` line when all lines are proven (the authoritative
   script's full ``receipt_amount`` total, no invented attribution key);
@@ -47,6 +49,7 @@ from apps.api.dy_api.models import RawDouyinOrder, RawDouyinOrderCoupon
 RECEIPT_AMOUNT_FIELD = "receipt_amount"
 SUB_ORDER_AMOUNT_FIELD = "sub_order_amount_infos"
 ORDER_ITEM_ID_FIELD = "order_item_id"
+SUB_ORDER_ID_FIELD = "sub_order_id"
 # The order payload's own purchase-quantity field ("购买数量"). It is the only
 # unit-count evidence we trust when deciding a single-coupon order total.
 INTERFACE_COUNT_FIELD = "count"
@@ -102,9 +105,10 @@ class SubOrderReceipts:
     line is a dict with a proven receipt and no item id is duplicated; otherwise
     it is ``None`` so the whole list blocks instead of yielding a partial sum.
     ``corrupt`` is true only when the field exists but is not a list at all
-    (``null``, dict, string, number, ...). That is damaged evidence and must
-    block, unlike an absent field or an explicitly empty list, which carries no
-    sub-order lines and therefore no contradicting evidence.
+    (``null``, dict, string, number, ...) or one entry supplies conflicting
+    ``order_item_id`` and ``sub_order_id`` values. That is damaged evidence and
+    must block, unlike an absent field or an explicitly empty list, which
+    carries no sub-order lines and therefore no contradicting evidence.
 
     ``0`` is a valid receipt, so a proven zero line still counts as evidence
     rather than a missing value.
@@ -166,6 +170,22 @@ class SubOrderReceipts:
             else:
                 total += parsed
             raw_item_id = entry.get(ORDER_ITEM_ID_FIELD)
+            raw_sub_order_id = entry.get(SUB_ORDER_ID_FIELD)
+            if (
+                raw_item_id is not None
+                and raw_sub_order_id is not None
+                and str(raw_item_id).strip() != str(raw_sub_order_id).strip()
+            ):
+                # Neither namespace may silently override contradictory identity.
+                return cls(
+                    unique={},
+                    unusable=frozenset(),
+                    entries_present=True,
+                    complete_total=None,
+                    corrupt=True,
+                )
+            if raw_item_id is None:
+                raw_item_id = raw_sub_order_id
             if raw_item_id is None:
                 continue
             item_id = str(raw_item_id).strip()
@@ -320,8 +340,8 @@ def resolve_coupon_receipt_cent(
     order_payload = _payload_of(order.raw_payload)
     sub_orders = SubOrderReceipts.from_payload(order_payload)
     if sub_orders.corrupt:
-        # Present-but-unusable sub-order evidence (field exists but is not a
-        # list) blocks every path; it must never fall through to the order total.
+        # Unusable sub-order shape or contradictory identity blocks every path;
+        # it must never fall through to the order total.
         return None
     coupon_count = (
         attribution.coupon_count

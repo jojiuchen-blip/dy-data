@@ -555,8 +555,12 @@ def test_not_found_sync_attempt_preserves_last_good_platform_fields(db_session: 
     )
     db_session.add(existing)
     _queue(db_session)
+    client = FakeDouyinProductClient()
+    # This case represents an actually empty ID lookup, not a reply for an
+    # unrelated product (which must now fail the adapter's identity fence).
+    client.query_online_products_by_id = lambda product_ids: {"data": {"product_onlines": []}}
     adapter = DouyinProductSyncAdapter(
-        FakeDouyinProductClient(),
+        client,
         known_products={"product-missing": {"sku-missing"}},
     )
 
@@ -576,3 +580,209 @@ def test_not_found_sync_attempt_preserves_last_good_platform_fields(db_session: 
     assert row.sync_error == "product_not_returned"
     assert row.product_scope == "Manual scope"
     assert row.product_type == "Manual type"
+
+
+def _platform_product(product_id: str, sku_ids: list[str]) -> dict:
+    return {
+        "online_status": 1,
+        "product": {
+            "product_id": product_id,
+            "product_name": product_id,
+            "creator_account_id": "creator-1",
+            "owner_account_id": "owner-1",
+            "account_name": "Owner",
+        },
+        "skus": [{"sku_id": sku_id, "sku_name": sku_id} for sku_id in sku_ids],
+    }
+
+
+class SkuCoverageClient:
+    def __init__(self, list_pages: dict, detail_rows: dict) -> None:
+        self.list_pages = list_pages
+        self.detail_rows = detail_rows
+        self.list_calls: list[tuple[int, str | None]] = []
+        self.id_calls: list[list[str]] = []
+        self.sku_calls: list[tuple[str, list[str]]] = []
+
+    def query_online_products(self, *, status, cursor, **kwargs):
+        self.list_calls.append((status, cursor))
+        return {
+            "data": self.list_pages.get(
+                (status, cursor), {"products": [], "has_more": False}
+            )
+        }
+
+    def query_online_products_by_id(self, product_ids):
+        self.id_calls.append(list(product_ids))
+        return {
+            "data": {
+                "product_onlines": [
+                    self.detail_rows[product_id]
+                    for product_id in product_ids
+                    if product_id in self.detail_rows
+                ]
+            }
+        }
+
+
+    def query_product_skus(self, product_id, sku_ids):
+        self.sku_calls.append((product_id, list(sku_ids)))
+        return {"data": {"error_code": 0, "skus": [
+            {"sku_id": sku_id, "sku_name": sku_id, "status": 1}
+            for sku_id in sku_ids
+        ]}}
+
+
+def test_same_product_missing_skus_uses_detail_once_without_duplicate_snapshot_conflict(
+    db_session: Session,
+) -> None:
+    listed = _platform_product("product-1", ["sku-a"])
+    detail = _platform_product("product-1", ["sku-a", "sku-b", "sku-c"])
+    # List and detail observations can differ for an already observed SKU. The
+    # gap query must add missing variants without replaying the earlier snapshot.
+    detail["skus"][0]["sku_name"] = "Detail observation"
+    client = SkuCoverageClient(
+        {(1, None): {"products": [listed], "has_more": False}},
+        {"product-1": detail},
+    )
+    _queue(db_session)
+    result = execute_product_sync(
+        db_session,
+        job_id="product-sync-1",
+        adapter=DouyinProductSyncAdapter(
+            client, known_products={"product-1": {"sku-a", "sku-b", "sku-c"}}
+        ),
+    )
+    assert result.status == "SUCCESS"
+    assert client.id_calls == [["product-1"]]
+    assert result.inserted_count == 3
+    current = {
+        row.sku_id: row for row in db_session.scalars(select(DimSkuProductRule))
+    }
+    assert set(current) == {"sku-a", "sku-b", "sku-c"}
+    assert current["sku-a"].sku_name == "sku-a"
+    assert current["sku-b"].owner_account_id == "owner-1"
+    assert current["sku-c"].product_id == "product-1"
+    assert client.sku_calls == []
+    assert len(list(db_session.scalars(select(SkuProductSyncHistory)))) == 3
+
+
+def test_sku_coverage_waits_for_every_list_page_and_status_before_fallback(
+    db_session: Session,
+) -> None:
+    client = SkuCoverageClient(
+        {
+            (1, None): {
+                "products": [_platform_product("product-1", ["sku-a"])],
+                "has_more": True,
+                "next_cursor": "second-list-page",
+            },
+            (1, "second-list-page"): {
+                "products": [_platform_product("product-1", ["sku-b"])],
+                "has_more": False,
+            },
+            (2, None): {
+                "products": [_platform_product("product-1", ["sku-c"])],
+                "has_more": False,
+            },
+        },
+        {},
+    )
+    _queue(db_session)
+    result = execute_product_sync(
+        db_session,
+        job_id="product-sync-1",
+        adapter=DouyinProductSyncAdapter(
+            client, known_products={"product-1": {"sku-a", "sku-b", "sku-c"}}
+        ),
+    )
+    assert result.status == "SUCCESS"
+    assert result.inserted_count == 3
+    assert client.id_calls == []
+    assert client.sku_calls == []
+    assert client.list_calls == [
+        (1, None), (1, "second-list-page"), (2, None), (3, None)
+    ]
+
+
+def test_unresolved_sku_gaps_are_batched_once_without_expanding_fallback(
+    db_session: Session,
+) -> None:
+    product_ids = [f"product-{index:02}" for index in range(23)]
+    listed = [
+        _platform_product(product_id, [f"{product_id}-seen"])
+        for product_id in product_ids
+    ]
+    client = SkuCoverageClient(
+        {(1, None): {"products": listed, "has_more": False}},
+        dict(zip(product_ids, listed)),
+    )
+    _queue(db_session)
+    result = execute_product_sync(
+        db_session,
+        job_id="product-sync-1",
+        adapter=DouyinProductSyncAdapter(
+            client,
+            known_products={
+                product_id: {f"{product_id}-seen", f"{product_id}-missing"}
+                for product_id in product_ids
+            },
+        ),
+    )
+    assert result.status == "SUCCESS"
+    assert client.id_calls == [product_ids[:10], product_ids[10:20], product_ids[20:]]
+    assert result.inserted_count == 46
+    assert client.sku_calls == [(product_id, [f"{product_id}-missing"]) for product_id in product_ids]
+    assert sum(row.sku_id.endswith("-missing") for row in db_session.scalars(select(DimSkuProductRule))) == 23
+
+
+def test_missing_detail_does_not_mark_already_listed_sku_not_found(
+    db_session: Session,
+) -> None:
+    client = SkuCoverageClient(
+        {(1, None): {
+            "products": [_platform_product("product-1", ["sku-a"])],
+            "has_more": False,
+        }},
+        {},
+    )
+    _queue(db_session)
+    result = execute_product_sync(
+        db_session,
+        job_id="product-sync-1",
+        adapter=DouyinProductSyncAdapter(
+            client, known_products={"product-1": {"sku-a", "sku-b"}}
+        ),
+    )
+    assert result.status == "SUCCESS"
+    assert client.id_calls == [["product-1"]]
+    current = {
+        row.sku_id: row for row in db_session.scalars(select(DimSkuProductRule))
+    }
+    assert current["sku-a"].sync_status == "SUCCESS"
+    assert current["sku-b"].sync_status == "NOT_FOUND"
+    assert current["sku-b"].owner_account_id is None
+    assert current["sku-b"].is_active_product is False
+
+
+def test_twenty_three_product_partial_sku_reply_preserves_all_current_catalog(db_session: Session):
+    product_ids = [f"product-{index:02}" for index in range(23)]
+    listed = [_platform_product(product_id, [f"{product_id}-seen"]) for product_id in product_ids]
+    client = SkuCoverageClient({(1, None): {"products": listed, "has_more": False}}, dict(zip(product_ids, listed)))
+    def incomplete_reply(product_id, sku_ids):
+        client.sku_calls.append((product_id, list(sku_ids)))
+        return {"data": {"error_code": 0, "skus": []}}
+    client.query_product_skus = incomplete_reply
+    for product_id in product_ids:
+        db_session.add(DimSkuProductRule(sku_id=f"{product_id}-seen", product_id=product_id,
+            sku_name="Trusted before scan", owner_account_id="owner-1", sync_status="SUCCESS",
+            is_active_product=True, product_status_normalized="ACTIVE"))
+    _queue(db_session)
+    result = execute_product_sync(db_session, job_id="product-sync-1", adapter=DouyinProductSyncAdapter(client,
+        known_products={product_id: {f"{product_id}-seen", f"{product_id}-missing"} for product_id in product_ids}))
+    assert result.status == "FAILED"
+    current = list(db_session.scalars(select(DimSkuProductRule)))
+    assert len(current) == 23
+    assert all(row.sku_name == "Trusted before scan" and row.sync_status == "SUCCESS" and row.is_active_product for row in current)
+    assert client.id_calls == [product_ids[:10]]
+    assert client.sku_calls == [(product_ids[0], [f"{product_ids[0]}-missing"])]

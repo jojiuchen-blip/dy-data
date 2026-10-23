@@ -311,7 +311,7 @@ def test_settlement_pages_use_the_t3_1_camel_case_contract_without_silent_fallba
     assert "promotionCumulativeFeeCent" in ranking
     assert "managementNetFeeCent" not in ranking
     assert "RankingBasis" in ranking
-    assert 'sortOrder: SortOrder = "DESC"' in ranking
+    assert 'sortOrder: "DESC"' in ranking
     assert "meta?.saleMonths[0]" in ranking
     assert 'ranking.scopeMode === "AUTHORIZED" ? (row)' in ranking
     for enum_value in [
@@ -448,7 +448,8 @@ def test_dydata_19_production_finance_routes_use_live_api_contract() -> None:
     assert "比亚迪汽车销售有限公司" in invoice_page
     assert "914403007604674476" in invoice_page
     assert "const PROMOTION_INVOICE_TAX_RATE_PERCENT = 6" in invoice_page
-    assert "taxRatePercent: Number(taxRatePercent" in invoice_page
+    assert "taxRatePercent: Number(taxRatePercent" not in invoice_page
+    assert "displayInvoiceSummary.taxAmountCent" in invoice_page
     for promotion_invoice_field in [
         "buyerName",
         "taxRatePercent",
@@ -467,7 +468,7 @@ def test_dydata_19_production_finance_routes_use_live_api_contract() -> None:
     assert "selectedGroupStatements" in invoice_page
     assert "positiveOriginalAmountCent" not in invoice_page
     assert "negativeOffsetAmountCent" not in invoice_page
-    assert "已释放账期仍在结转抵扣中" in invoice_page
+    assert "未能加载全部已释放的当前账单" in invoice_page
     assert "正数原费用" not in invoice_page
     assert "负数抵扣" not in invoice_page
     assert '<dt>净开票金额' not in invoice_page

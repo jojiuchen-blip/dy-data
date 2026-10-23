@@ -377,8 +377,8 @@ def _assert_recoverable_plan(parent: JobRun) -> None:
 
     The *status* is not decided here: a terminal parent (``failed``/``cancelled``)
     is always recoverable, but the production failure shape keeps the range
-    parent ``pending`` while its single date child has already exhausted every
-    attempt.  That blocked shape is decided on the locked row in
+    parent ``pending`` while its single date or finalize child has already
+    exhausted every attempt.  That blocked shape is decided on the locked row in
     :func:`_assert_terminal_shape`, where the children can be read.
     """
 
@@ -405,13 +405,16 @@ def _assert_terminal_shape(
 ) -> None:
     """Only a stopped plan may be replaced: terminal, or genuinely blocked.
 
-    The two production failure shapes are:
+    The production failure shapes are:
 
     * the range parent itself is terminal (``failed``/``cancelled``); or
     * the parent is still ``pending`` but its day is blocked — exactly one
       ``date_sync`` child is terminal-failed with its attempt budget exhausted,
       the parent's own ``parent_sync`` work has already finished, and no child
       holds a live lease.  This is the real 09-14/16/20/25/28 shape.
+    * the parent is still ``pending`` after both collection children succeeded,
+      but its single finalize failed with its quota-adjusted budget exhausted.
+      This uses the same strict stopped-chain check as recovery generations.
 
     A ``pending`` plan whose children are still runnable is *not* blocked: the
     scheduler still owns it, and a replacement would collect the window twice.
@@ -423,6 +426,8 @@ def _assert_terminal_shape(
         raise DayRecoveryNotAllowed(
             f"day plan is not terminal: status={parent.status}"
         )
+    if _pending_finalize_is_stopped(session, parent, reference):
+        return
     children = list(
         session.scalars(
             select(JobRun).where(
@@ -622,6 +627,20 @@ def _pending_generation_is_stopped(
         return False
     if candidate.data_source != root.data_source:
         return False
+    return _pending_finalize_is_stopped(session, candidate, reference)
+
+
+def _pending_finalize_is_stopped(
+    session: Session,
+    candidate: JobRun,
+    reference: datetime,
+) -> bool:
+    """Prove one day chain stopped after collection and exhausted finalize.
+
+    Shared by an original pending root and a recorded recovery generation;
+    generation identity and budget remain the caller's responsibility.
+    """
+
     if candidate.cancel_requested_at is not None:
         return False
     if candidate.pause_after_stage_requested_at is not None:
@@ -665,6 +684,16 @@ def _pending_generation_is_stopped(
         if child.config_version != candidate.config_version:
             return False
         if child.data_source != candidate.data_source:
+            return False
+        if not _same_plan_window(child.window_start, candidate.window_start):
+            return False
+        if not _same_plan_window(child.window_end, candidate.window_end):
+            return False
+        if child.job_kind == "date_sync" and child.business_date != (
+            _as_shanghai(candidate.window_start).date()
+            if candidate.window_start is not None
+            else None
+        ):
             return False
         if _holds_live_lease(child.lease_expires_at, reference):
             return False

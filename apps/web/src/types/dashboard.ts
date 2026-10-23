@@ -1997,7 +1997,16 @@ export interface StoreStatementMetrics {
   };
 }
 
+export interface PromotionInvoiceSummary {
+  invoiceAmountCent: number;
+  netAmountCent: number;
+  taxAmountCent: number;
+  taxRatePercent: number;
+  requiredStatementIds: string[];
+}
+
 export interface StoreBillingStatementListData {
+  promotionInvoiceSummary?: PromotionInvoiceSummary | null;
   list: StoreBillingStatement[];
   total: number;
   page: number;
@@ -2143,19 +2152,13 @@ export interface StoreBillingDisputeListData {
 
 export interface PromotionInvoiceRegistrationPayload {
   storeId: string;
-  buyerName: string;
   fillerPhone: string;
-  taxRatePercent: number;
   invoiceNumber: string;
   invoiceDate: string;
-  netAmountCent: number;
-  taxAmountCent: number;
-  invoiceAmountCent: number;
   replacesInvoiceId?: string;
   allocations: Array<{
     statementId: string;
     statementMonth: string;
-    allocatedAmountCent: number;
     readVersion: number;
     promotionInvoiceGroupId: string;
   }>;

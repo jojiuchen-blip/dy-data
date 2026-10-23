@@ -144,7 +144,7 @@ def test_store_invoice_keeps_real_registration_and_adds_formal_invoice_guidance(
     assert "当月10日前登记成功进入当月结算批次；10日后登记进入下月结算批次。" in page
     assert "10日24:00前" not in page
     assert "20 位数电专票号码" in page
-    assert "核验并登记发票" in page
+    assert "校验并登记发票" in page
     assert "不含税金额" in page
     assert "税额" in page
     assert "replacementCandidateResource.error" not in page.split("<ResourceNotice", 1)[1].split("/>", 1)[0]
@@ -252,16 +252,15 @@ def test_invoice_confirmation_restores_the_reference_verification_workspace() ->
         "税额",
         "价税合计",
         "系统校验结果",
-        "数电专票号码必须为20位纯数字且不得重复",
-        "不含税金额 + 税额必须等于开票金额",
-        "价税合计必须等于系统确定账期的推广服务费",
+        "数电专票号码必须为20位半角数字且不得重复",
+        "系统已确定可开票的完整账期及金额",
     ]:
         assert required_copy in page
 
     assert "calculateInvoiceTaxBreakdown" not in page
     assert "税额必须与不含税金额按6%税率计算一致" not in page
-    assert "parseInvoiceAmountCent" in page
-    assert "Math.abs(netAmountCent + taxAmountCent - invoiceAmountCent) <= 1" in page
+    assert "parseInvoiceAmountCent" not in page
+    assert "promotionInvoiceSummary" in page
     assert "validateInvoiceRegistration" in page
     assert 'className="store-finance-invoice-workspace"' in page
     assert 'className="store-finance-verification-list"' in page
@@ -295,16 +294,16 @@ def test_invoice_registration_uses_all_billable_periods_and_validates_entered_fi
     assert "替换原发票" in page
 
     for field in [
-        'aria-label="购买方名称"',
         'aria-label="填写人电话"',
-        'aria-label="税率"',
-        'aria-label="不含税金额"',
-        'aria-label="税额"',
-        'aria-label="价税合计"',
     ]:
         assert field in page
 
     for removed_field in [
+        'aria-label="购买方名称"',
+        'aria-label="税率"',
+        'aria-label="不含税金额"',
+        'aria-label="税额"',
+        'aria-label="价税合计"',
         'aria-label="纳税人识别号"',
         'aria-label="地址"',
         'aria-label="电话"',
@@ -314,10 +313,9 @@ def test_invoice_registration_uses_all_billable_periods_and_validates_entered_fi
     ]:
         assert removed_field not in page
 
-    assert "本项应该填写6%，请检查您开具的发票税率是否为6%。" in page
-    assert "本项应该填写“比亚迪汽车销售有限公司”，请检查您开具的发票购买方名称是否正确。" in page
-    assert "parseInvoiceAmountCent" in page
-    assert "不含税金额 + 税额必须等于开票金额" in page
+    assert "promotionInvoiceSummary" in page
+    assert "parseInvoiceAmountCent" not in page
+    assert "不进行税务验真" in page
     assert "currentUser.store_ids.includes" in page
     assert "showValidationFeedback" in page
     assert "failedInvoiceValidationItems" in page
@@ -359,8 +357,8 @@ def test_missing_store_finance_metrics_are_not_rendered_as_real_zero_values() ->
     assert 'value={formatCurrency(metrics?.salesAmountCent ?? 0)}' not in settlement
     assert 'formatCurrency(originalAmount ?? 0)' not in settlement
 
-    assert 'selectedStatements.length ? formatCurrency(selectedAmountCent) : "尚未生成"' in invoice
-    assert '<div><dt>价税合计</dt><dd>{selectedStatements.length ? formatCurrency(selectedAmountCent) : "尚未生成"}</dd></div>' in invoice
+    assert 'displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.invoiceAmountCent) : "尚未生成"' in invoice
+    assert '<div><dt>价税合计（含税总额）</dt><dd>{displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.invoiceAmountCent) : "尚未生成"}</dd></div>' in invoice
     assert 'promotionAmountCent ?? 0)}' not in invoice
 
 

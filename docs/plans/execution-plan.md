@@ -1,3 +1,12 @@
+# 当前执行：DYDATA-104 10月23日新增范围
+
+- 用户已批准开始；继续S4/T3.1，当前Codex负责集成，基于ca61eff。
+- 当前正式计划：[dydata-104-followthrough](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)；[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。
+- 当前动作：恢复入口、月榜/发票、商品查询、规则补丁及历史下架资格已集成，专项通过；[草稿PR62](https://github.com/jojiuchen-blip/dy-data/pull/62)提交 `8fd1564` 的[完整CI](https://github.com/jojiuchen-blip/dy-data/actions/runs/39904404108)已通过，未部署。补算前差异见[验证记录](../verification/dydata-104-oct23.md)。
+- 生产修复：用户明确要求“那你把数据修复吧”。6个缺失SKU已由官方响应补档，新增14条缺失费率，附件23个规格的档案/费率齐全；895张账单、12条确认及发票明细指纹未变。106笔历史归属已完成精确来源核验，正实现独立历史裁决并准备发布补算。16条附件门店映射已找到精确UID链；81条异店相同UID链支持现系统归属；39条附件外费用已解释，不删除。历史下架按原需求有效规则和交易条件处理，不按附件金额改写原始实收。
+- 【用户确认，2026-10-23】用户查看完整21行对应表后回复“21个账号归属应该没问题”，认可该表所列账期的候选业务归属（覆盖106笔阻断订单）。不再重复索要附件已有UID/销售POI或重复确认这21组归属；原始ID命名空间、现有认证/解绑记录、绑定有效时间及受控修复预演由执行者继续核验。本项不代表生产绑定或补算已完成，不扩大到81/39等其他差异。记录见[Linear评论](https://linear.app/keith-lim/issue/DYDATA-104#comment-15dcf478)。
+- 保留历史确认/开票/锁账、权限及恢复预算；未实际确认账单、登记发票或付款。新增范围未完成。
+
 # 当前执行：DYDATA-105 管理员统一、按钮验收与批量门店筛选（2026-10-22）
 
 | 字段 | 内容 |

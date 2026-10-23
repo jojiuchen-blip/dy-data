@@ -1,5 +1,23 @@
 # T3.1 静态首版发布与生产业务验收
 
+## 2026-10-23 已授权范围增量
+
+用户阅读三组新增需求及实施顺序后明确同意开始。承接 DYDATA-104 正文 2026-10-23 增补，覆盖旧的“八月不处理”边界；确认、开票、锁账、权限及恢复预算保护继续有效。当前 Codex 为唯一集成负责人，基线为合入 PR61 的 `ca61eff`。上游收集于2026-10-23运行，slug=dy-data，canProceed=true；大文件按相关章节读取。
+
+- 商品规则：读取指定附件全部相关行，产品线映射产品类型，生成新增/一致/冲突清单。复用商品分类和双费率入口；核对生效日、资格和受保护月份，不猜测或直接覆盖历史版本。
+- 数据：核对8月31天、9月30天有效发布；修复原始pending-root在采集成功、finalize耗尽后的恢复资格。补采与重算分开，保留原root、次数、幂等和取消/暂停。九月2/2已用额度不绕过。按月对账总额、券/订单、退款和分币差异；八月未开票与累计应开票不作为九月当期基准。
+- 页面与发票：月榜固定月度并移除统计方式、清理旧URL；开票页按确认账单展示默认6%含税拆分。去掉购买方、税率、不含税额、税额和价税合计人工输入，服务端派生金额；号码校验为20位ASCII数字。保留归属、状态、版本、重复登记、幂等及审计，不宣称税务验真，不实际登记生产发票。
+
+**增量 PRD 双链·读**：`docs/prd/subprd/04-subprd-invoice-registration.md`、`docs/prd/foundation/foundation-api-dy-data/sku-fee-admin.md`、`docs/prd/foundation/foundation-api-dy-data/billing-invoice.md`。最新用户确认及Linear增补对明确冲突项优先；旧契约差异记录foundation待改请求。
+
+**增量核心文件**：`apps/worker/day_recovery.py`、`apps/api/dy_api/routes/dashboard.py`、`apps/api/dy_api/routes/fee_admin.py`、`apps/web/src/pages/StoreRankingPage.tsx`、`apps/web/src/pages/StoreInvoicePage.tsx`、`apps/web/src/types/dashboard.ts`、相关pytest/浏览器测试、受控运维及对账脚本。
+
+**分工**：主线程负责规则、对账、部署和计划；独立工作树分别负责恢复入口、发票后端、前端及各自测试。子任务不修改父范围或生产。
+
+**增量完成标准**：23个附件SKU逐条映射，冲突可解释；两月发布、费用/账单/页面/导出与基准差异分别有证据；恢复保护回归通过；发票正常/非法号码/无权限/跨店/过期账单/重复提交/失败回滚及6%分币计算通过真实路由测试；真实页面、最终CI及PG验证通过，发布后回读。资源、来源或保护事实差异未解释时停止对应写入，不放宽门禁。
+
+**Evidence**：`docs/verification/dydata-104-oct23.md` 脱敏记录；原始材料仅保存在忽略目录。状态仍为进行中，未宣称配置、重算或部署完成。
+
 ## 任务来源
 
 - [主计划](main-delivery-plan-dydata-104-followthrough.md) / [任务看板](task-kanban-dydata-104-followthrough.md)

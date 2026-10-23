@@ -69,6 +69,10 @@ from apps.api.dy_api.models import (
 from apps.api.dy_api.rule_utils import normalize_owner_account_name
 from apps.api.dy_api.settlement_scope import resolve_settlement_scope_rule
 from apps.worker.projection_lineage import resolve_projection_partitions
+from apps.worker.historical_sale_attribution import (
+    HistoricalAttributionError,
+    resolve_historical_sale_attribution,
+)
 from apps.worker.receipt_amounts import (
     load_order_attributions,
     resolve_coupon_receipt_cent,
@@ -3060,7 +3064,16 @@ def _materialize_dual_fee_direction(
         if order.sku_id
         else None
     )
-    if product is None or not product.is_active_product:
+    # A successful platform observation of delisting must not erase historical
+    # paid/redemption eligibility. It only opens the remaining identity, scope,
+    # effective-rule and receipt checks; it never changes the platform status.
+    if product is None or not (
+        product.is_active_product
+        or (
+            product.product_status_normalized == "INACTIVE"
+            and product.sync_status == "SUCCESS"
+        )
+    ):
         _block_dual_fee(
             session,
             calculation_run_id,
@@ -3108,7 +3121,28 @@ def _materialize_dual_fee_direction(
         return False
 
     sale_owner_account_id = _first_text(order.owner_account_id)
-    sale_account = _resolve_dual_fee_sale_account(session, order)
+    verify = _select_valid_verify_record(session, coupon.coupon_id)
+    try:
+        attribution_decision = resolve_historical_sale_attribution(
+            session, order=order, coupon=coupon, verify=verify, current_result=current,
+        )
+    except HistoricalAttributionError:
+        _block_dual_fee(
+            session, calculation_run_id, coupon, order,
+            "historical_sale_attribution_source_drift",
+            "历史销售归属裁决的精确来源已变化，费用方向已阻断。",
+            directions=(direction,), context={"direction": direction_name},
+        )
+        return False
+    sale_account = (
+        OwnerAccountMatch(
+            account_id=attribution_decision.source_account_id,
+            store_id=attribution_decision.store_id,
+            match_source="historical_sale_attribution",
+        )
+        if attribution_decision is not None
+        else _resolve_dual_fee_sale_account(session, order)
+    )
     if sale_account is None:
         _block_dual_fee(
             session,
@@ -3159,7 +3193,6 @@ def _materialize_dual_fee_direction(
         if current is not None:
             _retire_unqualified_fee_result(session, current)
         return True
-    verify = _select_valid_verify_record(session, coupon.coupon_id)
     if verify is None or verify.verify_time is None:
         if current is not None:
             cancelled = _matching_verify_cancellation(session, current)
@@ -3324,6 +3357,8 @@ def _materialize_dual_fee_direction(
         result_status=ACTIVE_FEE_RESULT,
         qualifying_verify_id=verify.verify_id,
         qualifying_verify_time=verify.verify_time,
+        sale_attribution_decision_id=attribution_decision.decision_id if attribution_decision else None,
+        sale_attribution_evidence_sha256=attribution_decision.evidence_sha256 if attribution_decision else None,
     )
     if (
         current is not None
@@ -3434,6 +3469,7 @@ def _materialize_dual_fee_direction(
         qualifying_verify_time=verify.verify_time,
         qualifying_verify_store_id=qualifying_store.store_id if qualifying_store else None,
         qualifying_verify_store_name=qualifying_store.store_name if qualifying_store else None,
+        sale_attribution_decision_id=attribution_decision.decision_id if attribution_decision else None,
         reverification_anchor_id=(current.reverification_anchor_id or current.fee_result_id) if adjustment_only else None,
         calculated_at=utcnow(),
     )
@@ -4398,6 +4434,8 @@ def _fee_result_input_fingerprint(
     result_status: int,
     qualifying_verify_id: str | None = None,
     qualifying_verify_time: datetime | None = None,
+    sale_attribution_decision_id: str | None = None,
+    sale_attribution_evidence_sha256: str | None = None,
 ) -> str:
     """Return a deterministic SHA-256 over business inputs and result fields."""
 
@@ -4424,6 +4462,9 @@ def _fee_result_input_fingerprint(
         "qualifying_verify_id": qualifying_verify_id,
         "qualifying_verify_time": qualifying_verify_time,
     }
+    if sale_attribution_decision_id is not None:
+        payload["sale_attribution_decision_id"] = sale_attribution_decision_id
+        payload["sale_attribution_evidence_sha256"] = sale_attribution_evidence_sha256
     normalized = {
         key: _canonical_fingerprint_value(value)
         for key, value in payload.items()
@@ -5916,11 +5957,14 @@ def _is_non_commission_owner_account(session: Session, owner_account_name: str |
     return bool(rule and rule.is_active)
 
 
-def _select_valid_verify_record(session: Session, coupon_id: str) -> RawDouyinVerifyRecord | None:
+def _select_valid_verify_record(
+    session: Session, coupon_id: str, *, refresh_source: bool = False,
+) -> RawDouyinVerifyRecord | None:
     records = list(
         session.scalars(
             select(RawDouyinVerifyRecord)
             .where(RawDouyinVerifyRecord.coupon_id == coupon_id)
+            .execution_options(populate_existing=refresh_source)
         )
     )
     records.sort(

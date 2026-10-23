@@ -35,7 +35,7 @@ from apps.api.dy_api.dashboard_publications import finance
 
 @pytest.fixture(scope="module")
 def availability_api(request, tmp_path_factory):
-    complete = request.param == "complete"
+    complete = request.param in {"complete", "pagination"}
     engine = create_engine(
         f"sqlite+pysqlite:///{tmp_path_factory.mktemp('monthly-availability') / 'db.sqlite3'}",
         connect_args={"check_same_thread": False},
@@ -51,7 +51,10 @@ def availability_api(request, tmp_path_factory):
                                 ("ranking", "cumulative:2026-09")):
             session.add(SettlementProjectionPartitionManifest(generation_id="monthly-source", artifact=kind,
                 partition_key=partition, source_kind="overlay", data_generation_id="monthly-source"))
-        for store_id, amount in (("fee-store", 12345), ("zero-store", 0)):
+        stores = [("fee-store", 12345), ("zero-store", 0)]
+        if request.param == "pagination":
+            stores += [(f"page-store-{index:02d}", 0) for index in range(22)]
+        for store_id, amount in stores:
             session.add(DimStore(store_id=store_id, store_name=store_id, is_active=True))
             session.add(SettlementMonthlyOverlay(generation_id="monthly-source", partition_key="2026-09",
                 month="2026-09", store_id=store_id, product_scope="all", product_type="all",
@@ -59,7 +62,7 @@ def availability_api(request, tmp_path_factory):
             for period_type, partition in ((1, "monthly:2026-09"), (2, "cumulative:2026-09")):
                 session.add(SettlementRankingOverlay(generation_id="monthly-source", partition_key=partition,
                     period_type=period_type, period_key="2026-09", month="2026-09", store_id=store_id,
-                    store_name=store_id, promotion_net_fee_cent=amount, management_net_fee_cent=amount))
+                    store_name=store_id, promotion_net_fee_cent=amount * period_type, management_net_fee_cent=amount * period_type))
             session.add(SettlementStatement(statement_id=f"bill-{store_id}", store_id=store_id,
                 statement_month="2026-09", version_no=1, is_current=True, statement_status=1,
                 promotion_original_fee_cent=amount, promotion_net_fee_cent=amount,
@@ -158,9 +161,8 @@ def test_month_ready_pages_show_fees_nulls_and_keep_billing_actions(
         expect(page.get_by_role("option", name="累计推广服务费", exact=True)).to_be_disabled()
         expect(page.get_by_role("option", name="当期推广服务费", exact=True)).to_be_enabled()
         page.keyboard.press("Escape")
-        page.get_by_role("button", name="统计方式", exact=True).click()
-        expect(page.get_by_role("option", name="正式累计", exact=True)).to_be_disabled()
-        page.keyboard.press("Escape")
+        expect(page.get_by_role("button", name="统计方式", exact=True)).to_have_count(0)
+        assert "periodType=MONTHLY" in response.value.url
         page.screenshot(path=str(tmp_path / "monthly-ranking-partial-cumulative.png"))
 
         with page.expect_response(lambda r: "/monthly-settlement?" in r.url) as response:
@@ -203,29 +205,91 @@ def test_unsupported_cumulative_deep_link_recovers_to_monthly_on_same_publicatio
         assert response.value.json()["meta"]["publication"]["id"] == availability_api[1]
         assert "rankingBasis=PROMOTION_FEE_MONTH" in response.value.url
         expect(metric(page, "当期推广服务费")).to_contain_text("123.45")
-        expect(page.get_by_role("button", name="统计方式", exact=True)).to_contain_text("月度")
+        expect(page.get_by_role("button", name="统计方式", exact=True)).to_have_count(0)
         expect(page.get_by_role("alert")).to_have_count(0)
     finally:
         context.close()
 
 
 @pytest.mark.parametrize("availability_api", ["complete"], indirect=True)
-def test_complete_prefix_keeps_numeric_zero_and_cumulative_switching(browser, availability_web):
+def test_complete_prefix_keeps_numeric_zero_and_monthly_period_during_cumulative_sort(browser, availability_web):
     context = browser.new_context()
     page = context.new_page()
     try:
         page.goto(f"{availability_web}/ranking?periodKey=2026-09")
-        expect(metric(page, "累计推广服务费")).to_contain_text("123.45")
+        expect(metric(page, "累计推广服务费")).to_contain_text("246.90")
         expect(page.locator("tbody tr").filter(has_text="zero-store")).to_contain_text("0.00")
         expect(page.get_by_text("暂不可用", exact=True)).to_have_count(0)
         page.get_by_role("button", name="排行依据", exact=True).click()
-        with page.expect_response(lambda r: "/store-ranking?" in r.url and "periodType=CUMULATIVE" in r.url) as response:
+        with page.expect_response(lambda r: "/store-ranking?" in r.url and "periodType=MONTHLY" in r.url) as response:
             page.get_by_role("option", name="累计推广服务费", exact=True).click()
         assert response.value.status == 200
-        expect(metric(page, "累计推广服务费")).to_contain_text("123.45")
+        data = response.value.json()["data"]
+        assert data["periodType"] == "MONTHLY"
+        assert data["totals"]["promotionNetFeeCent"] == data["totals"]["promotionMonthFeeCent"] == 12345
+        assert data["totals"]["promotionCumulativeFeeCent"] == 24690
+        assert data["list"][0]["promotionMonthFeeCent"] == 12345
+        assert data["list"][0]["promotionCumulativeFeeCent"] == 24690
+        expect(metric(page, "当期推广服务费")).to_contain_text("123.45")
+        expect(metric(page, "累计推广服务费")).to_contain_text("246.90")
         page.goto(f"{availability_web}/settlement?storeId=zero-store&month=2026-09")
         expect(metric(page, "累计推广服务费")).to_contain_text("0.00")
         expect(metric(page, "累计管理服务费")).to_contain_text("0.00")
         expect(page.get_by_text("暂不可用", exact=True)).to_have_count(0)
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("availability_api", ["mixed", "complete"], indirect=True)
+def test_legacy_cumulative_url_is_normalized_without_using_stored_cumulative_filters(
+    browser, availability_web, availability_api,
+):
+    context = browser.new_context()
+    page = context.new_page()
+    context.add_init_script("localStorage.setItem('ranking', JSON.stringify({periodType:'CUMULATIVE',rankingBasis:'PROMOTION_FEE_CUMULATIVE'}))")
+    responses = []
+    page.on("response", lambda response: responses.append(response) if "/store-ranking?" in response.url else None)
+    try:
+        page.goto(f"{availability_web}/ranking?periodKey=2026-09&periodType=CUMULATIVE&rankingBasis=PROMOTION_FEE_CUMULATIVE&sortBy=SALES_AMOUNT")
+        expect(metric(page, "当期推广服务费")).to_contain_text("123.45")
+        assert responses
+        assert all("periodType=MONTHLY" in response.url for response in responses)
+        assert all("rankingBasis=PROMOTION_FEE_MONTH" in response.url for response in responses)
+        assert "periodType=MONTHLY" in page.url
+        assert "rankingBasis=PROMOTION_FEE_MONTH" in page.url
+        expect(page.get_by_role("button", name="统计方式", exact=True)).to_have_count(0)
+        page.reload()
+        expect(metric(page, "当期推广服务费")).to_contain_text("123.45")
+        assert all("periodType=MONTHLY" in response.url for response in responses)
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("availability_api", ["pagination"], indirect=True)
+def test_monthly_ranking_pagination_search_and_drilldown_share_period(browser, availability_web):
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    responses = []
+    page.on("response", lambda response: responses.append(response) if "/store-ranking?" in response.url else None)
+    try:
+        page.goto(f"{availability_web}/ranking?periodKey=2026-09&periodType=CUMULATIVE")
+        expect(page.get_by_role("navigation", name="表格分页")).to_contain_text("共 24 条")
+        with page.expect_response(lambda response: "/store-ranking?" in response.url and "page=2" in response.url) as second:
+            page.get_by_role("button", name="下一页", exact=True).click()
+        assert second.value.status == 200
+        assert second.value.json()["data"]["page"] == 2
+        assert second.value.json()["data"]["totals"]["promotionMonthFeeCent"] == 12345
+        expect(page.get_by_role("navigation", name="表格分页")).to_contain_text("显示 21-24")
+        with page.expect_response(lambda response: "/store-ranking?" in response.url and "q=fee-store" in response.url) as searched:
+            page.get_by_label("搜索门店", exact=True).fill("fee-store")
+        assert searched.value.json()["data"]["page"] == 1
+        assert searched.value.json()["data"]["total"] == 1
+        assert all("periodType=MONTHLY" in response.url for response in responses)
+        link = page.locator('tbody tr[role="link"]').filter(has_text="fee-store")
+        with page.expect_response(lambda response: "/monthly-settlement?" in response.url) as drilled:
+            link.click()
+        assert drilled.value.status == 200
+        assert drilled.value.json()["data"]["month"] == "2026-09"
+        expect(metric(page, "当期推广服务费")).to_contain_text("123.45")
     finally:
         context.close()

@@ -33,6 +33,7 @@ from apps.api.dy_api.models import (
     SettlementFeeResultCurrent,
     SettlementStatement,
 )
+from apps.worker.historical_sale_attribution import month_decision_digest
 from apps.worker.priority_scheduler import _day_state, _priority_rows_for_day
 from apps.worker.repositories import queue_job_run, upsert_data_quality_issue
 from apps.worker.settlement import FORMAL_SETTLEMENT_START
@@ -183,11 +184,13 @@ def month_source_watermark(session: Session, business_month: str) -> str | None:
     if result_count == 0:
         # Zero commission results must never reach statement generation.
         return None
-    return _watermark_from(revisions, results_fingerprint)
+    return _watermark_from(revisions, results_fingerprint, month_decision_digest(session, business_month))
 
 
-def _watermark_from(revisions: list[str], results_fingerprint: str) -> str:
+def _watermark_from(revisions: list[str], results_fingerprint: str, decision_digest: str | None = None) -> str:
     payload = ",".join(revisions) + "||" + results_fingerprint
+    if decision_digest is not None:
+        payload += "||historical-sale-attribution:" + decision_digest
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
@@ -219,7 +222,7 @@ def month_close_preflight(session: Session, business_month: str) -> tuple[str, s
     )
     if result_count == 0:
         return NO_CURRENT_RESULTS, None
-    watermark = _watermark_from(revisions, results_fingerprint)
+    watermark = _watermark_from(revisions, results_fingerprint, month_decision_digest(session, business_month))
     if _active_rebuild_exists(session):
         return ACTIVE_REBUILD, watermark
     return READY, watermark
