@@ -1338,6 +1338,36 @@ ClueMaterializationCheckpoint = JobImpactWatermark
 ImpactWatermark = JobImpactWatermark
 
 
+class HistoricalSaleAttributionDecision(Base):
+    """One immutable, explicitly approved sale-store decision for one redemption."""
+
+    __tablename__ = "historical_sale_attribution_decisions"
+    __table_args__ = (
+        UniqueConstraint("coupon_id", name="uq_historical_sale_attribution_coupon"),
+        Index("ix_historical_sale_attribution_month", "business_month", "decision_id"),
+        Index("ix_historical_sale_attribution_batch", "batch_id"),
+        CheckConstraint("length(source_identity_sha256) = 64 AND length(evidence_sha256) = 64", name="ck_historical_sale_attribution_digests"),
+    )
+
+    decision_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    batch_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    raw_order_id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("raw_douyin_orders.id", ondelete="RESTRICT"))
+    order_id: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_coupon_id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("raw_douyin_order_coupons.id", ondelete="RESTRICT"))
+    coupon_id: Mapped[str] = mapped_column(Text, nullable=False)
+    verify_id: Mapped[str] = mapped_column(Text, ForeignKey("raw_douyin_verify_records.verify_id", ondelete="RESTRICT"))
+    verify_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    business_month: Mapped[str] = mapped_column(String(7), nullable=False)
+    source_account_id: Mapped[str] = mapped_column(Text, nullable=False)
+    store_id: Mapped[str] = mapped_column(Text, ForeignKey("dim_stores.store_id", ondelete="RESTRICT"))
+    source_identity_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_identity_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, nullable=False)
+    evidence_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    approval_evidence_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, nullable=False)
+    actor: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class SettlementFeeResult(Base):
     __tablename__ = "settlement_fee_result"
     __table_args__ = (
@@ -1387,6 +1417,7 @@ class SettlementFeeResult(Base):
             "idx_settlement_fee_result_match_date", "rule_match_date", "fee_direction"
         ),
         Index("idx_settlement_fee_result_calculation_run", "calculation_run_id"),
+        Index("ix_fee_result_sale_attribution_decision", "sale_attribution_decision_id"),
         Index("idx_settlement_fee_result_reverification_anchor", "reverification_anchor_id", "result_version"),
     )
 
@@ -1419,6 +1450,9 @@ class SettlementFeeResult(Base):
     result_status: Mapped[int] = mapped_column(Integer, default=1)
     calculation_run_id: Mapped[str] = mapped_column(String(128))
     input_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    sale_attribution_decision_id: Mapped[str | None] = mapped_column(
+        String(128), ForeignKey("historical_sale_attribution_decisions.decision_id", name="fk_fee_result_historical_sale_attribution", ondelete="RESTRICT")
+    )
     qualifying_verify_id: Mapped[str | None] = mapped_column(Text)
     qualifying_verify_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     qualifying_verify_store_id: Mapped[str | None] = mapped_column(String(128))
