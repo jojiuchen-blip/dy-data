@@ -838,12 +838,14 @@ def test_promotion_invoice_uses_current_settlement_batch_from_beijing_day_11(
         ("tax-wrong", "taxRatePercent", 5),
     ],
 )
-def test_promotion_invoice_rejects_missing_or_incorrect_fixed_billing_facts(
+def test_promotion_invoice_ignores_legacy_fixed_billing_fields(
     client: TestClient,
     case_id: str,
     field: str,
     value: object,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(dashboard_routes, "utcnow", lambda: datetime(2026, 10, 11, 4, tzinfo=timezone.utc))
     _login(client)
     confirmation = client.post(
         "/api/v1/store-settlements/statement-1-v2/confirmations",
@@ -879,6 +881,9 @@ def test_promotion_invoice_rejects_missing_or_incorrect_fixed_billing_facts(
     else:
         payload[field] = value
 
+    payload["allocations"] = _with_current_promotion_group_ids(
+        client, store_id="store-1", allocations=payload["allocations"],
+    )
     _act_as_store(client)
     response = client.post(
         "/api/v1/promotion-invoices",
@@ -886,8 +891,9 @@ def test_promotion_invoice_rejects_missing_or_incorrect_fixed_billing_facts(
         headers={"Idempotency-Key": f"promotion-fixed-fact-register-{case_id}"},
     )
 
-    assert response.status_code == 422
-    assert response.json()["detail"]["errors"][0]["field"] == field
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["taxRatePercent"] == 6
+    assert response.json()["data"]["invoiceAmountCent"] == 1100
 
 
 @pytest.mark.parametrize(
@@ -895,8 +901,6 @@ def test_promotion_invoice_rejects_missing_or_incorrect_fixed_billing_facts(
     [
         ("fillerPhone", None),
         ("fillerPhone", ""),
-        ("netAmountCent", None),
-        ("taxAmountCent", None),
     ],
 )
 def test_promotion_invoice_requires_manual_registration_fields(
@@ -948,7 +952,7 @@ def test_promotion_invoice_requires_manual_registration_fields(
     assert response.json()["detail"]["errors"][0]["field"] == field
 
 
-def test_promotion_invoice_allows_one_cent_identity_tolerance_but_rejects_two(
+def test_promotion_invoice_ignores_client_amounts_including_idempotent_replay(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -996,14 +1000,19 @@ def test_promotion_invoice_allows_one_cent_identity_tolerance_but_rejects_two(
     )
     assert accepted.status_code == 200
 
-    base_payload["netAmountCent"] = 1036
-    rejected = client.post(
+    assert accepted.json()["data"]["netAmountCent"] == 1038
+    assert accepted.json()["data"]["taxAmountCent"] == 62
+    base_payload["netAmountCent"] = -12345
+    base_payload["taxAmountCent"] = "untrusted"
+    base_payload["invoiceAmountCent"] = 1
+    base_payload["allocations"][0]["allocatedAmountCent"] = 999999
+    replay = client.post(
         "/api/v1/promotion-invoices",
-        json={**base_payload, "invoiceNumber": "34345678901234567891"},
-        headers={"Idempotency-Key": "invoice-identity-two-cent"},
+        json={**base_payload, "invoiceNumber": "34345678901234567890"},
+        headers={"Idempotency-Key": "invoice-identity-one-cent"},
     )
-    assert rejected.status_code == 422
-    assert rejected.json()["detail"]["errors"][0]["field"] == "invoiceAmountCent"
+    assert replay.status_code == 200
+    assert replay.json()["data"] == accepted.json()["data"]
 
 
 def test_promotion_confirmation_preserves_signed_negative_amount(
@@ -4788,3 +4797,167 @@ def test_admin_accepts_dispute_with_adjustment_as_new_statement_version(
     assert db_session.scalar(select(FinanceOperationAudit).where(
         FinanceOperationAudit.target_id == dispute_id
     )) is not None
+
+
+@pytest.fixture()
+def simple_invoice_context(client, db_session, monkeypatch):
+    monkeypatch.setattr(dashboard_routes, "utcnow", lambda: datetime(2027, 5, 20, 4, tzinfo=timezone.utc))
+    _seed_confirmed_promotion_periods(
+        db_session, store_id="store-1", periods=[("simple-confirmed", "2027-05", 1100)],
+    )
+    _act_as_store(client)
+    response = client.get("/api/v1/store-settlements", params={
+        "storeId": "store-1", "month": "2027-05", "metricScope": "MONTH",
+    })
+    assert response.status_code == 200
+    statement = response.json()["data"]["list"][0]
+    return {
+        "storeId": "store-1", "fillerPhone": "13812345678",
+        "invoiceNumber": "00345678901234567890", "invoiceDate": "2027-05-20",
+        "allocations": [{
+            "statementId": statement["statementId"], "statementMonth": statement["month"],
+            "readVersion": statement["versionNo"],
+            "promotionInvoiceGroupId": statement["promotionInvoiceGroupId"],
+        }],
+    }
+
+
+@pytest.mark.parametrize("number", ["1" * 19, "1" * 21, "１" * 20, "١" * 20, "1" * 19 + "a", 12345678901234567890])
+def test_simple_invoice_number_format_is_ascii_only(client, db_session, simple_invoice_context, number):
+    response = client.post("/api/v1/promotion-invoices", json={**simple_invoice_context, "invoiceNumber": number},
+                           headers={"Idempotency-Key": "simple-number-0001"})
+    assert response.status_code == 422
+    assert response.json()["detail"]["errors"][0]["field"] == "invoiceNumber"
+    assert db_session.scalar(select(func.count()).select_from(PromotionInvoice)) == 0
+
+
+def test_simple_invoice_derives_facts_and_preserves_leading_zero_replay_audit(client, db_session, simple_invoice_context):
+    payload = {**simple_invoice_context, "buyerName": "untrusted", "taxRatePercent": 99,
+               "invoiceAmountCent": -999, "netAmountCent": None, "taxAmountCent": "bad"}
+    payload["allocations"][0]["allocatedAmountCent"] = 99999
+    response = client.post("/api/v1/promotion-invoices", json=payload,
+                           headers={"Idempotency-Key": "simple-success-0001"})
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["invoiceNumber"] == "00345678901234567890"
+    assert (data["invoiceAmountCent"], data["netAmountCent"], data["taxAmountCent"], data["taxRatePercent"]) == (1100, 1038, 62, 6)
+    assert data["allocations"][0]["allocatedAmountCent"] == 1100
+    replay = client.post("/api/v1/promotion-invoices", json=simple_invoice_context,
+                         headers={"Idempotency-Key": "simple-success-0001"})
+    assert replay.status_code == 200
+    assert replay.json()["data"] == data
+    duplicate = client.post("/api/v1/promotion-invoices", json=simple_invoice_context,
+                            headers={"Idempotency-Key": "simple-duplicate-0001"})
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"]["code"] == "PROMOTION_INVOICE_NUMBER_REUSED"
+    audit = db_session.scalar(select(FinanceOperationAudit).where(FinanceOperationAudit.operation_type == "PROMOTION_INVOICE_REGISTER"))
+    assert audit.after_snapshot["invoice_amount_cent"] == 1100
+    assert "untrusted" not in str(audit.after_snapshot)
+    assert db_session.scalar(select(func.count()).select_from(PromotionInvoice)) == 1
+
+
+@pytest.mark.parametrize("case", ["scope", "cross-store", "unconfirmed", "old-version", "not-current"])
+def test_simple_invoice_preserves_authority_and_version_guards(client, db_session, simple_invoice_context, case):
+    payload = simple_invoice_context
+    if case == "scope":
+        _act_as_store(client, "store-2")
+    elif case == "cross-store":
+        payload["allocations"][0]["statementId"] = "statement-2-v1"
+        payload["allocations"][0]["statementMonth"] = "2026-08"
+    elif case == "unconfirmed":
+        db_session.query(SettlementStatementConfirmation).filter_by(statement_id="simple-confirmed").delete()
+        db_session.commit()
+    elif case == "old-version":
+        payload["allocations"][0]["readVersion"] = 2
+    else:
+        db_session.scalar(select(SettlementStatement).where(SettlementStatement.statement_id == "simple-confirmed")).is_current = False
+        db_session.commit()
+    response = client.post("/api/v1/promotion-invoices", json=payload,
+                           headers={"Idempotency-Key": f"simple-guard-{case}-0001"})
+    assert response.status_code == (403 if case == "scope" else 409), response.text
+    assert db_session.scalar(select(func.count()).select_from(PromotionInvoice)) == 0
+
+
+def test_simple_invoice_failed_commit_rolls_back_every_fact(client, db_session, simple_invoice_context, monkeypatch):
+    def fail_commit():
+        db_session.flush()
+        raise IntegrityError("forced registration failure", {}, Exception("failure"))
+    monkeypatch.setattr(db_session, "commit", fail_commit)
+    response = client.post("/api/v1/promotion-invoices", json=simple_invoice_context,
+                           headers={"Idempotency-Key": "simple-rollback-0001"})
+    assert response.status_code == 409
+    for model in (PromotionInvoice, PromotionInvoiceAllocation, PromotionInvoiceNumberRegistry, InvoiceStatusEvent, FinanceOperationAudit):
+        assert db_session.scalar(select(func.count()).select_from(model)) == 0
+
+
+@pytest.mark.parametrize(("amounts", "expected"), [
+    ([1], (1, 1, 0)), ([9], (9, 8, 1)), ([26], (26, 25, 1)),
+    ([27], (27, 25, 2)), ([53], (53, 50, 3)), ([9, 9], (18, 17, 1)),
+    ([-150, 100, 100], (50, 47, 3)),
+])
+def test_simple_invoice_preview_and_registration_share_exact_cent_rounding(client, db_session, monkeypatch, amounts, expected):
+    monkeypatch.setattr(dashboard_routes, "utcnow", lambda: datetime(2027, 6, 20, 4, tzinfo=timezone.utc))
+    periods = [(f"round-{index}", f"2027-{index + 1:02}", amount) for index, amount in enumerate(amounts)]
+    _seed_confirmed_promotion_periods(db_session, store_id="store-1", periods=periods)
+    _act_as_store(client)
+    allocations = []
+    for statement_id, month, _ in periods:
+        response = client.get("/api/v1/store-settlements", params={"storeId": "store-1", "month": month, "metricScope": "MONTH"})
+        assert response.status_code == 200
+        data = response.json()["data"]
+        summary = data["promotionInvoiceSummary"]
+        assert (summary["invoiceAmountCent"], summary["netAmountCent"], summary["taxAmountCent"]) == expected
+        assert summary["requiredStatementIds"] == sorted(row[0] for row in periods)
+        row = data["list"][0]
+        allocations.append({"statementId": statement_id, "statementMonth": month, "readVersion": 1,
+                            "promotionInvoiceGroupId": row["promotionInvoiceGroupId"]})
+    response = client.post("/api/v1/promotion-invoices", json={
+        "storeId": "store-1", "fillerPhone": "13812345678", "invoiceNumber": "00000000000000000001",
+        "invoiceDate": "2027-06-20", "allocations": allocations,
+    }, headers={"Idempotency-Key": "simple-round-register-0001"})
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert (data["invoiceAmountCent"], data["netAmountCent"], data["taxAmountCent"]) == expected
+    assert data["netAmountCent"] + data["taxAmountCent"] == data["invoiceAmountCent"]
+    empty = client.get("/api/v1/store-settlements", params={"storeId": "store-1", "month": periods[0][1], "metricScope": "MONTH"})
+    assert empty.json()["data"]["promotionInvoiceSummary"] is None
+
+
+@pytest.mark.parametrize("amount", [0, -1])
+def test_simple_invoice_preview_is_null_without_invoiceable_group(client, db_session, amount):
+    _seed_confirmed_promotion_periods(db_session, store_id="store-1", periods=[("blocked-preview", "2027-05", amount)])
+    _act_as_store(client)
+    response = client.get("/api/v1/store-settlements", params={"storeId": "store-1", "month": "2027-05", "metricScope": "MONTH"})
+    assert response.status_code == 200
+    assert response.json()["data"]["promotionInvoiceSummary"] is None
+
+
+def test_simple_invoice_replays_pre_simplification_hash_from_archived_facts(client, db_session, simple_invoice_context):
+    response = client.post("/api/v1/promotion-invoices", json=simple_invoice_context,
+                           headers={"Idempotency-Key": "simple-legacy-hash-0001"})
+    assert response.status_code == 200
+    invoice = db_session.scalar(select(PromotionInvoice))
+    # Synthetic persisted record from the prior contract, which allowed a cent
+    # of identity tolerance. Replaying must preserve its historical amounts.
+    invoice.net_amount_cent = 1037
+    legacy = {
+        "store_id": "store-1", "buyer_name": invoice.buyer_name, "filler_phone": "13812345678",
+        "tax_rate_percent": 6, "invoice_number": invoice.invoice_number,
+        "invoice_date": invoice.invoice_date, "invoice_amount_cent": 1100,
+        "net_amount_cent": 1037, "tax_amount_cent": 62, "replaces_invoice_id": None,
+        "allocations": [{
+            "statement_id": "simple-confirmed", "statement_month": "2027-05",
+            "allocated_amount_cent": 1100, "read_version": 1,
+            "promotion_invoice_group_id": simple_invoice_context["allocations"][0]["promotionInvoiceGroupId"],
+        }],
+    }
+    invoice.request_payload_sha256 = dashboard_routes._canonical_billing_sha256(legacy)
+    db_session.commit()
+    replay = client.post("/api/v1/promotion-invoices", json=simple_invoice_context,
+                         headers={"Idempotency-Key": "simple-legacy-hash-0001"})
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["data"]["netAmountCent"] == 1037
+    conflict = client.post("/api/v1/promotion-invoices", json={**simple_invoice_context, "invoiceNumber": "0" * 20},
+                           headers={"Idempotency-Key": "simple-legacy-hash-0001"})
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "IDEMPOTENCY_KEY_REUSED"

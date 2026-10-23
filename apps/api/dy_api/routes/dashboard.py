@@ -725,10 +725,20 @@ def list_store_settlements(
             .limit(page_size)
         )
     )
-    promotion_projection, _ = _promotion_invoice_carryforward_projection(
+    promotion_projection, promotion_groups = _promotion_invoice_carryforward_projection(
         session,
         store_id=store_id,
     )
+    invoiceable_groups = [group for group in promotion_groups if group["invoiceable_amount_cent"] > 0]
+    invoice_summary = None
+    if invoiceable_groups:
+        invoice_summary = {
+            **_promotion_invoice_amounts(sum(group["invoiceable_amount_cent"] for group in invoiceable_groups)),
+            "required_statement_ids": sorted(
+                statement_id for group in invoiceable_groups
+                for statement_id in group["required_statement_ids"]
+            ),
+        }
     data = {
         "list": [
             _statement_list_item(
@@ -744,6 +754,7 @@ def list_store_settlements(
         "page_size": page_size,
         "metric_scope": metric_scope,
         "metrics": _statement_metrics(session, store_id, month, metric_scope),
+        "promotion_invoice_summary": invoice_summary,
     }
     return _reporting_success(request, data)
 
@@ -3635,7 +3646,7 @@ def register_promotion_invoice(
     replay = session.scalar(select(PromotionInvoice).where(PromotionInvoice.idempotency_key_hash == key_hash))
     if replay is not None:
         return _promotion_invoice_registration_replay_response(
-            session, replay, payload_hash, request
+            session, replay, payload_hash, request, normalized_payload=parsed
         )
     if session.scalar(
         select(PromotionInvoiceNumberRegistry).where(
@@ -3750,8 +3761,8 @@ def register_promotion_invoice(
             SettlementStatementConfirmation.fee_direction == 1,
             SettlementStatementConfirmation.confirmation_status == 1,
         ))
-        if confirmed is None or confirmed.confirmed_amount_cent != item["allocated_amount_cent"]:
-            _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "每个账期分配金额必须等于当前有效推广费确认金额", field="allocations")
+        if confirmed is None:
+            _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "每个账期必须有当前有效推广费确认", field="allocations")
         invoice_date_floor_candidates = [
             value
             for value in (
@@ -3781,7 +3792,7 @@ def register_promotion_invoice(
         ))
         if occupied is not None:
             _raise_reporting_error(request, status.HTTP_409_CONFLICT, "PROMOTION_INVOICE_PERIOD_OCCUPIED", "账期已存在当前有效推广费发票分配", field="allocations")
-        allocations.append((statement, item))
+        allocations.append((statement, {**item, "allocated_amount_cent": confirmed.confirmed_amount_cent}))
     for group_id, selected_statement_ids in selected_statement_ids_by_group.items():
         required_statement_ids = set(
             groups_by_id[group_id]["required_statement_ids"]
@@ -3816,6 +3827,9 @@ def register_promotion_invoice(
                 ),
             },
         )
+    derived_amounts = _promotion_invoice_amounts(
+        sum(item["allocated_amount_cent"] for _, item in allocations)
+    )
     selected_statement_ids = [statement.statement_id for statement, _ in allocations]
     unmatched_terminations: list[PromotionInvoiceLifecycleEvent] = []
     if selected_statement_ids:
@@ -3988,15 +4002,27 @@ def register_promotion_invoice(
             replaced_invoice.invoice_id if replaced_invoice is not None else None
         ),
         invoice_number=parsed["invoice_number"], invoice_date=parsed["invoice_date"],
-        invoice_amount_cent=parsed["invoice_amount_cent"], invoice_status=2,
-        buyer_name=parsed["buyer_name"], tax_rate_percent=parsed["tax_rate_percent"],
+        invoice_amount_cent=derived_amounts["invoice_amount_cent"], invoice_status=2,
+        buyer_name=PROMOTION_INVOICE_BUYER_NAME, tax_rate_percent=PROMOTION_INVOICE_TAX_RATE_PERCENT,
         filler_phone_ciphertext=_encrypt_dispute_phone(parsed["filler_phone"], request),
-        net_amount_cent=parsed["net_amount_cent"],
-        tax_amount_cent=parsed["tax_amount_cent"],
+        net_amount_cent=derived_amounts["net_amount_cent"],
+        tax_amount_cent=derived_amounts["tax_amount_cent"],
         registered_by=current_user.username, registered_at=now,
         idempotency_key_hash=key_hash, request_payload_sha256=payload_hash,
     )
     session.add(invoice)
+    if not replaced_invoices:
+        session.add(FinanceOperationAudit(
+            audit_id=f"audit-{uuid4().hex}", operation_type="PROMOTION_INVOICE_REGISTER",
+            target_type="PROMOTION_INVOICE", target_id=invoice_id,
+            operator_id=current_user.username, operator_role=_finance_operator_role(current_user),
+            after_snapshot={
+                **derived_amounts,
+                "statementIds": sorted(statement.statement_id for statement, _ in allocations),
+            },
+            result_status=1, request_id=request_id(request),
+            idempotency_key_hash=key_hash, request_payload_sha256=payload_hash, occurred_at=now,
+        ))
     session.add(
         PromotionInvoiceNumberRegistry(
             invoice_number=parsed["invoice_number"],
@@ -4050,6 +4076,7 @@ def register_promotion_invoice(
                     ],
                 },
                 after_snapshot={
+                    **derived_amounts,
                     "replacementInvoiceId": invoice.invoice_id,
                     "replacementPhysicalInvoiceId": invoice.physical_invoice_id,
                     "invoiceNumber": invoice.invoice_number,
@@ -4072,7 +4099,7 @@ def register_promotion_invoice(
         )
         if replay is not None:
             return _promotion_invoice_registration_replay_response(
-                session, replay, payload_hash, request
+                session, replay, payload_hash, request, normalized_payload=parsed
             )
         _raise_reporting_error(request, status.HTTP_409_CONFLICT, "PROMOTION_INVOICE_CONFLICT", "发票号码或账期分配已存在")
     return _reporting_success(request, _promotion_invoice_header_item(session, invoice))
@@ -10907,8 +10934,33 @@ def _promotion_invoice_registration_replay_response(
     invoice: PromotionInvoice,
     payload_hash: str,
     request: Request,
+    *,
+    normalized_payload: dict | None = None,
 ):
-    if invoice.request_payload_sha256 != payload_hash:
+    matches = invoice.request_payload_sha256 == payload_hash
+    if not matches and normalized_payload is not None:
+        # Pre-simplification registrations hashed manual fields. Reconstruct
+        # their old shape from stored facts, never from obsolete client inputs.
+        allocated_by_statement = {
+            row.statement_id: row.allocated_amount_cent
+            for row in session.scalars(select(PromotionInvoiceAllocation).where(
+                PromotionInvoiceAllocation.invoice_id == invoice.invoice_id,
+            ))
+        }
+        legacy_payload = {
+            **normalized_payload,
+            "buyer_name": invoice.buyer_name,
+            "tax_rate_percent": invoice.tax_rate_percent,
+            "invoice_amount_cent": invoice.invoice_amount_cent,
+            "net_amount_cent": invoice.net_amount_cent,
+            "tax_amount_cent": invoice.tax_amount_cent,
+            "allocations": [
+                {**item, "allocated_amount_cent": allocated_by_statement.get(item["statement_id"])}
+                for item in normalized_payload["allocations"]
+            ],
+        }
+        matches = invoice.request_payload_sha256 == _canonical_billing_sha256(legacy_payload)
+    if not matches:
         _raise_reporting_error(
             request,
             status.HTTP_409_CONFLICT,
@@ -11423,40 +11475,27 @@ def _promotion_invoice_settlement_batch_month(value: datetime) -> str:
     return f"{beijing_time.year:04d}-{beijing_time.month - 1:02d}"
 
 
+def _promotion_invoice_amounts(total_cent: int) -> dict[str, int]:
+    """Split confirmed tax-inclusive cents at 6%, rounding net half up once."""
+    denominator = 100 + PROMOTION_INVOICE_TAX_RATE_PERCENT
+    net_cent = (total_cent * 100 + denominator // 2) // denominator
+    return {
+        "invoice_amount_cent": total_cent,
+        "net_amount_cent": net_cent,
+        "tax_amount_cent": total_cent - net_cent,
+        "tax_rate_percent": PROMOTION_INVOICE_TAX_RATE_PERCENT,
+    }
+
+
 def _parse_promotion_invoice_payload(payload: dict, request: Request) -> dict:
     store_id = payload.get("storeId")
-    buyer_name = payload.get("buyerName")
     filler_phone = payload.get("fillerPhone")
-    tax_rate_percent = payload.get("taxRatePercent")
     invoice_number = payload.get("invoiceNumber")
     invoice_date_value = payload.get("invoiceDate")
-    invoice_amount = payload.get("invoiceAmountCent")
-    net_amount = payload.get("netAmountCent")
-    tax_amount = payload.get("taxAmountCent")
     rows = payload.get("allocations")
     replaces_invoice_id = payload.get("replacesInvoiceId")
     if not isinstance(store_id, str) or not store_id.strip():
         _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "storeId 为必填项", field="storeId")
-    if buyer_name != PROMOTION_INVOICE_BUYER_NAME:
-        _raise_reporting_error(
-            request,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "VALIDATION_FAILED",
-            f"buyerName 必须为 {PROMOTION_INVOICE_BUYER_NAME}",
-            field="buyerName",
-        )
-    if (
-        isinstance(tax_rate_percent, bool)
-        or not isinstance(tax_rate_percent, int)
-        or tax_rate_percent != PROMOTION_INVOICE_TAX_RATE_PERCENT
-    ):
-        _raise_reporting_error(
-            request,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "VALIDATION_FAILED",
-            "taxRatePercent 必须为整数 6",
-            field="taxRatePercent",
-        )
     if (
         not isinstance(filler_phone, str)
         or not filler_phone.strip()
@@ -11469,36 +11508,14 @@ def _parse_promotion_invoice_payload(payload: dict, request: Request) -> dict:
             "fillerPhone 必须填写且不超过 64 个字符",
             field="fillerPhone",
         )
-    for field, value in (
-        ("netAmountCent", net_amount),
-        ("taxAmountCent", tax_amount),
-    ):
-        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-            _raise_reporting_error(
-                request,
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
-                "VALIDATION_FAILED",
-                f"{field} 必须为非负整数分",
-                field=field,
-            )
-    if not isinstance(invoice_number, str) or not invoice_number.isdigit() or len(invoice_number) != 20:
-        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "invoiceNumber 必须为 20 位数字", field="invoiceNumber")
+    if not isinstance(invoice_number, str) or len(invoice_number) != 20 or any(character not in "0123456789" for character in invoice_number):
+        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "invoiceNumber 必须为 20 位 ASCII 数字", field="invoiceNumber")
     try:
         parsed_date = date.fromisoformat(invoice_date_value) if isinstance(invoice_date_value, str) else None
     except ValueError:
         parsed_date = None
     if parsed_date is None:
         _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "invoiceDate 必须为 YYYY-MM-DD", field="invoiceDate")
-    if isinstance(invoice_amount, bool) or not isinstance(invoice_amount, int) or invoice_amount <= 0:
-        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "invoiceAmountCent 必须为正整数", field="invoiceAmountCent")
-    if abs(net_amount + tax_amount - invoice_amount) > 1:
-        _raise_reporting_error(
-            request,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "VALIDATION_FAILED",
-            "不含税金额 + 税额必须等于开票金额，允许 0.01 元容差",
-            field="invoiceAmountCent",
-        )
     if not isinstance(rows, list) or not rows:
         _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "allocations 至少包含一个完整账期", field="allocations")
     if replaces_invoice_id is not None and (
@@ -11517,7 +11534,7 @@ def _parse_promotion_invoice_payload(payload: dict, request: Request) -> dict:
         if not isinstance(item, dict):
             _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "allocations 元素必须为对象", field="allocations")
         statement_id, statement_month = item.get("statementId"), item.get("statementMonth")
-        allocated, read_version = item.get("allocatedAmountCent"), item.get("readVersion")
+        read_version = item.get("readVersion")
         promotion_invoice_group_id = item.get("promotionInvoiceGroupId")
         if not isinstance(statement_id, str) or not isinstance(statement_month, str):
             _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "分配必须包含 statementId 和 statementMonth", field="allocations")
@@ -11525,12 +11542,11 @@ def _parse_promotion_invoice_payload(payload: dict, request: Request) -> dict:
         if statement_month in seen_months:
             _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "同一账期不得拆分多张发票", field="allocations")
         seen_months.add(statement_month)
-        if isinstance(allocated, bool) or not isinstance(allocated, int) or isinstance(read_version, bool) or not isinstance(read_version, int) or read_version < 1:
-            _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "分配金额和 readVersion 不合法", field="allocations")
+        if isinstance(read_version, bool) or not isinstance(read_version, int) or read_version < 1:
+            _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "readVersion 不合法", field="allocations")
         allocations.append({
             "statement_id": statement_id,
             "statement_month": statement_month,
-            "allocated_amount_cent": allocated,
             "read_version": read_version,
             "promotion_invoice_group_id": (
                 promotion_invoice_group_id.strip()
@@ -11539,18 +11555,11 @@ def _parse_promotion_invoice_payload(payload: dict, request: Request) -> dict:
                 else None
             ),
         })
-    if sum(item["allocated_amount_cent"] for item in allocations) != invoice_amount:
-        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "分配金额合计必须等于发票金额", field="invoiceAmountCent")
     return {
         "store_id": store_id.strip(),
-        "buyer_name": buyer_name,
         "filler_phone": filler_phone.strip(),
-        "tax_rate_percent": tax_rate_percent,
         "invoice_number": invoice_number,
         "invoice_date": parsed_date,
-        "invoice_amount_cent": invoice_amount,
-        "net_amount_cent": net_amount,
-        "tax_amount_cent": tax_amount,
         "replaces_invoice_id": (
             replaces_invoice_id.strip()
             if isinstance(replaces_invoice_id, str)
