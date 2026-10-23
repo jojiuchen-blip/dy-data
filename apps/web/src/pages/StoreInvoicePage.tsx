@@ -21,6 +21,7 @@ import type {
   PromotionInvoiceReplacementCandidate,
   StoreBillingStatement,
   StoreBillingStatementListData,
+  PromotionInvoiceSummary,
 } from "../types/dashboard";
 import { formatCurrency, formatDateTime } from "../utils/format";
 import { userFacingError } from "../utils/userFacingError";
@@ -65,17 +66,11 @@ const PROMOTION_INVOICE_PROJECT_NAME = "推广服务费";
 const PROMOTION_INVOICE_TAX_CLASSIFICATION = "3079900000000000000";
 
 interface InvoiceRegistrationValidationInput {
-  buyerName: string;
   fillerPhone: string;
-  taxAmount: string;
-  taxRatePercent: string;
-  netAmount: string;
-  totalAmount: string;
   invoiceDate: string;
   invoiceNumber: string;
   invoiceNumbers: string[];
-  selectedAmountCent: number;
-  selectedStatementCount: number;
+  summaryReady: boolean;
 }
 
 interface InvoiceValidationItem {
@@ -84,124 +79,15 @@ interface InvoiceValidationItem {
   passed: boolean;
 }
 
-const INVOICE_BUYER_NAME_ERROR =
-  "本项应该填写“比亚迪汽车销售有限公司”，请检查您开具的发票购买方名称是否正确。";
-const INVOICE_TAX_RATE_ERROR =
-  "本项应该填写6%，请检查您开具的发票税率是否为6%。";
-
-export function parseInvoiceAmountCent(value: string): number | null {
-  const normalized = value.trim();
-  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,3})?$/.test(normalized)) {
-    return null;
-  }
-  const [wholePart, decimalPart = ""] = normalized.split(".");
-  const amountMill =
-    Number(wholePart) * 1000 + Number(decimalPart.padEnd(3, "0"));
-  const amountCent = Math.round(amountMill / 10);
-  return Number.isSafeInteger(amountCent) ? amountCent : null;
-}
-
 export function validateInvoiceRegistration({
-  buyerName,
-  fillerPhone,
-  taxAmount,
-  taxRatePercent,
-  netAmount,
-  totalAmount,
-  invoiceDate,
-  invoiceNumber,
-  invoiceNumbers,
-  selectedAmountCent,
-  selectedStatementCount,
+  fillerPhone, invoiceDate, invoiceNumber, invoiceNumbers, summaryReady,
 }: InvoiceRegistrationValidationInput): InvoiceValidationItem[] {
-  const normalizedNumber = invoiceNumber.trim();
-  const netAmountCent = parseInvoiceAmountCent(netAmount) ?? -1;
-  const taxAmountCent = parseInvoiceAmountCent(taxAmount) ?? -1;
-  const invoiceAmountCent = parseInvoiceAmountCent(totalAmount) ?? -1;
-  const normalizedTaxRate = taxRatePercent.trim().replace(/%$/, "");
-  const amountFieldsAreValid =
-    netAmountCent >= 0 && taxAmountCent >= 0 && invoiceAmountCent >= 0;
-  const amountIdentityIsValid =
-    amountFieldsAreValid &&
-    Math.abs(netAmountCent + taxAmountCent - invoiceAmountCent) <= 1;
-
   return [
-    {
-      key: "selected-statements",
-      label: "系统已确定可开票的完整账期",
-      passed: selectedStatementCount > 0 && selectedAmountCent > 0,
-    },
-    {
-      key: "invoice-number",
-      label: "数电专票号码必须为20位纯数字且不得重复",
-      passed:
-        /^\d{20}$/.test(normalizedNumber) &&
-        !invoiceNumbers.includes(normalizedNumber),
-    },
-    {
-      key: "invoice-date",
-      label: "开票日期必须填写，日期边界由服务器最终校验",
-      passed: Boolean(invoiceDate),
-    },
-    {
-      key: "buyer-name",
-      label:
-        buyerName.trim() === PROMOTION_INVOICE_BUYER_NAME
-          ? "购买方名称已匹配"
-          : INVOICE_BUYER_NAME_ERROR,
-      passed: buyerName.trim() === PROMOTION_INVOICE_BUYER_NAME,
-    },
-    {
-      key: "filler-phone",
-      label: fillerPhone.trim()
-        ? "填写人电话已填写"
-        : "请填写开票信息填写人电话",
-      passed: Boolean(fillerPhone.trim()),
-    },
-    {
-      key: "tax-rate",
-      label:
-        Number(normalizedTaxRate) === PROMOTION_INVOICE_TAX_RATE_PERCENT
-          ? "税率已匹配"
-          : INVOICE_TAX_RATE_ERROR,
-      passed: Number(normalizedTaxRate) === PROMOTION_INVOICE_TAX_RATE_PERCENT,
-    },
-    {
-      key: "net-amount",
-      label: netAmountCent < 0
-        ? "不含税金额必须填写有效金额，最多三位小数"
-        : "不含税金额格式正确",
-      passed: netAmountCent >= 0,
-    },
-    {
-      key: "tax-amount",
-      label: taxAmountCent < 0
-        ? "税额必须填写有效金额，最多三位小数"
-        : "税额格式正确",
-      passed: taxAmountCent >= 0,
-    },
-    {
-      key: "total-amount",
-      label: invoiceAmountCent < 0
-        ? "价税合计必须填写有效金额，最多三位小数"
-        : "价税合计格式正确",
-      passed: invoiceAmountCent >= 0,
-    },
-    {
-      key: "amount-identity",
-      label: amountIdentityIsValid
-        ? "不含税金额 + 税额必须等于开票金额（已通过）"
-        : "不含税金额 + 税额必须等于开票金额",
-      passed: amountIdentityIsValid,
-    },
-    {
-      key: "total-amount-match",
-      label: "价税合计必须等于系统确定账期的推广服务费",
-      passed:
-        selectedStatementCount > 0 &&
-        invoiceAmountCent >= 0 &&
-        invoiceAmountCent === selectedAmountCent,
-      },
+    { key: "selected-statements", label: "系统已确定可开票的完整账期及金额", passed: summaryReady },
+    { key: "invoice-number", label: "数电专票号码必须为20位半角数字且不得重复",
+      passed: /^[0-9]{20}$/.test(invoiceNumber) && !invoiceNumbers.includes(invoiceNumber) },
+    { key: "invoice-date", label: "开票日期必须填写，日期边界由服务器最终校验", passed: Boolean(invoiceDate) },
+    { key: "filler-phone", label: "请填写开票信息填写人电话", passed: Boolean(fillerPhone.trim()) },
   ];
 }
 
@@ -381,17 +267,14 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
     initialStoreId,
   );
   const [metricScope] = useState<BillingMetricScope>("MONTH");
-  const [buyerName, setBuyerName] = useState("");
   const [fillerPhone, setFillerPhone] = useState("");
-  const [taxRatePercent, setTaxRatePercent] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState("");
-  const [netAmount, setNetAmount] = useState("");
-  const [taxAmount, setTaxAmount] = useState("");
-  const [totalAmount, setTotalAmount] = useState("");
   const [selectedStatements, setSelectedStatements] = useState<StoreBillingStatement[]>([]);
+  const [invoiceSummary, setInvoiceSummary] = useState<PromotionInvoiceSummary | null>(null);
   const [submitMessage, setSubmitMessage] = useState("");
   const [showValidationFeedback, setShowValidationFeedback] = useState(false);
+  const [registrationFailed, setRegistrationFailed] = useState(false);
   const [copyMessage, setCopyMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [replacementContext, setReplacementContext] =
@@ -434,7 +317,7 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
       filterMeta?.statementMonths.join("|"),
       replacementContext?.invoiceId,
     ],
-    { enabled: Boolean(storeId && filterMeta && currentPeriodMonth && !replacementContext) },
+    { enabled: Boolean(storeId && filterMeta && currentPeriodMonth && !replacementContext), clearOnReload: true },
   );
   const invoiceResource = useApiResource(
     () => fetchPromotionInvoices({ storeId, month, pageSize: 50 }),
@@ -462,23 +345,18 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
   const invoices = invoiceResource.data?.data.list ?? [];
   const replacementCandidates =
     replacementCandidateResource.data?.data.list ?? [];
-  const selectedAmountCent = selectedStatements.reduce(
-    (total, statement) =>
-      total + (statement.promotionConfirmation?.confirmedAmountCent ?? 0),
-    0,
+  const summaryReady = Boolean(
+    invoiceSummary && invoiceSummary.invoiceAmountCent > 0 &&
+    invoiceSummary.requiredStatementIds.length === selectedStatements.length &&
+    selectedStatements.every((statement) =>
+      invoiceSummary.requiredStatementIds.includes(statement.statementId) &&
+      statement.isCurrent && statement.promotionConfirmation && statement.promotionInvoiceGroupId),
   );
+  const displayInvoiceSummary = summaryReady ? invoiceSummary : null;
   const invoiceValidationItems = validateInvoiceRegistration({
-    buyerName,
-    fillerPhone,
-    taxAmount,
-    taxRatePercent,
-    netAmount,
-    totalAmount,
-    invoiceDate,
-    invoiceNumber,
+    fillerPhone, invoiceDate, invoiceNumber,
     invoiceNumbers: invoices.map((invoice) => invoice.invoiceNumber),
-    selectedAmountCent,
-    selectedStatementCount: selectedStatements.length,
+    summaryReady,
   });
   const failedInvoiceValidationItems = invoiceValidationItems.filter(
     (item) => !item.passed,
@@ -494,7 +372,9 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
       `项目名称：${PROMOTION_INVOICE_PROJECT_NAME}`,
       `税收分类编码：${PROMOTION_INVOICE_TAX_CLASSIFICATION}`,
       `税率：${PROMOTION_INVOICE_TAX_RATE_PERCENT}%`,
-      `价税合计：${formatCurrency(selectedAmountCent)}`,
+      `价税合计（含税总额）：${displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.invoiceAmountCent) : "尚未生成"}`,
+      `不含税金额：${displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.netAmountCent) : "尚未生成"}`,
+      `税额：${displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.taxAmountCent) : "尚未生成"}`,
     ];
     try {
       await navigator.clipboard.writeText(lines.join("\n"));
@@ -506,88 +386,42 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
   };
 
   const loadReleasedStatements = async (context: ReplacementContext) => {
-    const responses = await Promise.all(
-      context.releasedStatementMonths.map((releasedMonth) =>
-        fetchStoreBillingStatements({
-          storeId: context.storeId,
-          month: releasedMonth,
-          metricScope: "MONTH",
-          feeDirection: "PROMOTION",
-          pageSize: 50,
-        }),
-      ),
-    );
-    const releasedStatements = responses
-      .flatMap((response) => response.data.list)
-      .filter(
-        (statement) =>
-          statement.isCurrent &&
-          statement.promotionConfirmation &&
-          context.releasedStatementMonths.includes(statement.month),
-      );
-    const loadedMonths = new Set(releasedStatements.map((statement) => statement.month));
-    if (
-      context.releasedStatementMonths.some(
-        (releasedMonth) => !loadedMonths.has(releasedMonth),
-      )
-    ) {
+    setSelectedStatements([]);
+    setInvoiceSummary(null);
+    const result = await loadSystemSelectedInvoiceGroup({
+      currentMonth: currentPeriodMonth,
+      formalPeriodStartMonth: filterMeta?.formalPeriodStartMonth ?? currentPeriodMonth,
+      statementMonths: [...(filterMeta?.statementMonths ?? []), ...context.releasedStatementMonths],
+      storeId: context.storeId,
+      metricScope: "MONTH",
+    });
+    const statements = result.data.selectedGroupStatements;
+    if (context.releasedStatementMonths.some((releasedMonth) =>
+      !statements.some((statement) => statement.month === releasedMonth))) {
       throw new Error("未能加载全部已释放的当前账单，请重试。");
     }
-    if (
-      releasedStatements.some(
-        (statement) =>
-          !statement.promotionInvoiceGroupId ||
-          statement.promotionInvoiceableAmountCent <= 0,
-      )
-    ) {
-      throw new Error("已释放账期仍在结转抵扣中，形成正数净额后才能登记替换发票。");
-    }
-    const visibleById = new Map(
-      releasedStatements.map((statement) => [statement.statementId, statement]),
-    );
-    const requiredGroupByStatementId = new Map<string, string>();
-    releasedStatements.forEach((statement) => {
-      statement.promotionRequiredStatementIds.forEach((statementId) => {
-        const previousGroup = requiredGroupByStatementId.get(statementId);
-        if (previousGroup && previousGroup !== statement.promotionInvoiceGroupId) {
-          throw new Error("释放账期对应的抵扣组已变化，请重试。");
-        }
-        requiredGroupByStatementId.set(
-          statementId,
-          statement.promotionInvoiceGroupId as string,
-        );
-      });
-    });
-    const expandedStatements = await Promise.all(
-      [...requiredGroupByStatementId.entries()].map(async ([statementId, groupId]) => {
-        const statement = visibleById.get(statementId) ??
-          (await fetchStoreBillingStatement(statementId)).data;
-        if (statement.promotionInvoiceGroupId !== groupId) {
-          throw new Error("抵扣组已变化，请刷新后重新选择。");
-        }
-        return statement;
-      }),
-    );
-    setSelectedStatements(
-      expandedStatements.sort((left, right) => left.month.localeCompare(right.month)),
-    );
-    if (context.releasedStatementMonths[0]) {
-      setMonth(context.releasedStatementMonths[0]);
-    }
+    setSelectedStatements(statements);
+    setInvoiceSummary(result.data.promotionInvoiceSummary ?? null);
+    setMonth(result.data.selectedMonth);
   };
 
   useEffect(() => {
     const automaticSelection = statementResource.data?.data;
-    if (!automaticSelection || replacementContext) {
+    if (replacementContext) return;
+    if (!automaticSelection || statementResource.error) {
+      setSelectedStatements([]);
+      setInvoiceSummary(null);
       return;
     }
     setMonth(automaticSelection.selectedMonth);
     setSelectedStatements(automaticSelection.selectedGroupStatements);
-  }, [statementResource.data, replacementContext]);
+    setInvoiceSummary(automaticSelection.promotionInvoiceSummary ?? null);
+  }, [statementResource.data, statementResource.error, replacementContext]);
 
   useEffect(() => {
     if (
       !replacementContext ||
+      !filterMeta || !currentPeriodMonth ||
       restoredReplacementInvoiceId.current !== replacementContext.invoiceId
     ) {
       return;
@@ -603,7 +437,7 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
         ),
       )
       .finally(() => setSubmitting(false));
-  }, [replacementContext?.invoiceId]);
+  }, [replacementContext?.invoiceId, currentPeriodMonth, filterMeta]);
 
   const resumeReplacementCandidate = async (
     candidate: PromotionInvoiceReplacementCandidate,
@@ -638,6 +472,7 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (submitInFlight.current) return;
+    setRegistrationFailed(false);
     setShowValidationFeedback(true);
     const failedValidation = invoiceValidationItems.find((item) => !item.passed);
     if (failedValidation) {
@@ -648,22 +483,8 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
       setSubmitMessage("当前系统账期尚无可登记的已确认推广服务费。");
       return;
     }
-    if (
-      selectedAmountCent <= 0 ||
-      selectedStatements.some((statement) => !statement.promotionInvoiceGroupId)
-    ) {
-      setSubmitMessage("系统确定的抵扣组尚未形成正数净开票金额，请刷新后重试。");
-      return;
-    }
-    const enteredTotalAmountCent = parseInvoiceAmountCent(totalAmount);
-    const enteredNetAmountCent = parseInvoiceAmountCent(netAmount);
-    const enteredTaxAmountCent = parseInvoiceAmountCent(taxAmount);
-    if (
-      enteredTotalAmountCent === null ||
-      enteredNetAmountCent === null ||
-      enteredTaxAmountCent === null
-    ) {
-      setSubmitMessage("核验未通过：金额必须有效，最多输入三位小数并四舍五入到分。");
+    if (!summaryReady) {
+      setSubmitMessage("可开票账期或金额已变化，请刷新后重试。");
       return;
     }
     submitInFlight.current = true;
@@ -672,22 +493,15 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
     try {
       const payload = {
           storeId,
-          buyerName: buyerName.trim(),
           fillerPhone: fillerPhone.trim(),
-          taxRatePercent: Number(taxRatePercent.trim().replace(/%$/, "")),
-          invoiceNumber: invoiceNumber.trim(),
+          invoiceNumber,
           invoiceDate,
-          netAmountCent: enteredNetAmountCent,
-          taxAmountCent: enteredTaxAmountCent,
-          invoiceAmountCent: enteredTotalAmountCent,
           ...(replacementContext
             ? { replacesInvoiceId: replacementContext.invoiceId }
             : {}),
           allocations: selectedStatements.map((statement) => ({
             statementId: statement.statementId,
             statementMonth: statement.month,
-            allocatedAmountCent:
-              statement.promotionConfirmation?.confirmedAmountCent ?? 0,
             readVersion: statement.versionNo,
             promotionInvoiceGroupId: statement.promotionInvoiceGroupId ?? "",
           })),
@@ -697,13 +511,9 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
       invoiceRequest.current.clear();
       setInvoiceNumber("");
       setInvoiceDate("");
-      setBuyerName("");
       setFillerPhone("");
-      setTaxRatePercent("");
-      setNetAmount("");
-      setTaxAmount("");
-      setTotalAmount("");
       setSelectedStatements([]);
+      setInvoiceSummary(null);
       setReplacementContext(null);
       setShowValidationFeedback(false);
       window.sessionStorage.removeItem(replacementContextStorageKey);
@@ -712,7 +522,13 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
       invoiceResource.reload();
       replacementCandidateResource.reload();
     } catch (error) {
+      setRegistrationFailed(true);
+      if (error instanceof ApiRequestError && [401, 403].includes(error.status)) {
+        setSelectedStatements([]);
+        setInvoiceSummary(null);
+      }
       if (error instanceof ApiRequestError && error.status === 409) {
+        setInvoiceSummary(null);
         setSelectedStatements([]);
         if (replacementContext) {
           // Replacement groups are not loaded by the automatic statement resource.
@@ -816,7 +632,9 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
               <div><dt>项目名称</dt><dd>{PROMOTION_INVOICE_PROJECT_NAME}</dd></div>
               <div><dt>税收分类编码</dt><dd>{PROMOTION_INVOICE_TAX_CLASSIFICATION}</dd></div>
               <div><dt>税率</dt><dd>{PROMOTION_INVOICE_TAX_RATE_PERCENT}%</dd></div>
-              <div><dt>价税合计</dt><dd>{selectedStatements.length ? formatCurrency(selectedAmountCent) : "尚未生成"}</dd></div>
+              <div><dt>价税合计（含税总额）</dt><dd>{displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.invoiceAmountCent) : "尚未生成"}</dd></div>
+              <div><dt>不含税金额</dt><dd>{displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.netAmountCent) : "尚未生成"}</dd></div>
+              <div><dt>税额（6%）</dt><dd>{displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.taxAmountCent) : "尚未生成"}</dd></div>
             </dl>
             {copyMessage ? <p role="status">{copyMessage}</p> : null}
           </section>
@@ -828,16 +646,8 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
                 <h3>填写数电专票信息</h3>
               </div>
             </div>
+            <p>仅校验号码格式与登记条件，不进行税务验真。</p>
             <form ref={invoiceFormRef} className="finance-form-grid" noValidate onSubmit={handleSubmit}>
-              <label>
-                <span>购买方名称</span>
-                <FieldInput
-                  aria-label="购买方名称"
-                  required
-                  value={buyerName}
-                  onChange={(event) => setBuyerName(event.target.value)}
-                />
-              </label>
               <label>
                 <span>填写人电话</span>
                 <FieldInput
@@ -849,57 +659,17 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
                 />
               </label>
               <label>
-                <span>税率</span>
-                <FieldInput
-                  aria-label="税率"
-                  inputMode="decimal"
-                  required
-                  value={taxRatePercent}
-                  onChange={(event) => setTaxRatePercent(event.target.value.replace(/[^\d.]/g, ""))}
-                />
-              </label>
-              <label>
                 <span>开票日期</span>
                 <FieldInput type="date" required value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />
               </label>
               <label>
                 <span>20 位数电专票号码</span>
-                <FieldInput inputMode="numeric" maxLength={20} minLength={20} pattern="[0-9]{20}" required value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value.replace(/\D/g, ""))} />
-              </label>
-              <label>
-                <span>不含税金额</span>
-                <FieldInput
-                  aria-label="不含税金额"
-                  inputMode="decimal"
-                  required
-                  value={netAmount}
-                  onChange={(event) => setNetAmount(event.target.value)}
-                />
-              </label>
-              <label>
-                <span>税额</span>
-                <FieldInput
-                  aria-label="税额"
-                  inputMode="decimal"
-                  required
-                  value={taxAmount}
-                  onChange={(event) => setTaxAmount(event.target.value)}
-                />
-              </label>
-              <label>
-                <span>价税合计</span>
-                <FieldInput
-                  aria-label="价税合计"
-                  inputMode="decimal"
-                  required
-                  value={totalAmount}
-                  onChange={(event) => setTotalAmount(event.target.value)}
-                />
+                <FieldInput inputMode="numeric" pattern="[0-9]{20}" required value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} />
               </label>
 
               <div className="finance-form-actions finance-form-grid__wide">
                 <Button disabled={submitting} loading={submitting} type="submit" variant="primary">
-                  核验并登记发票
+                  校验并登记发票
                 </Button>
               </div>
             </form>
@@ -916,7 +686,7 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
                     ))}
                   </ul>
                 ) : (
-                  <p>基础信息校验通过，正在提交服务器登记。</p>
+                  <p>{registrationFailed ? "登记未成功，请核对下方错误后重试。" : submitting ? "格式校验通过，正在提交服务器登记。" : "请核对登记信息后提交。"}</p>
                 )}
               </section>
             ) : null}

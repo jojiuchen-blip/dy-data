@@ -119,8 +119,8 @@ def test_invoice_page_uses_the_frozen_uat_workspace_without_duplicate_intro_bloc
     assert 'className="store-finance-invoice-workspace"' in page
     assert 'className="store-finance-invoice-badge"' not in page
     assert "fillerPhone: fillerPhone.trim()" in page
-    assert "netAmountCent" in page
-    assert "taxAmountCent" in page
+    assert "displayInvoiceSummary.netAmountCent" in page
+    assert "displayInvoiceSummary.taxAmountCent" in page
 
 
 def test_invoice_status_uses_explicit_exact_search_without_store_period_pickers() -> None:

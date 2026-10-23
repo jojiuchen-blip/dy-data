@@ -15,7 +15,6 @@ from test_visual_smoke import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCREENSHOT_DIR = REPO_ROOT / "pwScreenShot" / "dydata-81-store-finance" / "final"
 VIEWPORTS = [(390, 844), (768, 1024), (1440, 900)]
 PAGES = [
     ("store-ranking", "/ranking?month=2026-08&sortBy=promotionNetFeeCent", "全国门店月度榜单"),
@@ -63,6 +62,7 @@ def install_store_finance_routes(page) -> None:
             content_type="application/json",
             body=api_payload({
                 "list": [statement],
+                "promotionInvoiceSummary": {"invoiceAmountCent": 1024, "netAmountCent": 966, "taxAmountCent": 58, "taxRatePercent": 6, "requiredStatementIds": ["STMT-VISUAL-001"]},
                 "total": 1,
                 "page": 1,
                 "pageSize": 50,
@@ -323,10 +323,11 @@ def test_store_finance_pages_render_the_formal_flow_at_supported_widths(
     heading: str,
     width: int,
     height: int,
+    tmp_path,
 ) -> None:
     context = browser.new_context(viewport={"width": width, "height": height})
     page = context.new_page()
-    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
 
     try:
         install_store_finance_routes(page)
@@ -358,29 +359,32 @@ def test_store_finance_pages_render_the_formal_flow_at_supported_widths(
             assert page.locator(".store-finance-invoice-workspace").count() == 1
             assert page.get_by_role("heading", name="购买方开票信息", exact=True).count() == 1
             assert page.get_by_role("heading", name="填写数电专票信息", exact=True).count() == 1
-            assert page.get_by_role("button", name="核验并登记发票", exact=True).is_enabled()
+            assert page.get_by_role("button", name="校验并登记发票", exact=True).is_enabled()
             assert page.locator(".store-finance-validation-response").count() == 0
             assert page.get_by_text("数据加载失败，请稍后重试。", exact=True).count() == 0
             assert page.get_by_text("换票候选信息暂不可用，不影响本次开票。", exact=True).count() == 0
 
         page.screenshot(
-            path=SCREENSHOT_DIR / f"{name}-{width}x{height}.png",
+            path=tmp_path / f"{name}-{width}x{height}.png",
             full_page=True,
         )
     finally:
         context.close()
 
 
-def test_invoice_verification_workspace_checks_manual_invoice_amounts(
+def test_invoice_verification_workspace_uses_server_summary_and_reduced_form(
     browser: Browser,
     vite_real_api_base_url: str,
+    tmp_path,
 ) -> None:
     context = browser.new_context(viewport={"width": 1440, "height": 900})
     page = context.new_page()
-    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
 
     try:
         install_store_finance_routes(page)
+        page.route("**/api/v1/promotion-invoices", lambda route: route.fulfill(
+            status=500, json={"detail": {"message": "Synthetic server unavailable"}}))
         page.goto(
             f"{vite_real_api_base_url}/settlement/invoice?storeId=store_001&month=2026-08",
             wait_until="domcontentloaded",
@@ -389,32 +393,29 @@ def test_invoice_verification_workspace_checks_manual_invoice_amounts(
         assert page.locator(".store-finance-invoice-period").count() == 0
         assert page.get_by_label("系统确定开票账期").count() == 0
         assert page.get_by_role("button", name="选择抵扣组", exact=True).count() == 0
-        page.get_by_label("购买方名称").fill("比亚迪汽车销售有限公司")
         page.get_by_label("填写人电话").fill("13800138000")
-        page.get_by_label("税率").fill("6")
         page.get_by_label("20 位数电专票号码").fill("98765432109876543210")
         page.get_by_label("开票日期").fill("2026-08-08")
-        page.get_by_label("不含税金额").fill("9.655")
-        page.get_by_label("税额").fill("0.575")
-        page.get_by_label("价税合计").fill("10.235")
 
         assert page.locator(".store-finance-validation-response").count() == 0
-        page.get_by_role("button", name="核验并登记发票", exact=True).click()
+        with page.expect_response(lambda response: response.request.method == "POST" and response.url.endswith("/promotion-invoices")) as failed:
+            page.get_by_role("button", name="校验并登记发票", exact=True).click()
+        assert failed.value.status == 500
 
         feedback = page.locator(".store-finance-validation-response")
         assert feedback.count() == 1
         assert feedback.locator("li").count() == 0
-        assert "基础信息校验通过" in feedback.inner_text()
-        assert page.get_by_label("不含税金额").input_value() == "9.655"
-        assert page.get_by_label("税额").input_value() == "0.575"
-        assert page.get_by_label("价税合计").input_value() == "10.235"
-        assert page.get_by_role("button", name="核验并登记发票", exact=True).is_enabled()
+        expect(feedback).to_contain_text("登记未成功，请核对下方错误后重试。")
+        expect(feedback).not_to_contain_text("格式校验通过")
+        expect(page.get_by_label("20 位数电专票号码", exact=True)).to_have_value("98765432109876543210")
+        expect(page.get_by_text("发票信息已登记，状态已更新。", exact=True)).to_have_count(0)
+        expect(page.get_by_role("button", name="校验并登记发票", exact=True)).to_be_enabled()
         assert page.locator("body").evaluate(
             "node => node.scrollWidth <= node.clientWidth + 1",
         )
 
         page.screenshot(
-            path=SCREENSHOT_DIR / "store-invoice-verification-1440x900.png",
+            path=tmp_path / "store-invoice-verification-1440x900.png",
             full_page=True,
         )
     finally:
@@ -490,6 +491,10 @@ def test_invoice_period_is_locked_and_all_billable_periods_are_presented_without
                 content_type="application/json",
                 body=api_payload({
                     "list": [row],
+                    "promotionInvoiceSummary": {"invoiceAmountCent": 2048 if earlier_is_invoiceable else 1024,
+                        "netAmountCent": 1932 if earlier_is_invoiceable else 966,
+                        "taxAmountCent": 116 if earlier_is_invoiceable else 58, "taxRatePercent": 6,
+                        "requiredStatementIds": ["STMT-2026-07", "STMT-2026-08"] if earlier_is_invoiceable else ["STMT-2026-08"]},
                     "total": 1,
                     "page": 1,
                     "pageSize": 50,
@@ -563,10 +568,11 @@ def test_store_summary_metrics_stay_compact_in_one_row(
     path: str,
     width: int,
     height: int,
+    tmp_path,
 ) -> None:
     context = browser.new_context(viewport={"width": width, "height": height})
     page = context.new_page()
-    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
 
     try:
         install_store_finance_routes(page)
@@ -595,7 +601,7 @@ def test_store_summary_metrics_stay_compact_in_one_row(
         )
 
         page.screenshot(
-            path=SCREENSHOT_DIR / f"{name}-{width}x{height}.png",
+            path=tmp_path / f"{name}-{width}x{height}.png",
             full_page=True,
         )
     finally:

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   fetchSettlementFilterMeta,
   fetchSettlementStoreRanking,
@@ -11,10 +11,8 @@ import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
 import { TablePagination } from "../components/TablePagination";
 import { usePublishedView } from "../hooks/usePublishedView";
 import type {
-  PeriodType,
-  RankingSortBy,
   SettlementStoreRankingRow,
-  SortOrder,
+  RankingSortBy,
   StoreFinanceRankingBasis,
 } from "../types/dashboard";
 import { formatCurrency, formatInteger } from "../utils/format";
@@ -30,75 +28,69 @@ const displayMetricCurrency = (value: number | null | undefined) =>
 const displayMetricCount = (value: number | null | undefined, unit: string) =>
   value === null ? "暂不可用" : value === undefined ? "暂无数据" : `${formatInteger(value)} ${unit}`;
 
-type RankingBasis = StoreFinanceRankingBasis;
-
-const RANKING_BASIS_OPTIONS: Array<{ value: RankingBasis; label: string }> = [
+const RANKING_BASIS_OPTIONS: Array<{ value: StoreFinanceRankingBasis; label: string }> = [
   { value: "SALES_AMOUNT_CUMULATIVE", label: "销售金额（累计）" },
   { value: "VERIFIED_AMOUNT_CUMULATIVE", label: "核销金额（累计）" },
   { value: "PROMOTION_FEE_MONTH", label: "当期推广服务费" },
   { value: "PROMOTION_FEE_CUMULATIVE", label: "累计推广服务费" },
 ];
 
-function rankingBasisFromQuery(value: string | null): RankingBasis {
-  return RANKING_BASIS_OPTIONS.some((option) => option.value === value)
-    ? value as RankingBasis
-    : "PROMOTION_FEE_MONTH";
-}
-
-function rankingSortByForBasis(basis: RankingBasis): RankingSortBy {
-  switch (basis) {
-    case "SALES_AMOUNT_CUMULATIVE":
-      return "SALES_AMOUNT";
-    case "VERIFIED_AMOUNT_CUMULATIVE":
-      return "VERIFIED_AMOUNT";
-    case "PROMOTION_FEE_CUMULATIVE":
-    case "PROMOTION_FEE_MONTH":
-    default:
-      return "PROMOTION_FEE";
-  }
-}
-
-function periodTypeForRankingBasis(basis: RankingBasis): PeriodType {
-  return basis === "PROMOTION_FEE_MONTH" ? "MONTHLY" : "CUMULATIVE";
+function rankingSortByForBasis(basis: StoreFinanceRankingBasis): RankingSortBy {
+  if (basis === "SALES_AMOUNT_CUMULATIVE") return "SALES_AMOUNT";
+  if (basis === "VERIFIED_AMOUNT_CUMULATIVE") return "VERIFIED_AMOUNT";
+  return "PROMOTION_FEE";
 }
 
 export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
-  const initialRankingBasis = rankingBasisFromQuery(
-    searchParams.get("rankingBasis"),
-  );
-  const [periodType, setPeriodType] = useState<PeriodType>(
-    periodTypeForRankingBasis(initialRankingBasis),
-  );
   const [periodKey, setPeriodKey] = useState(searchParams.get("periodKey") ?? "");
   const [productScope, setProductScope] = useState(
     searchParams.get("productScope") ?? "all",
   );
   const productType = searchParams.get("productType") ?? "";
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
-  const [rankingBasis, setRankingBasis] = useState<RankingBasis>(
-    initialRankingBasis,
-  );
   const [page, setPage] = useState(1);
-
+  const [rankingBasis, setRankingBasis] = useState<StoreFinanceRankingBasis>(() => {
+    const requested = searchParams.get("rankingBasis");
+    // A legacy cumulative view must start from this month's default basis.
+    return searchParams.get("periodType") !== "CUMULATIVE" &&
+      RANKING_BASIS_OPTIONS.some((option) => option.value === requested)
+      ? requested as StoreFinanceRankingBasis : "PROMOTION_FEE_MONTH";
+  });
   const sortBy = rankingSortByForBasis(rankingBasis);
-  const sortOrder: SortOrder = "DESC";
+
+  // Old bookmarks cannot restore cumulative request state. This page has no
+  // persisted filter cache; keep the URL canonical for copied links as well.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const legacyCumulative = url.searchParams.get("periodType") === "CUMULATIVE";
+    const fixed: Record<string, string> = { periodType: "MONTHLY" };
+    if (legacyCumulative) Object.assign(fixed, { rankingBasis: "PROMOTION_FEE_MONTH", sortBy: "PROMOTION_FEE", sortOrder: "DESC" });
+    let changed = false;
+    Object.entries(fixed).forEach(([key, value]) => {
+      if (url.searchParams.has(key) && url.searchParams.get(key) !== value) {
+        url.searchParams.set(key, value);
+        changed = true;
+      }
+    });
+    if (changed) window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [searchParams]);
 
   const rankingResource = usePublishedView(
     (id) => fetchSettlementFilterMeta("settlement", id),
     (filters, publication_id) => fetchSettlementStoreRanking({
       publication_id,
-      periodType,
+      periodType: "MONTHLY",
       periodKey: periodKey || filters.saleMonths[0] || "",
       productScope,
       productType: productType || filters.defaultProductType || "all",
       q: query || undefined,
       sortBy,
-      sortOrder,
+      sortOrder: "DESC",
       rankingBasis,
       page,
       pageSize: PAGE_SIZE,
     }),
-    [periodType, periodKey, productScope, productType, query, sortBy, rankingBasis, page],
+    [periodKey, productScope, productType, query, rankingBasis, sortBy, page],
   );
   const metaResource = { ...rankingResource, data: rankingResource.filters };
   const meta = metaResource.data?.data;
@@ -138,23 +130,11 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
       </section>
       <ResourceNotice analysis loading={metaResource.loading || rankingResource.loading || rankingResource.refreshing} error={metaError ?? rankingError} />
       <FilterBar>
-        <SelectField label="统计方式" value={periodType} onChange={(value) => {
-          const nextPeriodType = value as PeriodType;
-          setPeriodType(nextPeriodType);
-          setRankingBasis((current) => nextPeriodType === "MONTHLY"
-            ? "PROMOTION_FEE_MONTH"
-            : current === "PROMOTION_FEE_MONTH"
-              ? "PROMOTION_FEE_CUMULATIVE"
-              : current);
-          setPage(1);
-        }} options={[{ value: "MONTHLY", label: "月度" }, { value: "CUMULATIVE", label: "正式累计", disabled: cumulativeUnavailable }]} />
         <SelectField disabled={!meta} label="账期" value={activePeriodKey} onChange={(value) => { setPeriodKey(value); setPage(1); }} options={(meta?.saleMonths ?? []).map((value) => ({ value, label: value }))} />
         <SelectField disabled={!meta} label="产品范围" value={productScope} onChange={(value) => { setProductScope(value); setPage(1); }} options={(meta?.productScopes ?? []).map((value) => ({ value, label: value === "all" ? "全部产品" : value }))} />
         <FilterField label="搜索门店"><FieldInput disabled={!meta} value={query} placeholder="输入门店名称" onChange={(event) => { setQuery(event.target.value); setPage(1); }} /></FilterField>
         <SelectField label="排行依据" value={rankingBasis} onChange={(value) => {
-          const nextBasis = value as RankingBasis;
-          setRankingBasis(nextBasis);
-          setPeriodType(periodTypeForRankingBasis(nextBasis));
+          setRankingBasis(value as StoreFinanceRankingBasis);
           setPage(1);
         }} options={RANKING_BASIS_OPTIONS.map((option) => ({
           ...option,
@@ -162,7 +142,6 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
         }))} />
       </FilterBar>
       {availability?.monthlyReady && cumulativeUnavailable ? <ResourcePanel>本月数据已完整；累计数据{incompleteMonths ? `因 ${incompleteMonths} 尚未完成` : "尚未完成"}，暂不可用。</ResourcePanel> : null}
-      {periodType === "CUMULATIVE" && activePeriodKey < (meta?.formalPeriodStartMonth ?? "2026-08") ? <ResourcePanel>累计排名从 {meta?.formalPeriodStartMonth ?? "2026-08"} 正式账期开始，当前账期不计入正式累计。</ResourcePanel> : null}
       {!ranking && rankingResource.loading ? <ResourcePanel>正在加载榜单…</ResourcePanel> : !ranking ? <ResourcePanel tone="error">榜单暂不可用，请稍后重试。</ResourcePanel> : (
         <>
           <section className="metric-grid store-summary-metrics">

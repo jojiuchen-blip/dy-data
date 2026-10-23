@@ -91,16 +91,11 @@ def test_confirm_register_conflict_and_query_context(browser, vite_live_admin_ap
             page.get_by_role("button", name="确认提交", exact=True).click()
         assert confirmation.value.status == 200, confirmation.value.text()
         page.get_by_role("link", name="进入推广费开票").click()
-        expect(page.get_by_label("购买方名称")).to_be_visible(timeout=15000)
+        expect(page.get_by_label("填写人电话")).to_be_visible(timeout=15000)
         expect(page.locator(".store-finance-invoice-info")).to_contain_text("106.00", timeout=15000)
-        page.get_by_label("购买方名称").fill("比亚迪汽车销售有限公司")
         page.get_by_label("填写人电话").fill("13800000000")
-        page.get_by_label("税率", exact=True).fill("6")
         page.get_by_label("开票日期").fill("2026-08-08")
         page.get_by_label("20 位数电专票号码").fill("12345678901234567890")
-        page.get_by_label("不含税金额", exact=True).fill("100")
-        page.get_by_label("税额", exact=True).fill("6")
-        page.get_by_label("价税合计", exact=True).fill("106")
 
         # Trigger a genuine server version conflict, not a fabricated response.
         def stale_version(route):
@@ -112,7 +107,7 @@ def test_confirm_register_conflict_and_query_context(browser, vite_live_admin_ap
         page.route("**/api/v1/promotion-invoices", stale_version)
         with page.expect_response(lambda response: response.request.method == "POST"
                                   and response.url.endswith("/promotion-invoices")) as registration:
-            page.get_by_role("button", name="核验并登记发票").click()
+            page.get_by_role("button", name="校验并登记发票").click()
         assert registration.value.status == 409, registration.value.text()
         expect(page.get_by_label("20 位数电专票号码")).to_have_value("12345678901234567890")
         records = context.request.get(f"{live_admin_fastapi_base_url}/api/v1/promotion-invoices",
