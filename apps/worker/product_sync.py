@@ -173,6 +173,13 @@ class DouyinProductSyncAdapter:
             for product_id, sku_ids in (known_products or {}).items()
             if str(product_id).strip()
         }
+        known_sku_products: dict[str, str] = {}
+        for product_id, sku_ids in self._known_products.items():
+            for sku_id in sku_ids:
+                if sku_id in known_sku_products and known_sku_products[sku_id] != product_id:
+                    raise ProductSyncPayloadError("Known SKU has conflicting product identities")
+                known_sku_products[sku_id] = product_id
+        self._sku_lookup_cache: dict[str, dict[str, Mapping[str, Any]]] = {}
         self._page_size = page_size
         self._goods_query_type = goods_query_type
         self._seen_product_skus: dict[str, set[str]] = {}
@@ -222,7 +229,9 @@ class DouyinProductSyncAdapter:
         rows = data.get("products")
         if not isinstance(rows, list):
             raise ProductSyncPayloadError("Product list response products must be a list")
-        normalized_rows, skipped_count = _normalize_douyin_online_rows(rows)
+        normalized_rows, skipped_count = _normalize_douyin_online_rows(
+            self._supplement_known_skus(rows)
+        )
         self._observe_product_skus(normalized_rows)
         has_more = data.get("has_more")
         if not isinstance(has_more, bool):
@@ -261,6 +270,84 @@ class DouyinProductSyncAdapter:
             }
         )
 
+    def _supplement_known_skus(self, rows: list[Any]) -> list[Any]:
+        """Fill only missing already-known SKU identities from scoped SKU/get.
+
+        A partial or conflicting reply fails the adapter before any current
+        snapshot update. Cached proof avoids duplicate calls across list/ID
+        pages, while the existing job-level duplicate guards remain intact.
+        """
+        result = []
+        for record in rows:
+            if not isinstance(record, Mapping):
+                result.append(record)
+                continue
+            product = record.get("product")
+            if not isinstance(product, Mapping):
+                result.append(record)
+                continue
+            product_id = _optional_text(product.get("product_id"))
+            known = self._known_products.get(product_id, set())
+            if not known:
+                result.append(record)
+                continue
+            cache = self._sku_lookup_cache.setdefault(product_id, {})
+            available = []
+            if isinstance(record.get("sku"), Mapping) and record["sku"].get("sku_id"):
+                available.append(record["sku"])
+            if isinstance(record.get("skus"), list):
+                available.extend(row for row in record["skus"] if isinstance(row, Mapping))
+            present = {_optional_text(row.get("sku_id")) for row in available}
+            for row in available:
+                sku_id = _optional_text(row.get("sku_id"))
+                if sku_id in known:
+                    if sku_id in cache and _canonical_sha256(cache[sku_id]) != _canonical_sha256(row):
+                        raise ProductSyncPayloadError("Conflicting repeated known SKU metadata")
+                    cache[sku_id] = row
+            missing = sorted(known - present)
+            if not missing:
+                result.append(record)
+                continue
+            if str(record.get("online_status")) not in DOUYIN_ONLINE_STATUS_MAP or any(
+                not _optional_text(product.get(field)) or str(product.get(field)) == "0"
+                for field in ("owner_account_id", "creator_account_id", "account_name")
+            ):
+                raise ProductSyncPayloadError("Known product lacks trusted status or ownership for SKU lookup")
+            uncached = [sku_id for sku_id in missing if sku_id not in cache]
+            for offset in range(0, len(uncached), 50):
+                batch = uncached[offset:offset + 50]
+                payload = self._client.query_product_skus(product_id, batch)
+                data = _required_mapping(payload.get("data"), "SKU response data")
+                for container, field in ((payload, "error_code"), (data, "error_code"),
+                                         (payload.get("extra", {}), "error_code"),
+                                         (payload.get("BaseResp", {}), "StatusCode")):
+                    if isinstance(container, Mapping) and container.get(field) not in (None, 0, "0"):
+                        raise ProductSyncPayloadError("SKU lookup returned an upstream error code")
+                returned = data.get("skus")
+                if not isinstance(returned, list) or len(returned) != len(batch):
+                    raise ProductSyncPayloadError("SKU lookup returned an incomplete batch")
+                by_id = {}
+                for sku in returned:
+                    if not isinstance(sku, Mapping):
+                        raise ProductSyncPayloadError("SKU lookup row must be an object")
+                    sku_id = _optional_text(sku.get("sku_id"))
+                    if sku_id not in batch or sku_id in by_id:
+                        raise ProductSyncPayloadError("SKU lookup returned unexpected or duplicate identities")
+                    if sku.get("product_id") not in (None, "", product_id) or (
+                        sku.get("owner_account_id") not in (None, "")
+                        and str(sku["owner_account_id"]) != str(product["owner_account_id"])
+                    ):
+                        raise ProductSyncPayloadError("SKU lookup product or owner identity conflicts")
+                    # SKU status is a separate enum from product online_status.
+                    # Only its documented online=1 state is accepted here;
+                    # deleted/unknown variants cannot inherit product ACTIVE.
+                    if type(sku.get("status")) is not int or sku["status"] != 1:
+                        raise ProductSyncPayloadError("SKU lookup did not return an online variant")
+                    by_id[sku_id] = sku
+                cache.update(by_id)
+            result.append({**record, "sku": {}, "skus": available + [cache[sku_id] for sku_id in missing]})
+        return result
+
     def _fetch_id_page(self, offset: int) -> ProductSyncPage:
         if self._fallback_product_ids is None:
             self._fallback_product_ids = self._products_with_sku_gaps()
@@ -276,7 +363,13 @@ class DouyinProductSyncAdapter:
             raise ProductSyncPayloadError(
                 "Product ID response product_onlines must be a list"
             )
-        normalized_rows, skipped_count = _normalize_douyin_online_rows(rows)
+        for record in rows:
+            product = record.get("product") if isinstance(record, Mapping) else None
+            if not isinstance(product, Mapping) or _optional_text(product.get("product_id")) not in batch:
+                raise ProductSyncPayloadError("Product ID lookup returned an unexpected product")
+        normalized_rows, skipped_count = _normalize_douyin_online_rows(
+            self._supplement_known_skus(rows)
+        )
         returned_product_ids = {
             row["productId"] for row in normalized_rows if row.get("productId")
         }
@@ -716,9 +809,21 @@ def run_product_sync_job(
 
 
 def extract_known_order_products(session: Session) -> dict[str, set[str]]:
-    """Return the de-duplicated product/SKU pairs observed in order payloads."""
+    """Return exact catalog and order product/SKU pairs; reject contradictions."""
 
     products: dict[str, set[str]] = {}
+    by_sku: dict[str, str] = {}
+
+    def add_pair(product_id, sku_id):
+        if not product_id or not sku_id:
+            return
+        if sku_id in by_sku and by_sku[sku_id] != product_id:
+            raise ProductSyncPayloadError("Catalog and order SKU product identities conflict")
+        by_sku[sku_id] = product_id
+        products.setdefault(product_id, set()).add(sku_id)
+
+    for product_id, sku_id in session.execute(select(DimSkuProductRule.product_id, DimSkuProductRule.sku_id)):
+        add_pair(_optional_text(product_id), _optional_text(sku_id))
     payloads = session.scalars(
         select(RawDouyinOrder.raw_payload).execution_options(yield_per=500)
     )
@@ -734,7 +839,7 @@ def extract_known_order_products(session: Session) -> dict[str, set[str]]:
             product_id = _optional_text(row.get("product_id"))
             sku_id = _optional_text(row.get("sku_id"))
             if product_id and sku_id:
-                products.setdefault(product_id, set()).add(sku_id)
+                add_pair(product_id, sku_id)
     return products
 
 

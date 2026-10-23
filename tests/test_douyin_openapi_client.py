@@ -752,3 +752,73 @@ def test_invalid_order_window_type_does_not_send_request():
     with pytest.raises(ValueError):
         client.query_orders(datetime.now(timezone.utc), datetime.now(timezone.utc), time_field='unknown')
     assert http.calls == []
+
+
+def test_product_skus_uses_real_requests_transport_auth_json_array_and_retry(monkeypatch):
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from urllib.parse import parse_qs, urlsplit
+    import src.dy_data.douyin_client as client_module
+
+    calls = []
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+        def reply(self, payload):
+            body = json.dumps(payload).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        def do_POST(self):
+            self.rfile.read(int(self.headers["Content-Length"]))
+            self.reply({"data": {"access_token": "synthetic-token"}})
+        def do_GET(self):
+            calls.append({"query": parse_qs(urlsplit(self.path).query),
+                          "token": self.headers.get("access-token"),
+                          "account": self.headers.get("Rpc-Transit-Life-Account")})
+            if len(calls) == 1:
+                self.reply({"data": {"error_code": 2119003, "description": "rate limited"}})
+            else:
+                self.reply({"data": {"error_code": 0, "skus": [{"sku_id": "sku-a", "status": 1}]}})
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        monkeypatch.setattr(client_module, "TOKEN_URL", base + "/oauth/client_token/")
+        monkeypatch.setattr(client_module, "PRODUCT_SKUS_GET_URL", base + "/goodlife/v1/goods/sku/get/")
+        governor = RecordingGovernor()
+        http = requests.Session(); http.trust_env = False
+        try:
+            client = DouyinOpenApiClient(DouyinCredentials("synthetic-app", "synthetic-secret", "synthetic-account"),
+                http=http, request_governor=governor, retry_attempts=2, sleep=lambda seconds: None)
+            assert client.query_product_skus("product-a", ["sku-a"])["data"]["skus"][0]["sku_id"] == "sku-a"
+            assert len(calls) == 2
+            assert all(call["query"] == {"account_id": ["synthetic-account"], "product_id": ["product-a"], "sku_ids": ['["sku-a"]']} for call in calls)
+            assert all(call["token"] == "synthetic-token" and call["account"] == "synthetic-account" for call in calls)
+            assert governor.endpoint_keys == ["oauth_client_token", "product_skus", "product_skus"]
+        finally:
+            http.close(); server.shutdown(); thread.join(timeout=5)
+
+
+@pytest.mark.parametrize("ids", [[], [""], ["same", "same"], [str(index) for index in range(51)]])
+def test_product_skus_invalid_local_batch_never_reaches_transport(ids):
+    http = FakeHttp([])
+    with pytest.raises(ValueError):
+        client_with(http).query_product_skus("product-a", ids)
+    assert http.calls == []
+
+
+def test_product_skus_configured_daily_budget_is_reserved_before_transport():
+    from src.dy_data.douyin_rate_limits import DouyinEndpointProfile, EndpointLimit, InMemoryDailyQuotaStore, RequestGovernor, DouyinQuotaExceeded
+    store = InMemoryDailyQuotaStore()
+    governor = RequestGovernor(DouyinEndpointProfile("synthetic-app", {"product_skus": EndpointLimit(20, 1, daily_quota=1)}),
+        app_id="synthetic-app", account_id="synthetic-account", quota_store=store, sleep=lambda seconds: None)
+    http = FakeHttp([FakeResponse({"data": {"access_token": "synthetic-token"}}), FakeResponse({"data": {"skus": []}})])
+    client = DouyinOpenApiClient(DouyinCredentials("synthetic-app", "synthetic-secret", "synthetic-account"), http=http, request_governor=governor)
+    client.query_product_skus("product-a", ["sku-a"])
+    with pytest.raises(DouyinQuotaExceeded): client.query_product_skus("product-a", ["sku-a"])
+    assert len(http.calls) == 2

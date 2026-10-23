@@ -36,6 +36,7 @@ def test_production_profile_uses_confirmed_limits_and_operational_soft_caps() ->
     assert profile.limit_for(ENDPOINT_CLUES).soft_quota == 90
     assert profile.limit_for("product_list").requests_per_window == 20
     assert profile.limit_for("product_detail").requests_per_window == 20
+    assert profile.limit_for("product_skus").requests_per_window == 20
 
     governor = RequestGovernor(
         app_id=PRODUCTION_APP_ID,
@@ -157,3 +158,13 @@ def test_daily_ledger_uses_the_governor_wall_clock() -> None:
 
 def test_next_shanghai_day_delay_is_injected_clock_independent() -> None:
     assert seconds_until_next_shanghai_day(datetime(2026, 9, 3, 15, 0, tzinfo=UTC)) == 3600
+
+
+def test_product_sku_lookup_has_independent_verified_endpoint_and_optional_budget():
+    from src.dy_data.douyin_rate_limits import endpoint_key_for_url
+    profile = endpoint_profile_for_app(PRODUCTION_APP_ID, limits_json={"product_skus": {"daily_quota": 2}})
+    assert endpoint_key_for_url("https://open.douyin.com/goodlife/v1/goods/sku/get/?sku_ids=private", "get") == "product_skus"
+    assert profile.limit_for("product_skus").requests_per_window == 20
+    assert profile.limit_for("product_skus").daily_quota == 2
+    assert profile.limit_for("refunds").daily_quota == 90
+    assert profile.limit_for("product_detail").daily_quota is None

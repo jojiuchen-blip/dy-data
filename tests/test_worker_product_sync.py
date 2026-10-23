@@ -555,8 +555,12 @@ def test_not_found_sync_attempt_preserves_last_good_platform_fields(db_session: 
     )
     db_session.add(existing)
     _queue(db_session)
+    client = FakeDouyinProductClient()
+    # This case represents an actually empty ID lookup, not a reply for an
+    # unrelated product (which must now fail the adapter's identity fence).
+    client.query_online_products_by_id = lambda product_ids: {"data": {"product_onlines": []}}
     adapter = DouyinProductSyncAdapter(
-        FakeDouyinProductClient(),
+        client,
         known_products={"product-missing": {"sku-missing"}},
     )
 

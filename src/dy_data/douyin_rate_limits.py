@@ -28,6 +28,7 @@ ENDPOINT_SHOP_POIS = "shop_pois"
 ENDPOINT_CLUES = "clues"
 ENDPOINT_PRODUCT_LIST = "product_list"
 ENDPOINT_PRODUCT_DETAIL = "product_detail"
+ENDPOINT_PRODUCT_SKUS = "product_skus"
 
 
 class DouyinApiError(RuntimeError):
@@ -155,6 +156,11 @@ PRODUCTION_ENDPOINT_LIMITS: Mapping[str, EndpointLimit] = MappingProxyType(
         ),
         ENDPOINT_PRODUCT_LIST: EndpointLimit(requests_per_window=20, window_seconds=1),
         ENDPOINT_PRODUCT_DETAIL: EndpointLimit(requests_per_window=20, window_seconds=1),
+        # Official SKU/get: life.capacity.goods.query, 20 QPS. Like the other
+        # goods endpoints, no unverified daily cap is invented; configured
+        # lower/daily budgets still use RequestGovernor's durable ledger.
+        # https://developer.open-douyin.com/docs/resource/zh-CN/local-life/develop/OpenAPI/general-capabilities/product-query/batch-query-sku
+        ENDPOINT_PRODUCT_SKUS: EndpointLimit(requests_per_window=20, window_seconds=1),
     }
 )
 
@@ -174,6 +180,7 @@ _KNOWN_ENDPOINT_PATHS: Mapping[str, str] = MappingProxyType(
         "/goodlife/v1/open_api/crm/clue/query": ENDPOINT_CLUES,
         "/goodlife/v1/goods/product/online/query": ENDPOINT_PRODUCT_LIST,
         "/goodlife/v1/goods/product/online/get": ENDPOINT_PRODUCT_DETAIL,
+        "/goodlife/v1/goods/sku/get": ENDPOINT_PRODUCT_SKUS,
         "/goodlife/v1/open/common_biz/crypto/decrypt/batch": "cipher_decrypt",
         "/goodlife/v1/open/common_biz/crypto/decrypt_mask/batch": "cipher_decrypt_mask",
     }
@@ -635,6 +642,7 @@ __all__ = [
     "ENDPOINT_CLUES",
     "ENDPOINT_ORDERS",
     "ENDPOINT_PRODUCT_DETAIL",
+    "ENDPOINT_PRODUCT_SKUS",
     "ENDPOINT_PRODUCT_LIST",
     "ENDPOINT_REFUNDS",
     "ENDPOINT_SHOP_POIS",

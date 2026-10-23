@@ -22,6 +22,7 @@ CRAFTSMAN_BIND_INFO_URL = "https://open.douyin.com/goodlife/v2/craftsman_openapi
 CLUE_QUERY_URL = "https://open.douyin.com/goodlife/v1/open_api/crm/clue/query/"
 PRODUCT_ONLINE_QUERY_URL = "https://open.douyin.com/goodlife/v1/goods/product/online/query/"
 PRODUCT_ONLINE_GET_URL = "https://open.douyin.com/goodlife/v1/goods/product/online/get/"
+PRODUCT_SKUS_GET_URL = "https://open.douyin.com/goodlife/v1/goods/sku/get/"
 CIPHER_DECRYPT_URL = "https://open.douyin.com/goodlife/v1/open/common_biz/crypto/decrypt/batch/"
 CIPHER_DECRYPT_MASK_URL = "https://open.douyin.com/goodlife/v1/open/common_biz/crypto/decrypt_mask/batch/"
 CIPHER_BATCH_SIZE = 50
@@ -199,6 +200,24 @@ class DouyinOpenApiClient:
                 "product_ids": json.dumps(cleaned, separators=(",", ":")),
             },
         )
+
+    def query_product_skus(self, product_id: str, sku_ids: list[str]) -> dict[str, Any]:
+        """Query at most 50 known SKUs of one product through the normal governor.
+
+        The batch size is a local work bound. IDs use the official JSON-array
+        query encoding; product_out_id is not invented from the platform ID.
+        """
+        if not isinstance(product_id, str) or not product_id.strip():
+            raise ValueError("Product ID is required")
+        if not isinstance(sku_ids, list) or not sku_ids or len(sku_ids) > 50:
+            raise ValueError("SKU query requires 1 to 50 known SKU IDs")
+        if any(not isinstance(value, str) or not value.strip() for value in sku_ids) or len(set(sku_ids)) != len(sku_ids):
+            raise ValueError("SKU query IDs must be distinct nonempty strings")
+        return self._get_json(PRODUCT_SKUS_GET_URL, {
+            "account_id": self.credentials.account_id,
+            "product_id": product_id.strip(),
+            "sku_ids": json.dumps(sku_ids, separators=(",", ":")),
+        })
 
     def iter_order_updates(self, start: datetime, end: datetime, *, page_size: int = 100):
         """Include older orders changed within this window."""
