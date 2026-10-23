@@ -414,6 +414,120 @@ def test_multi_coupon_sub_order_amount_infos_maps_by_order_item_id(
     assert _fee_result(db_session, "coupon-sub-b", MANAGEMENT_FEE).source_amount_cent == 5000
 
 
+def test_multi_coupon_sub_order_id_alias_uses_only_exact_matching_item_receipts(
+    db_session: Session,
+) -> None:
+    """Native sub-order IDs prove per-coupon cents without including unrelated rows."""
+
+    _seed_dual_base(db_session)
+    _add_dual_order(
+        db_session,
+        "order-native-sub-items",
+        paid_cent=20000,
+        coupons=[
+            {"coupon_id": "coupon-native-a", "order_item_id": "0001234567890123456789"},
+            {"coupon_id": "coupon-native-b", "order_item_id": "item-b"},
+        ],
+        order_payload={
+            "receipt_amount": 900000,
+            "sub_order_amount_infos": [
+                {"sub_order_id": "0001234567890123456789", "receipt_amount": 1234},
+                {"sub_order_id": "item-b", "receipt_amount": "4321"},
+                {"sub_order_id": "unmatched-item", "receipt_amount": 800000},
+            ],
+        },
+    )
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="native-sub-items")
+
+    for coupon_id, amount, promotion_fee, management_fee in (
+        ("coupon-native-a", 1234, 123, 247),
+        ("coupon-native-b", 4321, 432, 864),
+    ):
+        promotion = _fee_result(db_session, coupon_id, PROMOTION_FEE)
+        management = _fee_result(db_session, coupon_id, MANAGEMENT_FEE)
+        assert promotion is not None and management is not None
+        assert promotion.source_amount_cent == management.source_amount_cent == amount
+        assert promotion.fee_amount_cent == promotion_fee
+        assert management.fee_amount_cent == management_fee
+
+
+@pytest.mark.parametrize(
+    "identity_fields",
+    [
+        {"order_item_id": "item-a"},
+        {"sub_order_id": "item-a"},
+        {"order_item_id": "item-a", "sub_order_id": "item-a"},
+        {"order_item_id": " item-a ", "sub_order_id": "item-a"},
+    ],
+)
+def test_sub_order_item_aliases_preserve_existing_identity_and_integer_cents(
+    identity_fields: dict,
+) -> None:
+    parsed = SubOrderReceipts.from_payload(
+        {"sub_order_amount_infos": [{**identity_fields, "receipt_amount": 1234}]}
+    )
+
+    assert parsed.unique == {"item-a": 1234}
+    assert parsed.complete_total == 1234
+    assert parsed.corrupt is False
+
+
+@pytest.mark.parametrize("receipt", [False, -1, "1.1", "NaN", None])
+def test_sub_order_id_alias_rejects_unproven_receipt_cents(receipt: object) -> None:
+    parsed = SubOrderReceipts.from_payload(
+        {"sub_order_amount_infos": [{"sub_order_id": "item-a", "receipt_amount": receipt}]}
+    )
+
+    assert parsed.unique == {}
+    assert parsed.unusable == frozenset({"item-a"})
+    assert parsed.complete_total is None
+
+
+def test_sub_order_alias_duplicate_across_namespaces_is_not_attributed() -> None:
+    parsed = SubOrderReceipts.from_payload(
+        {"sub_order_amount_infos": [
+            {"order_item_id": "item-a", "receipt_amount": 100},
+            {"sub_order_id": "item-a", "receipt_amount": 200},
+            {"sub_order_id": "item-b", "receipt_amount": 300},
+        ]}
+    )
+
+    assert parsed.unique == {"item-b": 300}
+    assert parsed.unusable == frozenset({"item-a"})
+    assert parsed.complete_total is None
+
+
+@pytest.mark.parametrize("coupon_count", [1, 2])
+def test_conflicting_sub_order_aliases_block_instead_of_using_either_identity(
+    db_session: Session, coupon_count: int,
+) -> None:
+    _seed_dual_base(db_session)
+    _add_dual_order(
+        db_session,
+        "order-conflicting-sub-identity",
+        paid_cent=20000,
+        coupons=[{"coupon_id": "coupon-conflicting-a", "order_item_id": "item-a"}]
+        + ([{"coupon_id": "coupon-conflicting-b", "order_item_id": "item-b"}]
+           if coupon_count == 2 else []),
+        order_payload={
+            "receipt_amount": 9000,
+            "sub_order_amount_infos": [
+                {"order_item_id": "item-a", "sub_order_id": "other-item", "receipt_amount": 3000},
+                {"sub_order_id": "item-b", "receipt_amount": 5000},
+            ],
+        },
+    )
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="conflicting-sub-identity")
+
+    for coupon_id in (["coupon-conflicting-a", "coupon-conflicting-b"]
+                      if coupon_count == 2 else ["coupon-conflicting-a"]):
+        for direction in (PROMOTION_FEE, MANAGEMENT_FEE):
+            assert _fee_result(db_session, coupon_id, direction) is None
+        assert _has_issue(db_session, "dual_fee_missing_coupon_amount", coupon_id)
+
+
 def test_multi_coupon_order_total_receipt_is_not_repeated_for_each_coupon(
     db_session: Session,
 ) -> None:
