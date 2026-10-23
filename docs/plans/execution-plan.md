@@ -433,3 +433,10 @@
 本次磁盘治理整合保留 main 的 preoct7 人工跟进口径。口径切换本身不删除旧快照；历史关键版本先归档，普通版本随后按榜单生命周期规则管理。
 
 2026-10-09 磁盘治理发布完成：PR #49 合入 main，08cd3212 已部署，完整 CI 3424 passed / 182 skipped。0062 保护 290 个历史榜单，静态导出验证不增量；备份轮换后磁盘 82%、可用 21.02 GiB。技术验收完成，详见 docs/devlog/20261009_disk_ranking_retention.md；T0.1 保持业务使用验收阶段。
+# 当前执行：DYDATA-104 10月23日新增范围
+
+- 用户已批准开始；继续S4/T3.1，当前Codex负责集成，基于ca61eff。
+- [正式计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)、[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。
+- 当前动作：规则与基准核查，独立实现八月恢复入口及月榜/发票前后端；随后按月预演、恢复/重算和对账验收。
+- 保留历史确认/开票/锁账、权限及恢复预算；未实际确认账单、登记发票或付款。新增范围未完成。
+
