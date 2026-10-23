@@ -353,18 +353,36 @@ def test_remaining_status_pagination_and_real_terminated_candidate_recovery(
         with factory() as session:
             assert tuple(session.scalar(select(func.count()).select_from(model)) for model in
                 (PromotionInvoice, PromotionInvoiceAllocation, PromotionInvoiceLifecycleEvent)) == before_navigation
-        for label, value in (("购买方名称", "比亚迪汽车销售有限公司"), ("填写人电话", "13812345678"), ("税率", "6"),
+        preview = context.request.get(live_admin_fastapi_base_url + "/api/v1/store-settlements",
+            params={"storeId": "R105-RESUME", "month": "2026-09", "metricScope": "MONTH", "feeDirection": "PROMOTION"})
+        assert preview.status == 200, preview.text()
+        summary = preview.json()["data"]["promotionInvoiceSummary"]
+        assert summary == {"invoiceAmountCent": 12345, "netAmountCent": 11646,
+                           "taxAmountCent": 699, "taxRatePercent": 6, "requiredStatementIds": ["R105-RESUME"]}
+        info = page.locator(".store-finance-invoice-info")
+        for label, amount in (("价税合计（含税总额）", "¥123.45"), ("不含税金额", "¥116.46"), ("税额（6%）", "¥6.99")):
+            expect(info.locator("dl > div").filter(has=page.locator("dt", has_text=label))).to_contain_text(amount)
+        for label in ("购买方名称", "税率", "不含税金额", "税额", "价税合计"):
+            expect(page.get_by_label(label, exact=True)).to_have_count(0)
+        for label, value in (("填写人电话", "13812345678"),
             ("开票日期", datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()),
-            ("20 位数电专票号码", "71050000000000009998"), ("不含税金额", "116.46"), ("税额", "6.99"), ("价税合计", "123.45")):
+            ("20 位数电专票号码", "71050000000000009998")):
             page.get_by_label(label, exact=True).fill(value)
         with page.expect_response(lambda response: response.request.method == "POST" and response.url.endswith("/promotion-invoices")) as replacement:
-            page.get_by_role("button", name="核验并登记发票", exact=True).click()
+            page.get_by_role("button", name="校验并登记发票", exact=True).click()
         assert replacement.value.status == 200, replacement.value.text()
+        payload = replacement.value.request.post_data_json
+        assert not {"buyerName", "taxRatePercent", "netAmountCent", "taxAmountCent", "invoiceAmountCent"}.intersection(payload)
+        assert len(payload["allocations"]) == 1
+        assert payload["allocations"][0]["statementId"] == "R105-RESUME"
+        assert payload["allocations"][0]["readVersion"] == 1
+        assert "allocatedAmountCent" not in payload["allocations"][0]
         with factory() as session:
             old = session.scalar(select(PromotionInvoice).where(PromotionInvoice.invoice_id == "R105-P-061"))
             new = session.scalar(select(PromotionInvoice).where(PromotionInvoice.invoice_number == "71050000000000009998"))
             assert not old.is_current and new.is_current and new.replaces_invoice_id == old.invoice_id
             assert new.invoice_amount_cent == 12345
+            assert (new.net_amount_cent, new.tax_amount_cent, new.tax_rate_percent) == (11646, 699, 6)
             assert session.scalar(select(func.count()).select_from(PromotionInvoiceLifecycleEvent).where(PromotionInvoiceLifecycleEvent.invoice_id == old.invoice_id)) == 1
         page.screenshot(path=tmp_path / "remaining-real-resumed-invoice.png", full_page=True)
     finally:
