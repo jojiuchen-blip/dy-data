@@ -2,8 +2,8 @@
 
 - 用户已批准开始；继续S4/T3.1，当前Codex负责集成，基于ca61eff。
 - 当前正式计划：[dydata-104-followthrough](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)；[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。
-- 当前动作：恢复入口、月榜/发票、商品查询及规则补丁已集成，专项通过；正在运行完整回归并准备PR/真实PG验证。补算前差异见[验证记录](../verification/dydata-104-oct23.md)。
-- 数据前置：6个SKU缺权威档案，16条推广记录缺门店映射；历史下架商品计费口径待用户决策，附件与原始实收差异未作为改写计算口径的依据。
+- 当前动作：恢复入口、月榜/发票、商品查询、规则补丁及历史下架资格已集成，专项通过；[草稿PR62](https://github.com/jojiuchen-blip/dy-data/pull/62)完整回归与最终CI验证进行中。补算前差异见[验证记录](../verification/dydata-104-oct23.md)。
+- 数据前置：6个SKU缺权威档案、106个订单无唯一销售门店、81对推广归属不一致及16条附件推广映射未知。历史下架按原需求的有效规则与交易条件处理；附件与原始实收差异未作为改写计算口径的依据。
 - 保留历史确认/开票/锁账、权限及恢复预算；未实际确认账单、登记发票或付款。新增范围未完成。
 
 # 当前执行：DYDATA-105 管理员统一、按钮验收与批量门店筛选（2026-10-22）

@@ -22,7 +22,7 @@
 ### 任务 1：DYDATA-104 三组增量实现与补算前核查
 - **目标**：落实已批准的商品规则、8/9月恢复和月榜/开票简化
 - **操作**：隔离实现并集成恢复、发票、月榜、显式身份对账与规则补丁；核对附件、生产来源和受保护账期
-- **结果**：主体已实现；专项通过；全仓与真实PG门禁仍在验证。发现多ID商品参数编码缺陷，补修中。23SKU中6缺权威档案，16推广行缺门店映射，历史下架商品计费待用户决策。未写生产业务数据、未部署。
+- **结果**：主体已实现；专项通过；全仓与最终CI仍在验证。多ID商品参数编码和历史下架资格已修正。23SKU中6缺权威档案，另有销售门店缺失与推广归属差异。未写生产业务数据、未部署。
 - **涉及文件**：docs/verification/dydata-104-oct23.md、docs/plans/foundation-plans/foundation-change-requests-dydata-104-oct23.md
 
 <!-- 复杂决策型任务可展开分析：
@@ -45,6 +45,7 @@
 | 修改 | `apps/api/dy_api/routes/dashboard.py`、`apps/web/src/pages/StoreInvoicePage.tsx` | 服务端可信金额与简化登记 |
 | 修改 | `apps/web/src/pages/StoreRankingPage.tsx` | 固定月度与旧URL兼容 |
 | 修改 | `src/dy_data/douyin_client.py`、`apps/worker/product_sync.py` | 多商品参数和SKU缺口补查 |
+| 修改 | `apps/worker/settlement.py` | 已有且成功同步的下架档案仍按历史交易和有效规则判断资格 |
 | 新建 | `scripts/settlement_reconcile.py`、`scripts/settlement_rule_patch.py` | 对账与受控规则预演/应用 |
 
 ### Git 提交记录
@@ -56,7 +57,7 @@
 
 ## 四、发现的问题 / 缺陷
 
-6个SKU无权威商品档案；16条推广记录无法验证门店归属；历史下架商品计费口径待确认。完整证据与金额差异见[验证记录](../verification/dydata-104-oct23.md)。
+6个SKU无权威商品档案；106个订单无法唯一解析销售门店；81对推广归属与附件不同，另有16条附件推广映射未知。用户追问需求原文后确认原文未写“当前下架排除历史订单”，已纠正先前提问中对“有效商品规则”的简化理解，不作为新增用户批准。完整证据与金额差异见[验证记录](../verification/dydata-104-oct23.md)。
 
 ---
 
@@ -75,7 +76,7 @@
 
 ## 六、待跟进事项
 
-- [ ] 完成集成验证及PR/CI；取得缺失来源和历史状态口径后再按月恢复/重算及回读。
+- [ ] 完成集成验证及PR/CI；取得缺失来源证据后按受控流程恢复/重算及回读。
 ---
 
 ## 补充更新 1（12:55 · 窗口 1）

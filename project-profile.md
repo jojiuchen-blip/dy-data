@@ -1,5 +1,5 @@
 <!-- DYDATA-105 current increment: 2026-10-22 -->
-> 当前增量为 DYDATA-104 的2026-10-23三组新增范围，用户已批准开始。当前 S4 / T3.1：恢复、月榜/发票、商品查询与规则补丁已集成，专项通过，完整回归及真实PG/CI待完成；[正式计划](docs/plans/delivery-plans/main-delivery-plan-dydata-104-followthrough.md)、[执行驾驶舱](docs/plans/execution-plan.md)、[验证记录](docs/verification/dydata-104-oct23.md)。本次未部署或写入生产业务数据；6个SKU档案、16条推广门店映射及历史下架商品口径仍有缺口。下方旧增量和日志保留历史事实，不作为本次部署或验收结论。
+> 当前增量为 DYDATA-104 的2026-10-23三组新增范围，用户已批准开始。当前 S4 / T3.1：恢复、月榜/发票、商品查询、规则补丁及历史下架资格已集成，专项通过，完整回归及最终CI待完成；[正式计划](docs/plans/delivery-plans/main-delivery-plan-dydata-104-followthrough.md)、[执行驾驶舱](docs/plans/execution-plan.md)、[验证记录](docs/verification/dydata-104-oct23.md)。本次未部署或写入生产业务数据；6个SKU缺档案、106订单无唯一销售门店、81对推广归属不同及16条附件推广映射未知。历史下架按原需求有效规则与交易条件判断，无需新增“当前下架即排除历史订单”的规则。下方旧增量和日志保留历史事实，不作为本次部署或验收结论。
 
 <!-- DYDATA-104 September recovery: 2026-10-21 -->
 > 当前执行为 S4 / DYDATA-104 T3.1，承接整体业务验收。2026-10-21 九月固定恢复全链成功、30/30，452张待确认账单，两费各10,032.68元，金额差异0及保护指纹一致；T2.1转待验收。八月缺日不恢复，累计门禁保留。既有5da13df1已部署，本轮无应用代码或部署变更。当前入口见 [执行计划](docs/plans/execution-plan.md)，下方旧增量保留为历史。
