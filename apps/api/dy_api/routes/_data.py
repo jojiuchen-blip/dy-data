@@ -2027,7 +2027,7 @@ class DashboardDataStore:
             is_service = _to_bool(rule.get("is_service_product"))
             requires_rebuild = requires_rebuild or (
                 Decimal(str(existing.commission_rate or 0)) != rate
-                or (existing.is_service_product if existing.is_service_product is not None else True) != is_service
+                or (existing.is_service_product if existing.is_service_product is not None else False) != is_service
             )
             # Internal scope still defines independent Douyin ranking membership.
             # A legacy edit must not change it or infer it from a product type.

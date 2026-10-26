@@ -402,6 +402,14 @@ class SkuRuleInput(BaseModel):
     commission_rate: float = Field(ge=0, le=1)
     is_service_product: bool = True
 
+    @field_validator("product_type")
+    @classmethod
+    def require_real_product_type(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if not value or len(value) > 128 or value.casefold() in {"all", "unknown", "keep"}:
+            raise ValueError("请填写有效商品类型，不能使用 all、unknown 或 KEEP")
+        return value
+
 
 class SkuRuleBulkUpdateRequest(BaseModel):
     rules: list[SkuRuleInput]

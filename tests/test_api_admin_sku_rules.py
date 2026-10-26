@@ -599,12 +599,25 @@ def test_legacy_classification_update_preserves_scope_rate_and_does_not_rebuild(
     assert response.json()["data"]["job_id"] is None
     assert response.json()["data"]["rebuild_status"] == "not_required"
     db_session.expire_all()
-    product = db_session.get(DimSkuProductRule, "classification-only")
+    product = db_session.scalar(select(DimSkuProductRule).where(
+        DimSkuProductRule.sku_id == "classification-only"
+    ))
     assert product.product_scope == scope
     assert product.product_type == expected
     assert product.commission_rate == Decimal("0.1000")
     assert product.manual_modified_by == "system-admin"
     assert product.manual_modified_at is not None
+    assert db_session.scalar(select(func.count()).select_from(JobRun)) == 0
+
+
+@pytest.mark.parametrize("product_type", ["", "unknown", "all", "KEEP"])
+def test_legacy_sku_type_rejects_placeholder_without_writes(client, db_session, product_type):
+    _login(client)
+    response = client.put("/api/v1/admin/sku-rules", json={"rules": [{
+        "sku_id": "invalid-type", "product_type": product_type, "commission_rate": 0.1,
+    }]})
+    assert response.status_code == 422
+    assert db_session.scalar(select(func.count()).select_from(DimSkuProductRule)) == 0
     assert db_session.scalar(select(func.count()).select_from(JobRun)) == 0
 
 
