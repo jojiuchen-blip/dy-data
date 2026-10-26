@@ -6135,6 +6135,7 @@ def _diagnose_openapi_interval_sale_account(
 
     evidence: list[dict[str, Any]] = []
     matches: list[OwnerAccountMatch] = []
+    facts: dict[tuple[str, str, str, datetime, datetime, str], OwnerAccountMatch] = {}
     first_failure: dict[str, Any] | None = None
     sale_time = _first_datetime(order.sale_time, order.pay_time)
     at = _as_utc(sale_time) if sale_time is not None else None
@@ -6203,21 +6204,33 @@ def _diagnose_openapi_interval_sale_account(
             reject("openapi_store_inactive")
             continue
         row["reason_code"] = "valid_openapi_candidate"
-        matches.append(OwnerAccountMatch(
+        match = OwnerAccountMatch(
             account_id=owner_id, store_id=store.store_id, binding_status=binding.binding_status,
             match_source="openapi_binding_interval",
-        ))
+        )
+        # The collector retains old Douyin aliases as different row keys. Only
+        # fully validated, identical canonical facts may share one resolution.
+        # Different status, interval or POI stays a separate competing fact.
+        fact = (owner_id, source_poi, status, start, end, store.store_id)
+        row["canonical_fact_sha256"] = hashlib.sha256(json.dumps(
+            (owner_id, source_poi, status, start.isoformat(), end.isoformat(), store.store_id),
+            ensure_ascii=False, separators=(",", ":"),
+        ).encode("utf-8")).hexdigest()
+        matches.append(match)
+        facts.setdefault(fact, match)
 
     store_ids = tuple(sorted({match.store_id for match in matches if match.store_id}))
     if first_failure is not None:
         reason, failure_evidence = first_failure["reason_code"], first_failure
     elif len(store_ids) > 1:
         reason, failure_evidence = "openapi_multiple_stores", {"store_ids": list(store_ids)}
-    elif len(matches) != 1:
-        reason, failure_evidence = "openapi_multiple_bindings", {"binding_count": len(matches)}
+    elif len(facts) != 1:
+        reason, failure_evidence = "openapi_multiple_bindings", {
+            "binding_count": len(matches), "distinct_fact_count": len(facts),
+        }
     else:
         return replace(
-            legacy, match=matches[0], reason_code="resolved_openapi_binding_interval",
+            legacy, match=next(iter(facts.values())), reason_code="resolved_openapi_binding_interval",
             failure_node=None, failure_evidence=None, openapi_bindings=tuple(evidence),
             valid_store_ids=store_ids,
         )

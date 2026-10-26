@@ -1894,11 +1894,14 @@ def test_openapi_sale_fallback_fails_closed_without_exact_historical_evidence(
         second_poi = "poi-api-other" if case == "multiple_stores" else binding.poi_id
         if case == "multiple_stores":
             upsert_store_poi_mapping(db_session, "store-verify", second_poi, mapping_source="test")
+        second_payload = {**payload, "poi_id": second_poi}
+        if case == "multiple_bindings":
+            second_payload["bind_start_time"] -= 1
         upsert_aweme_binding(
             db_session, f"craftsman-exact:second-douyin:{second_poi}",
             account_id=order.owner_account_id, douyin_id="second-douyin", poi_id=second_poi,
             binding_status="2", douyin_nickname="Another current nickname",
-            raw_payload={**payload, "poi_id": second_poi},
+            raw_payload=second_payload,
         )
     binding.raw_payload = payload
     db_session.flush()
@@ -1947,6 +1950,49 @@ def test_openapi_sale_fallback_preserves_existing_hard_guards_and_candidates(
             "mixed_statuses": "binding_identity_status_conflict",
             "legacy_multiple": "multiple_valid_stores",
         }[guard]
+
+
+@pytest.mark.parametrize("difference", ["none", "interval", "status", "poi", "invalid_peer"])
+def test_openapi_sale_fallback_deduplicates_only_identical_validated_facts(
+    db_session: Session, difference: str,
+) -> None:
+    order, binding = _load_openapi_sale_binding_fixture(db_session)
+    payload = dict(binding.raw_payload)
+    second_poi = binding.poi_id
+    second_status = "2"
+    if difference == "interval":
+        payload["bind_start_time"] -= 1
+    elif difference == "status":
+        payload["bind_status"] = 105
+        second_status = "105"
+    elif difference == "poi":
+        second_poi = payload["poi_id"] = "different-poi-same-store"
+        upsert_store_poi_mapping(db_session, "store-sale", second_poi, mapping_source="test")
+    elif difference == "invalid_peer":
+        payload["bind_end_time"] = 0
+    upsert_aweme_binding(
+        db_session, f"craftsman-exact:old-douyin-alias:{second_poi}",
+        account_id=order.owner_account_id, douyin_id="old-douyin-alias",
+        poi_id=second_poi, binding_status=second_status,
+        douyin_nickname="Previous name", raw_payload=payload,
+    )
+    db_session.flush()
+
+    diagnostic = settlement_worker.diagnose_dual_fee_sale_account(db_session, order)
+
+    if difference == "none":
+        assert diagnostic.match is not None
+        assert diagnostic.match.store_id == "store-sale"
+        assert diagnostic.reason_code == "resolved_openapi_binding_interval"
+        evidence = diagnostic.as_context()["openapi_bindings"]
+        assert len(evidence) == 2
+        assert len({row["binding_key"] for row in evidence}) == 2
+        assert len({row["canonical_fact_sha256"] for row in evidence}) == 1
+    else:
+        assert diagnostic.match is None
+        assert diagnostic.reason_code == (
+            "openapi_interval_invalid" if difference == "invalid_peer" else "openapi_multiple_bindings"
+        )
 
 
 def test_openapi_sale_fallback_rejects_ambiguous_poi_mapping(db_session: Session, monkeypatch) -> None:
