@@ -5,8 +5,8 @@ import json
 import re
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator, Mapping
-from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from dataclasses import dataclass, replace
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -157,6 +157,7 @@ class DualFeeSaleAccountDiagnostic:
     raw_bindings: tuple[dict[str, Any], ...]
     candidates: tuple[dict[str, Any], ...]
     valid_store_ids: tuple[str, ...]
+    openapi_bindings: tuple[dict[str, Any], ...] = ()
 
     def as_context(self) -> dict[str, Any]:
         """Return bounded JSON evidence without nicknames or original payloads."""
@@ -178,8 +179,10 @@ class DualFeeSaleAccountDiagnostic:
             "candidate_count": len(self.candidates),
             "valid_store_ids": list(self.valid_store_ids[:limit]),
             "valid_store_count": len(self.valid_store_ids),
+            "openapi_bindings": list(self.openapi_bindings[:limit]),
+            "openapi_binding_count": len(self.openapi_bindings),
             "evidence_truncated": any(len(items) > limit for items in (
-                self.raw_bindings, self.candidates, self.valid_store_ids,
+                self.raw_bindings, self.candidates, self.valid_store_ids, self.openapi_bindings,
             )),
         }
 
@@ -5891,8 +5894,8 @@ def diagnose_dual_fee_sale_account(
     """Read the ordinary resolver's result and evaluated evidence without writes.
 
     This does not apply coupon-specific historical decisions or grant fee
-    eligibility. It preserves existing identity, status and date rules, including
-    their fail-closed guards; it never interprets raw binding dates. The caller
+    eligibility. Existing hard guards precede the exact OpenAPI UID/interval
+    fallback. It never changes current account bindings. The caller
     must supply the intended source observation for an offline historical audit.
     """
     with session.no_autoflush:
@@ -6075,8 +6078,152 @@ def _diagnose_dual_fee_sale_account(
 
     if len(valid_matches) == 1:
         return outcome("resolved", None, next(iter(valid_matches.values())))
-    return outcome(
-        "multiple_valid_stores" if valid_matches else "no_valid_store", "unique_valid_store",
+    if valid_matches:
+        return outcome("multiple_valid_stores", "unique_valid_store")
+    return _diagnose_openapi_interval_sale_account(
+        session, order, legacy=outcome("no_valid_store", "unique_valid_store"),
+    )
+
+
+def _openapi_source_identifier(value: Any) -> str | None:
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        return None
+    return str(value).strip() or None
+
+
+def _openapi_binding_epoch(value: Any) -> datetime | None:
+    """Parse complete positive epoch seconds/milliseconds without float rounding."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        raw = value
+    elif (isinstance(value, str) and len(value) <= 20
+          and value.isascii() and value.isdigit()):
+        raw = int(value)
+    else:
+        return None
+    if raw <= 0:
+        return None
+    seconds, milliseconds = divmod(raw, 1000) if raw >= 100_000_000_000 else (raw, 0)
+    try:
+        return datetime.fromtimestamp(seconds, tz=timezone.utc) + timedelta(milliseconds=milliseconds)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _diagnose_openapi_interval_sale_account(
+    session: Session, order: RawDouyinOrder, *, legacy: DualFeeSaleAccountDiagnostic,
+) -> DualFeeSaleAccountDiagnostic:
+    """Use one exact craftsman source interval only after legacy candidates fail.
+
+    Collector identity and payload fields distinguish craftsman OpenAPI records
+    from backend account IDs. Status 2/105 is successful; status 5 is historical
+    only with a complete covering interval. Status 106 and all others fail.
+    No current bindings, permissions, dates or fee facts are changed here.
+    """
+    owner_id = _first_text(order.owner_account_id)
+    if owner_id is None:
+        return legacy
+    exact_bindings = list(session.scalars(select(RawAwemeBinding).where(
+        RawAwemeBinding.account_id == owner_id,
+    )))
+    bindings = [binding for binding in exact_bindings if (
+        isinstance(binding.raw_payload, Mapping) and "craftsman_uid" in binding.raw_payload
+    )]
+    if not bindings:
+        return legacy
+
+    evidence: list[dict[str, Any]] = []
+    matches: list[OwnerAccountMatch] = []
+    first_failure: dict[str, Any] | None = None
+    sale_time = _first_datetime(order.sale_time, order.pay_time)
+    at = _as_utc(sale_time) if sale_time is not None else None
+    for binding in bindings:
+        payload = binding.raw_payload
+        status = _openapi_source_identifier(payload.get("bind_status"))
+        source_poi = _openapi_source_identifier(payload.get("poi_id"))
+        source_uid = _openapi_source_identifier(payload.get("craftsman_uid"))
+        row: dict[str, Any] = {
+            "binding_key": binding.binding_key, "account_id": binding.account_id,
+            "craftsman_uid": source_uid, "poi_id": binding.poi_id,
+            "binding_status": binding.binding_status, "source_bind_status": status,
+            "match_source": "craftsman_openapi_exact_uid",
+        }
+        evidence.append(row)
+
+        def reject(reason: str) -> None:
+            nonlocal first_failure
+            row["reason_code"] = reason
+            if first_failure is None:
+                first_failure = dict(row)
+
+        expected_key = ":".join(part or "-" for part in (
+            binding.account_id, binding.douyin_id, binding.poi_id,
+        ))
+        if binding.binding_key != expected_key or "bind_status" not in payload:
+            reject("openapi_source_unverified")
+            continue
+        settlement_id = _openapi_source_identifier(payload.get("account_id_for_settlement"))
+        if (source_uid != owner_id or binding.account_id != owner_id
+                or source_poi is None or source_poi in {"0", "-1"}
+                or source_poi != binding.poi_id
+                or (settlement_id is not None and settlement_id != owner_id)):
+            reject("openapi_source_identity_mismatch")
+            continue
+        if status != _openapi_source_identifier(binding.binding_status):
+            reject("openapi_source_status_mismatch")
+            continue
+        if status not in {"2", "105", "5"}:
+            reject("openapi_binding_status_ineligible")
+            continue
+        if at is None:
+            reject("openapi_sale_time_missing")
+            continue
+        raw_start, raw_end = payload.get("bind_start_time"), payload.get("bind_end_time")
+        if raw_start in (None, "") or raw_end in (None, ""):
+            reject("openapi_interval_missing")
+            continue
+        start, end = _openapi_binding_epoch(raw_start), _openapi_binding_epoch(raw_end)
+        if start is None or end is None or start > end:
+            reject("openapi_interval_invalid")
+            continue
+        row.update({"interval_start": start.isoformat(), "interval_end": end.isoformat()})
+        if not start <= at <= end:
+            reject("openapi_sale_outside_interval")
+            continue
+        stores = sorted(set(session.scalars(select(DimStorePoiMapping.store_id).where(
+            DimStorePoiMapping.poi_id == source_poi,
+        ))))
+        row["mapped_store_ids"] = stores
+        if len(stores) != 1:
+            reject("openapi_poi_mapping_ambiguous" if stores else "openapi_poi_mapping_missing")
+            continue
+        store = session.get(DimStore, stores[0])
+        if store is None or not store.is_active:
+            reject("openapi_store_inactive")
+            continue
+        row["reason_code"] = "valid_openapi_candidate"
+        matches.append(OwnerAccountMatch(
+            account_id=owner_id, store_id=store.store_id, binding_status=binding.binding_status,
+            match_source="openapi_binding_interval",
+        ))
+
+    store_ids = tuple(sorted({match.store_id for match in matches if match.store_id}))
+    if first_failure is not None:
+        reason, failure_evidence = first_failure["reason_code"], first_failure
+    elif len(store_ids) > 1:
+        reason, failure_evidence = "openapi_multiple_stores", {"store_ids": list(store_ids)}
+    elif len(matches) != 1:
+        reason, failure_evidence = "openapi_multiple_bindings", {"binding_count": len(matches)}
+    else:
+        return replace(
+            legacy, match=matches[0], reason_code="resolved_openapi_binding_interval",
+            failure_node=None, failure_evidence=None, openapi_bindings=tuple(evidence),
+            valid_store_ids=store_ids,
+        )
+    return replace(
+        legacy, reason_code=reason, failure_node="openapi_exact_uid_interval",
+        failure_evidence=failure_evidence, openapi_bindings=tuple(evidence), valid_store_ids=store_ids,
     )
 
 
