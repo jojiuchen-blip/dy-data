@@ -48,6 +48,14 @@ MODULE_SOURCE_TABLES: dict[str, tuple[str, ...]] = {
 }
 SOURCE_TABLES = tuple(sorted({name for names in MODULE_SOURCE_TABLES.values() for name in names}))
 
+# Only changed analytical contracts participate. Independent ranking keeps its
+# original fingerprint payload and finance keeps its immutable amount contract.
+MODULE_CONTRACT_VERSIONS = {
+    "sales": "product-type-v2",
+    "clue-overview": "product-type-v2",
+    "settlement": "product-type-v2",
+}
+
 
 def effective_organization_version(session: Session, cutoff: datetime) -> tuple[str, str | None]:
     """Select the same one-roster boundary used by frozen clue organizations.
@@ -91,6 +99,8 @@ def source_fingerprint(session: Session, module: str | None = None, *, now: date
         from . import period_readiness
         time_token["financial_periods"] = period_readiness.fingerprint(period_readiness.capture(session, cutoff))
     payload = {"sources": [tuple(row) for row in rows], "time": time_token}
+    if module in MODULE_CONTRACT_VERSIONS:
+        payload["contract_version"] = MODULE_CONTRACT_VERSIONS[module]
     return hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode()).hexdigest()
 
 

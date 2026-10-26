@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 from dy_api.dashboard_publications import finance as publication
 from dy_api.dashboard_publications.schema import metadata, runs
 from dy_api.models import (
-    AggStoreMonthlySettlement, AggStoreRanking, DimStore, InvoiceRecord,
+    AggStoreMonthlySettlement, AggStoreRanking, DimSkuProductRule, DimStore, InvoiceRecord,
     PromotionInvoice, PromotionInvoiceAllocation, SettlementProjectionActive,
     SettlementProjectionGeneration, SettlementProjectionPartitionManifest,
     SettlementMonthlyOverlay, SettlementRankingOverlay, SettlementStatement,
@@ -254,7 +254,7 @@ def _seed_settlement(session, *, legacy_root=False):
             session.add(SettlementProjectionPartitionManifest(generation_id="published", artifact=artifact,
                 partition_key=partition, source_kind="overlay", data_generation_id="published"))
     for store_id, factor in (("allowed", 1), ("other", 3)):
-        for product_scope, product_type in (("all", "all"), ("jingcheng", "tyre")):
+        for product_scope, product_type in (("all", "all"), ("all", "tyre"), ("jingcheng", "tyre")):
             values = dict(month="2026-08", store_id=store_id, product_scope=product_scope,
                 product_type=product_type, sales_order_count=2 * factor,
                 sales_amount_cent=9007199254740993 * factor, verified_order_count=factor,
@@ -303,7 +303,7 @@ def test_settlement_parity_huge_integer_cent_scope_and_no_legacy_drift(db_sessio
         # have identical amounts and no lines, so use the working all/all
         # response as the baseline and assert concrete selection separately.
         expected = old.monthly_settlement_report({**filters, "product_scope": "all", "product_type": "all"})
-        expected.update(product_scope=product_scope, product_type=product_type)
+        expected.update(product_scope="all", product_type=product_type)
         expected["period_availability"] = publication.period_readiness.availability(
             ready_periods_fixture(db_session, NOW), filters["month"])
         actual = publication.read_monthly_settlement(db_session, "settlement-v1", filters)
@@ -390,6 +390,38 @@ def test_monthly_frozen_lines_match_multicoupon_refund_and_locked_facts(db_sessi
     assert specific["lines"][0]["net_fee_cent"] == (177 if locked else 300)
     if locked:
         assert specific["metrics"]["promotion_net_fee_cent"] == 177
+
+
+def test_catalog_classification_change_keeps_locked_financial_types_and_amounts(db_session):
+    _seed_settlement(db_session)
+    db_session.add(DimSkuProductRule(sku_id="reclassified-sku", product_scope="精诚养车",
+        product_type="精诚养车"))
+    statement_id = _statement(db_session, "allowed", "2026-08", 177)
+    db_session.add(SettlementStatementLine(statement_line_id="historical-type-line",
+        statement_id=statement_id, fee_direction=1, product_scope="jingcheng", product_type="tyre",
+        original_entry_count=2, original_base_cent=2000, net_base_cent=2000,
+        original_fee_cent=177, net_fee_cent=177))
+    db_session.commit()
+    _run(db_session, "catalog-changed", "settlement")
+    publication.build_settlement(db_session, "catalog-changed", NOW)
+    db_session.commit()
+    selected = publication.read_monthly_settlement(db_session, "catalog-changed", {
+        "store_id": "allowed", "month": "2026-08", "product_scope": "unrelated-old-scope",
+        "product_type": "tyre"})
+    assert selected["product_scope"] == "all"
+    assert selected["metrics"]["promotion_net_fee_cent"] == 177
+    assert [(line["statement_line_id"], line["product_type"], line["product_scope"])
+        for line in selected["lines"]] == [("historical-type-line", "tyre", "jingcheng")]
+    assert set(publication.read_filters(db_session, "catalog-changed")["product_types"]) == {
+        "all", "tyre", "精诚养车"}
+    frozen_line = db_session.scalar(select(SettlementStatementLine).where(
+        SettlementStatementLine.statement_line_id == "historical-type-line"))
+    assert (frozen_line.product_type, frozen_line.product_scope, frozen_line.net_fee_cent) == ("tyre", "jingcheng", 177)
+    db_session.execute(update(DimSkuProductRule).values(product_type="下一版分类"))
+    db_session.commit()
+    assert "下一版分类" not in publication.read_filters(db_session, "catalog-changed")["product_types"]
+    assert publication.read_monthly_settlement(db_session, "catalog-changed", {
+        "store_id": "allowed", "month": "2026-08", "product_type": "tyre"})["lines"] == selected["lines"]
 
 
 def test_cleanup_cascades_only_analysis_projection(db_session):

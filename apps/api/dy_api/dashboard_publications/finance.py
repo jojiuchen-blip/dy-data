@@ -193,8 +193,8 @@ def _build_dimensions(session, publication_id, store, statement_months, cutoff):
              "key": item["store_id"], "value": item}
             for item in store.list_stores(scope_store_ids=None)]
     values = {
-        "product_scopes": store.list_product_scopes(),
-        "product_scope_type_map": store.product_scope_type_map(),
+        "product_scopes": ["all"],
+        "product_scope_type_map": {},
         "product_types": store.list_product_types(),
         "default_product_type": store.default_product_type(),
         "sale_months": store.list_sale_months(),
@@ -612,13 +612,25 @@ def read_filters(session: Session, publication_id: str, module: str = "settlemen
     readiness = session.scalar(select(dimensions.c.value).where(
         dimensions.c.publication_id == publication_id,
         dimensions.c.kind == "period_readiness", dimensions.c.key == "v1"))
-    return {**values, "period_readiness": readiness,
+    return {**values, "product_scopes": ["all"], "product_scope_type_map": {},
+        "product_types": _published_product_types(session, publication_id,
+            values.get("product_types", []), scope_store_ids=scope_store_ids),
+        "period_readiness": readiness,
         "stores": sorted(stores, key=lambda item: (item["store_name"], item["store_id"]))}
+
+
+def _published_product_types(session, publication_id, available_types, *, scope_store_ids=None):
+    """Keep historical types selectable using only this publication's facts."""
+    types = set(available_types)
+    for table in (ranking, monthly):
+        types.update(session.scalars(select(table.c.product_type).where(
+            table.c.publication_id == publication_id, *_scope(table, scope_store_ids)).distinct()))
+    return ["all", *sorted(value for value in types if value and value != "all")]
 
 
 def _ranking_conditions(publication_id, filters):
     conditions = [ranking.c.publication_id == publication_id,
-        ranking.c.product_scope == (filters.get("product_scope") or "all"),
+        ranking.c.product_scope == "all",
         ranking.c.product_type == (filters.get("product_type") or "all")]
     # Scope applies even if a caller accidentally labels this GLOBAL.
     conditions += _scope(ranking, filters.get("scope_store_ids"))
@@ -712,7 +724,7 @@ def read_store_ranking(session: Session, publication_id: str, filters: dict[str,
 
     return {"period_type": period_type, "period_key": month, **extra,
         "period_availability": availability,
-        "product_scope": filters.get("product_scope") or "all",
+        "product_scope": "all",
         "product_type": filters.get("product_type") or "all",
         "formal_period_start_month": FORMAL_START,
         "scope_mode": filters.get("scope_mode", "AUTHORIZED"),
@@ -732,7 +744,7 @@ def read_monthly_settlement(session: Session, publication_id: str, filters: dict
     allowed = scope is None or store_id in scope
     row = session.execute(select(monthly).where(monthly.c.publication_id == publication_id,
         monthly.c.store_id == store_id, monthly.c.month == month,
-        monthly.c.product_scope == (filters.get("product_scope") or "all"),
+        monthly.c.product_scope == "all",
         monthly.c.product_type == (filters.get("product_type") or "all"), allowed)).mappings().first()
     store = session.scalar(select(dimensions.c.value).where(
         dimensions.c.publication_id == publication_id, dimensions.c.kind == "store",
@@ -742,7 +754,7 @@ def read_monthly_settlement(session: Session, publication_id: str, filters: dict
         "scope_store_ids": (store_id,) if allowed else ()}) if availability["cumulative_ready"] else None
     has_generation = _has_source_generation(session, publication_id)
     return {"store": store, "month": month, "period_availability": availability,
-        "product_scope": filters.get("product_scope") or "all",
+        "product_scope": "all",
         "product_type": filters.get("product_type") or "all",
         "is_formal_period": month >= FORMAL_START, "statement": None,
         "publication_statement": row["statement"] if row else None,
