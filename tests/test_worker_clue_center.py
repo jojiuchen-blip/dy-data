@@ -166,7 +166,13 @@ def _closed_verification_case(session, suffix, *, follow_success=False):
         coupon_id=f"coupon-{suffix}", order_id=raw.order_id, product_type="Car Service", is_verified=True,
         verify_store_id="self", verify_store_name="Self Store", verify_time=_dt(2), updated_at=_dt(2),
     )
-    session.add_all([raw, lead, row, center, fact])
+    # PostgreSQL enforces the master/round FK cycle: insert the parent before
+    # the historical round (SQLite's default fixture does not enforce FKs).
+    session.add(raw)
+    session.flush()
+    session.add(lead)
+    session.flush()
+    session.add_all([row, center, fact])
     session.commit()
     return row, fact
 
