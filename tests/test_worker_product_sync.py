@@ -122,6 +122,43 @@ def test_product_sync_success_writes_history_and_preserves_manual_fields(db_sess
     assert fixture.calls == [("FULL", None), ("FULL", "opaque-cursor-1")]
 
 
+def test_sync_maintains_exact_scope_conversion_without_inferring_membership(db_session: Session) -> None:
+    from decimal import Decimal
+
+    for sku_id, scope, product_type in (
+        ("target", "精诚养车", "268保养"),
+        ("other", "其他", "人工类型"),
+        ("code", "jingcheng", "人工类型"),
+        ("type-only", "", "精诚养车"),
+    ):
+        db_session.add(DimSkuProductRule(
+            sku_id=sku_id, product_scope=scope, product_type=product_type,
+            commission_rate=Decimal(".1234"), manual_modified_by="original-admin",
+        ))
+    db_session.flush()
+    for index in range(2):
+        job_id = f"classification-sync-{index}"
+        _queue(db_session, job_id=job_id)
+        result = execute_product_sync(
+            db_session, job_id=job_id,
+            adapter=NormalizedProductSyncAdapter(FixturePages([{
+                "items": [_item(sku_id=sku_id, sku_name="精诚养车名称不参与分类")
+                          for sku_id in ("target", "other", "code", "type-only", "new")],
+                "hasMore": False, "nextCursor": None,
+            }])),
+        )
+        assert result.status == "SUCCESS"
+        db_session.flush()
+    rows = {row.sku_id: row for row in db_session.scalars(select(DimSkuProductRule))}
+    assert (rows["target"].product_scope, rows["target"].product_type) == ("精诚养车", "精诚养车")
+    assert (rows["other"].product_scope, rows["other"].product_type) == ("其他", "人工类型")
+    assert (rows["code"].product_scope, rows["code"].product_type) == ("jingcheng", "人工类型")
+    assert (rows["type-only"].product_scope, rows["type-only"].product_type) == ("", "精诚养车")
+    assert (rows["new"].product_scope, rows["new"].product_type) == ("", "")
+    assert rows["target"].commission_rate == Decimal(".1234")
+    assert rows["target"].manual_modified_by == "original-admin"
+
+
 def test_empty_terminal_page_completes_without_creating_rows(db_session: Session) -> None:
     _queue(db_session)
 

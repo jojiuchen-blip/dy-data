@@ -23,6 +23,7 @@ from apps.api.dy_api.models import (  # noqa: E402
     SkuFeeRuleImportBatch,
     SkuFeeRuleImportRow,
     SkuProductImportBatch,
+    SkuProductImportRow,
 )
 from dy_api.main import create_app  # noqa: E402
 from dy_api.auth import hash_password_pbkdf2  # noqa: E402
@@ -280,520 +281,303 @@ def test_fee_admin_query_validation_uses_stable_error_contract(client: TestClien
     assert response.json()["detail"]["requestId"] == "req-query-invalid"
 
 
-def test_admin_can_filter_and_update_only_manual_sku_fields(
-    client: TestClient,
-    db_session: Session,
-) -> None:
-    row = _seed_sku(db_session, "sku-1", "保养 SKU")
-    reference = _seed_sku(db_session, "sku-reference", "目标组合参考")
-    reference.product_scope = "精诚养车"
-    reference.product_type = "268 保养"
+def test_admin_type_filter_ignores_legacy_scope_and_updates_only_manual_type(client, db_session):
+    first = _seed_sku(db_session, "type-a-1", "商品一")
+    second = _seed_sku(db_session, "type-a-2", "商品二")
+    third = _seed_sku(db_session, "type-b", "商品三")
+    first.product_scope, first.product_type = "", "类型A"
+    second.product_scope, second.product_type = "其他内部范围", "类型A"
+    third.product_type = "类型B"
     db_session.commit()
-    platform_before = (row.product_id, row.owner_account_id, row.last_synced_at)
+    before = (first.product_id, first.owner_account_id, first.last_synced_at, first.commission_rate)
     _login(client)
-
-    listing = client.get(
-        "/api/v1/admin/sku-products",
-        params={
-            "page": 1,
-            "pageSize": 20,
-            "q": "保养",
-            "productStatus": "ACTIVE",
-            "isActiveProduct": "true",
-        },
-        headers={"X-Request-ID": "req-sku-list"},
-    )
-    updated = client.put(
-        "/api/v1/admin/sku-products/sku-1",
-        json={
-            "expectedManualModifiedAt": None,
-            "productScope": "精诚养车",
-            "productType": "268 保养",
-            "isServiceProduct": True,
-        },
-        headers={"X-Request-ID": "req-sku-update"},
-    )
-
+    listing = client.get("/api/v1/admin/sku-products", params={
+        "productType": "类型A", "productScope": "不存在的旧范围", "pageSize": 1,
+    })
     assert listing.status_code == 200
-    assert listing.json()["data"]["total"] == 1
-    assert listing.json()["data"]["list"][0]["skuId"] == "sku-1"
-    assert listing.json()["meta"]["requestId"] == "req-sku-list"
+    assert listing.json()["data"]["total"] == 2
+    assert len(listing.json()["data"]["list"]) == 1
+    assert listing.json()["data"]["statusCounts"] == {"unconfigured": 0, "partial": 0, "configured": 2}
+    assert client.get("/api/v1/admin/sku-products").json()["data"]["total"] == 3
+    assert client.get("/api/v1/admin/sku-products", params={"productType": "类型B"}).json()["data"]["total"] == 1
+    updated = client.put(f"/api/v1/admin/sku-products/{first.sku_id}", json={
+        "expectedManualModifiedAt": None, "productScope": "精诚养车", "productType": " 新类型 ",
+    })
     assert updated.status_code == 200
-    assert updated.json()["data"]["productScope"] == "精诚养车"
-    assert updated.json()["data"]["productType"] == "268 保养"
-    assert updated.json()["data"]["isServiceProduct"] is True
-    assert updated.json()["meta"]["requestId"] == "req-sku-update"
-    db_session.refresh(row)
-    assert (row.product_id, row.owner_account_id, row.last_synced_at) == platform_before
-    assert row.manual_modified_by == "system-admin"
-    assert row.manual_modified_at is not None
-
-    rejected = client.put(
-        "/api/v1/admin/sku-products/sku-1",
-        json={
-            "productScope": "范围",
-            "productType": "类型",
-            "isServiceProduct": False,
-            "productName": "禁止覆盖",
-        },
-        headers={"X-Request-ID": "req-sku-reject"},
-    )
+    assert updated.json()["data"]["productType"] == "新类型"
+    assert updated.json()["data"]["productScope"] == ""
+    assert updated.json()["data"]["configurationStatus"] == "CONFIGURED"
+    db_session.refresh(first)
+    assert (first.product_id, first.owner_account_id, first.last_synced_at, first.commission_rate) == before
+    assert first.manual_modified_by == "system-admin"
+    assert db_session.scalar(select(func.count()).select_from(JobRun)) == 0
+    rejected = client.put(f"/api/v1/admin/sku-products/{first.sku_id}", json={
+        "expectedManualModifiedAt": updated.json()["data"]["manualModifiedAt"], "productType": "类型B", "productName": "禁止覆盖",
+    })
     assert rejected.status_code == 422
-    assert rejected.json()["detail"]["code"] == "VALIDATION_FAILED"
-    assert rejected.json()["detail"]["requestId"] == "req-sku-reject"
 
 
-def test_sku_product_list_exposes_configuration_status_counts_and_pending_order(
-    client: TestClient,
-    db_session: Session,
-) -> None:
-    unconfigured = _seed_sku(db_session, "sku-unconfigured", "未配置商品")
-    unconfigured.product_scope = ""
-    unconfigured.product_type = ""
-    partial = _seed_sku(db_session, "sku-partial", "部分配置商品")
-    partial.product_scope = "已有范围"
-    partial.product_type = ""
-    configured = _seed_sku(db_session, "sku-configured", "已配置商品")
+def test_configuration_status_only_uses_type_and_orders_latest_changes(client, db_session):
+    rows = [
+        ("empty", "", ""), ("scope-only", "精诚养车", ""),
+        ("type-old", "", "类型A"), ("type-new", "其他", "类型B"),
+        ("unknown", "其他", "unknown"), ("keep", "", "KEEP"),
+    ]
+    for index, (sku_id, scope, product_type) in enumerate(rows):
+        row = _seed_sku(db_session, sku_id, sku_id)
+        row.product_scope, row.product_type = scope, product_type
+        row.manual_modified_at = datetime(2026, 10, 1, index, tzinfo=timezone.utc)
     db_session.commit()
     _login(client)
-
-    response = client.get(
-        "/api/v1/admin/sku-products",
-        params={"configurationStatus": "PENDING"},
-    )
-
-    assert response.status_code == 200
+    response = client.get("/api/v1/admin/sku-products")
     data = response.json()["data"]
-    assert data["pageSize"] == 50
-    assert data["total"] == 2
-    assert data["statusCounts"] == {
-        "unconfigured": 1,
-        "partial": 1,
-        "configured": 1,
-    }
-    assert [item["skuId"] for item in data["list"]] == [
-        "sku-unconfigured",
-        "sku-partial",
-    ]
-    assert [item["configurationStatus"] for item in data["list"]] == [
-        "UNCONFIGURED",
-        "PARTIAL",
-    ]
+    assert data["statusCounts"] == {"unconfigured": 4, "partial": 0, "configured": 2}
+    assert [item["skuId"] for item in data["list"]] == ["keep", "unknown", "scope-only", "empty", "type-new", "type-old"]
+    assert all(item["configurationStatus"] == "UNCONFIGURED" for item in data["list"][:4])
+    pending = client.get("/api/v1/admin/sku-products", params={"configurationStatus": "PENDING"})
+    assert pending.json()["data"]["total"] == 4
+    assert client.get("/api/v1/admin/sku-products", params={"configurationStatus": "PARTIAL"}).json()["data"]["total"] == 0
 
 
-def test_sku_product_lists_order_each_status_by_latest_manual_change(
-    client: TestClient,
-    db_session: Session,
-) -> None:
-    base_time = datetime(2026, 8, 19, 1, 0, tzinfo=timezone.utc)
-    pending_rows = [
-        _seed_sku(db_session, "sku-u-a-old", "未配置旧记录"),
-        _seed_sku(db_session, "sku-u-z-new", "未配置新记录"),
-        _seed_sku(db_session, "sku-p-a-old", "部分配置旧记录"),
-        _seed_sku(db_session, "sku-p-z-new", "部分配置新记录"),
-    ]
-    for row in pending_rows[:2]:
-        row.product_scope = ""
-        row.product_type = ""
-    for row in pending_rows[2:]:
-        row.product_scope = "已有范围"
-        row.product_type = ""
-    pending_rows[0].manual_modified_at = base_time
-    pending_rows[1].manual_modified_at = base_time + timedelta(hours=1)
-    pending_rows[2].manual_modified_at = base_time
-    pending_rows[3].manual_modified_at = base_time + timedelta(hours=1)
-
-    configured_old = _seed_sku(db_session, "sku-c-a-old", "已配置旧记录")
-    configured_new = _seed_sku(db_session, "sku-c-z-new", "已配置新记录")
-    configured_old.manual_modified_at = base_time
-    configured_new.manual_modified_at = base_time + timedelta(hours=1)
+def test_single_type_update_rejects_stale_manual_version(client, db_session):
+    row = _seed_sku(db_session, "concurrent", "并发商品")
     db_session.commit()
     _login(client)
-
-    pending = client.get(
-        "/api/v1/admin/sku-products",
-        params={"configurationStatus": "PENDING"},
-    )
-    configured = client.get(
-        "/api/v1/admin/sku-products",
-        params={"configurationStatus": "CONFIGURED"},
-    )
-
-    assert pending.status_code == 200
-    assert [item["skuId"] for item in pending.json()["data"]["list"]] == [
-        "sku-u-z-new",
-        "sku-u-a-old",
-        "sku-p-z-new",
-        "sku-p-a-old",
-    ]
-    assert configured.status_code == 200
-    assert [item["skuId"] for item in configured.json()["data"]["list"]] == [
-        "sku-c-z-new",
-        "sku-c-a-old",
-    ]
-
-
-def test_single_sku_product_update_rejects_stale_manual_version(
-    client: TestClient,
-    db_session: Session,
-) -> None:
-    row = _seed_sku(db_session, "sku-concurrent", "并发更新商品")
-    row.manual_modified_at = datetime(2026, 8, 19, 1, 0, tzinfo=timezone.utc)
-    reference = _seed_sku(db_session, "sku-concurrent-reference", "并发更新组合参考")
-    reference.product_scope = "首次更新范围"
-    reference.product_type = row.product_type
-    db_session.commit()
-    _login(client)
-
-    listing = client.get(
-        "/api/v1/admin/sku-products",
-        params={"q": row.sku_id},
-    )
-    expected_version = listing.json()["data"]["list"][0]["manualModifiedAt"]
-    first = client.put(
-        f"/api/v1/admin/sku-products/{row.sku_id}",
-        json={
-            "expectedManualModifiedAt": expected_version,
-            "productScope": "首次更新范围",
-        },
-    )
-    stale = client.put(
-        f"/api/v1/admin/sku-products/{row.sku_id}",
-        json={
-            "expectedManualModifiedAt": expected_version,
-            "productScope": "首次更新范围",
-        },
-        headers={"X-Request-ID": "req-stale-sku-update"},
-    )
-
+    first = client.put(f"/api/v1/admin/sku-products/{row.sku_id}", json={
+        "expectedManualModifiedAt": None, "productType": "首次类型",
+    })
     assert first.status_code == 200
+    stale = client.put(f"/api/v1/admin/sku-products/{row.sku_id}", json={
+        "expectedManualModifiedAt": None, "productType": "过期覆盖",
+    }, headers={"X-Request-ID": "stale-type-update"})
     assert stale.status_code == 409
-    assert stale.json()["detail"] == {
-        "code": "CONCURRENT_MODIFICATION",
-        "message": "SKU 已被其他操作更新，请刷新后重试",
-        "requestId": "req-stale-sku-update",
-        "errors": [],
-    }
+    assert stale.json()["detail"]["code"] == "CONCURRENT_MODIFICATION"
     db_session.refresh(row)
-    assert row.product_scope == "首次更新范围"
+    assert row.product_type == "首次类型" and row.product_scope == "原范围"
 
 
-def test_single_sku_product_update_preserves_omitted_manual_field(
-    client: TestClient,
-    db_session: Session,
-) -> None:
-    row = _seed_sku(db_session, "sku-partial-update", "单字段更新商品")
-    reference = _seed_sku(db_session, "sku-partial-reference", "单字段组合参考")
-    reference.product_scope = "新范围"
+def test_service_only_update_preserves_type_and_scope_only_input_is_rejected(client, db_session):
+    row = _seed_sku(db_session, "manual", "人工商品")
     db_session.commit()
     _login(client)
-
-    response = client.put(
-        "/api/v1/admin/sku-products/sku-partial-update",
-        json={"expectedManualModifiedAt": None, "productScope": "新范围"},
-    )
-
+    response = client.put(f"/api/v1/admin/sku-products/{row.sku_id}", json={
+        "expectedManualModifiedAt": None, "productScope": "新范围", "isServiceProduct": True,
+    })
     assert response.status_code == 200
-    assert response.json()["data"]["productScope"] == "新范围"
+    assert response.json()["data"]["productScope"] == "原范围"
     assert response.json()["data"]["productType"] == "原类型"
+    scope_only = client.put(f"/api/v1/admin/sku-products/{row.sku_id}", json={
+        "expectedManualModifiedAt": response.json()["data"]["manualModifiedAt"], "productScope": "ignored",
+    })
+    assert scope_only.status_code == 422
+    assert scope_only.json()["detail"]["code"] == "VALIDATION_FAILED"
+
+
+@pytest.mark.parametrize("reserved", ["all", "unknown", "KEEP", "  keep  ", " "])
+def test_type_update_rejects_reserved_or_empty_values(client, db_session, reserved):
+    row = _seed_sku(db_session, "reserved", "保留值商品")
+    db_session.commit()
+    _login(client)
+    response = client.put(f"/api/v1/admin/sku-products/{row.sku_id}", json={
+        "expectedManualModifiedAt": None, "productType": reserved,
+    })
+    assert response.status_code == 422
     db_session.refresh(row)
-    assert row.product_scope == "新范围"
     assert row.product_type == "原类型"
 
 
-def test_single_sku_product_update_allows_an_explicit_custom_pair(
-    client: TestClient,
-    db_session: Session,
-) -> None:
-    row = _seed_sku(db_session, "sku-custom-pair", "自定义口径商品")
+def test_bulk_type_update_is_atomic_across_scopes_and_keeps_scope(client, db_session):
+    first = _seed_sku(db_session, "bulk-a", "批量一")
+    second = _seed_sku(db_session, "bulk-b", "批量二")
+    first.product_scope, second.product_scope = "", "其他"
+    second.product_type = "第二类型"
     db_session.commit()
     _login(client)
-
-    response = client.put(
-        f"/api/v1/admin/sku-products/{row.sku_id}",
-        json={
-            "expectedManualModifiedAt": None,
-            "productScope": "全新产品范围",
-            "productType": "全新商品类型",
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()["data"]["productScope"] == "全新产品范围"
-    assert response.json()["data"]["productType"] == "全新商品类型"
-    db_session.refresh(row)
-    assert (row.product_scope, row.product_type) == ("全新产品范围", "全新商品类型")
-
-
-@pytest.mark.parametrize("reserved", ["all", "unknown", "KEEP", "  keep  "])
-def test_sku_product_update_rejects_reserved_dimension_values(
-    client: TestClient,
-    db_session: Session,
-    reserved: str,
-) -> None:
-    row = _seed_sku(db_session, f"sku-reserved-{reserved.strip()}", "保留值商品")
-    db_session.commit()
-    _login(client)
-
-    response = client.put(
-        f"/api/v1/admin/sku-products/{row.sku_id}",
-        json={"expectedManualModifiedAt": None, "productScope": reserved},
-    )
-
-    assert response.status_code == 422
-    db_session.refresh(row)
-    assert row.product_scope == "原范围"
-
-
-def test_bulk_sku_product_update_is_atomic_and_preserves_omitted_fields(
-    client: TestClient,
-    db_session: Session,
-) -> None:
-    first = _seed_sku(db_session, "sku-bulk-1", "批量商品一")
-    second = _seed_sku(db_session, "sku-bulk-2", "批量商品二")
-    second.product_type = "第二原类型"
-    first_reference = _seed_sku(db_session, "sku-bulk-reference-1", "批量组合参考一")
-    first_reference.product_scope = "批量新范围"
-    second_reference = _seed_sku(db_session, "sku-bulk-reference-2", "批量组合参考二")
-    second_reference.product_scope = "批量新范围"
-    second_reference.product_type = "第二原类型"
-    db_session.commit()
-    _login(client)
-
-    rejected = client.put(
-        "/api/v1/admin/sku-products/bulk",
-        json={
-            "skuIds": ["sku-bulk-1", "sku-missing"],
-            "productScope": "不能部分写入",
-        },
-    )
-
+    rejected = client.put("/api/v1/admin/sku-products/bulk", json={
+        "skuIds": [first.sku_id, "missing"], "productType": "不能部分写入",
+    })
     assert rejected.status_code == 404
     db_session.refresh(first)
-    assert first.product_scope == "原范围"
-
-    updated = client.put(
-        "/api/v1/admin/sku-products/bulk",
-        json={
-            "skuIds": ["sku-bulk-1", "sku-bulk-2"],
-            "productScope": "批量新范围",
-        },
-    )
-
-    assert updated.status_code == 200
-    assert updated.json()["data"]["updatedCount"] == 2
+    assert first.product_type == "原类型"
+    service_only = client.put("/api/v1/admin/sku-products/bulk", json={
+        "skuIds": [first.sku_id, second.sku_id], "isServiceProduct": True, "productScope": "ignored",
+    })
+    assert service_only.status_code == 200
     db_session.refresh(first)
     db_session.refresh(second)
-    assert (first.product_scope, first.product_type) == ("批量新范围", "原类型")
-    assert (second.product_scope, second.product_type) == (
-        "批量新范围",
-        "第二原类型",
-    )
-
-
-def test_bulk_sku_product_update_rejects_incompatible_scope_type_combinations(
-    client: TestClient,
-    db_session: Session,
-) -> None:
-    target = _seed_sku(db_session, "sku-combination-target", "组合校验商品")
-    valid_reference = _seed_sku(db_session, "sku-combination-reference", "组合参考商品")
-    valid_reference.product_scope = "新范围"
-    valid_reference.product_type = "新范围类型"
-    db_session.commit()
-    _login(client)
-
-    response = client.put(
-        "/api/v1/admin/sku-products/bulk",
-        json={"skuIds": [target.sku_id], "productScope": "新范围"},
-    )
-
-    assert response.status_code == 422
-    assert response.json()["detail"]["code"] == "PRODUCT_DIMENSION_MISMATCH"
-    db_session.refresh(target)
-    assert (target.product_scope, target.product_type) == ("原范围", "原类型")
-
-
-def test_sku_product_import_template_and_atomic_commit_support_keep(
-    client: TestClient,
-    db_session: Session,
-) -> None:
-    first = _seed_sku(db_session, "sku-import-1", "导入商品一")
-    second = _seed_sku(db_session, "sku-import-2", "导入商品二")
-    second.product_scope = "第二原范围"
-    first_reference = _seed_sku(db_session, "sku-import-reference-1", "导入组合参考一")
-    first_reference.product_scope = "新范围"
-    second_reference = _seed_sku(db_session, "sku-import-reference-2", "导入组合参考二")
-    second_reference.product_scope = "第二原范围"
-    second_reference.product_type = "新类型"
-    db_session.commit()
-    _login(client)
-
-    template = client.get("/api/v1/admin/sku-product-imports/template")
-    assert template.status_code == 200
-    assert template.content.decode("utf-8-sig").splitlines()[0] == (
-        "skuId,productScope,productType"
-    )
-
-    uploaded = _upload_product_import(
-        client,
-        [
-            ("sku-import-1", "新范围", "KEEP"),
-            ("sku-import-2", "KEEP", "新类型"),
-        ],
-    )
-    assert uploaded.status_code == 200
-    batch = uploaded.json()["data"]["batch"]
-    assert batch["batchStatus"] == "PENDING_COMMIT"
-    assert batch["validCount"] == 2
-
-    committed = client.post(
-        f"/api/v1/admin/sku-product-imports/{batch['batchId']}/commit"
-    )
-    assert committed.status_code == 200
-    assert committed.json()["data"]["batch"]["successCount"] == 2
+    assert (first.product_type, second.product_type) == ("原类型", "第二类型")
+    changed = client.put("/api/v1/admin/sku-products/bulk", json={
+        "skuIds": [first.sku_id, second.sku_id], "productType": "统一类型", "productScope": "ignored",
+    })
+    assert changed.status_code == 200 and changed.json()["data"]["updatedCount"] == 2
     db_session.refresh(first)
     db_session.refresh(second)
-    assert (first.product_scope, first.product_type) == ("新范围", "原类型")
-    assert (second.product_scope, second.product_type) == ("第二原范围", "新类型")
+    assert (first.product_scope, second.product_scope) == ("", "其他")
+    assert first.product_type == second.product_type == "统一类型"
+    assert db_session.scalar(select(func.count()).select_from(JobRun)) == 0
 
 
-def test_sku_product_import_allows_an_explicit_custom_pair(
-    client: TestClient,
-    db_session: Session,
-) -> None:
-    row = _seed_sku(db_session, "sku-import-custom-pair", "导入自定义口径商品")
+@pytest.mark.parametrize("mode", ["single", "bulk", "import"])
+def test_exact_jingcheng_scope_normalizes_type_consistently(client, db_session, mode):
+    row = _seed_sku(db_session, "jingcheng", "与名称无关")
+    row.product_scope = "精诚养车"
     db_session.commit()
     _login(client)
-
-    uploaded = _upload_product_import(
-        client,
-        [(row.sku_id, "导入新范围", "导入新类型")],
-    )
-
-    assert uploaded.status_code == 200
-    batch = uploaded.json()["data"]["batch"]
-    assert batch["batchStatus"] == "PENDING_COMMIT"
-    committed = client.post(
-        f"/api/v1/admin/sku-product-imports/{batch['batchId']}/commit"
-    )
-    assert committed.status_code == 200
-    db_session.refresh(row)
-    assert (row.product_scope, row.product_type) == ("导入新范围", "导入新类型")
-
-
-@pytest.mark.parametrize(
-    "rows",
-    [
-        [("sku-invalid-import", "", "新类型")],
-        [("sku-invalid-import", "KEEP", "KEEP")],
-        [
-            ("sku-invalid-import", "新范围", "KEEP"),
-            ("sku-invalid-import", "KEEP", "新类型"),
-        ],
-    ],
-)
-def test_sku_product_import_rejects_blank_keep_only_and_duplicate_rows(
-    client: TestClient,
-    db_session: Session,
-    rows: list[tuple[str, str, str]],
-) -> None:
-    _seed_sku(db_session, "sku-invalid-import", "非法导入商品")
-    db_session.commit()
-    _login(client)
-
-    response = _upload_product_import(client, rows)
-
+    if mode == "single":
+        response = client.put(f"/api/v1/admin/sku-products/{row.sku_id}", json={
+            "expectedManualModifiedAt": None, "productType": "旧分类",
+        })
+        assert response.json()["data"]["productType"] == "精诚养车"
+    elif mode == "bulk":
+        response = client.put("/api/v1/admin/sku-products/bulk", json={"skuIds": [row.sku_id], "productType": "旧分类"})
+    else:
+        uploaded = _upload_product_import(client, [(row.sku_id, "ignored", "旧分类")])
+        assert uploaded.json()["data"]["normalizedTypeCount"] == 1
+        assert "归一为精诚养车" in uploaded.json()["data"]["normalizationNotice"]
+        batch_id = uploaded.json()["data"]["batch"]["batchId"]
+        detail = client.get(f"/api/v1/admin/sku-product-imports/{batch_id}")
+        assert detail.json()["data"]["rows"][0]["productType"] == "精诚养车"
+        response = client.post(f"/api/v1/admin/sku-product-imports/{batch_id}/commit")
     assert response.status_code == 200
-    data = response.json()["data"]
-    assert data["batch"]["batchStatus"] == "VALIDATION_FAILED"
-    assert data["batch"]["successCount"] == 0
-    assert data["errorPreview"]
+    db_session.refresh(row)
+    assert row.product_type == row.product_scope == "精诚养车"
+    assert db_session.scalar(select(func.count()).select_from(JobRun)) == 0
 
 
-def test_sku_product_import_commit_revalidates_all_rows_before_writing(
-    client: TestClient,
-    db_session: Session,
-) -> None:
-    first = _seed_sku(db_session, "sku-atomic-import-1", "原子商品一")
-    second = _seed_sku(db_session, "sku-atomic-import-2", "原子商品二")
+@pytest.mark.parametrize("format", ["legacy-csv", "csv", "xlsx"])
+def test_type_import_template_and_commit_preserve_internal_scope(client, db_session, format):
+    first = _seed_sku(db_session, "import-a", "导入一")
+    second = _seed_sku(db_session, "import-b", "导入二")
+    first.product_scope, second.product_scope = "", "内部范围"
     db_session.commit()
     _login(client)
-    uploaded = _upload_product_import(
-        client,
-        [
-            ("sku-atomic-import-1", "新范围", "KEEP"),
-            ("sku-atomic-import-2", "新范围", "KEEP"),
-        ],
-    )
-    batch_id = uploaded.json()["data"]["batch"]["batchId"]
-    db_session.delete(second)
-    db_session.commit()
-
-    committed = client.post(
-        f"/api/v1/admin/sku-product-imports/{batch_id}/commit"
-    )
-
-    assert committed.status_code == 409
+    template = client.get("/api/v1/admin/sku-product-imports/template")
+    assert template.content.decode("utf-8-sig").splitlines()[0] == "skuId,productType"
+    if format == "legacy-csv":
+        uploaded = _upload_product_import(client, [(first.sku_id, "精诚养车", "类型A"), (second.sku_id, "", "类型B")])
+    else:
+        if format == "csv":
+            content = "skuId,productType\nimport-a,类型A\nimport-b,类型B\n".encode("utf-8")
+        else:
+            workbook = Workbook()
+            workbook.active.append(["skuId", "productType"])
+            workbook.active.append([first.sku_id, "类型A"])
+            workbook.active.append([second.sku_id, "类型B"])
+            output = BytesIO()
+            workbook.save(output)
+            content = output.getvalue()
+        uploaded = client.post("/api/v1/admin/sku-product-imports", files={"file": (f"types.{format}", content)})
+    assert uploaded.status_code == 200
+    batch = uploaded.json()["data"]["batch"]
+    assert batch["batchStatus"] == "PENDING_COMMIT" and batch["validCount"] == 2
+    url = f"/api/v1/admin/sku-product-imports/{batch['batchId']}/commit"
+    assert client.post(url).json()["data"]["batch"]["successCount"] == 2
+    assert client.post(url).status_code == 200
     db_session.refresh(first)
-    assert first.product_scope == "原范围"
-    batch = db_session.scalar(
-        select(SkuProductImportBatch).where(SkuProductImportBatch.batch_id == batch_id)
-    )
-    assert batch is not None
+    db_session.refresh(second)
+    assert (first.product_scope, first.product_type) == ("", "类型A")
+    assert (second.product_scope, second.product_type) == ("内部范围", "类型B")
+    assert db_session.scalar(select(func.count()).select_from(JobRun)) == 0
+
+
+@pytest.mark.parametrize("rows", [
+    [("invalid", "ignored", "")], [("invalid", "ignored", "KEEP")],
+    [("invalid", "ignored", "all")], [("invalid", "ignored", "unknown")],
+    [("missing", "ignored", "类型")],
+    [("invalid", "ignored", "类型A"), ("invalid", "ignored", "类型B")],
+])
+def test_type_import_prevalidation_rejects_invalid_type_or_identity(client, db_session, rows):
+    row = _seed_sku(db_session, "invalid", "非法输入")
+    db_session.commit()
+    _login(client)
+    uploaded = _upload_product_import(client, rows)
+    batch = uploaded.json()["data"]["batch"]
+    assert batch["batchStatus"] == "VALIDATION_FAILED" and batch["successCount"] == 0
+    assert uploaded.json()["data"]["errorPreview"]
+    assert client.post(f"/api/v1/admin/sku-product-imports/{batch['batchId']}/commit").status_code == 409
+    db_session.refresh(row)
+    assert row.product_type == "原类型"
+
+
+def test_preexisting_legacy_pending_batch_never_changes_scope(client, db_session):
+    first = _seed_sku(db_session, "legacy-change", "历史批次")
+    second = _seed_sku(db_session, "legacy-keep", "历史仅改范围")
+    target = _seed_sku(db_session, "legacy-jingcheng", "目标")
+    target.product_scope = "精诚养车"
+    db_session.add(SkuProductImportBatch(batch_id="legacy-batch", file_name="old.csv", file_sha256="a" * 64,
+        batch_status=3, total_count=3, valid_count=3, uploaded_by="legacy"))
+    for index, sku_id in enumerate((first.sku_id, second.sku_id, target.sku_id)):
+        db_session.add(SkuProductImportRow(batch_id="legacy-batch", row_number=index + 2, sku_id=sku_id,
+            product_scope="不能覆盖内部范围", keep_product_scope=False,
+            product_type="历史待提交类型", keep_product_type=index == 1, validation_status=2))
+    db_session.commit()
+    _login(client)
+    response = client.post("/api/v1/admin/sku-product-imports/legacy-batch/commit")
+    assert response.status_code == 200
+    for row in (first, second, target):
+        db_session.refresh(row)
+    assert (first.product_scope, first.product_type) == ("原范围", "历史待提交类型")
+    assert (second.product_scope, second.product_type) == ("原范围", "原类型")
+    assert (target.product_scope, target.product_type) == ("精诚养车", "精诚养车")
+
+
+@pytest.mark.parametrize("mutation", ["delete", "invalid-row"])
+def test_type_import_commit_revalidates_all_rows_atomically(client, db_session, mutation):
+    first = _seed_sku(db_session, "atomic-a", "原子一")
+    second = _seed_sku(db_session, "atomic-b", "原子二")
+    db_session.commit()
+    _login(client)
+    uploaded = _upload_product_import(client, [(first.sku_id, "ignored", "类型A"), (second.sku_id, "ignored", "类型B")])
+    batch_id = uploaded.json()["data"]["batch"]["batchId"]
+    if mutation == "delete":
+        db_session.delete(second)
+    else:
+        imported = db_session.scalar(select(SkuProductImportRow).where(SkuProductImportRow.batch_id == batch_id))
+        imported.product_type = "unknown"
+    db_session.commit()
+    response = client.post(f"/api/v1/admin/sku-product-imports/{batch_id}/commit")
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "IMPORT_DATA_CHANGED"
+    db_session.refresh(first)
+    assert first.product_type == "原类型"
+    batch = db_session.scalar(select(SkuProductImportBatch).where(SkuProductImportBatch.batch_id == batch_id))
     assert batch.success_count == 0
 
 
-def test_sku_product_import_commit_revalidates_product_dimension_combinations(
-    client: TestClient,
-    db_session: Session,
-) -> None:
-    target = _seed_sku(db_session, "sku-import-dimension-target", "导入口径目标商品")
-    reference = _seed_sku(db_session, "sku-import-dimension-reference", "导入口径参考商品")
-    reference.product_scope = target.product_scope
-    reference.product_type = "目标类型"
+@pytest.mark.parametrize("role", ["admin", "store"])
+def test_classification_write_preserves_global_role_boundary(client, db_session, role):
+    row = _seed_sku(db_session, "restricted", "权限商品")
+    db_session.commit()
+    operator = _login_rule_operator(client, db_session, role)
+    operator.store_scope_mode = "specified"
+    db_session.commit()
+    assert client.put(f"/api/v1/admin/sku-products/{row.sku_id}", json={
+        "expectedManualModifiedAt": None, "productType": "unauthorized",
+    }).status_code == 403
+    assert client.put("/api/v1/admin/sku-products/bulk", json={"skuIds": [row.sku_id], "productType": "unauthorized"}).status_code == 403
+    assert _upload_product_import(client, [(row.sku_id, "ignored", "unauthorized")]).status_code == 403
+
+
+def test_bulk_type_failure_rolls_back_previous_row_changes(client, db_session, monkeypatch):
+    first = _seed_sku(db_session, "rollback-a", "回滚一")
+    second = _seed_sku(db_session, "rollback-b", "回滚二")
     db_session.commit()
     _login(client)
-    uploaded = _upload_product_import(
-        client,
-        [(target.sku_id, "KEEP", "目标类型")],
-    )
-    assert uploaded.status_code == 200
-    batch_id = uploaded.json()["data"]["batch"]["batchId"]
-    db_session.delete(reference)
-    db_session.commit()
-
-    committed = client.post(
-        f"/api/v1/admin/sku-product-imports/{batch_id}/commit"
-    )
-
-    assert committed.status_code == 409
-    assert committed.json()["detail"]["code"] == "IMPORT_DATA_CHANGED"
-    db_session.refresh(target)
-    assert (target.product_scope, target.product_type) == ("原范围", "原类型")
-
-
-def test_sku_product_import_rejects_incompatible_product_dimensions(
-    client: TestClient,
-    db_session: Session,
-) -> None:
-    target = _seed_sku(db_session, "sku-import-mismatch", "导入组合校验商品")
-    reference = _seed_sku(db_session, "sku-import-mismatch-reference", "导入组合参考")
-    reference.product_scope = "目标范围"
-    reference.product_type = "目标类型"
-    db_session.commit()
-    _login(client)
-
-    response = _upload_product_import(
-        client,
-        [(target.sku_id, "目标范围", "KEEP")],
-    )
-
-    assert response.status_code == 200
-    data = response.json()["data"]
-    assert data["batch"]["batchStatus"] == "VALIDATION_FAILED"
-    assert data["errorPreview"][0]["errors"][0]["code"] == (
-        "PRODUCT_DIMENSION_MISMATCH"
-    )
+    bind = db_session.get_bind()
+    def isolated_session():
+        with Session(bind, autoflush=False) as session:
+            yield session
+    client.app.dependency_overrides[get_session_dependency] = isolated_session
+    original = fee_admin_routes._apply_sku_product_manual_update
+    def fail_second(row, *args, **kwargs):
+        original(row, *args, **kwargs)
+        if row.sku_id == "rollback-b":
+            raise RuntimeError("injected second-row failure")
+    monkeypatch.setattr(fee_admin_routes, "_apply_sku_product_manual_update", fail_second)
+    with pytest.raises(RuntimeError, match="injected"):
+        client.put("/api/v1/admin/sku-products/bulk", json={"skuIds": [first.sku_id, second.sku_id], "productType": "new"})
+    db_session.expire_all()
+    assert [row.product_type for row in db_session.scalars(select(DimSkuProductRule).order_by(DimSkuProductRule.sku_id))] == ["原类型", "原类型"]
 
 
 def test_single_fee_rule_publish_is_immutable_idempotent_and_day_scoped(
