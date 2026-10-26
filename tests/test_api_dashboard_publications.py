@@ -343,3 +343,22 @@ def test_meta_types_only_include_authorized_store_facts_and_preserve_frozen_fina
     assert response.status_code == 200, response.text
     assert response.json()["data"]["productTypes"] == ["all"]
     assert response.json()["data"]["stores"] == []
+
+
+def test_historical_line_only_type_is_selectable_without_current_catalog(analytical_client, db_session):
+    from apps.api.dy_api.models import SettlementStatementLine
+
+    client, _, _ = analytical_client
+    db_session.add(SettlementStatement(statement_id="line-only-statement", store_id="A",
+        statement_month="2026-08", version_no=1, is_current=True, statement_status=4))
+    db_session.add(SettlementStatementLine(statement_line_id="line-only", statement_id="line-only-statement",
+        fee_direction=1, product_type="Historical line only"))
+    db_session.commit()
+    response = client.get("/api/v1/meta/filters")
+    assert response.status_code == 200, response.text
+    assert "Historical line only" in response.json()["data"]["productTypes"]
+    details = client.get("/api/v1/order-fee-details", params={
+        "feeDirection": "PROMOTION", "productType": "Historical line only", "month": "2026-08",
+        "productScope": "invalid-old-scope"})
+    assert details.status_code == 200, details.text
+    assert details.json()["data"]["list"] == []

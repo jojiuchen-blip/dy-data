@@ -11649,9 +11649,8 @@ def _validate_month(value: str, field: str, request: Request) -> None:
 def _validate_product_selection(
     store, product_scope: str, product_type: str, request: Request
 ) -> None:
-    scope_map = getattr(store, "product_scope_type_map", lambda: {})()
     available_types = set(getattr(store, "list_product_types", lambda: ["all"])())
-    _validate_product_choices(scope_map, available_types, product_scope, product_type, request)
+    _validate_product_choices({}, available_types, "all", product_type, request)
 
 
 def _validate_product_choices(scope_map, available_types, product_scope, product_type, request):

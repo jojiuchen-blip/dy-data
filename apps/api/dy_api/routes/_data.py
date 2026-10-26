@@ -1376,6 +1376,7 @@ class DashboardDataStore:
             "SELECT DISTINCT product_type FROM clue_center_orders WHERE product_type IS NOT NULL",
             "SELECT DISTINCT product_type FROM settlement_fee_result WHERE product_type IS NOT NULL",
             "SELECT DISTINCT product_type FROM settlement_statement_entry WHERE product_type IS NOT NULL",
+            "SELECT DISTINCT product_type FROM settlement_statement_line WHERE product_type IS NOT NULL",
         ):
             for row in self._execute(sql):
                 product_type = _to_str(row.get("product_type")).strip()
