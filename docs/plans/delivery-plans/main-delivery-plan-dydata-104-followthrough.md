@@ -1,3 +1,5 @@
+> 2026-10-26 最新：用户授权完成 D1–D7 核查、修复通用缺陷并统一交接 Linear。当前 S4 / T3.1 保持进行中；本轮基于 6ac6e440，集成负责人为当前 Codex。归属诊断、精确职人 UID 与历史区间兜底、月结阻断计数修复已实现，真实来源只读核查及回放成果见 [验证记录](../../verification/dydata-104-data-rootcause-oct26.md)。商品类型与上月默认另见 [PR63](https://github.com/jojiuchen-blip/dy-data/pull/63)。生产未部署、未补录暂停券组、未改确认账务；历史日期/编号桥及账单更正仍分别验收。下方旧状态按日期保留。
+
 # DYDATA-104：自然月、九月恢复与静态发布验收
 
 > 2026-10-23 增量：用户已批准新增三组需求，继续T3.1。商品规则核查配置、8/9月恢复重算对账、月榜固定月度及发票简化详见[T3.1](sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。本轮基于PR61后的ca61eff，原“八月不处理”仅为历史范围；所有确认/开票/锁账和配额保护保留。上游收集slug=dy-data、canProceed=true，无失败分支。
