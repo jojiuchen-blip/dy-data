@@ -1146,6 +1146,8 @@ export interface SkuProductImportUploadData {
   batch: SkuProductImportBatch;
   errorPreview: SkuProductImportRow[];
   hasMoreErrors: boolean;
+  normalizedTypeCount: number;
+  normalizationNotice: string | null;
 }
 
 export type FeeRuleStatus = "ACTIVE" | "INACTIVE";

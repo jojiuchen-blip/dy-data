@@ -1138,3 +1138,46 @@ for (const [code, text] of [["PUBLICATION_NOT_READY", "分析结果尚未发布"
     assert.equal(requests.filter((url) => url.pathname.endsWith("/dashboard/store-ranking")).length, 1);
   }));
 }
+
+
+for (const scenario of ["normalized-success", "normalized-errors", "unchanged"]) {
+  test(`SKU import preview normalization ${scenario} reports only actual backend impact`, async () => withPage(async ({ page, handle }) => {
+    const hasErrors = scenario === "normalized-errors";
+    const normalizedTypeCount = scenario === "unchanged" ? 0 : 1;
+    const normalizationNotice = normalizedTypeCount ? "1 个内部精诚养车范围 SKU 的商品类型已归一为精诚养车；原内部范围保持。" : null;
+    handle(async (route, url) => {
+      if (url.pathname.endsWith("/meta/filters")) { await route.fulfill({ json: payload(typedMeta) }); return true; }
+      if (url.pathname.endsWith("/admin/sku-products")) { await route.fulfill({ json: payload({ list: [], total: 0, page: 1, pageSize: 50, statusCounts: { unconfigured: 0, partial: 0, configured: 0 } }) }); return true; }
+      if (url.pathname.endsWith("/admin/sku-product-imports")) {
+        assert.equal(route.request().method(), "POST");
+        await route.fulfill({ json: payload({
+          batch: { batchId: "normalization-preview", batchStatus: hasErrors ? "VALIDATION_FAILED" : "PENDING_COMMIT", totalCount: 2, validCount: hasErrors ? 1 : 2, failedCount: hasErrors ? 1 : 0 },
+          normalizedTypeCount,
+          normalizationNotice,
+          errorPreview: hasErrors ? [{ rowNumber: 3, skuId: "missing-sku", productType: "自定义类型A", errors: [{ field: "skuId", message: "SKU 不存在" }] }] : [],
+          hasMoreErrors: false,
+        }) }); return true;
+      }
+      return false;
+    });
+    await page.goto(`${baseUrl}/admin/product-types`);
+    await page.getByRole("button", { name: "批量导入", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("选择商品口径导入文件", { exact: true }).setInputFiles({ name: "product-types.csv", mimeType: "text/csv", buffer: Buffer.from("skuId,productType\nsku1,自定义类型A\nsku2,自定义类型A") });
+    await dialog.getByRole("button", { name: "上传并预校验", exact: true }).click();
+    await dialog.getByText(hasErrors ? "预校验未通过" : "预校验通过", { exact: true }).waitFor();
+    const impact = dialog.getByRole("status", { name: "商品类型归一影响", exact: true });
+    if (normalizedTypeCount) {
+      assert.equal(await impact.getByText("已归一商品类型：1 条", { exact: true }).count(), 1);
+      assert.equal(await impact.getByText(normalizationNotice, { exact: true }).count(), 1);
+    } else {
+      assert.equal(await impact.count(), 0, "an ordinary batch must not claim a normalization impact");
+    }
+    if (hasErrors) {
+      await dialog.getByText("第 3 行：SKU 不存在", { exact: true }).waitFor();
+      assert.equal(await dialog.getByRole("button", { name: /^确认写入/ }).count(), 0);
+    } else {
+      assert.equal(await dialog.getByRole("button", { name: "确认写入 2 条", exact: true }).isEnabled(), true);
+    }
+  }));
+}
