@@ -621,7 +621,11 @@ def read_filters(session: Session, publication_id: str, module: str = "settlemen
 
 def _published_product_types(session, publication_id, available_types, *, scope_store_ids=None):
     """Keep historical types selectable using only this publication's facts."""
-    types = set(available_types)
+    # Catalog choices are global. Restricted callers must derive their options
+    # entirely from facts in their current store scope, including an empty one.
+    types = set(available_types or ()) if scope_store_ids is None else set()
+    if scope_store_ids is not None and not scope_store_ids:
+        return ["all"]
     for table in (ranking, monthly):
         types.update(session.scalars(select(table.c.product_type).where(
             table.c.publication_id == publication_id, *_scope(table, scope_store_ids)).distinct()))

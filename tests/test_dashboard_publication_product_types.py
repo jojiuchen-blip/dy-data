@@ -21,7 +21,8 @@ def _seed(session):
         status="success", cutoff=AT, created_at=AT, published_at=AT, stats_json={}))
     session.execute(insert(finance.dimensions), [
         {"publication_id": PUBLICATION_ID, "kind": "filters", "key": "all", "value": {
-            "product_types": ["all", "精诚养车"], "product_scopes": ["all", "旧范围"],
+            "product_types": ["all", "精诚养车", HISTORICAL_TYPE, "其他门店历史类型"],
+            "product_scopes": ["all", "旧范围"],
             "product_scope_type_map": {"旧范围": ["精诚养车"]}}},
         {"publication_id": PUBLICATION_ID, "kind": "source", "key": "settlement",
             "value": {"has_generation": True}},
@@ -104,9 +105,13 @@ def test_metadata_adds_only_visible_frozen_types_and_never_queries_live_sources(
         choices = finance.read_filters(db_session, PUBLICATION_ID, scope_store_ids=("allowed",))
         assert choices["product_scopes"] == ["all"]
         assert choices["product_scope_type_map"] == {}
-        assert choices["product_types"] == ["all", HISTORICAL_TYPE, "精诚养车"]
-        assert HISTORICAL_TYPE not in finance.read_filters(db_session, PUBLICATION_ID,
-            scope_store_ids=())["product_types"]
+        assert choices["product_types"] == ["all", HISTORICAL_TYPE]
+        assert finance.read_filters(db_session, PUBLICATION_ID,
+            scope_store_ids=("other",))["product_types"] == ["all", "其他门店历史类型"]
+        assert finance.read_filters(db_session, PUBLICATION_ID,
+            scope_store_ids=())["product_types"] == ["all"]
+        assert set(finance.read_filters(db_session, PUBLICATION_ID)["product_types"]) == {
+            "all", "精诚养车", HISTORICAL_TYPE, "其他门店历史类型"}
     finally:
         event.remove(db_session.bind, "before_cursor_execute", observe)
     assert statements and all(statement.lstrip().startswith("SELECT") for statement in statements)
@@ -114,6 +119,19 @@ def test_metadata_adds_only_visible_frozen_types_and_never_queries_live_sources(
     assert db_session.scalar(select(finance.dimensions.c.value).where(
         finance.dimensions.c.publication_id == PUBLICATION_ID,
         finance.dimensions.c.kind == "filters"))["product_scopes"] == ["all", "旧范围"]
+
+
+def test_finance_without_typed_projections_reads_restricted_metadata_safely(db_session):
+    _seed(db_session)
+    db_session.execute(insert(runs).values(id="finance-without-types", module="finance",
+        status="success", cutoff=AT, created_at=AT, published_at=AT, stats_json={}))
+    db_session.execute(insert(finance.dimensions).values(publication_id="finance-without-types",
+        kind="filters", key="all", value={"product_types": ["all", HISTORICAL_TYPE, "其他门店历史类型"]}))
+    for scope in (("allowed",), ("other",), ()):
+        assert finance.read_filters(db_session, "finance-without-types", module="finance",
+            scope_store_ids=scope)["product_types"] == ["all"]
+    assert set(finance.read_filters(db_session, "finance-without-types", module="finance")["product_types"]) == {
+        "all", HISTORICAL_TYPE, "其他门店历史类型"}
 
 
 def test_missing_canonical_type_partition_does_not_invent_cross_scope_distinct(db_session):
