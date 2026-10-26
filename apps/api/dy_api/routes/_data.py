@@ -5847,20 +5847,23 @@ class DashboardDataStore:
         verification_status = _to_str(filters.get("verification_status")).strip()
         if verification_status and verification_status != "all":
             verified_at_column = "r.verified_at" if include_round else "c.verified_at"
-            self_verified_column = (
-                "r.is_self_store_verified" if include_round else "c.is_self_store_verified"
-            )
+            verification_prefix = "r" if include_round else "c"
+            verified_store_column = f"{verification_prefix}.verified_store_id"
+            assigned_store_column = f"{verification_prefix}.assigned_store_id"
             if verification_status == "unverified":
                 clauses.append(f"{verified_at_column} IS NULL")
             elif verification_status == "self_store_verified":
                 clauses.append(
                     f"{verified_at_column} IS NOT NULL "
-                    f"AND {self_verified_column} = true"
+                    f"AND NULLIF(TRIM({verified_store_column}), '') IS NOT NULL "
+                    f"AND {verified_store_column} = {assigned_store_column}"
                 )
             elif verification_status == "other_store_verified":
                 clauses.append(
                     f"{verified_at_column} IS NOT NULL "
-                    f"AND {self_verified_column} = false"
+                    f"AND NULLIF(TRIM({verified_store_column}), '') IS NOT NULL "
+                    f"AND NULLIF(TRIM({assigned_store_column}), '') IS NOT NULL "
+                    f"AND {verified_store_column} <> {assigned_store_column}"
                 )
 
         assigned_start = _parse_filter_datetime(filters.get("assigned_date_start"))
