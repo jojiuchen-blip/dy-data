@@ -12,7 +12,7 @@ from typing import Any, Protocol
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from dy_data.product_classification import synced_product_type
+from src.dy_data.product_classification import synced_product_type
 
 from apps.api.dy_api.db import get_session_factory, session_scope
 from apps.api.dy_api.models import (

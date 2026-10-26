@@ -31,7 +31,7 @@ from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from dy_data.product_classification import synced_product_type
+from src.dy_data.product_classification import synced_product_type
 
 from apps.api.dy_api.models import (
     DimSkuProductRule,
