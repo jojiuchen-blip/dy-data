@@ -49,7 +49,9 @@ def test_settlement_embeds_two_fee_detail_tabs_and_safe_dispute_intake() -> None
     assert "/disputes" in client
     assert "当前未生成可确认账单，页面保留预览数据" not in page
     assert 'label="产品范围"' not in page
-    assert 'label="商品类型"' not in page
+    assert 'label="商品类型"' in page
+    assert "productType: activeProductType" in page
+    assert "productScope:" not in page
 
 
 def test_invoice_status_has_cross_period_status_contract_and_summary_sections() -> None:

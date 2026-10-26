@@ -5944,7 +5944,10 @@ def monthly_settlement(
     from dy_api.routes._data import STATEMENT_STATUS_FROM_DB
     session = _billing_session(store, request)
     with publication_read(session, "settlement", publication_id) as publication:
-        choices = read_filters(session, publication.id, scope_store_ids=(store_id,))
+        # Selector validity follows the caller's authorized stores, so switching
+        # to a store with no rows for a valid type produces an empty result.
+        choices = read_filters(session, publication.id,
+            scope_store_ids=_finance_scope_store_ids(current_user))
         _validate_product_choices(choices.get("product_scope_type_map", {}),
             choices.get("product_types", ["all"]), product_scope, product_type, request)
         data = read_monthly_settlement(session, publication.id, {

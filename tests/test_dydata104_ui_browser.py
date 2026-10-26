@@ -172,7 +172,7 @@ DOWNLOADS = [
     ("governance", "下载结果文件", "result", "ui104-errors-result.csv"),
 ]
 
-PRODUCT_FIELDS = ["skuId", "productScope", "productType"]
+PRODUCT_FIELDS = ["skuId", "productType"]
 FEE_FIELDS = ["skuName", "skuId", "promotionServiceFeeRate", "managementServiceFeeRate"]
 RESULT_FIELDS = FEE_FIELDS + ["validationStatus", "errorFields", "errorMessages", "createdRuleVersion"]
 
