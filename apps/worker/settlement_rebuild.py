@@ -1372,7 +1372,7 @@ def run_settlement_month_rebuild_job(
             factory, job_id=job_id, claim_id=claim_id,
             stats=SettlementStats(
                 detail_count=stats.result_count,
-                issue_count=stats.adjustment_count,
+                issue_count=stats.blocked_count,
                 ranking_count=0,
                 monthly_count=0,
             ),
