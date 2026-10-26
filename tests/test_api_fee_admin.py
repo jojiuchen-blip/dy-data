@@ -373,14 +373,20 @@ def test_service_only_update_preserves_type_and_scope_only_input_is_rejected(cli
     assert scope_only.json()["detail"]["code"] == "VALIDATION_FAILED"
 
 
-@pytest.mark.parametrize("reserved", ["all", "unknown", "KEEP", "  keep  ", " "])
-def test_type_update_rejects_reserved_or_empty_values(client, db_session, reserved):
+@pytest.mark.parametrize("reserved", ["all", "unknown", "KEEP", "  keep  ", " ", None])
+@pytest.mark.parametrize("mode", ["single", "bulk"])
+def test_type_update_rejects_reserved_or_empty_values(client, db_session, reserved, mode):
     row = _seed_sku(db_session, "reserved", "保留值商品")
     db_session.commit()
     _login(client)
-    response = client.put(f"/api/v1/admin/sku-products/{row.sku_id}", json={
-        "expectedManualModifiedAt": None, "productType": reserved,
-    })
+    if mode == "single":
+        response = client.put(f"/api/v1/admin/sku-products/{row.sku_id}", json={
+            "expectedManualModifiedAt": None, "productType": reserved,
+        })
+    else:
+        response = client.put("/api/v1/admin/sku-products/bulk", json={
+            "skuIds": [row.sku_id], "productType": reserved,
+        })
     assert response.status_code == 422
     db_session.refresh(row)
     assert row.product_type == "原类型"

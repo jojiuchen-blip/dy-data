@@ -700,7 +700,7 @@ class SkuProductManualFieldsRequest(BaseModel):
     @classmethod
     def normalize_product_dimension(cls, value: str | None) -> str | None:
         if value is None:
-            return None
+            raise ValueError("product type cannot be null")
         normalized = " ".join(value.strip().split())
         if not normalized:
             raise ValueError("value is required")
