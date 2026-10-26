@@ -49,6 +49,7 @@ from apps.worker.clue_follow_up_state import (
     soft_delete_follow_up_record,
 )
 from src.dy_data.clue_access import can_access_clue_store
+from src.dy_data.product_classification import synced_product_type
 from src.dy_data.phones import normalize_phone, mask_phone, is_online_cipher, phone_source_fingerprint
 from ..clue_phone_cache import get_phone, put_phone
 from ..export_metadata import export_filter_header
@@ -1558,7 +1559,6 @@ class DashboardDataStore:
 
     def product_type_visibility(self) -> dict[str, Any]:
         setting = self._product_type_visibility_setting()
-        visible_product_scopes: list[str] = []
         visible_product_types: list[str] = []
         default_product_type = "all"
         enabled = False
@@ -1566,15 +1566,6 @@ class DashboardDataStore:
         updated_by = None
         if setting is not None:
             enabled = bool(setting.enabled)
-            raw_scopes = getattr(setting, "visible_product_scopes", [])
-            if isinstance(raw_scopes, str):
-                try:
-                    raw_scopes = json.loads(raw_scopes)
-                except json.JSONDecodeError:
-                    raw_scopes = []
-            if not isinstance(raw_scopes, list):
-                raw_scopes = []
-            visible_product_scopes = _normalize_product_scope_list(raw_scopes)
             raw_values = setting.visible_product_types
             if isinstance(raw_values, str):
                 try:
@@ -1590,25 +1581,6 @@ class DashboardDataStore:
             updated_at = setting.updated_at
             updated_by = setting.updated_by
         available = sorted(set(self._all_product_types()) | set(visible_product_types))
-        available_set = set(available)
-        product_scope_type_map = {
-            product_scope: [
-                product_type
-                for product_type in product_types
-                if product_type in available_set
-            ]
-            for product_scope, product_types in self._all_product_scope_type_map().items()
-        }
-        product_scope_type_map = {
-            product_scope: product_types
-            for product_scope, product_types in product_scope_type_map.items()
-            if product_types
-        }
-        available_product_scopes = sorted(
-            set(product_scope_type_map) | set(visible_product_scopes)
-        )
-        for product_scope in visible_product_scopes:
-            product_scope_type_map.setdefault(product_scope, [])
         if default_product_type != "all" and default_product_type not in available:
             default_product_type = "all"
         if (
@@ -1619,12 +1591,12 @@ class DashboardDataStore:
             default_product_type = "all"
         return {
             "enabled": enabled,
-            "visible_product_scopes": visible_product_scopes,
+            "visible_product_scopes": [],
             "visible_product_types": visible_product_types,
             "default_product_type": default_product_type,
-            "available_product_scopes": available_product_scopes,
+            "available_product_scopes": [],
             "available_product_types": available,
-            "product_scope_type_map": product_scope_type_map,
+            "product_scope_type_map": {},
             "updated_at": updated_at,
             "updated_by": updated_by,
         }
@@ -1640,7 +1612,8 @@ class DashboardDataStore:
     ) -> dict[str, Any]:
         if self.session is None or ProductTypeVisibilitySetting is None:
             return self.product_type_visibility()
-        visible_product_scopes = _normalize_product_scope_list(visible_product_scopes)
+        # Legacy payloads are accepted, but scope is no longer user configuration.
+        # Preserve stored scope evidence instead of rewriting it from old clients.
         visible_product_types = _normalize_product_type_list(visible_product_types)
         default_product_type = _normalize_product_type_value(default_product_type)
         if (
@@ -1655,7 +1628,7 @@ class DashboardDataStore:
             setting = ProductTypeVisibilitySetting(
                 setting_key="global",
                 enabled=enabled,
-                visible_product_scopes=visible_product_scopes,
+                visible_product_scopes=[],
                 visible_product_types=visible_product_types,
                 default_product_type=default_product_type,
                 updated_by=updated_by,
@@ -1664,7 +1637,6 @@ class DashboardDataStore:
             self.session.add(setting)
         else:
             setting.enabled = enabled
-            setting.visible_product_scopes = visible_product_scopes
             setting.visible_product_types = visible_product_types
             setting.default_product_type = default_product_type
             setting.updated_by = updated_by
@@ -1913,6 +1885,7 @@ class DashboardDataStore:
         page_size: int,
         q: str | None = None,
         product_scope: str | None = None,
+        product_type: str | None = None,
     ) -> dict[str, Any]:
         page = max(1, page)
         page_size = max(1, min(page_size, 1000))
@@ -1925,10 +1898,10 @@ class DashboardDataStore:
                 "lower(sku_rows.sku_id) LIKE :q OR lower(sku_rows.product_name) LIKE :q"
             )
             params["q"] = f"%{query}%"
-        product_scope_query = _to_str(product_scope).strip().lower()
-        if product_scope_query:
-            clauses.append("lower(COALESCE(rules.product_scope, '')) LIKE :product_scope")
-            params["product_scope"] = f"%{product_scope_query}%"
+        product_type_query = _to_str(product_type).strip()
+        if product_type_query and product_type_query != "all":
+            clauses.append("rules.product_type = :product_type")
+            params["product_type"] = product_type_query
 
         where_sql = (
             "WHERE " + " AND ".join(f"({clause})" for clause in clauses)
@@ -2026,19 +1999,23 @@ class DashboardDataStore:
             "duplicate_sku_ids": duplicate_sku_ids,
         }
 
-    def upsert_sku_rules(self, rules: list[dict[str, Any]]) -> int:
+    def upsert_sku_rules(
+        self, rules: list[dict[str, Any]], *, updated_by: str
+    ) -> tuple[int, bool]:
         if self.session is None or DimSkuProductRule is None:
-            return 0
+            return 0, False
         updated = 0
+        requires_rebuild = False
         for rule in rules:
             sku_id = _to_str(rule.get("sku_id")).strip()
-            product_scope = _to_str(rule.get("product_scope")).strip()
             product_type = _to_str(rule.get("product_type")).strip()
             if not sku_id or not product_type:
                 continue
             existing_name = self._sku_product_name(sku_id)
             existing = self.session.scalar(
-                select(DimSkuProductRule).where(DimSkuProductRule.sku_id == sku_id)
+                select(DimSkuProductRule).where(
+                    DimSkuProductRule.sku_id == sku_id
+                ).with_for_update()
             )
             if existing is None:
                 existing = DimSkuProductRule(
@@ -2046,13 +2023,22 @@ class DashboardDataStore:
                     product_name=existing_name,
                 )
                 self.session.add(existing)
-            existing.product_scope = product_scope
-            existing.product_type = product_type
-            existing.commission_rate = Decimal(str(rule.get("commission_rate") or 0))
-            existing.is_service_product = _to_bool(rule.get("is_service_product"))
+            rate = Decimal(str(rule.get("commission_rate") or 0))
+            is_service = _to_bool(rule.get("is_service_product"))
+            requires_rebuild = requires_rebuild or (
+                Decimal(str(existing.commission_rate or 0)) != rate
+                or (existing.is_service_product if existing.is_service_product is not None else True) != is_service
+            )
+            # Internal scope still defines independent Douyin ranking membership.
+            # A legacy edit must not change it or infer it from a product type.
+            existing.product_type = synced_product_type(existing.product_scope, product_type)
+            existing.commission_rate = rate
+            existing.is_service_product = is_service
+            existing.manual_modified_at = generated_at()
+            existing.manual_modified_by = updated_by
             updated += 1
         self.session.flush()
-        return updated
+        return updated, requires_rebuild
 
     def list_non_commission_owner_accounts(
         self, *, include_inactive: bool = False
