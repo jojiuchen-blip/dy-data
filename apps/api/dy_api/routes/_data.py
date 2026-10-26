@@ -410,8 +410,8 @@ def _normalize_product_type_value(value: Any) -> str:
 
 
 def _normalize_product_scope_value(value: Any) -> str:
-    product_scope = " ".join(_to_str(value, "all").strip().split())
-    return product_scope or "all"
+    # Ordinary reporting keeps the legacy parameter only as a compatibility input.
+    return "all"
 
 
 def _parse_filter_datetime(value: Any) -> datetime | None:
@@ -1374,6 +1374,8 @@ class DashboardDataStore:
             "SELECT DISTINCT product_type FROM dim_sku_product_rules WHERE product_type IS NOT NULL",
             "SELECT DISTINCT product_type FROM settlement_order_details WHERE product_type IS NOT NULL",
             "SELECT DISTINCT product_type FROM clue_center_orders WHERE product_type IS NOT NULL",
+            "SELECT DISTINCT product_type FROM settlement_fee_result WHERE product_type IS NOT NULL",
+            "SELECT DISTINCT product_type FROM settlement_statement_entry WHERE product_type IS NOT NULL",
         ):
             for row in self._execute(sql):
                 product_type = _to_str(row.get("product_type")).strip()
@@ -1472,38 +1474,15 @@ class DashboardDataStore:
         return ["all", *sorted(self.product_scope_type_map())]
 
     def _product_types_for_scope(self, product_scope: str) -> tuple[str, ...] | None:
-        requested_product_scope = _normalize_product_scope_value(product_scope)
-        if requested_product_scope == "all":
-            return None
-        return tuple(self.product_scope_type_map().get(requested_product_scope, []))
+        return None
 
     def _product_type_filter_values(
         self, *, product_scope: str = "all", product_type: str = "all"
     ) -> tuple[str, ...] | None:
         requested_product_type = _normalize_product_type_value(product_type)
-        scope_product_types = self._product_types_for_scope(product_scope)
-        visible_product_types = self._visible_product_types()
-
         if requested_product_type != "all":
-            if scope_product_types is not None and requested_product_type not in set(
-                scope_product_types
-            ):
-                return ()
-            if not self._is_product_type_visible(requested_product_type):
-                return ()
-            return (requested_product_type,)
-
-        if scope_product_types is not None:
-            if visible_product_types is None:
-                return scope_product_types
-            visible_set = set(visible_product_types)
-            return tuple(
-                product_type
-                for product_type in scope_product_types
-                if product_type in visible_set
-            )
-
-        return visible_product_types
+            return (requested_product_type,) if self._is_product_type_visible(requested_product_type) else ()
+        return self._visible_product_types()
 
     def _reporting_projection_product_condition(
         self,
@@ -1513,7 +1492,7 @@ class DashboardDataStore:
         product_type: str,
         prefix: str,
     ) -> str:
-        params[f"{prefix}_scope"] = product_scope
+        params[f"{prefix}_scope"] = "all"
         clauses = [f"product_scope = :{prefix}_scope"]
         if product_type != "all":
             params[f"{prefix}_type"] = product_type
@@ -2772,7 +2751,7 @@ class DashboardDataStore:
         report = self.store_ranking_report({
             "period_type": "CUMULATIVE",
             "period_key": filters.get("month"),
-            "product_scope": filters.get("product_scope"),
+            "product_scope": "all",
             "product_type": filters.get("product_type"),
             "scope_mode": "AUTHORIZED",
             "scope_store_ids": (_to_str(filters.get("store_id")),),
@@ -2938,9 +2917,6 @@ class DashboardDataStore:
     ) -> list[dict[str, Any]]:
         dimension_clauses: list[str] = []
         dimension_params: dict[str, Any] = {}
-        if product_scope != "all":
-            dimension_clauses.append("product_scope = :product_scope")
-            dimension_params["product_scope"] = product_scope
         if product_type != "all":
             dimension_clauses.append("product_type = :product_type")
             dimension_params["product_type"] = product_type
@@ -3183,7 +3159,7 @@ class DashboardDataStore:
             "sale_month": filters.get("sale_month"),
             "verify_month": filters.get("verify_month"),
             "fee_direction": filters.get("fee_direction"),
-            "product_scope": filters.get("product_scope", "all"),
+            "product_scope": "all",
             "product_type": filters.get("product_type", "all"),
             "fee_rates": fee_rates,
             "rule_versions": rule_versions,
@@ -3347,9 +3323,6 @@ class DashboardDataStore:
                     "WHERE status_adjustment.original_fee_result_id = r.fee_result_id)"
                 )
 
-        if requested_product_scope != "all":
-            params["product_scope"] = requested_product_scope
-            clauses.append("r.product_scope = :product_scope")
         if requested_product_type != "all":
             params["product_type"] = requested_product_type
             clauses.append("r.product_type = :product_type")
@@ -4392,6 +4365,12 @@ class DashboardDataStore:
     def _sales_row_matches_product(self, row: dict[str, Any], product_type: str) -> bool:
         return product_type == "all" or row["product_type"] == product_type
 
+    def _clue_product_type_sql(self) -> str:
+        # Shared with publication builds; live reads never update source facts.
+        from apps.api.dy_api.dashboard_publications.clues import current_product_type_sql
+
+        return current_product_type_sql()
+
     def clue_store_options(
         self,
         scope_store_ids: tuple[str, ...] | None = None,
@@ -4407,7 +4386,7 @@ class DashboardDataStore:
         )
         visibility_params: dict[str, Any] = {}
         visibility_sql = self._visible_product_type_clause(
-            "c.product_type",
+            self._clue_product_type_sql(),
             visibility_params,
             prefix="clue_store_option_product",
         )
@@ -4506,13 +4485,13 @@ class DashboardDataStore:
         order_scope_params = self._order_scope_params(scope_store_ids)
         round_visibility_params: dict[str, Any] = {}
         round_visibility_sql = self._visible_product_type_clause(
-            "c.product_type",
+            self._clue_product_type_sql(),
             round_visibility_params,
             prefix="clue_filter_round_product",
         )
         order_visibility_params: dict[str, Any] = {}
         order_visibility_sql = self._visible_product_type_clause(
-            "c.product_type",
+            self._clue_product_type_sql(),
             order_visibility_params,
             prefix="clue_filter_order_product",
         )
@@ -4590,13 +4569,13 @@ class DashboardDataStore:
             _to_str(row.get("product_type"))
             for row in self._execute(
                 f"""
-                SELECT DISTINCT c.product_type
+                SELECT DISTINCT {self._clue_product_type_sql()} AS product_type
                 FROM clue_center_orders c
-                WHERE c.product_type IS NOT NULL AND c.product_type != ''
+                WHERE {self._clue_product_type_sql()} IS NOT NULL AND {self._clue_product_type_sql()} != ''
                   {formal_order_exists_sql}
                   {order_scope_sql}
                   {order_visibility_sql}
-                ORDER BY c.product_type
+                ORDER BY {self._clue_product_type_sql()}
                 """,
                 order_params,
             )
@@ -4637,7 +4616,7 @@ class DashboardDataStore:
             "assigned_stores": assigned_stores,
             "assigned_provinces": assigned_provinces,
             "assigned_cities": assigned_cities,
-            "product_types": ["精诚养车", "比亚迪本品"],
+            "product_types": product_types,
             "default_product_type": "all",
             "lead_statuses": lead_statuses,
             "round_statuses": round_statuses,
@@ -4726,7 +4705,7 @@ class DashboardDataStore:
                 "clue_visible_product", visible_product_types
             )
             if visible_placeholders:
-                clauses.append(f"c.product_type IN ({visible_placeholders})")
+                clauses.append(f"{self._clue_product_type_sql()} IN ({visible_placeholders})")
                 params.update(visible_params)
             else:
                 clauses.append("1 = 0")
@@ -4845,7 +4824,7 @@ class DashboardDataStore:
                    r.assigned_store_name,
                    COALESCE(c.phone_masked, '') AS phone_masked,
                    c.product_name,
-                   c.product_type,
+                   {self._clue_product_type_sql()} AS product_type,
                    c.author_nickname,
                    r.followed_at,
                    r.follow_result,
@@ -4919,7 +4898,7 @@ class DashboardDataStore:
                    COALESCE(c.phone_plain, '') AS phone_plain,
                    COALESCE(c.phone_masked, '') AS phone_masked,
                    c.product_name,
-                   c.product_type,
+                   {self._clue_product_type_sql()} AS product_type,
                    c.author_nickname,
                    r.followed_at,
                    r.follow_result,
@@ -4987,14 +4966,14 @@ class DashboardDataStore:
         if not self._clue_order_allowed(order_id, scope_store_ids):
             return None
         orders = self._execute(
-            """
+            f"""
             SELECT c.order_id,
                    c.canonical_clue_id,
                    c.lead_status,
                    COALESCE(c.phone_masked, '') AS phone_masked,
                    c.product_id,
                    c.product_name,
-                   c.product_type,
+                   {self._clue_product_type_sql()} AS product_type,
                    c.author_nickname,
                    c.assigned_city,
                    c.assigned_province,
@@ -5010,7 +4989,7 @@ class DashboardDataStore:
             return None
 
         rows = self._execute(
-            """
+            f"""
             SELECT r.assignment_round_id,
                    r.order_id,
                    r.round_no,
@@ -5039,7 +5018,7 @@ class DashboardDataStore:
                    r.assigned_store_id,
                    r.assigned_store_name,
                    COALESCE(c.phone_masked, '') AS phone_masked,
-                   c.product_type,
+                   {self._clue_product_type_sql()} AS product_type,
                    c.author_nickname,
                    r.followed_at,
                    r.follow_result,
@@ -5685,10 +5664,10 @@ class DashboardDataStore:
         if visible_product_types is None:
             return True
         rows = self._execute(
-            """
-            SELECT product_type
-            FROM clue_center_orders
-            WHERE order_id = :order_id
+            f"""
+            SELECT {self._clue_product_type_sql()} AS product_type
+            FROM clue_center_orders c
+            WHERE c.order_id = :order_id
             LIMIT 1
             """,
             {"order_id": order_id},
@@ -5783,27 +5762,8 @@ class DashboardDataStore:
                 clauses.append(f"{column} = :{key}")
                 params[key] = value
         product = _to_str(filters.get("product_type")).strip()
-        aliases = {"精诚养车": "jingcheng", "比亚迪本品": "byd", "全部商品": "all"}
-        product = aliases.get(product, product)
-        if product in {"jingcheng", "byd"}:
-            # EXISTS has a two-valued result, so NULL/unmapped products belong
-            # to the complement. Match the ranking round membership sources.
-            membership = """EXISTS (
-                SELECT 1 FROM dim_sku_product_rules pr
-                WHERE pr.product_scope = :clue_jingcheng_scope AND (
-                    c.product_id = pr.sku_id OR c.product_id = NULLIF(pr.product_id, '')
-                    OR EXISTS (SELECT 1 FROM raw_douyin_orders po
-                        WHERE po.order_id = c.order_id AND po.sku_id = pr.sku_id)
-                    OR EXISTS (SELECT 1 FROM raw_douyin_clues pc
-                        WHERE pc.order_id = c.order_id AND
-                        (pc.product_id = pr.sku_id OR pc.product_id = NULLIF(pr.product_id, '')))
-                ))"""
-            clauses.append(membership if product == "jingcheng" else "NOT " + membership)
-            params["clue_jingcheng_scope"] = "精诚养车"
-        elif product and product != "all":
-            # Retain old bookmarked fine-grained filters while the UI exposes
-            # only the new three-way partition.
-            clauses.append("c.product_type = :product_type")
+        if product and product != "all":
+            clauses.append(f"{self._clue_product_type_sql()} = :product_type")
             params["product_type"] = product
         visible_product_types = self._visible_product_types()
         if visible_product_types is not None:
@@ -5811,7 +5771,7 @@ class DashboardDataStore:
                 "clue_visible_product", visible_product_types
             )
             if placeholders:
-                clauses.append(f"c.product_type IN ({placeholders})")
+                clauses.append(f"{self._clue_product_type_sql()} IN ({placeholders})")
                 params.update(visible_params)
             else:
                 clauses.append("1 = 0")

@@ -219,3 +219,77 @@ def test_incomplete_frozen_period_is_503_but_same_version_filters_remain_availab
     assert filters.json()["meta"]["publication"]["id"] == publication.id
     assert "2026-09" in filters.json()["data"]["statementMonths"]
     assert filters.json()["data"]["periodReadiness"]["months"]["2026-09"]["ready"] is False
+
+
+def test_real_type_routes_ignore_legacy_scope_and_keep_list_total_export_permissions(analytical_client, db_session):
+    import csv
+    import io
+    from apps.api.dy_api.models import DimSkuProductRule
+
+    client, identity, factory = analytical_client
+    for store_id, scope in (("A", "first"), ("B", "second")):
+        fact = db_session.get(SettlementOrderDetail, f"sale-{store_id}")
+        fact.sku_id = f"type-{store_id}"
+        fact.product_type = "精诚养车"
+        db_session.add(DimSkuProductRule(sku_id=f"type-{store_id}", product_scope=scope, product_type="精诚养车"))
+    db_session.add(SettlementOrderDetail(coupon_id="other-type", order_id="other-type", product_type="比亚迪本品",
+        sale_store_id="A", sale_time=AT, verify_store_id="A", verify_time=AT + timedelta(days=1),
+        is_verified=True, is_refund_excluded=False, paid_amount_cent=300))
+    db_session.commit()
+    publication = freeze(factory, "sales")
+    choices = client.get("/api/v1/dashboard/publications/sales/filters", params={"publication_id": publication.id})
+    assert choices.status_code == 200, choices.text
+    assert set(choices.json()["data"]["productTypes"]) == {"all", "精诚养车", "比亚迪本品"}
+    assert choices.json()["data"]["productScopes"] == ["all"]
+    for product, count in (("all", 3), ("精诚养车", 2), ("比亚迪本品", 1)):
+        base = {"product_type": product, "product_scope": "unknown-old-scope"}
+        sale = client.get("/api/v1/dashboard/sales", params={**base, "year": 2026, "publication_id": publication.id})
+        assert sale.status_code == 200, sale.text
+        assert sale.json()["data"]["product_scope"] == "all"
+        assert sale.json()["data"]["metrics"]["total_sales_order_count"] == count
+        listed = client.get("/api/v1/order-details", params={**base, "page_size": 1})
+        assert listed.status_code == 200, listed.text
+        assert listed.json()["data"]["pagination"]["total"] == count
+        exported = client.get("/api/v1/order-details/export", params=base)
+        assert exported.status_code == 200, exported.text
+        rows = list(csv.DictReader(io.StringIO(exported.content.decode("utf-8-sig"))))
+        assert len(rows) == count
+        if product != "all":
+            assert {row["product_type"] for row in rows} == {product}
+    identity[0] = replace(identity[0], role="store", store_scope_mode="specified", store_ids=("A",), page_keys=("C01", "C02"))
+    for product, count in (("all", 2), ("精诚养车", 1), ("比亚迪本品", 1)):
+        params = {"product_type": product, "product_scope": "first"}
+        sale = client.get("/api/v1/dashboard/sales", params={**params, "store_id": "A", "year": 2026, "publication_id": publication.id})
+        assert sale.status_code == 200, sale.text
+        assert sale.json()["data"]["metrics"]["total_sales_order_count"] == count
+        listed = client.get("/api/v1/order-details", params=params)
+        assert listed.json()["data"]["pagination"]["total"] == count
+        exported = client.get("/api/v1/order-details/export", params=params)
+        assert len(list(csv.DictReader(io.StringIO(exported.content.decode("utf-8-sig"))))) == count
+
+
+def test_published_clue_real_types_match_metadata_and_remain_frozen(analytical_client, db_session):
+    client, identity, factory = analytical_client
+    for order, product in (("O1", "精诚养车"), ("O2", "比亚迪本品"), ("O3", "精诚养车")):
+        center = db_session.get(ClueCenterOrder, order)
+        center.product_type = product
+        center.product_id = None
+    db_session.commit()
+    publication = freeze(factory, "clue-overview")
+    params = {"publication_id": publication.id}
+    meta_url = "/api/v1/dashboard/publications/clue-overview/filters"
+    options = client.get(meta_url, params=params)
+    assert options.status_code == 200, options.text
+    assert set(options.json()["data"]["product_types"]) == {"精诚养车", "比亚迪本品"}
+    for product, count in (("all", 3), ("精诚养车", 2), ("比亚迪本品", 1), ("byd", 0)):
+        response = client.get("/api/v1/clues/overview", params={**params, "product_type": product})
+        assert response.status_code == 200, response.text
+        assert response.json()["data"]["total_clues"] == count
+    db_session.execute(update(ClueCenterOrder).values(product_type="Changed"))
+    db_session.commit()
+    assert client.get(meta_url, params=params).json()["data"] == options.json()["data"]
+    assert client.get("/api/v1/clues/overview", params={**params, "product_type": "精诚养车"}).json()["data"]["total_clues"] == 2
+    identity[0] = replace(identity[0], role="store", store_scope_mode="specified", store_ids=("C",), page_keys=("A01",))
+    response = client.get("/api/v1/clues/overview", params={**params, "product_type": "比亚迪本品"})
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["total_clues"] == 0
