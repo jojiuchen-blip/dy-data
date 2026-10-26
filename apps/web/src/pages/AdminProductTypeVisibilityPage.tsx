@@ -26,7 +26,6 @@ import { useDownloadFeedback } from "../hooks/useDownloadFeedback";
 
 type ViewMode = "pending" | "configured";
 type EditorMode = "single" | "bulk" | null;
-type FieldMode = "keep" | "set";
 
 const PAGE_SIZE = 50;
 
@@ -62,18 +61,15 @@ export function AdminProductTypeVisibilityPage({ canManageGlobalSettings }: { ca
   const [total, setTotal] = useState(0);
   const [counts, setCounts] = useState({ unconfigured: 0, partial: 0, configured: 0 });
   const [query, setQuery] = useState(() => urlValue("q"));
-  const [productScope, setProductScope] = useState(() => urlValue("productScope"));
   const [productType, setProductType] = useState(() => urlValue("productType"));
-  const [scopeTypeMap, setScopeTypeMap] = useState<Record<string, string[]>>({});
+  const [productTypes, setProductTypes] = useState<string[]>([]);
+  const [metadataError, setMetadataError] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [editorMode, setEditorMode] = useState<EditorMode>(null);
   const [editingRow, setEditingRow] = useState<SkuProductItem | null>(null);
-  const [scopeMode, setScopeMode] = useState<FieldMode>("keep");
-  const [typeMode, setTypeMode] = useState<FieldMode>("keep");
-  const [scopeValue, setScopeValue] = useState("");
   const [typeValue, setTypeValue] = useState("");
   const [importOpen, setImportOpen] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -86,7 +82,6 @@ export function AdminProductTypeVisibilityPage({ canManageGlobalSettings }: { ca
         page,
         pageSize: PAGE_SIZE,
         q: query.trim() || undefined,
-        productScope: productScope || undefined,
         productType: productType || undefined,
         configurationStatus: viewMode === "pending" ? "PENDING" : "CONFIGURED",
       });
@@ -100,7 +95,7 @@ export function AdminProductTypeVisibilityPage({ canManageGlobalSettings }: { ca
     } finally {
       setLoading(false);
     }
-  }, [page, productScope, productType, query, viewMode]);
+  }, [page, productType, query, viewMode]);
 
   useEffect(() => {
     void loadRows();
@@ -108,8 +103,9 @@ export function AdminProductTypeVisibilityPage({ canManageGlobalSettings }: { ca
 
   useEffect(() => {
     void fetchFilterMeta().then((response) => {
-      setScopeTypeMap(response.data.product_scope_type_map ?? {});
-    });
+      setProductTypes(response.data.product_types.filter((value) => value !== "all"));
+      setMetadataError("");
+    }).catch((error) => setMetadataError(errorMessage(error)));
   }, []);
 
   useEffect(() => {
@@ -117,16 +113,13 @@ export function AdminProductTypeVisibilityPage({ canManageGlobalSettings }: { ca
     params.set("view", viewMode);
     params.set("page", String(page));
     if (query) params.set("q", query); else params.delete("q");
-    if (productScope) params.set("productScope", productScope); else params.delete("productScope");
+    params.delete("productScope");
+    params.delete("product_scope");
     if (productType) params.set("productType", productType); else params.delete("productType");
     window.history.replaceState(null, "", `${window.location.pathname}?${params}`);
-  }, [page, productScope, productType, query, viewMode]);
+  }, [page, productType, query, viewMode]);
 
-  const productScopes = useMemo(() => Object.keys(scopeTypeMap).sort((left, right) => left.localeCompare(right, "zh-Hans-CN")), [scopeTypeMap]);
-  const filteredProductTypes = useMemo(() => {
-    const values = productScope ? scopeTypeMap[productScope] ?? [] : Object.values(scopeTypeMap).flat();
-    return Array.from(new Set(values)).sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
-  }, [productScope, scopeTypeMap]);
+  const filteredProductTypes = useMemo(() => Array.from(new Set(productTypes)).sort((left, right) => left.localeCompare(right, "zh-Hans-CN")), [productTypes]);
 
   const switchView = (next: ViewMode) => {
     setViewMode(next);
@@ -145,24 +138,18 @@ export function AdminProductTypeVisibilityPage({ canManageGlobalSettings }: { ca
     if (!canManageGlobalSettings) return;
     setEditorMode(mode);
     setEditingRow(row ?? null);
-    setScopeMode("keep");
-    setTypeMode("keep");
-    setScopeValue(row?.productScope ?? "");
     setTypeValue(row?.productType ?? "");
   };
 
   const buildUpdate = (): SkuProductManualFieldsUpdate | null => {
-    const payload: SkuProductManualFieldsUpdate = {};
-    if (scopeMode === "set" && scopeValue.trim()) payload.productScope = scopeValue.trim();
-    if (typeMode === "set" && typeValue.trim()) payload.productType = typeValue.trim();
-    return Object.keys(payload).length ? payload : null;
+    return typeValue.trim() ? { productType: typeValue.trim() } : null;
   };
 
   const saveEditor = async () => {
     if (!canManageGlobalSettings) return;
     const payload = buildUpdate();
     if (!payload) {
-      setNotice("请至少设置产品范围或商品类型中的一项。");
+      setNotice("请填写商品类型。");
       return;
     }
     setSaving(true);
@@ -229,7 +216,6 @@ export function AdminProductTypeVisibilityPage({ canManageGlobalSettings }: { ca
     },
     { key: "sku", title: "SKU 编码", minWidth: 150, render: (row) => <code>{row.skuId}</code> },
     { key: "name", title: "商品名称", minWidth: 200, render: (row) => row.skuName || row.productName || "-" },
-    { key: "scope", title: "产品范围", minWidth: 150, render: (row) => row.productScope || "未设置" },
     { key: "type", title: "商品类型", minWidth: 150, render: (row) => row.productType || "未设置" },
     { key: "status", title: "配置状态", width: 110, render: (row) => <span className={`product-types-status is-${row.configurationStatus.toLowerCase()}`}>{statusLabels[row.configurationStatus]}</span> },
     { key: "modified", title: "最后修改", minWidth: 170, render: (row) => row.manualModifiedAt ? <>{formatDateTime(row.manualModifiedAt)}<small>{row.manualModifiedBy || "-"}</small></> : "-" },
@@ -242,7 +228,7 @@ export function AdminProductTypeVisibilityPage({ canManageGlobalSettings }: { ca
         <div>
           <span className="source-pill">SKU 人工分类</span>
           <h1>商品口径</h1>
-          <p className="admin-muted">产品范围和商品类型会同时用于线索中心、核销表现和订单分佣。所有商品都可展示；订单分佣还要求商品存在有效分佣规则。</p>
+          <p className="admin-muted">商品类型用于线索中心、核销表现和订单分佣；历史账期保留生成时的分类。所有商品都可展示；订单分佣还要求商品存在有效分佣规则。</p>
         </div>
         <Button disabled={!canManageGlobalSettings} onClick={() => setImportOpen(true)} variant="secondary">批量导入</Button>
       </section>
@@ -253,13 +239,13 @@ export function AdminProductTypeVisibilityPage({ canManageGlobalSettings }: { ca
         <Button onClick={() => switchView("configured")} variant={viewMode === "configured" ? "primary" : "secondary"}>已配置 <span>{counts.configured}</span></Button>
       </nav>
 
+      {metadataError ? <div role="alert" className="resource-notice">商品类型选项暂不可用：{metadataError}</div> : null}
       {notice ? <div aria-live="polite" className="resource-notice" role="status">{notice}</div> : null}
 
       <section className="content-section product-types-panel">
         <div className="product-types-toolbar">
           <div className="product-types-filters">
             <TextField label="查询 SKU / 商品名称" onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="输入关键词" value={query} />
-            <SelectField label="产品范围" onChange={(value) => { setProductScope(value); if (productType && !(scopeTypeMap[value] ?? []).includes(productType)) setProductType(""); setPage(1); }} options={[{ label: "全部产品范围", value: "" }, ...productScopes.map((value) => ({ label: value, value }))]} value={productScope} />
             <SelectField label="商品类型" onChange={(value) => { setProductType(value); setPage(1); }} options={[{ label: "全部商品类型", value: "" }, ...filteredProductTypes.map((value) => ({ label: value, value }))]} value={productType} />
           </div>
           <div className="product-types-selection">
@@ -273,18 +259,14 @@ export function AdminProductTypeVisibilityPage({ canManageGlobalSettings }: { ca
         <TablePagination loading={loading} onPageChange={setPage} page={page} pageSize={PAGE_SIZE} rowsOnPage={rows.length} total={total} totalPages={Math.max(1, Math.ceil(total / PAGE_SIZE))} />
       </section>
 
-      <Dialog actions={<><Button disabled={saving} onClick={() => setEditorMode(null)} variant="secondary">取消</Button><Button disabled={!canManageGlobalSettings || saving} onClick={() => void saveEditor()} variant="primary">确认设置</Button></>} description={editorMode === "bulk" ? `将修改已跨页选择的 ${selected.size} 个 SKU；未选择设置的字段保持原值。` : `SKU ${editingRow?.skuId ?? ""}；未选择设置的字段保持原值。`} onClose={() => setEditorMode(null)} open={editorMode !== null} panelClassName="product-types-drawer" title={editorMode === "bulk" ? "批量设置商品口径" : "设置商品口径"}>
+      <Dialog actions={<><Button disabled={saving} onClick={() => setEditorMode(null)} variant="secondary">取消</Button><Button disabled={!canManageGlobalSettings || saving} onClick={() => void saveEditor()} variant="primary">确认设置</Button></>} description={editorMode === "bulk" ? `将修改已跨页选择的 ${selected.size} 个 SKU；精诚养车商品统一归类为精诚养车。` : `SKU ${editingRow?.skuId ?? ""}；精诚养车商品统一归类为精诚养车。`} onClose={() => setEditorMode(null)} open={editorMode !== null} panelClassName="product-types-drawer" title={editorMode === "bulk" ? "批量设置商品口径" : "设置商品口径"}>
         <div className="product-types-editor-field">
-          <SelectField label="产品范围处理方式" onChange={(value) => setScopeMode(value as FieldMode)} options={[{ label: "保持原值", value: "keep" }, { label: "设置新值", value: "set" }]} value={scopeMode} />
-          {scopeMode === "set" ? <><TextField helperText="可输入新值，也可选择已有建议。" label="产品范围" list="product-scope-suggestions" onChange={(event) => setScopeValue(event.target.value)} placeholder="输入或选择产品范围" value={scopeValue} /><datalist id="product-scope-suggestions">{productScopes.map((value) => <option key={value} value={value} />)}</datalist></> : null}
-        </div>
-        <div className="product-types-editor-field">
-          <SelectField label="商品类型处理方式" onChange={(value) => setTypeMode(value as FieldMode)} options={[{ label: "保持原值", value: "keep" }, { label: "设置新值", value: "set" }]} value={typeMode} />
-          {typeMode === "set" ? <><TextField helperText="可输入新值，也可选择已有建议。" label="商品类型" list="product-type-suggestions" onChange={(event) => setTypeValue(event.target.value)} placeholder="输入或选择商品类型" value={typeValue} /><datalist id="product-type-suggestions">{(scopeMode === "set" && scopeValue ? scopeTypeMap[scopeValue] ?? filteredProductTypes : filteredProductTypes).map((value) => <option key={value} value={value} />)}</datalist></> : null}
+          <TextField helperText="可输入新值，也可选择已有建议。精诚养车商品统一归类为精诚养车。" label="商品类型" list="product-type-suggestions" onChange={(event) => setTypeValue(event.target.value)} placeholder="输入或选择商品类型" value={typeValue} />
+          <datalist id="product-type-suggestions">{filteredProductTypes.map((value) => <option key={value} value={value} />)}</datalist>
         </div>
       </Dialog>
 
-      <Dialog actions={<><Button disabled={saving} onClick={() => setImportOpen(false)} variant="secondary">取消</Button>{importPreview?.batch.batchStatus === "PENDING_COMMIT" ? <Button disabled={!canManageGlobalSettings || saving} onClick={() => void commitImport()} variant="primary">确认写入 {importPreview.batch.validCount} 条</Button> : <Button disabled={!canManageGlobalSettings || saving || !importFile} onClick={() => void uploadImport()} variant="primary">上传并预校验</Button>}</>} description="支持 UTF-8 CSV 或 XLSX。字段为 skuId、productScope、productType；单项不修改请填写 KEEP，空白和两个 KEEP 都会阻止整批写入。" onClose={() => setImportOpen(false)} open={importOpen} panelClassName="product-types-drawer" title="批量导入商品口径">
+      <Dialog actions={<><Button disabled={saving} onClick={() => setImportOpen(false)} variant="secondary">取消</Button>{importPreview?.batch.batchStatus === "PENDING_COMMIT" ? <Button disabled={!canManageGlobalSettings || saving} onClick={() => void commitImport()} variant="primary">确认写入 {importPreview.batch.validCount} 条</Button> : <Button disabled={!canManageGlobalSettings || saving || !importFile} onClick={() => void uploadImport()} variant="primary">上传并预校验</Button>}</>} description="支持 UTF-8 CSV 或 XLSX。字段为 skuId、productType；商品类型不能为空。精诚养车商品统一归类为精诚养车，请核对预校验结果后写入。" onClose={() => setImportOpen(false)} open={importOpen} panelClassName="product-types-drawer" title="批量导入商品口径">
         <div className="product-types-import-actions"><Button loading={download.busy} onClick={() => void download.run(downloadSkuProductImportTemplate, "模板已下载。")} variant="secondary">下载模板</Button><FieldInput disabled={!canManageGlobalSettings || saving} accept=".csv,.xlsx" aria-label="选择商品口径导入文件" onChange={(event) => { setImportFile(event.target.files?.[0] ?? null); setImportPreview(null); }} type="file" /></div>
         {download.message ? <p className="resource-notice" role={download.isError ? "alert" : "status"}>{download.message}</p> : null}
         {importPreview ? <div className="product-types-import-summary"><strong>{importPreview.batch.batchStatus === "PENDING_COMMIT" ? "预校验通过" : "预校验未通过"}</strong><span>总计 {importPreview.batch.totalCount} / 有效 {importPreview.batch.validCount} / 错误 {importPreview.batch.failedCount}</span>{importPreview.errorPreview.slice(0, 10).map((row) => <p key={row.rowNumber}>第 {row.rowNumber} 行：{row.errors.map(({ message }) => message).join("；")}</p>)}</div> : null}

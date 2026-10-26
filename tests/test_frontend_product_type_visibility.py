@@ -30,7 +30,7 @@ def test_admin_product_type_visibility_page_is_wired_to_shell_and_api_client() -
     assert "CONFIGURED" in page_source
     assert "默认每页 50 条" in page_source
     assert "跨页" in page_source
-    assert "产品范围" in page_source
+    assert "产品范围" not in page_source
     assert "商品类型" in page_source
     assert "批量设置" in page_source
     assert "批量导入" in page_source
@@ -77,68 +77,56 @@ def test_business_product_filters_use_metadata_default_product_type() -> None:
     assert "clueDefaultProductType(meta)" in clues_source
 
 
-def test_sales_dashboard_has_product_scope_filter_before_product_type() -> None:
+def test_sales_dashboard_uses_real_product_type_without_scope() -> None:
     page_source = read_source("pages/SalesDashboardPage.tsx")
-    client_source = read_source("api/client.ts")
-    options_source = read_source("utils/options.ts")
-    types_source = read_source("types/dashboard.ts")
-
-    assert 'label="产品范围"' in page_source
-    assert page_source.index('label="产品范围"') < page_source.index(
-        'label="商品类型"'
-    )
-    assert "productScopeOptions(meta, activeProductScope)" in page_source
-    assert "productOptionsForScope(" in page_source
-    # The publication loader derives request values from current filter state.
-    assert "const scope = productScope || ALL_MONTHS;" in page_source
-    assert "productScope: scope," in page_source
-    assert "[storeId, month, year, productScope, productType]" in page_source
-    assert "product_scope: productScope" in client_source
-    assert "product_scopes?: string[]" in types_source
-    assert "product_scope_type_map?: Record<string, string[]>" in types_source
-    assert "export function productScopeOptions" in options_source
-    assert "export function productOptionsForScope" in options_source
+    assert 'label="产品范围"' not in page_source
+    assert 'label="商品类型"' in page_source
+    assert "productOptions(meta, activeProductType)" in page_source
+    assert "const type = productType || defaultProductType(filters);" in page_source
+    assert "[storeId, month, year, productType]" in page_source
+    assert "replaceBusinessFiltersInUrl" in page_source
 
 
-def test_store_finance_filters_follow_the_latest_uat_contract() -> None:
-    ranking_source = read_source("pages/StoreRankingPage.tsx")
-    settlement_source = read_source("pages/StoreSettlementPage.tsx")
-    details_source = read_source("pages/OrderDetailsPage.tsx")
-    client_source = read_source("api/client.ts")
-    types_source = read_source("types/dashboard.ts")
-    utils_source = read_source("utils/settlement.ts")
+def test_store_finance_filters_follow_the_product_type_contract() -> None:
+    for path in ["pages/StoreRankingPage.tsx", "pages/StoreSettlementPage.tsx", "pages/OrderDetailsPage.tsx"]:
+        source = read_source(path)
+        assert 'label="产品范围"' not in source
+        assert 'label="商品类型"' in source
+        assert "initialStatementMonth(searchParams)" in source
+        assert "replaceBusinessFiltersInUrl" in source
+        assert "productScope" not in source
+    assert '"product_scope"' not in read_source("utils/settlement.ts")
 
-    # The frozen UAT keeps product scope on the nationwide ranking page and
-    # removes the legacy product-type controls from both store pages. The
-    # single-store page only exposes the locked accounting period and bound
-    # store; ranking adds its explicit ranking-basis control.
-    assert 'label="产品范围"' in ranking_source
-    assert 'label="商品类型"' not in ranking_source
-    assert 'label="排行依据"' in ranking_source
-    assert 'label="商品类型"' not in settlement_source
-    assert 'label="产品范围"' not in settlement_source
-    assert 'label="账期"' in settlement_source
-    assert 'label="门店"' in settlement_source
 
-    assert "productScope," in ranking_source
-    assert 'searchParams.get("productScope")' in details_source
-    assert 'searchParams.get("productType")' in details_source
-    assert "productScope," in details_source
-    assert "productType," in details_source
-    assert "product_scope: productScope" in client_source
-    assert "productScope: string;" in client_source
-    assert "productScope: string;" in types_source
-    assert "product_scope?: string;" in types_source
-    assert '"product_scope"' in utils_source
+def test_clue_types_come_from_metadata_and_douyin_keeps_its_scope_contract() -> None:
+    clues = read_source("pages/ClueCenterPage.tsx")
+    assert "meta?.product_types" in clues
+    assert 'value: "jingcheng"' not in clues
+    assert 'value: "byd"' not in clues
+    ranking = read_source("pages/DouyinRankingPage.tsx")
+    export = read_source("components/DouyinRankingExportDialog.tsx")
+    assert '["all", "jingcheng", "byd"]' in ranking
+    assert "productScope={productScope}" in ranking
+    assert "productScope, periodStart" in export
 
 
 def test_product_type_editor_accepts_custom_values_with_existing_suggestions() -> None:
     page_source = read_source("pages/AdminProductTypeVisibilityPage.tsx")
 
-    assert 'list="product-scope-suggestions"' in page_source
-    assert 'id="product-scope-suggestions"' in page_source
     assert 'list="product-type-suggestions"' in page_source
     assert 'id="product-type-suggestions"' in page_source
     assert "可输入新值，也可选择已有建议" in page_source
-    assert 'placeholder="输入或选择产品范围"' in page_source
     assert 'placeholder="输入或选择商品类型"' in page_source
+
+
+def test_product_configuration_payloads_never_send_scope() -> None:
+    page = read_source("pages/AdminProductTypeVisibilityPage.tsx")
+    panel = read_source("components/AdminSkuGovernancePanel.tsx")
+    assert "productType: typeValue.trim()" in page
+    assert "payload.productScope" not in page
+    assert "productScope:" not in panel
+    assert "skuId、productType" in page
+    assert "精诚养车商品统一归类为精诚养车" in page
+    assert "await loadRows()" in page
+    assert "await loadProducts()" in panel
+    assert "options.fallbackOnError !== true" in read_source("api/client.ts")

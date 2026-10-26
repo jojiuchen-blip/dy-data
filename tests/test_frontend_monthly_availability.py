@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess
 import threading
+from datetime import datetime
 from unittest.mock import patch
 
 import pytest
@@ -291,5 +292,39 @@ def test_monthly_ranking_pagination_search_and_drilldown_share_period(browser, a
         assert drilled.value.status == 200
         assert drilled.value.json()["data"]["month"] == "2026-09"
         expect(metric(page, "当期推广服务费")).to_contain_text("123.45")
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("availability_api", ["mixed"], indirect=True)
+def test_menu_default_month_and_legacy_scope_are_read_only_in_real_api(
+    browser, availability_web, availability_api,
+):
+    """The real API accepts completed-month reads and refuses an unready month."""
+    context = browser.new_context()
+    page = context.new_page()
+    mutations = []
+    page.on("request", lambda request: mutations.append(request.url)
+            if request.method not in {"GET", "HEAD", "OPTIONS"} else None)
+    try:
+        page.clock.install(time=datetime.fromisoformat("2026-10-01T00:00:00+08:00"))
+        with page.expect_response(lambda response: "/store-ranking?" in response.url) as read:
+            page.goto(f"{availability_web}/ranking?productScope=obsolete&product_scope=obsolete")
+        assert read.value.status == 200
+        assert "periodKey=2026-09" in read.value.url
+        assert "productScope=" not in read.value.url
+        assert "product_scope=" not in read.value.url
+        expect(metric(page, "当期推广服务费")).to_contain_text("123.45")
+        assert "productScope=" not in page.url
+        with page.expect_response(lambda response: "/store-ranking?" in response.url) as unready:
+            page.goto(f"{availability_web}/ranking?periodKey=2026-08")
+        assert unready.value.status == 503
+        expect(page.get_by_role("alert").filter(has_text="所选账期尚未完成")).to_be_visible()
+        expect(page.locator(".metric-card")).to_have_count(0)
+        with page.expect_response(lambda response: "/store-ranking?" in response.url) as refreshed:
+            page.reload()
+        assert refreshed.value.status == 503
+        assert "periodKey=2026-08" in refreshed.value.url
+        assert mutations == []
     finally:
         context.close()

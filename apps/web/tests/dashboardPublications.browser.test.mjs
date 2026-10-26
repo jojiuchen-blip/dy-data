@@ -5,7 +5,7 @@ import test from "node:test";
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_NODE_PACKAGE || "playwright");
 const baseUrl = process.env.PUBLICATION_TEST_BASE_URL ?? "http://127.0.0.1:5195";
-const user = { user_id: "pub-test", username: "pub-test", display_name: "Publication QA", role: "highest_admin", is_highest_admin: true, is_initialized: true, store_scope_mode: "all", store_ids: [], page_keys: ["A01", "A02", "A03", "B01", "B02", "B03", "C01", "FIN01", "FIN02", "FIN03", "FIN04", "FIN05", "FIN06"] };
+const user = { user_id: "pub-test", username: "pub-test", display_name: "Publication QA", role: "highest_admin", is_highest_admin: true, can_manage_global_settings: true, is_initialized: true, store_scope_mode: "all", store_ids: [], page_keys: ["A01", "A02", "A03", "B01", "B02", "B03", "C01", "FIN01", "FIN02", "FIN03", "FIN04", "FIN05", "FIN06", "D04"] };
 const publication = (module, id) => ({ id, module, dataAsOf: null, publishedAt: "2026-10-19T02:00:00Z", status: "available", nextRefreshAt: "2026-10-19T02:05:00Z" });
 const payload = (data, module, id) => ({ data, meta: { generatedAt: "2099-01-01T00:00:00Z", source: "postgres", ...(module ? { publication: publication(module, id) } : {}) } });
 const metrics = { storeCount: 1, orderCount: 10, orderAverage: 10, followNumerator: 1, followDenominator: 2, follow24hRate: .5, followRate: .5, followAnyNumerator: 1, followAnyDenominator: 2, followActionRate: .5, followActionNumerator: 1, followActionDenominator: 2, verificationNumerator: 1, verificationDenominator: 2, verificationRate: .5 };
@@ -125,7 +125,7 @@ test("expired fixed version recovers once, 422 never retries, and 503 refresh ke
   assert.equal(expiredRequests.filter((url) => !url.searchParams.has("publication_id")).length, 2);
   mode = "unavailable";
   await page.getByRole("button", { name: "读取最新结果", exact: true }).click();
-  await page.getByText("发布结果暂不可用", { exact: false }).waitFor();
+  await page.getByText("发布结果读取失败", { exact: false }).waitFor();
   assert.equal(await page.locator("tbody tr").count(), 1);
   mode = "invalid";
   const before = requests.length;
@@ -289,7 +289,7 @@ test("sales commits refreshed filters, data and time only after the complete can
   assert.match(await total.innerText(), /23/);
   assert.match(await page.locator(".publication-time").innerText(), /10:00/);
   release();
-  await page.getByText("发布结果暂不可用", { exact: false }).waitFor();
+  await page.getByText("发布结果读取失败", { exact: false }).waitFor();
   assert.match(await total.innerText(), /23/);
   assert.match(await page.locator(".publication-time").innerText(), /10:00/);
   fail = false;
@@ -347,7 +347,7 @@ test("finance keeps complete old cards, rows, time and export while a new list i
   };
   await exportOld();
   release();
-  await page.getByText("发布结果暂不可用", { exact: false }).waitFor();
+  await page.getByText("发布结果读取失败", { exact: false }).waitFor();
   assert.match(await total.innerText(), /100\.00/);
   assert.match(await page.locator("tbody").innerText(), /旧版本门店/);
   assert.match(await page.locator(".publication-time").innerText(), /10:00/);
@@ -411,7 +411,7 @@ for (const module of ["sales", "finance"]) {
         await route.fulfill({ status, json: { detail: { message: "test failure" } } }); return true;
       });
       await page.goto(`${baseUrl}/${module === "sales" ? "sales?year=2026" : "finance/promotion?month=2026-09"}`);
-      await page.getByText(status === 410 ? "原结果版本已过期，请读取最新结果。" : status === 422 ? "筛选条件不正确，请调整后重试。" : "发布结果暂不可用，请稍后重试；后台会继续准备数据。", { exact: true }).first().waitFor();
+      await page.getByText(status === 410 ? "原结果版本已过期，请读取最新结果。" : status === 422 ? "筛选条件不正确，请调整后重试。" : "发布结果读取失败，请稍后重试。", { exact: true }).first().waitFor();
       await page.waitForTimeout(150);
       const data = requests.filter((url) => url.pathname.endsWith(module === "sales" ? "/dashboard/sales" : "/finance/invoices"));
       assert.equal(data.length, status === 410 ? 2 : 1);
@@ -919,3 +919,222 @@ test("unready analytical period keeps protected historical billing and invoice e
   assert.equal(live.searchParams.has("publication_id"), false);
   assert.equal(requests.filter((url) => url.pathname.endsWith("/monthly-settlement")).length, 1);
 }));
+
+
+// DYDATA-104 ordinary business classification uses actual metadata values.
+const realTypes = ["all", "精诚养车", "自定义类型A", "历史类型B"];
+const typedMeta = { ...filterMeta, productTypes: realTypes, productScopes: ["旧范围"], productScopeTypeMap: { "旧范围": ["错误类型"] }, statementMonths: ["2026-10", "2026-09", "2026-08"] };
+const choose = async (page, label, option) => {
+  await page.getByLabel(label, { exact: true }).click();
+  await page.getByRole("option", { name: option, exact: true }).click();
+};
+const assertNoScope = (url) => {
+  assert.equal(url.searchParams.has("productScope"), false, url.href);
+  assert.equal(url.searchParams.has("product_scope"), false, url.href);
+};
+
+test("ordinary sales uses actual type options and removes old scope bookmarks", async () => withPage(async ({ page, requests, handle }) => {
+  handle(async (route, url) => {
+    if (url.pathname.endsWith("/publications/sales/filters")) { await route.fulfill({ json: payload(typedMeta, "sales", "types1") }); return true; }
+    if (url.pathname.endsWith("/dashboard/sales")) { await route.fulfill({ json: payload(sales, "sales", "types1") }); return true; }
+    return false;
+  });
+  await page.goto(`${baseUrl}/sales?product_scope=旧范围`);
+  await page.locator(".metric-card").first().waitFor();
+  assert.equal(await page.getByLabel("产品范围", { exact: true }).count(), 0);
+  const filtered = page.waitForResponse((r) => new URL(r.url()).searchParams.get("product_type") === "自定义类型A");
+  await choose(page, "商品类型", "自定义类型A");
+  await filtered;
+  const data = requests.filter((url) => url.pathname.endsWith("/dashboard/sales"));
+  assert.equal(data.at(-1).searchParams.get("product_type"), "自定义类型A");
+  data.forEach(assertNoScope);
+  assertNoScope(new URL(page.url()));
+  await page.reload();
+  await page.locator(".metric-card").first().waitFor();
+  assert.equal(requests.filter((url) => url.pathname.endsWith("/dashboard/sales")).at(-1).searchParams.get("product_type"), "自定义类型A");
+}));
+
+test("clue ordinary filter displays real product types including historical names", async () => withPage(async ({ page, requests, handle }) => {
+  handle(async (route, url) => {
+    if (url.pathname.endsWith("/publications/clue-overview/filters")) { await route.fulfill({ json: payload({ assigned_stores: [], assigned_provinces: [], assigned_cities: [], product_types: realTypes, default_product_type: "all", lead_statuses: [], round_statuses: [], verification_statuses: [] }, "clue-overview", "ct1") }); return true; }
+    if (url.pathname.endsWith("/clues/overview")) { await route.fulfill({ json: payload({ total_count: 0, status_counts: {}, follow_up_rate: 0, verification_rate: 0 }, "clue-overview", "ct1") }); return true; }
+    return false;
+  });
+  await page.goto(`${baseUrl}/clues?productScope=旧范围`);
+  await choose(page, "商品类型", "历史类型B");
+  await page.waitForTimeout(100);
+  const data = requests.filter((url) => url.pathname.endsWith("/clues/overview"));
+  assert.equal(data.at(-1).searchParams.get("product_type"), "历史类型B");
+  data.forEach(assertNoScope);
+  assertNoScope(new URL(page.url()));
+}));
+
+test("monthly ranking defaults to completed Shanghai month and preserves selection through paging refresh and drilldown", async () => withPage(async ({ page, requests, handle }) => {
+  let denied = false;
+  handle(async (route, url) => {
+    if (url.pathname.endsWith("/publications/settlement/filters")) { await route.fulfill({ json: payload(typedMeta, "settlement", "mt1") }); return true; }
+    if (url.pathname.endsWith("/monthly-settlement")) { await route.fulfill({ json: payload({ store: { storeId: "s1", storeName: "门店一" }, month: "2026-08", metrics: {}, computedCumulative: {}, lines: [] }, "settlement", "mt1") }); return true; }
+    if (url.pathname.endsWith("/store-settlements") || url.pathname.endsWith("/order-fee-details")) { await route.fulfill({ json: payload({ list: [], total: 0 }) }); return true; }
+    if (url.pathname.endsWith("/dashboard/store-ranking")) {
+      await route.fulfill(denied ? { status: 403, json: { detail: { message: "denied" } } } : { json: payload({ ...settlementRows, scopeMode: "AUTHORIZED", total: 40, page: Number(url.searchParams.get("page")), periodKey: url.searchParams.get("periodKey") }, "settlement", "mt1") }); return true;
+    }
+    return false;
+  });
+  await page.clock.install({ time: new Date("2026-10-01T00:00:00+08:00") });
+  await page.addInitScript(() => localStorage.setItem("ranking", JSON.stringify({ periodKey: "2026-10" })));
+  await page.goto(`${baseUrl}/ranking?productScope=旧范围`);
+  await page.locator("tbody").getByText("完整账期门店").waitFor();
+  let reads = requests.filter((url) => url.pathname.endsWith("/dashboard/store-ranking"));
+  assert.equal(reads[0].searchParams.get("periodKey"), "2026-09");
+  await choose(page, "商品类型", "自定义类型A");
+  await page.getByRole("button", { name: "下一页", exact: true }).click();
+  await page.waitForTimeout(100);
+  reads = requests.filter((url) => url.pathname.endsWith("/dashboard/store-ranking"));
+  assert.equal(reads.at(-1).searchParams.get("page"), "2");
+  assert.equal(reads.at(-1).searchParams.get("periodKey"), "2026-09");
+  assert.equal(reads.at(-1).searchParams.get("productType"), "自定义类型A");
+  reads.forEach(assertNoScope);
+  await choose(page, "账期", "2026-08");
+  await page.reload();
+  await page.locator("tbody").getByText("完整账期门店").waitFor();
+  await page.locator('tbody tr[role="link"]').first().click();
+  await page.waitForURL("**/settlement?**");
+  assert.equal(new URL(page.url()).searchParams.get("month"), "2026-08");
+  assert.equal(new URL(page.url()).searchParams.get("productType"), "自定义类型A");
+  assertNoScope(new URL(page.url()));
+  await page.goto(`${baseUrl}/ranking?periodKey=2026-08&productType=自定义类型A`);
+  await page.locator("tbody").getByText("完整账期门店").waitFor();
+  denied = true;
+  await page.getByRole("button", { name: "读取最新结果", exact: true }).click();
+  await page.getByText("当前账号没有查看该榜单的权限。", { exact: false }).waitFor();
+  assert.equal(await page.locator("tbody").getByText("完整账期门店").count(), 0);
+  assert.equal(await page.locator(".metric-card").count(), 0);
+}));
+
+const feeDetail = (month, productType, page) => ({ context: { month, storeId: null, statementId: null, statementLineId: null, feeDirection: "PROMOTION", productScope: "旧范围", productType, feeRates: [], ruleVersions: [] }, list: [{ feeResultId: "detail1", orderId: "订单分佣测试", couponId: "c1", skuId: "sku1", productName: "历史费用商品", productScope: "隐藏旧范围", productType, originalBusinessMonth: month, originalBaseCent: 0, originalFeeCent: 0, adjustmentBaseCent: 0, adjustmentFeeCent: 0, adjustedNetBaseCent: 0, adjustedNetFeeCent: 0, sourceAmountCent: 0, refundedAmountCent: 0, feeRate: "0.08", ruleVersion: "v1", adjustments: [] }], total: 60, page, pageSize: 50 });
+
+test("fee details share month and type across list paging export refresh and clear failed period", async () => withPage(async ({ page, requests, handle }) => {
+  let failed = false;
+  handle(async (route, url) => {
+    if (url.pathname.endsWith("/meta/filters")) { await route.fulfill({ json: payload(typedMeta) }); return true; }
+    if (url.pathname.endsWith("/order-fee-details/export")) { await route.fulfill({ contentType: "text/csv", headers: { "Content-Disposition": "attachment; filename=orders.csv" }, body: "orderId\n订单分佣测试" }); return true; }
+    if (url.pathname.endsWith("/order-fee-details")) { await route.fulfill(failed ? periodUnavailable : { json: payload(feeDetail(url.searchParams.get("month"), url.searchParams.get("productType"), Number(url.searchParams.get("page")))) }); return true; }
+    return false;
+  });
+  await page.clock.install({ time: new Date("2026-10-12T09:00:00+08:00") });
+  await page.goto(`${baseUrl}/details?product_scope=旧范围`);
+  await page.locator("tbody").getByText("订单分佣测试", { exact: true }).waitFor();
+  assert.equal(requests.find((url) => url.pathname.endsWith("/order-fee-details")).searchParams.get("month"), "2026-09");
+  assert.equal(await page.getByText("隐藏旧范围", { exact: false }).count(), 0);
+  await choose(page, "商品类型", "历史类型B");
+  await choose(page, "账期", "2026-08");
+  await page.getByRole("button", { name: "下一页", exact: true }).click();
+  await page.waitForTimeout(100);
+  const downloaded = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出", exact: true }).click();
+  await downloaded;
+  const exported = requests.find((url) => url.pathname.endsWith("/order-fee-details/export"));
+  assert.equal(exported.searchParams.get("month"), "2026-08");
+  assert.equal(exported.searchParams.get("productType"), "历史类型B");
+  assertNoScope(exported);
+  await page.reload();
+  await page.locator("tbody").getByText("订单分佣测试", { exact: true }).waitFor();
+  failed = true;
+  await choose(page, "账期", "2026-09");
+  await page.getByText(periodNotice, { exact: false }).first().waitFor();
+  assert.equal(await page.locator("tbody").getByText("订单分佣测试", { exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "导出", exact: true }).isDisabled(), true);
+  requests.filter((url) => url.pathname.endsWith("/order-fee-details")).forEach(assertNoScope);
+}));
+
+test("admin configuration saves type only, reloads normalized value and exposes metadata failure", async () => withPage(async ({ page, handle }) => {
+  let productType = "自定义类型A";
+  const writes = [];
+  let metadataFailed = false;
+  handle(async (route, url) => {
+    if (url.pathname.endsWith("/meta/filters")) { await route.fulfill(metadataFailed ? { status: 503, json: { detail: { message: "unavailable" } } } : { json: payload(typedMeta) }); return true; }
+    if (url.pathname.endsWith("/admin/sku-products/sku1")) {
+      writes.push(route.request().postDataJSON()); productType = "精诚养车";
+      await route.fulfill({ json: payload({ skuId: "sku1", productType }) }); return true;
+    }
+    if (url.pathname.endsWith("/admin/sku-products")) { await route.fulfill({ json: payload({ list: [{ skuId: "sku1", skuName: "配置测试商品", productScope: "隐藏后台范围", productType, configurationStatus: "CONFIGURED", manualModifiedAt: null }], total: 1, page: 1, pageSize: 50, statusCounts: { unconfigured: 0, partial: 0, configured: 1 } }) }); return true; }
+    return false;
+  });
+  await page.goto(`${baseUrl}/admin/product-types?view=configured&productScope=旧范围`);
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("商品类型", { exact: true }).fill("任意输入类型");
+  await dialog.getByRole("button", { name: "确认设置", exact: true }).click();
+  await page.locator("tbody").getByText("精诚养车", { exact: true }).waitFor();
+  assert.deepEqual(writes, [{ productType: "任意输入类型", expectedManualModifiedAt: null }]);
+  assert.equal(await page.getByText("隐藏后台范围", { exact: false }).count(), 0);
+  assertNoScope(new URL(page.url()));
+  metadataFailed = true;
+  await page.reload();
+  await page.getByRole("alert").filter({ hasText: "商品类型选项暂不可用" }).waitFor();
+  assert.equal(await page.getByText("当前展示演示数据", { exact: false }).count(), 0);
+}));
+
+test("finance order applied month controls navigation export and refresh while permission failure clears rows", async () => withPage(async ({ page, requests, handle }) => {
+  let denied = false;
+  handle(async (route, url) => {
+    if (url.pathname.endsWith("/admin/finance/order-details/export")) { await route.fulfill({ contentType: "text/csv", headers: { "Content-Disposition": "attachment; filename=finance.csv" }, body: "orderId\n财务测试订单" }); return true; }
+    if (url.pathname.endsWith("/admin/finance/order-details")) { await route.fulfill(denied ? { status: 403, json: { detail: { message: "denied" } } } : { json: payload({ list: [{ statementMonth: url.searchParams.get("month"), orderId: "财务测试订单", productType: "历史类型B" }], total: 1, page: 1, pageSize: 50, definitions: {} }) }); return true; }
+    return false;
+  });
+  await page.clock.install({ time: new Date("2026-10-12T09:00:00+08:00") });
+  await page.goto(`${baseUrl}/finance/orders/promotion`);
+  await page.locator("tbody").getByText("财务测试订单", { exact: true }).waitFor();
+  assert.equal(requests.find((url) => url.pathname.endsWith("/admin/finance/order-details")).searchParams.get("month"), "2026-09");
+  await page.getByLabel("筛选账期", { exact: true }).fill("2026-08");
+  assert.match(await page.getByRole("link", { name: "管理服务费明细", exact: true }).getAttribute("href"), /month=2026-09/);
+  await page.getByRole("button", { name: "应用筛选", exact: true }).click();
+  await page.locator("tbody").getByText("2026-08", { exact: true }).waitFor();
+  const downloaded = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出全部命中结果", exact: true }).click();
+  await downloaded;
+  assert.equal(requests.find((url) => url.pathname.endsWith("/admin/finance/order-details/export")).searchParams.get("month"), "2026-08");
+  await page.reload();
+  await page.locator("tbody").getByText("2026-08", { exact: true }).waitFor();
+  denied = true;
+  await page.getByLabel("筛选账期", { exact: true }).fill("2026-09");
+  await page.getByRole("button", { name: "应用筛选", exact: true }).click();
+  await page.getByText("当前筛选结果读取失败。", { exact: true }).waitFor();
+  assert.equal(await page.locator("tbody").getByText("财务测试订单", { exact: true }).count(), 0);
+}));
+
+test("independent Douyin ranking and export retain byd productScope", async () => withPage(async ({ page, requests, handle }) => {
+  handle(async (route, url) => {
+    if (url.pathname.endsWith("/douyin-ranking/export")) { await route.fulfill({ contentType: "application/octet-stream", headers: { "Content-Disposition": "attachment; filename=ranking.xlsx" }, body: "test" }); return true; }
+    if (url.pathname.endsWith("/douyin-ranking")) { await route.fulfill({ json: payload(ranking, "douyin-ranking", "protect1") }); return true; }
+    return false;
+  });
+  await page.goto(`${baseUrl}/metrics/douyin-ranking?productScope=byd`);
+  await page.locator("tbody").getByText("测试集团", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "导出排行", exact: true }).click();
+  const downloaded = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出 Excel", exact: true }).click();
+  await downloaded;
+  requests.filter((url) => url.pathname.includes("/douyin-ranking")).forEach((url) => {
+    assert.equal(url.searchParams.get("productScope"), "byd");
+    assert.equal(url.searchParams.has("productType"), false);
+  });
+}));
+
+
+for (const [code, text] of [["PUBLICATION_NOT_READY", "分析结果尚未发布"], ["PUBLICATION_PERIOD_NOT_READY", "所选账期尚未完成"], ["READ_FAILED", "榜单暂不可用"]]) {
+  test(`initial settlement ${code} never becomes a real zero result`, async () => withPage(async ({ page, requests, handle }) => {
+    const writes = [];
+    page.on("request", (request) => { if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) writes.push(request.url()); });
+    handle(async (route, url) => {
+      if (url.pathname.endsWith("/publications/settlement/filters")) { await route.fulfill({ json: payload(typedMeta, "settlement", "state1") }); return true; }
+      if (url.pathname.endsWith("/dashboard/store-ranking")) { await route.fulfill({ status: 503, json: { detail: { code, message: "unavailable" } } }); return true; }
+      return false;
+    });
+    await page.goto(`${baseUrl}/ranking?month=2026-09`);
+    await page.getByText(text, { exact: false }).first().waitFor();
+    assert.equal(await page.locator(".metric-card").count(), 0);
+    assert.deepEqual(writes, []);
+    assert.equal(requests.filter((url) => url.pathname.endsWith("/dashboard/store-ranking")).length, 1);
+  }));
+}

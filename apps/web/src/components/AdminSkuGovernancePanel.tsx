@@ -67,7 +67,6 @@ export function AdminSkuGovernancePanel() {
   const [batches, setBatches] = useState<ImportBatchItem[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<SkuProductItem | null>(null);
   const [productQuery, setProductQuery] = useState("");
-  const [productScope, setProductScope] = useState("");
   const [productType, setProductType] = useState("");
   const [isServiceProduct, setIsServiceProduct] = useState(true);
   const [ruleSkuId, setRuleSkuId] = useState("");
@@ -120,21 +119,19 @@ export function AdminSkuGovernancePanel() {
 
   const chooseProduct = (row: SkuProductItem) => {
     setSelectedProduct(row);
-    setProductScope(row.productScope);
     setProductType(row.productType);
     setIsServiceProduct(row.isServiceProduct);
     setRuleSkuId(row.skuId);
   };
 
   const saveProduct = async () => {
-    if (!selectedProduct || !productScope.trim() || !productType.trim()) {
-      setNotice("请选择商品，并完整填写产品范围和商品类型。");
+    if (!selectedProduct || !productType.trim()) {
+      setNotice("请选择商品，并填写商品类型。");
       return;
     }
     setWorking(true);
     try {
       await updateSkuProduct(selectedProduct.skuId, {
-        productScope: productScope.trim(),
         productType: productType.trim(),
         isServiceProduct,
         expectedManualModifiedAt: selectedProduct.manualModifiedAt,
@@ -279,7 +276,7 @@ export function AdminSkuGovernancePanel() {
     { key: "creator", title: "创建账号", align: "left", render: (row) => row.creatorAccountName || row.creatorAccountId || "未返回" },
     { key: "status", title: "商品状态", render: (row) => <StatusChip tone={row.productStatus === "ACTIVE" ? "success" : "neutral"}>{displayProductStatus(row.productStatus)}</StatusChip> },
     { key: "sync", title: "同步状态", render: (row) => <StatusChip tone={row.syncStatus === "SUCCESS" ? "success" : "neutral"}>{displayProductRecordSyncStatus(row.syncStatus)}</StatusChip> },
-    { key: "manual", title: "人工分类", render: (row) => `${row.productScope || "未配置"} / ${row.productType || "未配置"}` },
+    { key: "manual", title: "人工分类", render: (row) => row.productType || "未配置" },
     { key: "action", title: "操作", render: (row) => <Button onClick={() => chooseProduct(row)} size="sm">编辑人工字段</Button> },
   ], []);
 
@@ -300,7 +297,7 @@ export function AdminSkuGovernancePanel() {
 
       <section className="content-section">
         <div className="section-title">
-          <div><h2>商品人工分类</h2><p>平台商品、归属账号、创建账号和在线状态只读；仅可修改产品范围、商品类型和服务商品标记。</p></div>
+          <div><h2>商品人工分类</h2><p>平台商品、归属账号、创建账号和在线状态只读；仅可修改商品类型和服务商品标记。精诚养车商品统一归类为精诚养车。</p></div>
           <span className="source-pill">{loading ? "加载中" : `${formatInteger(products.length)} 条`}</span>
         </div>
         <div className="admin-tools">
@@ -311,7 +308,6 @@ export function AdminSkuGovernancePanel() {
         {selectedProduct ? (
           <div className="admin-inline-editor">
             <strong>编辑 SKU {selectedProduct.skuId}</strong>
-            <label className="filter-field"><span>产品范围</span><input onChange={(event) => setProductScope(event.target.value)} value={productScope} /></label>
             <label className="filter-field"><span>商品类型</span><input onChange={(event) => setProductType(event.target.value)} value={productType} /></label>
             <label className="filter-field checkbox-field"><span>服务类商品</span><input checked={isServiceProduct} onChange={(event) => setIsServiceProduct(event.target.checked)} type="checkbox" /></label>
             <Button disabled={working} onClick={() => void saveProduct()} type="button" variant="primary">保存并重新加载</Button>
