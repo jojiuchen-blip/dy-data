@@ -293,3 +293,53 @@ def test_published_clue_real_types_match_metadata_and_remain_frozen(analytical_c
     response = client.get("/api/v1/clues/overview", params={**params, "product_type": "比亚迪本品"})
     assert response.status_code == 200, response.text
     assert response.json()["data"]["total_clues"] == 0
+
+
+def test_meta_types_only_include_authorized_store_facts_and_preserve_frozen_finance(analytical_client, db_session):
+    from apps.api.dy_api.models import (ClueAssignmentRound, DimSkuProductRule,
+        SettlementFeeResult, SettlementStatementEntry, SettlementStatementLine)
+
+    client, identity, _ = analytical_client
+    db_session.add(DimSkuProductRule(sku_id="catalog-only", product_type="Global catalog only"))
+    for store_id in ("A", "B"):
+        db_session.get(SettlementOrderDetail, f"sale-{store_id}").product_type = f"{store_id} order"
+        db_session.add(DimSkuProductRule(sku_id=f"live-clue-{store_id}", product_type=f"{store_id} current clue"))
+        db_session.add(ClueCenterOrder(order_id=f"meta-clue-{store_id}", product_id=f"live-clue-{store_id}",
+            product_type=f"{store_id} stale clue", lead_status="active",
+            current_round_status="active_unfollowed", current_assignment_round_id=f"meta-round-{store_id}"))
+        db_session.add(ClueAssignmentRound(assignment_round_id=f"meta-round-{store_id}",
+            order_id=f"meta-clue-{store_id}", round_no=1, assigned_at=AT, assigned_store_id=store_id,
+            round_status="active_unfollowed", execution_mode="formal"))
+        db_session.add(SettlementFeeResult(fee_result_id=f"meta-fee-{store_id}",
+            coupon_id=f"meta-coupon-{store_id}", order_id=f"meta-order-{store_id}", fee_direction=1,
+            original_business_month="2026-08", rule_match_date=AT.date(), sale_store_id=store_id,
+            verify_store_id=store_id, sku_id=f"fee-sku-{store_id}", product_type=f"{store_id} frozen fee",
+            sale_channel_normalized="STORE", rule_version="meta-rule", scope_rule_version="meta-scope",
+            calculation_run_id="meta-run", calculated_at=AT))
+        db_session.add(SettlementStatement(statement_id=f"meta-statement-{store_id}", store_id=store_id,
+            statement_month="2026-08", version_no=1, is_current=True, statement_status=4))
+        db_session.add(SettlementStatementLine(statement_line_id=f"meta-line-{store_id}",
+            statement_id=f"meta-statement-{store_id}", fee_direction=1, product_type=f"{store_id} frozen bill"))
+        db_session.add(SettlementStatementEntry(statement_entry_id=f"meta-entry-{store_id}",
+            statement_id=f"meta-statement-{store_id}", statement_line_id=f"meta-line-{store_id}",
+            source_type=1, source_record_id=f"meta-fee-{store_id}", original_fee_result_id=f"meta-fee-{store_id}",
+            coupon_id=f"meta-coupon-{store_id}", order_id=f"meta-order-{store_id}", fee_direction=1,
+            original_business_month="2026-08", statement_posting_month="2026-08",
+            product_type=f"{store_id} frozen bill", rule_version="meta-rule"))
+    db_session.commit()
+    global_response = client.get("/api/v1/meta/filters")
+    assert global_response.status_code == 200, global_response.text
+    assert "Global catalog only" in global_response.json()["data"]["productTypes"]
+    for store_id in ("A", "B"):
+        identity[0] = replace(identity[0], role="store", store_scope_mode="specified", store_ids=(store_id,), page_keys=("C01", "A01"))
+        response = client.get("/api/v1/meta/filters")
+        assert response.status_code == 200, response.text
+        assert set(response.json()["data"]["productTypes"]) == {
+            "all", "P", f"{store_id} order", f"{store_id} frozen fee",
+            f"{store_id} frozen bill", f"{store_id} current clue"}
+        assert [row["storeId"] for row in response.json()["data"]["stores"]] == [store_id]
+    identity[0] = replace(identity[0], store_ids=())
+    response = client.get("/api/v1/meta/filters")
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["productTypes"] == ["all"]
+    assert response.json()["data"]["stores"] == []

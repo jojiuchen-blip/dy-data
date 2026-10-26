@@ -1419,8 +1419,48 @@ class DashboardDataStore:
             return True
         return product_type in set(visible_product_types)
 
-    def list_product_types(self) -> list[str]:
-        product_types = self._all_product_types()
+    def list_product_types(
+        self, scope_store_ids: tuple[str, ...] | None = None
+    ) -> list[str]:
+        """Return types from authorized facts, preserving frozen financial names."""
+        if scope_store_ids is None:
+            product_types = self._all_product_types()
+        else:
+            placeholders, params = _in_clause_params("meta_type_store", scope_store_ids)
+            if not placeholders:
+                return ["all"]
+            clue_where, clue_params = self._clue_where(
+                {"scope_store_ids": scope_store_ids}, include_round=True
+            )
+            rows = self._execute(
+                f"""
+                SELECT DISTINCT product_type FROM settlement_order_details
+                WHERE sale_store_id IN ({placeholders}) OR verify_store_id IN ({placeholders})
+                UNION
+                SELECT DISTINCT product_type FROM settlement_fee_result
+                WHERE sale_store_id IN ({placeholders}) OR verify_store_id IN ({placeholders})
+                UNION
+                SELECT DISTINCT entry.product_type
+                FROM settlement_statement_entry entry
+                JOIN settlement_statement statement ON statement.statement_id = entry.statement_id
+                WHERE statement.store_id IN ({placeholders})
+                UNION
+                SELECT DISTINCT line.product_type
+                FROM settlement_statement_line line
+                JOIN settlement_statement statement ON statement.statement_id = line.statement_id
+                WHERE statement.store_id IN ({placeholders})
+                UNION
+                SELECT DISTINCT {self._clue_product_type_sql()} AS product_type
+                FROM clue_assignment_rounds r
+                JOIN clue_center_orders c ON c.order_id = r.order_id
+                {clue_where}
+                """,
+                {**params, **clue_params},
+            )
+            product_types = sorted({
+                value for row in rows
+                if (value := _to_str(row.get("product_type")).strip()) and value != "all"
+            })
         visible_product_types = self._visible_product_types()
         if visible_product_types is not None:
             allowed = set(visible_product_types)

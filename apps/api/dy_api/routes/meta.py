@@ -45,7 +45,10 @@ def filters(
         "stores": store.list_stores(scope_store_ids=scope_store_ids),
         "product_scopes": ["all"],
         "product_scope_type_map": {},
-        "product_types": store.list_product_types(),
+        "product_types": (
+            store.list_product_types() if scope_store_ids is None
+            else store.list_product_types(scope_store_ids=scope_store_ids)
+        ),
         "default_product_type": default_product_type,
         "sale_months": store.list_sale_months(),
         "verify_months": store.list_verify_months(),
