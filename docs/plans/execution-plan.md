@@ -1,4 +1,22 @@
-# 当前执行：DYDATA-104 10月23日新增范围
+# 当前执行：DYDATA-104 商品类型与默认账期（2026-10-26）
+
+| 字段 | 内容 |
+|---|---|
+| 当前阶段 | S4 |
+| 正式计划 | [主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md) / [看板](delivery-plans/task-kanban-dydata-104-followthrough.md) |
+| 当前活跃 Phase / Task | T3.1，进行中 |
+| 当前子开发计划 | [当前增量](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md) |
+| 当前目标 | 真实商品类型配置/筛选、精诚养车分类转换、订单分佣默认上海上一完整自然月 |
+| 进行中任务 | 独立工作树实现与测试；基线 6ac6e440 |
+| 下一步任务 | 合并有界实现、定向与完整验证、CI及可审阅交付 |
+| 完成标准摘要 | 两真实类型及全部、跨scope、旧链接缓存、跨年月份、权限与同版导出通过；独立打榜及历史账务事实保持 |
+| 当前阻塞与前置依赖 | 尚无本轮功能验证或生产应用证据；数据核查由协作者处理，不恢复暂停的账务写入 |
+
+【用户确认】本轮授权已存在于对话及104；不重复征求开工。以下历史入口保留，不作为本次恢复旧操作的授权。
+
+---
+
+# 历史执行：DYDATA-104 10月23日新增范围
 
 - 用户已批准开始；继续S4/T3.1，当前Codex负责集成，基于ca61eff。
 - 当前正式计划：[dydata-104-followthrough](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)；[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。
