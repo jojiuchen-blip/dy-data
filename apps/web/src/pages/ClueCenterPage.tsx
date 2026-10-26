@@ -285,13 +285,6 @@ function getFollowUpUnavailableReason(row: ClueAssignmentRound): string {
   return reason === "-" ? "此线索不可操作" : reason;
 }
 
-function verificationStatusText(row: ClueAssignmentRound): string {
-  if (!row.verified_store_id) {
-    return "未核销";
-  }
-  return row.is_self_store_verified ? "本店核销" : "非本店核销";
-}
-
 function formatInvalidatedAt(row: ClueAssignmentRound): string {
   const status = getStoreDisplayStatus(row);
   if (status === "超期失效") {
@@ -346,7 +339,7 @@ function currentDetailRound(
 
 function verificationStoreText(row: ClueAssignmentRound): string {
   return row.verified_store_name?.trim() || row.verified_store_id?.trim() ||
-    (row.verified_at || getStoreDisplayStatus(row) === "已核销" ? "核销门店待同步" : "未核销");
+    (row.verified_at || getStoreDisplayStatus(row) === "已核销" ? "核销门店暂缺" : "—");
 }
 
 function recordsForRound(
@@ -647,9 +640,6 @@ export function ClueCenterPage({
     detail?.product_type ?? activeDetailRound?.product_type ?? "-";
   const detailOrderStatus = activeDetailRound
     ? displayOrderStatus(activeDetailRound.order_current_status)
-    : "-";
-  const detailVerificationStatus = activeDetailRound
-    ? verificationStatusText(activeDetailRound)
     : "-";
   const canShowActiveDetailPhone = activeDetailRound
     ? canViewFullPhone(activeDetailRound)
@@ -1749,10 +1739,6 @@ export function ClueCenterPage({
                         <div>
                           <dt>下单时间</dt>
                           <dd>{formatDateTime(detail.order_created_at)}</dd>
-                        </div>
-                        <div>
-                          <dt>核销状态</dt>
-                          <dd>{detailVerificationStatus}</dd>
                         </div>
                         <div>
                           <dt>核销门店</dt>
