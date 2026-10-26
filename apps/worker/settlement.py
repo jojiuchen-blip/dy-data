@@ -145,6 +145,46 @@ class OwnerAccountMatch:
 
 
 @dataclass(frozen=True)
+class DualFeeSaleAccountDiagnostic:
+    """Ordinary sale attribution outcome with the exact evaluated rejection node."""
+
+    match: OwnerAccountMatch | None
+    reason_code: str
+    failure_node: str | None
+    failure_evidence: dict[str, Any] | None
+    sale_date: date | None
+    direct_account: dict[str, Any] | None
+    raw_bindings: tuple[dict[str, Any], ...]
+    candidates: tuple[dict[str, Any], ...]
+    valid_store_ids: tuple[str, ...]
+
+    def as_context(self) -> dict[str, Any]:
+        """Return bounded JSON evidence without nicknames or original payloads."""
+        limit = 50
+        return {
+            "reason_code": self.reason_code,
+            "failure_node": self.failure_node,
+            "failure_evidence": self.failure_evidence,
+            "sale_date": self.sale_date.isoformat() if self.sale_date else None,
+            "match": {
+                "account_id": self.match.account_id,
+                "store_id": self.match.store_id,
+                "match_source": self.match.match_source,
+            } if self.match else None,
+            "direct_account": self.direct_account,
+            "raw_bindings": list(self.raw_bindings[:limit]),
+            "raw_binding_count": len(self.raw_bindings),
+            "candidates": list(self.candidates[:limit]),
+            "candidate_count": len(self.candidates),
+            "valid_store_ids": list(self.valid_store_ids[:limit]),
+            "valid_store_count": len(self.valid_store_ids),
+            "evidence_truncated": any(len(items) > limit for items in (
+                self.raw_bindings, self.candidates, self.valid_store_ids,
+            )),
+        }
+
+
+@dataclass(frozen=True)
 class DualFeeStats:
     result_count: int
     adjustment_count: int
@@ -3134,15 +3174,16 @@ def _materialize_dual_fee_direction(
             directions=(direction,), context={"direction": direction_name},
         )
         return False
-    sale_account = (
-        OwnerAccountMatch(
+    sale_diagnostic = None
+    if attribution_decision is not None:
+        sale_account = OwnerAccountMatch(
             account_id=attribution_decision.source_account_id,
             store_id=attribution_decision.store_id,
             match_source="historical_sale_attribution",
         )
-        if attribution_decision is not None
-        else _resolve_dual_fee_sale_account(session, order)
-    )
+    else:
+        sale_diagnostic = diagnose_dual_fee_sale_account(session, order)
+        sale_account = sale_diagnostic.match
     if sale_account is None:
         _block_dual_fee(
             session,
@@ -3156,6 +3197,9 @@ def _materialize_dual_fee_direction(
                 "direction": direction_name,
                 "sale_owner_account_id": sale_owner_account_id,
                 "sale_owner_account_name": order.owner_account_name,
+                "sale_attribution_diagnostic": (
+                    sale_diagnostic.as_context() if sale_diagnostic else None
+                ),
             },
         )
         return False
@@ -5837,6 +5881,26 @@ def _nickname_matches(
 def _resolve_dual_fee_sale_account(
     session: Session, order: RawDouyinOrder
 ) -> OwnerAccountMatch | None:
+    return diagnose_dual_fee_sale_account(session, order).match
+
+
+def diagnose_dual_fee_sale_account(
+    session: Session, order: RawDouyinOrder,
+) -> DualFeeSaleAccountDiagnostic:
+    """Read the ordinary resolver's result and evaluated evidence without writes.
+
+    This does not apply coupon-specific historical decisions or grant fee
+    eligibility. It preserves existing identity, status and date rules, including
+    their fail-closed guards; it never interprets raw binding dates. The caller
+    must supply the intended source observation for an offline historical audit.
+    """
+    with session.no_autoflush:
+        return _diagnose_dual_fee_sale_account(session, order)
+
+
+def _diagnose_dual_fee_sale_account(
+    session: Session, order: RawDouyinOrder,
+) -> DualFeeSaleAccountDiagnostic:
     """Resolve order identity across UID and backend binding ID namespaces.
 
     Reuse the legacy exact-nickname binding evidence, never product ownership.
@@ -5845,26 +5909,62 @@ def _resolve_dual_fee_sale_account(
     for both fee directions, not the later verification date.
     """
     sale_date = _business_date(_first_datetime(order.sale_time, order.pay_time))
+    direct_evidence: dict[str, Any] | None = None
+    binding_evidence: list[dict[str, Any]] = []
+    candidate_evidence: list[dict[str, Any]] = []
+    valid_matches: dict[str, OwnerAccountMatch] = {}
 
-    def account_is_valid(account: DimAwemeAccount) -> bool:
-        return (
-            _is_active_dual_fee_binding_status(account.binding_status)
-            and (account.valid_from is None or (
-                sale_date is not None and account.valid_from <= sale_date
-            ))
-            and (account.valid_to is None or (
-                sale_date is not None and sale_date <= account.valid_to
-            ))
+    def outcome(
+        reason_code: str, failure_node: str | None,
+        match: OwnerAccountMatch | None = None,
+        failure_evidence: dict[str, Any] | None = None,
+    ) -> DualFeeSaleAccountDiagnostic:
+        return DualFeeSaleAccountDiagnostic(
+            match=match, reason_code=reason_code, failure_node=failure_node,
+            failure_evidence=failure_evidence,
+            sale_date=sale_date, direct_account=direct_evidence,
+            raw_bindings=tuple(binding_evidence), candidates=tuple(candidate_evidence),
+            valid_store_ids=tuple(sorted(valid_matches)),
         )
+
+    def account_failure(account: DimAwemeAccount) -> str | None:
+        if not _is_active_dual_fee_binding_status(account.binding_status):
+            return "binding_inactive"
+        if account.valid_from is not None:
+            if sale_date is None:
+                return "sale_date_missing"
+            if account.valid_from > sale_date:
+                return "binding_before_valid_from"
+        if account.valid_to is not None:
+            if sale_date is None:
+                return "sale_date_missing"
+            if sale_date > account.valid_to:
+                return "binding_after_valid_to"
+        return None
+
+    def account_evidence(account: DimAwemeAccount) -> dict[str, Any]:
+        return {
+            "account_id": account.account_id,
+            "store_id": account.store_id,
+            "binding_status": account.binding_status,
+            "valid_from": account.valid_from.isoformat() if account.valid_from else None,
+            "valid_to": account.valid_to.isoformat() if account.valid_to else None,
+        }
 
     owner_id = _first_text(order.owner_account_id)
     direct = session.get(DimAwemeAccount, owner_id) if owner_id else None
-    if direct is not None and not account_is_valid(direct):
-        return None
+    if direct is not None:
+        direct_evidence = account_evidence(direct)
+        failure = account_failure(direct)
+        if failure is not None:
+            return outcome(f"direct_{failure}", "direct_account_validity")
     if direct is not None and direct.store_id:
         direct_store = session.get(DimStore, direct.store_id)
         if direct_store is None or not direct_store.is_active:
-            return None
+            return outcome(
+                "direct_store_missing" if direct_store is None else "direct_store_inactive",
+                "direct_store",
+            )
 
     raw_bindings = list(session.scalars(
         select(RawAwemeBinding).where(
@@ -5887,16 +5987,36 @@ def _resolve_dual_fee_sale_account(
             binding.account_id, binding.douyin_id, binding.poi_id,
             account_type,
         )
+        binding_evidence.append({
+            "binding_key": binding.binding_key,
+            "account_id": binding.account_id,
+            "douyin_id": binding.douyin_id,
+            "poi_id": binding.poi_id,
+            "account_type": account_type,
+            "binding_status": binding.binding_status,
+            "is_active": _is_active_dual_fee_binding_status(binding.binding_status),
+        })
         statuses.setdefault(identity, set()).add(
             _is_active_dual_fee_binding_status(binding.binding_status)
         )
     for identity, values in statuses.items():
+        identity_evidence = {
+            "account_id": identity[0], "douyin_id": identity[1],
+            "poi_id": identity[2], "account_type": identity[3],
+            "active_values": sorted(values),
+        }
         if direct is not None and identity[0] == direct.account_id and False in values:
-            return None
+            return outcome(
+                "direct_identity_has_inactive_binding", "binding_identity_statuses",
+                failure_evidence=identity_evidence,
+            )
         if len(values) > 1:
             conflict_store = session.get(DimStore, identity[0])
             if conflict_store is not None and conflict_store.is_active:
-                return None
+                return outcome(
+                    "binding_identity_status_conflict", "binding_identity_statuses",
+                    failure_evidence=identity_evidence,
+                )
     if direct is not None:
         direct_statuses = {
             status for identity, values in statuses.items()
@@ -5904,7 +6024,10 @@ def _resolve_dual_fee_sale_account(
             for status in values
         }
         if direct_statuses == {False}:
-            return None
+            return outcome(
+                "direct_store_bindings_inactive", "direct_store_binding_statuses",
+                failure_evidence={"store_id": direct.store_id, "active_values": [False]},
+            )
 
     candidates = _nickname_matches(
         session, order.owner_account_name,
@@ -5919,22 +6042,41 @@ def _resolve_dual_fee_sale_account(
             match_source="dim_aweme_accounts",
         ))
 
-    valid_matches: dict[str, OwnerAccountMatch] = {}
     for candidate in candidates:
+        evidence: dict[str, Any] = {
+            "account_id": candidate.account_id,
+            "store_id": candidate.store_id,
+            "binding_status": candidate.binding_status,
+            "match_source": candidate.match_source,
+        }
+        candidate_evidence.append(evidence)
         if not candidate.store_id:
+            evidence["reason_code"] = "candidate_store_id_missing"
             continue
         store = session.get(DimStore, candidate.store_id)
         if store is None or not store.is_active:
+            evidence["reason_code"] = (
+                "candidate_store_missing" if store is None else "candidate_store_inactive"
+            )
             continue
         account = session.get(DimAwemeAccount, candidate.account_id)
         if account is not None:
-            if not account_is_valid(account):
-                return None
+            evidence["account"] = account_evidence(account)
+            failure = account_failure(account)
+            if failure is not None:
+                evidence["reason_code"] = f"candidate_{failure}"
+                return outcome(f"candidate_{failure}", "candidate_account_validity")
             if account.store_id and account.store_id != candidate.store_id:
-                return None
+                evidence["reason_code"] = "candidate_store_conflict"
+                return outcome("candidate_store_conflict", "candidate_store_consistency")
+        evidence["reason_code"] = "valid_candidate"
         valid_matches[candidate.store_id] = candidate
 
-    return next(iter(valid_matches.values())) if len(valid_matches) == 1 else None
+    if len(valid_matches) == 1:
+        return outcome("resolved", None, next(iter(valid_matches.values())))
+    return outcome(
+        "multiple_valid_stores" if valid_matches else "no_valid_store", "unique_valid_store",
+    )
 
 
 def _is_active_dual_fee_binding_status(status: str | None) -> bool:
