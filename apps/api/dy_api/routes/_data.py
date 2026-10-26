@@ -4811,7 +4811,9 @@ class DashboardDataStore:
         page = max(1, _to_int(filters.get("page"), 1))
         page_size = max(1, min(_to_int(filters.get("page_size"), 20), 100))
         offset = (page - 1) * page_size
-        where_sql, params = self._clue_where(filters, include_round=True)
+        where_sql, params = self._clue_where(
+            filters, include_round=True, verification_store_fact=True,
+        )
         total_rows = self._execute(
             f"""
             SELECT COUNT(*) AS total
@@ -4900,7 +4902,9 @@ class DashboardDataStore:
         filters: dict[str, Any],
         actor: dict[str, Any],
     ) -> str:
-        where_sql, params = self._clue_where(filters, include_round=True)
+        where_sql, params = self._clue_where(
+            filters, include_round=True, verification_store_fact=True,
+        )
         rows = self._execute(
             f"""
             SELECT r.assignment_round_id,
@@ -5776,7 +5780,8 @@ class DashboardDataStore:
         return "WHERE " + " AND ".join(f"({clause})" for clause in clauses), params
 
     def _clue_where(
-        self, filters: dict[str, Any], *, include_round: bool
+        self, filters: dict[str, Any], *, include_round: bool,
+        verification_store_fact: bool = False,
     ) -> tuple[str, dict[str, Any]]:
         clauses: list[str] = []
         params: dict[str, Any] = {}
@@ -5852,6 +5857,16 @@ class DashboardDataStore:
             assigned_store_column = f"{verification_prefix}.assigned_store_id"
             if verification_status == "unverified":
                 clauses.append(f"{verified_at_column} IS NULL")
+            elif not verification_store_fact and verification_status in (
+                "self_store_verified", "other_store_verified",
+            ):
+                # Overview publications retain their existing scoring contract.
+                # The contact list/export opt into actual store attribution.
+                expected = "true" if verification_status == "self_store_verified" else "false"
+                clauses.append(
+                    f"{verified_at_column} IS NOT NULL "
+                    f"AND {verification_prefix}.is_self_store_verified = {expected}"
+                )
             elif verification_status == "self_store_verified":
                 clauses.append(
                     f"{verified_at_column} IS NOT NULL "
