@@ -1646,6 +1646,88 @@ def test_dual_fee_sale_diagnostic_is_read_only_and_does_not_autoflush(db_session
     assert order in db_session.dirty
 
 
+@pytest.mark.parametrize("source", ["account", "binding"])
+@pytest.mark.parametrize("autoflush", [False, True])
+def test_dual_fee_resolver_preserves_session_autoflush_for_pending_sources(
+    db_session: Session, source: str, autoflush: bool,
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    order.owner_account_id = "pending-owner"
+    db_session.flush()
+    pending = (
+        DimAwemeAccount(
+            account_id="pending-owner", store_id="store-sale", binding_status="active",
+        ) if source == "account" else dy_models.RawAwemeBinding(
+            binding_key="pending-binding", account_id="store-sale",
+            douyin_nickname=order.owner_account_name, binding_status="active",
+        )
+    )
+    db_session.add(pending)
+    original_autoflush = db_session.autoflush
+    try:
+        db_session.autoflush = autoflush
+        diagnostic = settlement_worker.diagnose_dual_fee_sale_account(db_session, order)
+        assert diagnostic.match is None
+        assert pending in db_session.new
+
+        match = settlement_worker._resolve_dual_fee_sale_account(db_session, order)
+
+        assert (match is not None) is autoflush
+        if autoflush:
+            assert match.store_id == "store-sale"
+        assert (pending in db_session.new) is not autoflush
+        assert db_session.autoflush is autoflush
+    finally:
+        db_session.autoflush = original_autoflush
+
+
+@pytest.mark.parametrize("source", ["account", "binding"])
+def test_dual_fee_materialization_keeps_pending_source_autoflush(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch, source: str,
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    order.owner_account_id = "pending-owner"
+    db_session.flush()
+    original_lookup = settlement_worker.resolve_historical_sale_attribution
+    pending_added = False
+
+    def add_source_after_historical_lookup(session, **kwargs):
+        nonlocal pending_added
+        decision = original_lookup(session, **kwargs)
+        if not pending_added:
+            pending_added = True
+            session.add(
+                DimAwemeAccount(
+                    account_id="pending-owner", store_id="store-sale", binding_status="active",
+                ) if source == "account" else dy_models.RawAwemeBinding(
+                    binding_key="pending-binding", account_id="store-sale",
+                    douyin_nickname=order.owner_account_name, binding_status="active",
+                )
+            )
+        return decision
+
+    monkeypatch.setattr(
+        settlement_worker, "resolve_historical_sale_attribution", add_source_after_historical_lookup,
+    )
+    original_autoflush = db_session.autoflush
+    try:
+        db_session.autoflush = True
+        rebuild_dual_fee_results(db_session, calculation_run_id="pending-source-autoflush")
+    finally:
+        db_session.autoflush = original_autoflush
+
+    assert pending_added
+    assert _fee_result(db_session, "coupon-dual", 1) is not None
+    assert _fee_result(db_session, "coupon-dual", 2) is not None
+    assert not list(db_session.scalars(select(DataQualityIssue).where(
+        DataQualityIssue.issue_type == "dual_fee_missing_sale_store",
+    )))
+
+
 def test_dual_fee_missing_sale_store_persists_specific_diagnostic(db_session: Session) -> None:
     _load_dual_fee_fixture(db_session)
     order = db_session.scalar(select(RawDouyinOrder))

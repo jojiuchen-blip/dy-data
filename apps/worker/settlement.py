@@ -3182,7 +3182,7 @@ def _materialize_dual_fee_direction(
             match_source="historical_sale_attribution",
         )
     else:
-        sale_diagnostic = diagnose_dual_fee_sale_account(session, order)
+        sale_diagnostic = _diagnose_dual_fee_sale_account(session, order)
         sale_account = sale_diagnostic.match
     if sale_account is None:
         _block_dual_fee(
@@ -5881,7 +5881,8 @@ def _nickname_matches(
 def _resolve_dual_fee_sale_account(
     session: Session, order: RawDouyinOrder
 ) -> OwnerAccountMatch | None:
-    return diagnose_dual_fee_sale_account(session, order).match
+    # Business reads retain the caller's autoflush policy for pending sources.
+    return _diagnose_dual_fee_sale_account(session, order).match
 
 
 def diagnose_dual_fee_sale_account(
