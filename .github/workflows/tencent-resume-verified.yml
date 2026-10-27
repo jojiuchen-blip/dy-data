@@ -12,8 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      TARGET_SHA: ddb3bab8ba7485af9e702881bab7e6008ba465b2
-      VERIFIED_RUN: '37870328159'
+      TARGET_SHA: 9b1feb8598d685cfbf5fec7d18fa7b4fbe820864
+      VERIFIED_RUN: '40432575545'
       GH_TOKEN: ${{ github.token }}
       TENCENT_HOST: ${{ vars.TENCENT_HOST }}
       TENCENT_SSH_PORT: ${{ vars.TENCENT_SSH_PORT }}
@@ -33,6 +33,8 @@ jobs:
           run = json.load(open('/tmp/run.json'))
           jobs = json.load(open('/tmp/jobs.json'))['jobs']
           assert run['head_sha'] == os.environ['TARGET_SHA']
+          assert run['path'] == '.github/workflows/tencent-lighthouse-deploy.yml'
+          assert run['event'] == 'workflow_dispatch'
           assert run['status'] == 'completed'
           assert any(j['name'] == 'Verify' and j['conclusion'] == 'success' for j in jobs)
           assert all(j['status'] == 'completed' for j in jobs)
@@ -40,7 +42,7 @@ jobs:
           PY
       - uses: actions/checkout@v4
         with:
-          ref: ddb3bab8ba7485af9e702881bab7e6008ba465b2
+          ref: 9b1feb8598d685cfbf5fec7d18fa7b4fbe820864
       - name: Configure bounded SSH keepalive
         run: |
           set -euo pipefail
@@ -51,17 +53,28 @@ jobs:
           chmod 600 ~/.ssh/tencent_lighthouse
           printf '%s\n' "$TENCENT_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-      - name: Inspect server then resume original deployment
+      - name: Preserve server source and resume verified deployment
         run: |
           set -euo pipefail
-          script_hash="$(sha256sum deploy/tencent/deploy.sh | cut -d' ' -f1)"
+          git archive --format=tar "$TARGET_SHA" | gzip > /tmp/dy-resume-source.tar.gz
+          archive_hash="$(sha256sum /tmp/dy-resume-source.tar.gz | cut -d' ' -f1)"
+          archive="/tmp/dy-resume-${TARGET_SHA}-${GITHUB_RUN_ID}.tar.gz"
+          scp -i ~/.ssh/tencent_lighthouse -P "${TENCENT_SSH_PORT:-22}" \
+            -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
+            /tmp/dy-resume-source.tar.gz "$TENCENT_SSH_USER@$TENCENT_HOST:$archive"
           cat > /tmp/resume.sh <<'REMOTE'
           set -euo pipefail
-          cd /opt/dy-dashboard/repo
           target="$1"
-          expected_hash="$2"
+          archive="$2"
           web_url="$3"
           worker="$4"
+          expected_hash="$5"
+          test "$target" = 9b1feb8598d685cfbf5fec7d18fa7b4fbe820864
+          test "$(sha256sum "$archive" | cut -d' ' -f1)" = "$expected_hash"
+          sudo -n true
+          exec 9>/tmp/dy-verified-release.lock
+          flock -n 9
           # Never overlap a deployment left running after transport failure.
           if pgrep -af '[b]ash deploy/tencent/deploy.sh' ; then
             echo 'Original deployment remains active; blocking duplicate deployment'
@@ -71,9 +84,51 @@ jobs:
           if test -f /opt/dy-dashboard/logs/last-deploy.json; then
             cat /opt/dy-dashboard/logs/last-deploy.json
           fi
-          test "$(sha256sum deploy/tencent/deploy.sh | cut -d' ' -f1)" = "$expected_hash"
-          # Check distinctive files from the fixed archive before executing it.
-          test -f alembic/versions/20261008_0061_correct_historical_store_names.py
+          # Stage and preserve the complete existing directory. Never recursively
+          # delete a mixed-owner checkout, and do not relax its permissions.
+          sudo python3 - "$archive" <<'PY'
+          import os, pathlib, shutil, sys, tarfile, time
+          root = pathlib.Path('/opt/dy-dashboard')
+          app = root / 'repo'
+          assert root.resolve() == root and app.resolve() == app
+          assert app.is_dir() and not app.is_symlink()
+          with tarfile.open(sys.argv[1], 'r:gz') as source:
+              members = source.getmembers()
+              for member in members:
+                  path = pathlib.PurePosixPath(member.name)
+                  assert not path.is_absolute() and '..' not in path.parts
+                  assert member.isfile() or member.isdir(), 'Unexpected archive member'
+              reserve = sum(member.size for member in members)
+              total, used, free = shutil.disk_usage(root)
+              backups = list((root / 'logs' / 'backups').glob('pre-migrate-*.dump'))
+              latest = max(backups, key=lambda p: p.stat().st_mtime) if backups else None
+              backup_reserve = latest.stat().st_size * 1.5 if latest else 0
+              assert free - reserve - backup_reserve >= max(10 * 1024**3, total * .15), 'Source staging capacity gate failed'
+              stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
+              stage = root / ('repo-stage-' + stamp)
+              preserved = root / ('repo-preserved-' + stamp)
+              assert not stage.exists() and not preserved.exists()
+              stage.mkdir(mode=0o700)
+              source.extractall(stage, members=members, filter='data')
+          assert (stage / 'deploy/tencent/deploy.sh').is_file()
+          assert (stage / 'apps/web/src/pages/ClueCenterPage.tsx').is_file()
+          # Deployment commands run as the existing SSH user. Chown only the
+          # newly staged trusted source, never existing business data or volumes.
+          uid, gid = int(os.environ['SUDO_UID']), int(os.environ['SUDO_GID'])
+          for parent, dirs, files in os.walk(stage):
+              os.chown(parent, uid, gid)
+              for name in files:
+                  os.chown(pathlib.Path(parent) / name, uid, gid)
+          app.rename(preserved)
+          try:
+              stage.rename(app)
+          except BaseException:
+              preserved.rename(app)
+              raise
+          print('Preserved previous source:', preserved)
+          print('Source staging gate passed; free bytes before staging:', free)
+          PY
+          cd /opt/dy-dashboard/repo
           log="/opt/dy-dashboard/logs/release-resume-${target:0:8}-$(date -u +%Y%m%dT%H%M%SZ).log"
           echo "Resuming verified deployment; server log=$log"
           # Original script repeats backup, lineage, migration and all health gates.
@@ -85,4 +140,4 @@ jobs:
             -o BatchMode=yes -o IdentitiesOnly=yes \
             -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             "$TENCENT_SSH_USER@$TENCENT_HOST" \
-            "bash -s -- '$TARGET_SHA' '$script_hash' '$DY_WEB_BASE_URL' '$TENCENT_START_WORKER'" < /tmp/resume.sh
+            "bash -s -- '$TARGET_SHA' '$archive' '$DY_WEB_BASE_URL' '$TENCENT_START_WORKER' '$archive_hash'" < /tmp/resume.sh
