@@ -49,9 +49,13 @@ HEADER_ALIASES: dict[str, tuple[str, ...]] = {
 def parse_backend_aweme_workbook(path: str | Path) -> list[dict[str, Any]]:
     workbook = load_workbook(path, read_only=True, data_only=True)
     sheet = workbook.active
-    if sheet.max_row == 1 and sheet.max_column == 1 and hasattr(sheet, "reset_dimensions"):
+    if hasattr(sheet, "reset_dimensions"):
         sheet.reset_dimensions()
-    rows = list(sheet.iter_rows(values_only=True))
+    sheet_count = len(workbook.sheetnames)
+    try:
+        rows = list(sheet.iter_rows(values_only=True))
+    finally:
+        workbook.close()
     if not rows:
         return []
 
@@ -75,8 +79,10 @@ def parse_backend_aweme_workbook(path: str | Path) -> list[dict[str, Any]]:
             "binding_status": _alias_value(raw_payload, "binding_status"),
             "raw_payload": raw_payload,
         }
-        if any(record[key] for key in ("douyin_nickname", "douyin_id", "account_id", "poi_id")):
-            records.append(record)
+        # Preserve every nonempty source row. A clearly nonqualifying personal
+        # row may have no identity, while a possibly qualifying row without an
+        # account ID must reach the contract validator and fail closed.
+        records.append(record)
     required = (
         any(key in headers for key in ("账号类型", "账户类型", "account_type"))
         and any(key in headers for key in HEADER_ALIASES["binding_status"])
@@ -87,7 +93,7 @@ def parse_backend_aweme_workbook(path: str | Path) -> list[dict[str, Any]]:
         # A parsed file alone cannot prove an unfiltered, untruncated export.
         # The browser adapter corroborates its identity multiset and total.
         "complete": False,
-        "file_complete": bool(required and len(set(headers)) == len(headers) and nonempty == len(records)),
+        "file_complete": bool(required and sheet_count == 1 and len(set(headers)) == len(headers) and nonempty == len(records)),
         "record_count": len(records), "export_row_count": nonempty,
         "workbook_sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest(),
         "schema_present": required, "scope": "backend_export",

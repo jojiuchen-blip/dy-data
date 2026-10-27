@@ -1,6 +1,7 @@
 """Disposable localhost PostgreSQL migration, fencing and concurrency evidence."""
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from types import SimpleNamespace
 
 from alembic import command
 import pytest
@@ -41,6 +42,7 @@ def test_real_postgres_migration_atomicity_immutability_and_concurrent_freeze(fu
         with engine.connect() as connection, connection.begin(), pytest.raises(DBAPIError, match="immutable|foreign key"):
             connection.execute(text(sql), values)
     # A fetch failure is durably recorded despite the caller's rollback.
+    monkeypatch.setattr(backend, "datetime", SimpleNamespace(now=lambda _: cutoff-timedelta(minutes=50)))
     monkeypatch.setattr(backend, "export_backend_aweme_records_via_browser",
                         lambda **kwargs: (_ for _ in ()).throw(backend.BrowserExportError("synthetic failure")))
     with factory() as session:
@@ -60,6 +62,20 @@ def test_real_postgres_migration_atomicity_immutability_and_concurrent_freeze(fu
         rolled_back = session.scalar(select(q.Observation).where(q.Observation.source_run_id == "rolled-back-success"))
         assert rolled_back.state == "running" and not rolled_back.complete and rolled_back.content_sha256 is None
         assert q.freeze_month(session, "2026-10", now=cutoff + timedelta(days=1)).version_id == versions[0]
+    # Concurrent automatic retries are bounded independently of the old month.
+    _, next_cutoff = q.month_bounds("2026-11")
+    def admit(index):
+        with factory.begin() as session:
+            return q.begin_automatic_observation(session, source_run_id=f"budget-concurrency-{index}",
+                                                  started_at=next_cutoff-timedelta(minutes=30))
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        admissions = list(pool.map(admit, range(12)))
+    assert sum(row.observation_id is not None for row in admissions) == q.MAX_AUTOMATIC_MONTH_ATTEMPTS
+    assert sum(row.blocked_reason == "monthend_capture_budget_exhausted" for row in admissions) == 4
+    with factory() as session:
+        november = list(session.scalars(select(q.Observation).where(
+            q.Observation.started_at >= next_cutoff-q.MAX_AGE, q.Observation.started_at < next_cutoff)))
+        assert len(november) == q.MAX_AUTOMATIC_MONTH_ATTEMPTS+1
     # A populated evidence migration is explicitly forward-only.
     with pytest.raises(RuntimeError, match="preserved"):
         command.downgrade(config, "20261023_0065")

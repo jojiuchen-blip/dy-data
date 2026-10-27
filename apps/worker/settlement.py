@@ -3211,10 +3211,16 @@ def _materialize_dual_fee_direction(
             qualification_version_id = qualification.version_id
             monthend_rows = qualified_records(session, version=qualification, order=order)
         except AccountQualificationError as exc:
+            reason_code = str(exc)
+            message = ("账期账号缺少可核验的身份关联。"
+                       if reason_code == "qualification_identity_unresolved" else
+                       "账期账号身份来源存在冲突。" if reason_code in {
+                           "qualification_identity_ambiguous", "qualification_identity_source_conflict"} else
+                       "账期月末账号资格未就绪或不合格。")
             _block_dual_fee(
                 session, calculation_run_id, coupon, order,
-                "dual_fee_monthend_account_qualification", "账期月末账号资格未就绪或不合格。",
-                directions=(direction,), context={"business_month": verify_month, "reason_code": str(exc)},
+                "dual_fee_monthend_account_qualification", message,
+                directions=(direction,), context={"business_month": verify_month, "reason_code": reason_code},
             )
             return False
     if attribution_decision is not None:
