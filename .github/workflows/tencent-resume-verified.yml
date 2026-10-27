@@ -89,6 +89,16 @@ jobs:
           if test -f /opt/dy-dashboard/logs/last-deploy.json; then
             sudo cat /opt/dy-dashboard/logs/last-deploy.json
           fi
+          retention_script="$(mktemp /tmp/dy-release-retention.XXXXXX.py)"
+          tar -xOf "$archive" scripts/backup_retention.py > "$retention_script"
+          postgres_id="$(sudo docker ps -q --filter label=com.docker.compose.project=dy-dashboard --filter label=com.docker.compose.service=postgres)"
+          [[ "$postgres_id" =~ ^[a-f0-9]{12,64}$ ]]
+          sudo docker exec "$postgres_id" pg_restore --version
+          sudo python3 "$retention_script" --backup-dir /opt/dy-dashboard/logs/backups \
+            --validator-command "docker exec -i $postgres_id pg_restore" \
+            --report-file /opt/dy-dashboard/logs/clue-release-retention-dry-run.json
+          rm -f "$retention_script"
+          exit 0
           # Stage and preserve the complete existing directory. Never recursively
           # delete a mixed-owner checkout, and do not relax its permissions.
           sudo python3 - "$archive" <<'PY'
