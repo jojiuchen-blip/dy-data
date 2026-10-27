@@ -273,7 +273,10 @@ def test_monthly_ranking_pagination_search_and_drilldown_share_period(browser, a
     responses = []
     page.on("response", lambda response: responses.append(response) if "/store-ranking?" in response.url else None)
     try:
-        page.goto(f"{availability_web}/ranking?periodKey=2026-09&periodType=CUMULATIVE")
+        with page.expect_response(lambda response: "/store-ranking?" in response.url) as initial:
+            page.goto(f"{availability_web}/ranking?periodKey=2026-09&periodType=CUMULATIVE")
+        assert initial.value.status == 200
+        assert initial.value.json()["data"]["total"] == 24
         expect(page.get_by_role("navigation", name="表格分页")).to_contain_text("共 24 条")
         with page.expect_response(lambda response: "/store-ranking?" in response.url and "page=2" in response.url) as second:
             page.get_by_role("button", name="下一页", exact=True).click()

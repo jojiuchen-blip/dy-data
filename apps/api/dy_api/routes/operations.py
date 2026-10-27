@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
+from ipaddress import ip_address
 import json
 import os
 import re
 from typing import Any, Mapping
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
@@ -80,6 +82,35 @@ def _idempotency_hash(value: str) -> str:
     return sha256(normalized.encode("utf-8")).hexdigest()
 
 
+def _configured_control_origin() -> str | None:
+    """Use only the server's public HTTPS address, never forwarded headers."""
+    configured = os.getenv("DY_WEB_BASE_URL", "")
+    if not configured:
+        return None
+    try:
+        if "\\" in configured or any(ord(character) <= 0x20 or ord(character) == 0x7F for character in configured):
+            raise ValueError("unsafe URL characters")
+        parsed = urlsplit(configured)
+        hostname, port = parsed.hostname, parsed.port
+        if (parsed.scheme != "https" or not hostname or parsed.username is not None
+                or parsed.password is not None or parsed.query or parsed.fragment or port == 0
+                or "%" in hostname):
+            raise ValueError("invalid public HTTPS URL")
+        try:
+            address = ip_address(hostname)
+        except ValueError:
+            hostname = hostname.encode("idna").decode("ascii").lower()
+            if (len(hostname) > 253 or hostname.replace(".", "").isdigit()
+                    or any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+                           for label in hostname.split("."))):
+                raise ValueError("invalid hostname")
+        else:
+            hostname = f"[{address.compressed}]" if address.version == 6 else str(address)
+        return f"https://{hostname}" + (f":{port}" if port is not None and port != 443 else "")
+    except (ValueError, UnicodeError):
+        raise HTTPException(status_code=503, detail="Control origin configuration invalid") from None
+
+
 def _require_trusted_origin(request: Request) -> None:
     fetch_site = (request.headers.get("sec-fetch-site") or "").strip().lower()
     if fetch_site and fetch_site not in {"same-origin", "same-site", "none"}:
@@ -88,6 +119,9 @@ def _require_trusted_origin(request: Request) -> None:
     if not origin:
         return
     allowed = {str(request.base_url).rstrip("/")}
+    configured_origin = _configured_control_origin()
+    if configured_origin is not None:
+        allowed.add(configured_origin)
     allowed.update(
         item.strip().rstrip("/")
         for item in os.getenv("DY_API_CORS_ORIGINS", "").split(",")
