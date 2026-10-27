@@ -450,6 +450,8 @@ def _sparse_base_chain(
 def _sparse_expand_affected_months(
     session: Session, affected_months: Iterable[str]
 ) -> tuple[str, ...]:
+    from apps.worker.protected_billing_authority import protected_entries_relation
+
     values = {_sparse_month(value, label="affected month") for value in affected_months}
     if not values:
         raise ValueError("affected_months must not be empty")
@@ -471,6 +473,19 @@ def _sparse_expand_affected_months(
             .limit(MAX_SETTLEMENT_SPARSE_MONTHS + 1)
         ).all()
         expanded = set(values)
+        frozen = protected_entries_relation()
+        moved_chains = session.execute(select(
+            frozen.c.authority_month, SettlementFeeResult.original_business_month,
+        ).join(SettlementFeeResult, and_(
+            frozen.c.source_type == 1,
+            frozen.c.coupon_id == SettlementFeeResult.coupon_id,
+            frozen.c.fee_direction == SettlementFeeResult.fee_direction,
+        )).join(SettlementFeeResultCurrent,
+            SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.fee_result_id,
+        ).where(or_(frozen.c.authority_month.in_(values),
+                    SettlementFeeResult.original_business_month.in_(values))).distinct())
+        for frozen_month, current_month in moved_chains:
+            expanded.update((frozen_month, current_month))
         for original_month, posting_month in rows:
             expanded.add(
                 _sparse_month(original_month, label="adjustment original month")
@@ -554,6 +569,8 @@ def _sparse_preflight(
         raise ValueError("active settlement pointer does not match sparse base")
     base, lineage_ids = _sparse_base_chain(session, base_generation_id)
     expanded = _sparse_expand_affected_months(session, affected_months)
+    from apps.worker.protected_billing_authority import validate_protected_authority
+    validate_protected_authority(session, expanded)
     locked = session.scalar(
         select(SettlementStatement.statement_id)
         .where(
@@ -612,6 +629,11 @@ def _active_adjustment_condition() -> Any:
 
 
 def _sparse_authority_relation(months: tuple[str, ...]) -> Any:
+    from apps.worker.protected_billing_authority import (
+        frozen_authority_rows, frozen_primary_chain_condition,
+        protected_entries_relation, protected_slot_condition,
+    )
+
     result_store = case(
         (SettlementFeeResult.fee_direction == PROMOTION_FEE, SettlementFeeResult.sale_store_id),
         else_=SettlementFeeResult.verify_store_id,
@@ -633,28 +655,38 @@ def _sparse_authority_relation(months: tuple[str, ...]) -> Any:
             SettlementFeeResult.source_amount_cent.label("source_amount_cent"),
             SettlementFeeResult.fee_base_cent.label("base_amount_cent"),
             SettlementFeeResult.fee_amount_cent.label("fee_amount_cent"),
+            literal(None).label("frozen_entry_id"), literal(None).label("basis_entry_id"),
+            SettlementFeeResult.fee_rate.label("source_fee_rate"), SettlementFeeResult.rule_version.label("source_rule_version"),
         )
         .join(
             SettlementFeeResultCurrent,
             SettlementFeeResultCurrent.fee_result_id
             == SettlementFeeResult.fee_result_id,
         )
-        .where(SettlementFeeResult.original_business_month.in_(months))
+        .where(
+            SettlementFeeResult.original_business_month.in_(months),
+            ~protected_slot_condition(result_store, SettlementFeeResult.original_business_month),
+            ~frozen_primary_chain_condition(),
+        )
     )
     original_store = case(
         (SettlementFeeAdjustment.fee_direction == PROMOTION_FEE, SettlementFeeResult.sale_store_id),
         else_=SettlementFeeResult.verify_store_id,
     )
+    basis = protected_entries_relation()
+    adjustment_store = func.coalesce(basis.c.authority_store_id, original_store)
+    frozen_adjustment = protected_entries_relation()
+    frozen_anchor = protected_entries_relation()
     adjustment_rows = (
         select(
             literal("adjustment").label("source_kind"),
             SettlementFeeAdjustment.adjustment_id.label("source_id"),
             SettlementFeeAdjustment.adjustment_posting_month.label("month"),
-            original_store.label("store_id"),
-            func.coalesce(func.nullif(SettlementFeeResult.product_scope, ""), "all").label(
+            adjustment_store.label("store_id"),
+            func.coalesce(func.nullif(basis.c.product_scope, ""), func.nullif(SettlementFeeResult.product_scope, ""), "all").label(
                 "source_product_scope"
             ),
-            func.coalesce(func.nullif(SettlementFeeResult.product_type, ""), "all").label(
+            func.coalesce(func.nullif(basis.c.product_type, ""), func.nullif(SettlementFeeResult.product_type, ""), "all").label(
                 "source_product_type"
             ),
             SettlementFeeAdjustment.fee_direction.label("fee_direction"),
@@ -662,25 +694,41 @@ def _sparse_authority_relation(months: tuple[str, ...]) -> Any:
             literal(0).label("source_amount_cent"),
             SettlementFeeAdjustment.adjustment_base_cent.label("base_amount_cent"),
             SettlementFeeAdjustment.adjustment_fee_cent.label("fee_amount_cent"),
+            literal(None).label("frozen_entry_id"), basis.c.statement_entry_id.label("basis_entry_id"),
+            case((basis.c.statement_entry_id.is_not(None), basis.c.fee_rate_snapshot), else_=SettlementFeeResult.fee_rate).label("source_fee_rate"),
+            case((basis.c.statement_entry_id.is_not(None), basis.c.rule_version), else_=SettlementFeeResult.rule_version).label("source_rule_version"),
         )
         .join(
             SettlementFeeResult,
             SettlementFeeResult.fee_result_id
             == SettlementFeeAdjustment.original_fee_result_id,
         )
+        .outerjoin(basis, and_(
+            basis.c.source_type == 1,
+            basis.c.original_fee_result_id == SettlementFeeAdjustment.original_fee_result_id,
+        ))
         .where(
             SettlementFeeAdjustment.adjustment_posting_month.in_(months),
             _active_adjustment_condition(),
-        )
-        .join(
-            SettlementFeeResultCurrent,
+            ~protected_slot_condition(adjustment_store, SettlementFeeAdjustment.adjustment_posting_month),
+            ~select(frozen_adjustment.c.statement_entry_id).where(
+                frozen_adjustment.c.source_type == 2,
+                frozen_adjustment.c.source_record_id == SettlementFeeAdjustment.adjustment_id,
+            ).exists(),
             or_(
-                SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.fee_result_id,
-                SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.reverification_anchor_id,
+                select(SettlementFeeResultCurrent.id).where(or_(
+                    SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.fee_result_id,
+                    SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.reverification_anchor_id,
+                )).exists(),
+                basis.c.statement_entry_id.is_not(None),
+                select(frozen_anchor.c.statement_entry_id).where(
+                    frozen_anchor.c.source_type == 1,
+                    frozen_anchor.c.original_fee_result_id == SettlementFeeResult.reverification_anchor_id,
+                ).exists(),
             ),
         )
     )
-    source = union_all(result_rows, adjustment_rows).subquery("sparse_authority")
+    source = union_all(result_rows, adjustment_rows, frozen_authority_rows(months)).subquery("sparse_authority")
 
     common = (
         source.c.source_kind,
@@ -692,6 +740,9 @@ def _sparse_authority_relation(months: tuple[str, ...]) -> Any:
         source.c.source_amount_cent,
         source.c.base_amount_cent,
         source.c.fee_amount_cent,
+        source.c.frozen_entry_id, source.c.basis_entry_id,
+        source.c.source_product_scope, source.c.source_product_type,
+        source.c.source_fee_rate, source.c.source_rule_version,
     )
     expanded = union(
         select(*common, literal("all").label("product_scope"), literal("all").label("product_type")),

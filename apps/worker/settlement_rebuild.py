@@ -44,6 +44,7 @@ from apps.worker.settlement import (
     SettlementStats,
     _projection_months,
     _sparse_base_chain,
+    _sparse_expand_affected_months,
     build_settlement_sparse_overlay,
     mark_settlement_sparse_overlay_ready,
     rebuild_dual_fee_results,
@@ -431,6 +432,14 @@ def _lineage_refresh_plan(
         )
         if not affected_months:
             return None
+        # Capture, aggregation and the input fingerprint must consume one
+        # closure. A conflicting frozen chain can move to another month.
+        affected_months = _sparse_expand_affected_months(session, affected_months)
+        blocked = sorted(set(affected_months) & locked_months)
+        if blocked:
+            raise SettlementMonthLockedError(
+                "settlement month closure is locked: " + ",".join(blocked)
+            )
 
         fingerprint_payload = {
             "protocol": "settlement-admin-rebuild-lineage-v1",

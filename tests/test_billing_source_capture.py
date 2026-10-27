@@ -72,6 +72,8 @@ def test_capture_rechecks_authority_after_waiting_for_slot(monkeypatch, new_stor
     )
     monkeypatch.setattr(api, "_lock_settlement_slot", lambda session, store, month: locks.append((store, month)))
     monkeypatch.setattr(api, "_result_statement_source", lambda session, result: result.fee_result_id)
+    monkeypatch.setattr(api, "validate_protected_authority", lambda session, months: None)
+    monkeypatch.setattr(api, "lock_current_bills", lambda session, slots: None)
     if new_store == "store-b":
         with pytest.raises(ValueError, match="slots changed"):
             api.collect_billing_sources(session, months=["2026-08"], slots=[("empty-store", "2026-08")])

@@ -20,6 +20,7 @@ from dy_api.models import (
     SettlementMonthlyOverlay, SettlementRankingOverlay, SettlementStatement,
     SettlementStatementConfirmation, SettlementStatementLine, SettlementFeeResult,
     SettlementFeeResultCurrent, SettlementFeeAdjustment, StoreFinanceProfile,
+    SettlementStatementEntry,
 )
 from dy_api.routes import dashboard as source
 from dy_api.routes._data import DashboardDataStore
@@ -41,7 +42,55 @@ def _run(session, publication_id, module, cutoff=NOW):
         status="building", cutoff=cutoff, created_at=cutoff, stats_json={}))
 
 
-def _statement(session, store_id, month, amount):
+def _fixture_line_entries(session, statement_id, store_id, month, line_id, direction, amounts, *, scope="all", product_type="all", add_line=True):
+    """Protected fixture headers must have complete immutable line/source evidence."""
+    original = sum(amount for amount in amounts if amount >= 0)
+    adjustment = sum(amount for amount in amounts if amount < 0)
+    original_count = sum(amount >= 0 for amount in amounts)
+    adjustment_count = len(amounts) - original_count
+    if add_line:
+        session.add(SettlementStatementLine(
+            statement_line_id=line_id, statement_id=statement_id, fee_direction=direction,
+            product_scope=scope, product_type=product_type,
+            original_entry_count=original_count, adjustment_entry_count=adjustment_count,
+            original_base_cent=1000 * original_count,
+            adjustment_base_cent=-1000 * adjustment_count,
+            net_base_cent=1000 * (original_count - adjustment_count),
+            original_fee_cent=original, adjustment_fee_cent=adjustment, net_fee_cent=sum(amounts),
+        ))
+    for index, amount in enumerate(amounts):
+        identity = f"fixture-{line_id}-{index}"
+        rate = str((index + 1) / 10)
+        session.add(SettlementFeeResult(
+            fee_result_id=identity, coupon_id=identity, order_id=f"order-{identity}", fee_direction=direction,
+            original_business_month=month, rule_match_date=date.fromisoformat(month + "-01"),
+            sale_store_id=store_id, verify_store_id=store_id, sku_id="frozen-sku",
+            product_scope=scope, product_type=product_type, sale_channel_normalized="LIVE",
+            source_amount_cent=1000, fee_base_cent=1000, fee_amount_cent=max(amount, 0),
+            fee_rate=rate, rule_version=f"rule-{index}", scope_rule_version="scope-1",
+            calculation_run_id=identity, calculated_at=NOW,
+        ))
+        if amount < 0:
+            session.add(SettlementFeeAdjustment(
+                adjustment_id=identity, original_fee_result_id=identity, coupon_id=identity,
+                order_id=f"order-{identity}", fee_direction=direction,
+                original_business_month=month, adjustment_posting_month=month,
+                adjustment_type=1, adjustment_base_cent=-1000, adjustment_fee_cent=amount,
+                rule_version=f"rule-{index}", adjustment_reason="Synthetic fixture refund",
+                occurred_at=NOW, created_by="synthetic",
+            ))
+        session.add(SettlementStatementEntry(
+            statement_entry_id=f"entry-{identity}", statement_id=statement_id, statement_line_id=line_id,
+            source_type=1 if amount >= 0 else 2, source_record_id=identity,
+            original_fee_result_id=identity, coupon_id=identity, order_id=f"order-{identity}",
+            fee_direction=direction, original_business_month=month, statement_posting_month=month,
+            product_scope=scope, product_type=product_type, base_amount_cent=1000 if amount >= 0 else -1000,
+            fee_amount_cent=amount, rule_version=f"rule-{index}", received_amount_cent_snapshot=1000,
+            fee_rate_snapshot=rate,
+        ))
+
+
+def _statement(session, store_id, month, amount, *, with_sources=True):
     statement_id = f"statement-{store_id}-{month}"
     session.add(SettlementStatement(statement_id=statement_id, store_id=store_id,
         statement_month=month, version_no=1, is_current=True, statement_status=4,
@@ -53,6 +102,8 @@ def _statement(session, store_id, month, amount):
         session.add(SettlementStatementConfirmation(confirmation_id=f"c-{statement_id}-{direction}",
             statement_id=statement_id, fee_direction=direction, confirmation_status=1,
             confirmed_amount_cent=amount, confirmed_by=store_id, confirmed_at=NOW))
+        if with_sources:
+            _fixture_line_entries(session, statement_id, store_id, month, f"line-{statement_id}-{direction}", direction, (amount,))
     return statement_id
 
 
@@ -367,11 +418,13 @@ def test_monthly_frozen_lines_match_multicoupon_refund_and_locked_facts(db_sessi
         adjustment_base_cent=-1000, adjustment_fee_cent=-100, rule_version="cancel-rule",
         adjustment_reason="verify cancelled", occurred_at=NOW, created_by="test"))
     if locked:
-        _statement(db_session, "allowed", "2026-08", 177)
+        _statement(db_session, "allowed", "2026-08", 177, with_sources=False)
         db_session.add(SettlementStatementLine(statement_line_id="locked-line",
             statement_id="statement-allowed-2026-08", fee_direction=1,
             product_scope="jingcheng", product_type="tyre", original_entry_count=2,
             original_base_cent=2000, net_base_cent=2000, original_fee_cent=177, net_fee_cent=177))
+        _fixture_line_entries(db_session, "statement-allowed-2026-08", "allowed", "2026-08", "locked-line", 1, (77, 100), scope="jingcheng", product_type="tyre", add_line=False)
+        _fixture_line_entries(db_session, "statement-allowed-2026-08", "allowed", "2026-08", "locked-management-line", 2, (177,))
     db_session.commit()
     _run(db_session, "settlement-lines", "settlement")
     publication.build_settlement(db_session, "settlement-lines", NOW)
@@ -396,11 +449,13 @@ def test_catalog_classification_change_keeps_locked_financial_types_and_amounts(
     _seed_settlement(db_session)
     db_session.add(DimSkuProductRule(sku_id="reclassified-sku", product_scope="精诚养车",
         product_type="精诚养车"))
-    statement_id = _statement(db_session, "allowed", "2026-08", 177)
+    statement_id = _statement(db_session, "allowed", "2026-08", 177, with_sources=False)
     db_session.add(SettlementStatementLine(statement_line_id="historical-type-line",
         statement_id=statement_id, fee_direction=1, product_scope="jingcheng", product_type="tyre",
         original_entry_count=2, original_base_cent=2000, net_base_cent=2000,
         original_fee_cent=177, net_fee_cent=177))
+    _fixture_line_entries(db_session, statement_id, "allowed", "2026-08", "historical-type-line", 1, (77, 100), scope="jingcheng", product_type="tyre", add_line=False)
+    _fixture_line_entries(db_session, statement_id, "allowed", "2026-08", "historical-management-line", 2, (177,))
     db_session.commit()
     _run(db_session, "catalog-changed", "settlement")
     publication.build_settlement(db_session, "catalog-changed", NOW)
