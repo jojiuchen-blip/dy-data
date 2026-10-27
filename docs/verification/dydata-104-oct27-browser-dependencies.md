@@ -67,7 +67,7 @@ APT 保留版本分别为 `python3-urllib3 1.26.12-1+deb12u4`、`python3-msgpack
 
 上游版本扫描丢失 Debian 修订号；上述是供应商证据与运行条件复核，不是将 `pip-audit` 的 exit 1 改为 0，也不是豁免所有告警。99 包审计中无法查询 PyPI 的 `python-novnc`、剩余供应链观察和未做 OS/Chromium 全量扫描均继续保留。
 
-原始收据的本地 SHA-256 清单见 `evidence-manifest.json`。本地构建 Dockerfile 和提交 `a97b19b8fa70cf9ed3c66df185049187f48376aa` 的文件字节相同，SHA-256 为 `cfe594b72ffda6a7656070296b29553bfb6a2d24afd7c6de6e6fe878e23ebf15`。仅通过原有 `APT_MIRROR` 参数修改容器内 APT 源地址；没有改临时 Dockerfile或关闭签名/证书检查。此兼容性候选不冒充最终发布集成镜像。
+原始收据的本地 SHA-256 清单见 `evidence-manifest.json`。本地构建上下文 Dockerfile 与 Windows 工作区文件字节相同，SHA-256 为 `cfe594b72ffda6a7656070296b29553bfb6a2d24afd7c6de6e6fe878e23ebf15`。Git 将其 93 个 CRLF 规范化为 LF，提交 `a97b19b8fa70cf9ed3c66df185049187f48376aa` 的 blob SHA-256 为 `773a7cb61408896b2088fc15368e9bed9f035dbb2580f5c565e1283ace89773d`；归一 LF 后逐字节完全一致，断言与原始摘要保存在 `dockerfile-provenance.json`。仅通过原有 `APT_MIRROR` 参数修改容器内 APT 源地址；没有另改临时 Dockerfile 内容或关闭签名/证书检查。此兼容性候选不冒充最终发布集成镜像。
 
 ## 交付限制
 
