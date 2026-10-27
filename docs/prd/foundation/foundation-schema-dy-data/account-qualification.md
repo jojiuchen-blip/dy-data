@@ -59,3 +59,23 @@ UPDATE、DELETE、TRUNCATE 禁止；并发按月唯一且锁内重查，已有�
 - 自动采集只在上述窗口持久化永久资格证据，复用约 30 分钟调度；每月最多 8 次 admission，额外一个失败预算标记阻断超预算，最多 8 份不同快照、每份规范内容上限 8 MiB（未计 JSONB/索引开销）。正常约 4 次，同 hash 去重；平日完整导出/upsert 及证明日志继续，但不持续新增这些永久表。显式受控 start/complete 函数不用于绕开自动预算。
 - 全量证明绑定无筛选空 `{}` 的 `/life/gate/v3/collaborator/download_bc/start/` POST、同 download_id、download_type=120、完成 status=2、任务实际生成时间及下载 bytes/SHA-256；解析 workbook 必须 reset_dimensions 并校验正式列/身份/行完整性。不捡 mtime 最近文件，不以其他 scope 的 bind/list Total 强比导出总量。失败、不完整或无正式文本合同不得伪记资格完整。
 - 区域账号资格不证明具体销售店；销售时有效关系、核销业务月、费率匹配日分开。官方短抖音号原来源匹配与错误分类见 [内部合同](../foundation-api-dy-data/settlement-authority.md)。迟到、退款和跨月重建使用原业务月冻结版，次月当前资料不能补历史。
+
+## 6 自动月结计算输入与任务血缘（FCR007 增量）
+
+`ensure_month_close_job` 对 `2026-10` 起先冻结资格，再以该月每个上海业务日的真实 daily plan/finalize 成功证明、未锁账及无其他活跃重建，判定可启动月度计算；**启动不要求先存在费用或 current 已 pin**。正式 `month_close_preflight/month_source_watermark` 仍要求至少一条 current，且该月全部 current 引用期望冻结版，不能将 calculation_ready 当正式 READY。沿用 month-scoped runner/队列、重型任务 claim、资源准入、租约和有限重试，不伪造 JobImpact 或转为特殊全库模式。
+
+启动 SHA-256（协议 `month-close-calculation-v1`）绑定业务月、完整 `day@finalize_job_id` revisions、冻结 version/content 和该月历史归属决定摘要。原始依赖只从当月核销候选及该月不可变历史费用的 coupon/order 地址展开：相关订单及同订单券、核销/退款、SKU、相关费率/范围配置、销售账号/绑定、POI/门店和相关不分佣配置。历史费用仅定位地址，不把费用 ID、金额、状态、版本、pin、计算时间等输出纳入 hash；current 退役后仍保留原地址，避免计算改变自身输入范围。
+
+查询按月/地址限定，稳定排序并以500行流式读取必要列和受控 JSON 子字段，保留 missing/null/0 差异；不截断条数、不加载完整 raw 或全库历史订单，不借全库来源 counter/缓存。无关月份、更新/采集运行元数据及大字段不改变 key；相关经济来源或规则变化须产生新 key。
+
+复用既有 `job_runs.metadata_json`，不新增表/列：
+
+| metadata 字段 | 语义 |
+|---|---|
+| calculation_input_protocol | 固定 month-close-calculation-v1 |
+| calculation_input_sha256 | 完整64位启动输入摘要；重取既有任务必须一致，截短碰撞拒绝 |
+| month_close_phase | calculate；不等于正式发布成功 |
+| account_qualification_version_id | 该月冻结版本 |
+| source_watermark | 自动启动时保存完整输入摘要；不冒充正式发布 watermark |
+
+任务 ID 为 `settlement-month-close-{month}-w{sha前32hex}`，保留下游 generation/source bundle 的128字符边界；8/9仍用原 watermark 合同。重复 tick、重算追加费用版本、current 退役和相同输入失败重试复用任务及既有预算；三次正常 worker 失败耗尽预算后，scheduler 不能靠随机新 key 重置。相关来源变化才可形成新输入任务。计算前和费用事务提交前重验完整摘要，正式发布前还须检查全部 current pin，详见 [统一出账门禁](../foundation-api-dy-data/settlement-authority.md#4-自动计算与统一正式出账门禁fcr007-增量)。
