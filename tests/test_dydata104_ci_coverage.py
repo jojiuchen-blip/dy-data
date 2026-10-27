@@ -27,6 +27,12 @@ BROWSER_FILES = {
     "tests/test_dydata104_finance_preview_browser.py",
     "tests/test_dydata105_buttons_browser.py",
 }
+COORDINATOR_CASES = {
+    "test_postgres_publication_only_complete_apply[metadata]",
+    "test_postgres_publication_only_complete_apply[migration]",
+    "test_postgres_publication_only_atomic_billing_rollback",
+    "test_postgres_publication_only_refuses_existing_heavy_claim_lock",
+}
 
 
 def _workflow(name: str) -> dict:
@@ -58,8 +64,11 @@ def test_opt_in_databases_and_explicit_cases_are_verified_before_release(name: s
     assert "CREATE DATABASE dydata_publication_test" in publication["run"]
     assert steps.index(publication) < steps.index(gate)
     assert steps.index(gate) < steps.index(_step(workflow, "Run tests"))
-    for filename in PG_FILES:
-        assert filename in shlex.split(next(line for line in gate["run"].splitlines() if "-m pytest" in line))
+    arguments = shlex.split(next(line for line in gate["run"].splitlines() if "-m pytest" in line))
+    assert {argument for argument in arguments if argument.endswith(".py")} == PG_FILES
+    assert all((ROOT / filename).is_file() for filename in PG_FILES)
+    assert not any(argument.startswith(("-k", "-m", "--deselect", "--ignore"))
+                   for argument in arguments[arguments.index("pytest") + 1:])
     assert not gate.get("if") and not gate.get("continue-on-error")
     assert gate["timeout-minutes"] == 30
     assert "secrets." not in str(gate) and "|| true" not in gate["run"]
@@ -120,8 +129,41 @@ def test_fixture_environment_inventory_matches_checked_in_sources() -> None:
         "tests/test_historical_fee_correction_postgres.py": "DYDATA_HISTORICAL_FEE_TEST_DATABASE_URL",
         "tests/test_dashboard_publication_migration.py": "DYDATA_PUBLICATION_TEST_DATABASE_URL",
         "tests/test_dashboard_publication_finance_postgres.py": "DYDATA_PUBLICATION_TEST_DATABASE_URL",
+        "tests/test_protected_billing_authority_postgres.py": "DYDATA_PROTECTED_TEST_DATABASE_URL",
     }
     for filename, variable in sources.items():
         assert f'os.getenv("{variable}")' in (ROOT / filename).read_text(encoding="utf-8")
     source = (ROOT / "tests/test_account_qualification_postgres.py").read_text(encoding="utf-8")
     assert "from test_dashboard_publication_migration import full_pg_stack" in source
+
+
+@pytest.mark.parametrize("name", WORKFLOWS)
+@pytest.mark.parametrize("missing_case", [None, *sorted(COORDINATOR_CASES)])
+def test_coordinator_receipt_requires_both_schema_modes_rollback_and_heavy_lock(
+    name: str, missing_case: str | None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A nonempty passing core-only report cannot satisfy coordinator coverage."""
+    gate = _step(_workflow(name), PG_NAME)
+    guard = shlex.split(next(line for line in gate["run"].splitlines() if "required = {" in line))[2]
+    document = Element("testsuites")
+    suite = SubElement(document, "testsuite")
+    SubElement(suite, "testcase", classname="tests.test_protected_billing_authority_postgres", name="test_postgres_whole_bill_authority_excludes_replacement_chain[store-a-2026-08]")
+    for case in COORDINATOR_CASES - {missing_case}:
+        SubElement(suite, "testcase", classname="tests.test_protected_billing_authority_postgres", name=case)
+    directory = tmp_path / "logs/ci"
+    directory.mkdir(parents=True)
+    ElementTree(document).write(directory / "dydata104-postgres.xml")
+    monkeypatch.chdir(tmp_path)
+    if missing_case is None:
+        exec(compile(guard, "<workflow-coordinator-guard>", "exec"), {})
+    else:
+        with pytest.raises(AssertionError, match="coordinator"):
+            exec(compile(guard, "<workflow-coordinator-guard>", "exec"), {})
+
+
+def test_release_workflows_share_the_same_pg_contract() -> None:
+    """CI/CD and Tencent must enforce equal DB, selection and receipt contracts."""
+    gates = [_step(_workflow(name), PG_NAME) for name in WORKFLOWS]
+    assert gates[0]["env"] == gates[1]["env"]
+    assert gates[0]["run"] == gates[1]["run"]
+    assert gates[0]["timeout-minutes"] == gates[1]["timeout-minutes"]
