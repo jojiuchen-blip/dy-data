@@ -172,13 +172,19 @@ def test_dydata105_four_import_error_files_are_complete_without_business_writes(
         page.get_by_role("link", name="查看导入记录", exact=True).click()
         page.get_by_role("button", name=batch["batchId"], exact=True).click()
         detail_panel = page.locator(".finance-import-detail")
-        pagination = detail_panel.get_by_role("navigation", name="表格分页")
+        # The frozen row preview owns its own nested pagination. Exercise the
+        # detail's direct error pagination, preserving complete error download.
+        pagination = detail_panel.locator(':scope > nav[aria-label="表格分页"]')
+        expect(pagination).to_have_count(1)
+        preview_pagination = detail_panel.get_by_role("region", name="逐行字段预览", exact=True).get_by_role("navigation", name="表格分页")
+        expect(preview_pagination).to_contain_text("共 61 条")
         expect(pagination).to_contain_text(f"共 {detail['errors']['total']} 条")
         pagination.get_by_role("button", name="末页", exact=True).click()
         expect(pagination).not_to_contain_text("第 1 /")
         pagination.get_by_role("button", name="上一页", exact=True).click()
         pagination.get_by_role("button", name="首页", exact=True).click()
         expect(pagination).to_contain_text("第 1 /")
+        expect(preview_pagination).to_contain_text("第 1 / 2 页")
         detail_panel.get_by_role("button", name="关闭", exact=True).click()
         expect(detail_panel).to_have_count(0)
         assert business_counts() == before

@@ -234,13 +234,16 @@ def test_remaining_import_list_filters_and_nested_error_reversal_pagination(
         page.goto(vite_live_admin_api_base_url + "/finance/imports?month=2026-09&importType=BASIC_INFO")
         page.get_by_role("button", name=invalid["batchId"], exact=True).click()
         panel = page.locator(".finance-import-detail")
-        errors_nav = panel.get_by_role("navigation", name="表格分页")
+        errors_nav = panel.locator(':scope > nav[aria-label="表格分页"]')
+        expect(errors_nav).to_have_count(1)
+        frozen_nav = panel.get_by_role("region", name="逐行字段预览", exact=True).get_by_role("navigation", name="表格分页")
         error_detail = context.request.get(live_admin_fastapi_base_url + f"/api/v1/admin/finance-imports/{invalid['batchId']}").json()["data"]
         errors_total = error_detail["errors"]["total"]
         exercise_pagination(errors_nav, errors_total)
         errors_nav.get_by_label("每页条数", exact=True).click()
         page.get_by_role("option", name="每页 20 条", exact=True).click()
         exercise_pagination(errors_nav, errors_total, size=20)
+        expect(frozen_nav).to_contain_text("第 1 / 2 页")
         with page.expect_download() as downloaded:
             panel.get_by_role("button", name="下载全部错误", exact=True).click()
         assert len(list(csv.DictReader(StringIO(Path(downloaded.value.path()).read_bytes().decode("utf-8-sig"))))) == errors_total
@@ -260,11 +263,13 @@ def test_remaining_import_list_filters_and_nested_error_reversal_pagination(
         with page.expect_response(lambda response: response.request.method == "POST" and response.url.endswith("/reversals")) as reversed_response:
             panel.get_by_role("button", name="撤销批次", exact=True).click()
         assert reversed_response.value.status == 200, reversed_response.value.text()
-        lineage_nav = panel.get_by_role("navigation", name="表格分页")
+        lineage_nav = panel.locator(':scope > nav[aria-label="表格分页"]')
+        expect(lineage_nav).to_have_count(1)
         exercise_pagination(lineage_nav, 61)
         lineage_nav.get_by_label("每页条数", exact=True).click()
         page.get_by_role("option", name="每页 20 条", exact=True).click()
         exercise_pagination(lineage_nav, 61, size=20)
+        expect(panel.get_by_role("region", name="逐行字段预览", exact=True).get_by_role("navigation", name="表格分页")).to_contain_text("第 1 / 2 页")
         with factory() as session:
             original_rows = list(session.scalars(select(FinanceImportRow).where(FinanceImportRow.batch_id == valid["batchId"])))
             assert len(original_rows) == 61

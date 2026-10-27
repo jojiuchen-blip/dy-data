@@ -17,6 +17,9 @@ def test_finance_imports_uses_independent_server_pagination_with_shared_controls
         '@router.get("/admin/finance-imports/{batch_id}/error-file")', 1
     )[0]
     detail_contract = api.split('@router.get("/admin/finance-imports/{batch_id}")', 1)[1].split(
+        '@router.get("/admin/finance-imports/{batch_id}/rows")', 1
+    )[0]
+    preview_contract = api.split('@router.get("/admin/finance-imports/{batch_id}/rows")', 1)[1].split(
         '@router.post("/admin/finance-imports/{batch_id}/commits")', 1
     )[0]
 
@@ -31,6 +34,10 @@ def test_finance_imports_uses_independent_server_pagination_with_shared_controls
     assert "error_page_size: int = Query(" in detail_contract
     assert "reversal_page_size: int = Query(" in detail_contract
     assert detail_contract.count("le=50") == 2
+    assert 'page_size: int = Query(default=50, ge=1, le=50, alias="pageSize")' in preview_contract
+    preview = source("apps/web/src/components/FinanceImportPreviewTable.tsx")
+    assert "fetchFinanceImportPreview(batchId, { page, pageSize })" in preview
+    assert "pageSizeOptions={[20, 50]}" in preview
     assert page.count("pageSizeOptions={[20, 50]}") == 3
     assert "pageSizeOptions={[20, 50, 100]}" not in page
 
