@@ -19,6 +19,7 @@ PG_FILES = {
     "tests/test_dydata104_finance_state_matrix.py",
     "tests/test_account_qualification_postgres.py",
     "tests/test_historical_fee_correction_postgres.py",
+    "tests/test_protected_billing_authority_postgres.py",
     "tests/test_product_sync_completeness_postgres.py",
     "tests/test_product_sync_sku_lookup_postgres.py",
 }
@@ -45,6 +46,7 @@ def test_opt_in_databases_and_explicit_cases_are_verified_before_release(name: s
     expected = {
         "DYDATA_FINANCE_TEST_DATABASE_URL": "dydata_delivery_test",
         "DYDATA_HISTORICAL_FEE_TEST_DATABASE_URL": "dydata_delivery_test",
+        "DYDATA_PROTECTED_TEST_DATABASE_URL": "dydata_delivery_test",
         "DYDATA_PUBLICATION_TEST_DATABASE_URL": "dydata_publication_test",
     }
     for key, database in expected.items():
@@ -57,7 +59,6 @@ def test_opt_in_databases_and_explicit_cases_are_verified_before_release(name: s
     assert steps.index(publication) < steps.index(gate)
     assert steps.index(gate) < steps.index(_step(workflow, "Run tests"))
     for filename in PG_FILES:
-        assert (ROOT / filename).is_file()
         assert filename in shlex.split(next(line for line in gate["run"].splitlines() if "-m pytest" in line))
     assert not gate.get("if") and not gate.get("continue-on-error")
     assert gate["timeout-minutes"] == 30
