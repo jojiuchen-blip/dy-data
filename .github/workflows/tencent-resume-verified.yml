@@ -108,15 +108,23 @@ jobs:
               if path.is_file():
                   content = path.read_text()
                   assert obsolete not in content and not any(tag in content for tag in tags), 'Image remains configured'
-          metadata = json.loads(command('image', 'inspect', obsolete))[0]
-          assert set(metadata['RepoTags']) == tags, 'Image tags changed since audit'
-          before = shutil.disk_usage('/opt/dy-dashboard').free
-          report = pathlib.Path('/opt/dy-dashboard/logs/image-retention-clue-' + time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()) + '.json')
-          evidence = {'phase': 'planned', 'image': obsolete, 'tags': sorted(tags), 'protected': sorted(protected), 'free_before': before}
-          with report.open('x') as output: json.dump(evidence, output)
-          # No --force: Docker also refuses deletion if a container starts using it.
-          subprocess.run(['docker', 'image', 'rm', *sorted(tags)], check=True)
-          for image in protected: command('image', 'inspect', image)
+          # The preceding run removed exactly the audited obsolete image, then
+          # discovered pre-existing missing images on long-exited containers.
+          # Those three IDs were absent in the read-only inventory before cleanup.
+          legacy_missing = {
+              'sha256:c894a507fc37e5a73b14ea247323352cf9cb8de2c71a333e8bfddf900e8c414d',
+              'sha256:f3247d8bb1ca8df97966aaf92cd90505530aa13a218cc97db28611f707e58669',
+              'sha256:e8acfab75f241599ac484fabf0be6accbc7d73fb17a1beddc351ce98cf6349be',
+          }
+          running = command('ps', '-q').split()
+          assert not ({row['Image'] for row in json.loads(command('inspect', *running))} & legacy_missing)
+          report = max(pathlib.Path('/opt/dy-dashboard/logs').glob('image-retention-clue-*.json'), key=lambda path: path.stat().st_mtime)
+          evidence = json.loads(report.read_text())
+          assert evidence['image'] == obsolete and set(evidence['tags']) == tags
+          result = subprocess.run(['docker', 'image', 'inspect', obsolete], capture_output=True)
+          assert result.returncode != 0 and b'No such image' in result.stderr
+          for image in protected - legacy_missing: command('image', 'inspect', image)
+          evidence['preexisting_missing_stopped_container_images'] = sorted(legacy_missing)
           evidence.update(phase='complete', free_after=shutil.disk_usage('/opt/dy-dashboard').free)
           report.write_text(json.dumps(evidence))
           print('Exact obsolete image cleanup:', json.dumps(evidence))
