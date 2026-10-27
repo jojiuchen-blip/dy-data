@@ -10,6 +10,7 @@
 | `test_historical_fee_correction_postgres.py` | `DYDATA_HISTORICAL_FEE_TEST_DATABASE_URL`；loopback、DB必须是`dydata_delivery_test` | 与财务共享专用测试DB，各fixture使用不同UUID schema，覆盖事务回滚/幂等/竞争和隔离级别拒绝 |
 | `test_protected_billing_authority_postgres.py` | 已读取源码：`DYDATA_PROTECTED_TEST_DATABASE_URL`，loopback、DB以`_test`结尾 | 与财务/历史同`dydata_delivery_test`，每case为`protected_authority_<uuid>` schema；整个文件运行，含core7例及publication-only coordinator4例 |
 | `test_month_close_auto_bootstrap_postgres.py` | 复用 `test_protected_billing_authority_postgres.postgres_engine`，实际读取 `DYDATA_PROTECTED_TEST_DATABASE_URL` | 整文件加入同一 `dydata_delivery_test` 门禁；5 个执行场景各用 UUID schema，收据逐名要求成功 |
+| `test_missing_fee_repair_postgres.py` | `DYDATA_MISSING_FEE_TEST_DATABASE_URL`；loopback、DB 以 `_test` 结尾 | 整文件加入现有 `dydata_delivery_test`；38 个实际收集场景均要求成功收据，各 fixture 使用独立 UUID Schema |
 | `test_account_qualification_postgres.py` | 复用 `test_dashboard_publication_migration.full_pg_stack`，实际读取`DYDATA_PUBLICATION_TEST_DATABASE_URL` | 沿用先前创建的`dydata_publication_test`，显式运行Alembic、不可变证据、并发冻结和自动准入预算 |
 | `test_product_sync_completeness_postgres.py`、`test_product_sync_sku_lookup_postgres.py` | 复用publication finance PG fixture，同样读取`DYDATA_PUBLICATION_TEST_DATABASE_URL` | 同一显式PG门禁覆盖新增完整性及既有精确SKU查询 |
 
@@ -75,3 +76,40 @@
 - PyYAML 解析两份工作流，Git Bash `bash -n` 验证全部 **58 段** run，exit 0；与基线解析对象逐字段比对，只有指定 PG 步骤的 run 字段改变，触发、权限、并发、verify 其余字段以及全部部署/release 任务保持一致。
 - `git diff --check` 通过。未重跑真实 PG、全仓财务或前端构建；主线程已独立验证 bootstrap PG，本增量不将其结果冒充本工作树执行。最终集成提交的 GitHub CI、PG、镜像、部署与生产验收仍由主线程回收。
 - 技能 usage/audit 按宿主规则写入本机日志；工作流 memory 文件未更新。
+
+
+## 缺费修复 PostgreSQL 与真实浏览器镜像门禁
+
+2026-10-27，本增量从集成提交 `62c427c` 新建隔离工作树，未改先前 CI 或重核销修复提交。仅修改两份工作流、静态契约测试与本文档；本任务无 foundation 漂移。
+
+### 缺费修复 PostgreSQL
+
+两份既有显式 PG 门禁新增整份 `tests/test_missing_fee_repair_postgres.py`，接线实际 fixture 读取的 `DYDATA_MISSING_FEE_TEST_DATABASE_URL`，沿用专用 `dydata_delivery_test`，不另建数据库。原 7 文件、5 个 bootstrap 场景、4 个 coordinator 场景及非空/零 skip/failure/error 守卫均保留。
+
+本次从实际 pytest 收集结果建立 38 个必需成功场景的清单，涵盖：
+
+- `test_postgres_apply_commit_readback_and_exact_idempotence[metadata]` / `[migration]` 的真实提交、独立连接回读、幂等重放和重放输入/输出漂移拒绝。
+- `test_postgres_full_dependency_drift_rejects_zero_writes[...]` 的 9 类依赖漂移，以及 `test_postgres_unexpected_writer_outputs_roll_back_entire_batch[...]` 的 4 类全批回滚。
+- 来源 writer、heavy claim、relation phantom、已有写事务超时、事务特征与固定超时、剩余 wall budget 限制，以及历史费用、确认/锁账/发票/异议等保护拒绝。
+- 10/20/50/373 券的代表性预算收据；这些场景允许记录按合同预算拒绝，测试成功不代表相应规模已实际入账或生产预算已验收。
+
+缺费收据守卫要求正确模块、完整场景名称及成功结果；即使其他 PG 文件通过，缺少任一场景也拒绝。本增量只核验源码与收集结果，没有并行重跑 PG；该文件最终真实 PG 运行由负责 worker 与主线程独立回收。
+
+### 浏览器镜像兼容性
+
+两份工作流在 `Build Browser Docker image` 后立即新增同一门禁，均使用刚构建的 `dy-dashboard-browser:ci`：
+
+1. 在 `--network none` 的实际镜像内检查 `PIL` / `PIL.Image` 导入路径来自 `/usr/local/lib`，包元数据与运行时 Pillow 版本均为 `13.0.0`。
+2. 通过 `--entrypoint python3` 离线执行整份 `test_browser_image_dependency_compat.py`。仅将该测试文件只读挂载到 `/tmp/`，将现有 `logs/ci` 挂载为收据输出目录；不挂载宿主源码或依赖，不加载宿主 conftest。
+3. 要求 `dydata104-browser-image.xml` 恰好 3 tests，0 skipped / failures / errors，且 PNG、TIFF 与 Requests/urllib3 普通/分块响应测试三个成功 case 均存在。
+
+宿主全仓扫描中 Pillow 可选导致的跳过不能满足该门禁。新收据通过独立 `always()` artifact 步骤持久保存，因为旧收据上传位于镜像构建之前；旧收据步骤保持原位置与内容。
+
+### 本次独立验证
+
+- `python -m pytest -q tests/test_dydata104_ci_coverage.py tests/test_deploy_publications.py tests/test_deploy_compose_config.py tests/test_project_governance.py --tb=short`：**219 passed，14.11 秒，exit 0**。测试实际执行内联守卫，覆盖缺少逐个 PG/镜像 case、错误模块、case skip/failure/error，以及镜像零/少/多测试、aggregate skip/failure/error 等拒绝路径。
+- `python -m pytest --collect-only -q tests/test_missing_fee_repair_postgres.py tests/test_browser_image_dependency_compat.py`：**41 tests collected，1.35 秒，exit 0**（38 PG＋3 镜像兼容）。收集不代替真实 PG 执行。
+- 两份 YAML 经 PyYAML 解析，全部 **60 段 run** 经 Git Bash `bash -n`，exit 0。与基线逐字段比对，只增加两项镜像验证/收据步骤及修改 PG 步骤的新增 env/run；触发、权限、并发、全部部署/release 任务和其余 verify 步骤保持一致。
+- 将精确工作流 Docker 命令仅替换镜像 tag 为已存在本地候选 `dydata104-browser-deps:oct27`，镜像 ID 为 `sha256:6a1c23aff303ca92901d66a0a3556ecd887b9ebd2db459a456b3312df581ee41`：Pillow 13.0.0 版本/路径检查通过，**3 passed，0.78 秒，exit 0**；实际 JUnit 为 3/0 skipped/0 failures/0 errors，两个精确内联收据守卫均通过。挂载使用本工作树的实际测试文件及输出目录，外部网络关闭。
+- 上项是已有本地候选镜像的命令与运行兼容验证，**不是本次最终 HEAD 镜像构建或 GitHub CI 证据**；没有声称重新构建、远端放行或生产发布。最终镜像构建、PG、CI 与部署由主线程在集成提交回收。
+- 治理锁、全局文件（0 errors / 0 warnings）、S4 路由、T3.1 计划一致性、环境与执行上下文均通过；`git diff --check` 通过。未修改业务或依赖、未推送；工作流 memory 文件未更新。
