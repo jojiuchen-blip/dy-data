@@ -48,6 +48,9 @@ from apps.api.dy_api.models import (  # noqa: E402
     RawDouyinOrderCoupon,
     RawDouyinVerifyRecord,
 )
+from apps.worker.billing_statements import _write_sources
+from apps.worker.protected_billing_authority import validate_protected_authority
+from apps.worker.settlement import StatementSource
 
 
 @pytest.fixture()
@@ -502,7 +505,51 @@ def test_store_settlement_reads_current_list_and_version_history(
     assert historical_detail.json()["data"]["storeName"] == "Store One Historical"
 
 
+def _seed_frozen_monthly_report_sources(session: Session) -> None:
+    """Give the existing locked headers exact immutable bases and snapshot lines."""
+    statements = list(session.scalars(select(SettlementStatement).where(
+        SettlementStatement.is_current.is_(True))))
+    for statement in statements:
+        sources = []
+        at = datetime.fromisoformat(statement.statement_month + "-01T00:00:00+00:00")
+        store = session.get(DimStore, statement.store_id)
+        store_name = statement.store_name_snapshot or store.store_name
+        for direction, amount in ((1, statement.promotion_original_fee_cent),
+                                  (2, statement.management_original_fee_cent)):
+            if amount == 0:
+                continue
+            identity = f"frozen-{statement.statement_id}-{direction}"
+            session.add(SettlementFeeResult(
+                fee_result_id=identity, coupon_id=identity, order_id=f"order-{identity}",
+                fee_direction=direction, result_version=1, original_business_month=statement.statement_month,
+                rule_match_date=at.date(), sale_store_id=statement.store_id, verify_store_id=statement.store_id,
+                sku_id="billing-fixture-sku", product_scope="all", product_type="all",
+                sale_channel_normalized="LIVE", source_amount_cent=amount * 10, fee_base_cent=amount * 10,
+                fee_rate=Decimal("0.100000"), fee_amount_cent=amount, rule_version="billing-fixture-rate",
+                scope_rule_version="billing-fixture-scope", result_status=1,
+                calculation_run_id="frozen-monthly-fixture", calculated_at=at,
+            ))
+            sources.append(StatementSource(
+                source_type=1, source_record_id=identity, original_fee_result_id=identity,
+                coupon_id=identity, order_id=f"order-{identity}", fee_direction=direction,
+                original_business_month=statement.statement_month, posting_month=statement.statement_month,
+                store_id=statement.store_id, product_scope="all", product_type="all",
+                base_amount_cent=amount * 10, fee_amount_cent=amount, source_amount_cent=amount * 10,
+                rule_version="billing-fixture-rate", order_status="COMPLETED", coupon_status="VERIFIED",
+                product_name="Frozen Billing Fixture", sku_id="billing-fixture-sku", sale_channel="LIVE",
+                sale_store_id=statement.store_id, sale_store=store_name,
+                verify_store_id=statement.store_id, verify_store=store_name,
+                sale_time=at, verify_time=at, received_amount_cent=amount * 10, fee_rate=Decimal("0.100000"),
+            ))
+        session.flush()
+        _write_sources(session, statement, sources)
+    session.flush()
+    validate_protected_authority(session, tuple(sorted({row.statement_month for row in statements})))
+    session.commit()
+
+
 def test_monthly_report_references_current_statement_not_historical_version(client: TestClient, db_session: Session) -> None:
+    _seed_frozen_monthly_report_sources(db_session)
     _login(client)
     publish_fixture(db_session, "settlement")
     response = client.get("/api/v1/stores/store-1/monthly-settlement", params={"month": "2026-08"})
