@@ -542,6 +542,7 @@ def refresh_active_settlement_lineage(
     progress_callback: Callable[[str, int, int | None], None] | None = None,
     lease_duration: timedelta = DEFAULT_SETTLEMENT_REBUILD_LEASE,
     months: tuple[str, ...] | None = None,
+    source_guard: Callable[[Session], None] | None = None,
 ) -> dict[str, object] | None:
     """Build and publish the active settlement overlay after a full rebuild.
 
@@ -589,6 +590,8 @@ def refresh_active_settlement_lineage(
             SettlementStatement.statement_month.in_(plan.affected_months),
         )))
         frozen_sources = collect_billing_sources(session, months=plan.affected_months, slots=billing_slots)
+        if source_guard is not None:
+            source_guard(session)
         freeze_billing_sources(
             session, generation_id=plan.generation_id, job_id=job_id, sources=frozen_sources,
             slots=billing_slots,
@@ -620,9 +623,12 @@ def refresh_active_settlement_lineage(
         # Detailed source data stays in a private table, not an operational log.
         commit_guard(session)
         _lock_billing_publication_base(session, plan.base_generation_id)
+        current_sources = collect_billing_sources(session, months=plan.affected_months, slots=billing_slots)
+        if source_guard is not None:
+            source_guard(session)
         freeze_billing_sources(
             session, generation_id=plan.generation_id, job_id=job_id,
-            sources=collect_billing_sources(session, months=plan.affected_months, slots=billing_slots),
+            sources=current_sources,
             slots=billing_slots,
         )
         publication = publish_settlement_rebuild(
@@ -1228,6 +1234,15 @@ def run_settlement_rebuild_job(
 
     if factory is None:
         raise RuntimeError("settlement rebuild requires a database session factory")
+    with factory() as session:
+        job = session.get(JobRun, job_id)
+        publication_only = isinstance((job.metadata_json or {}).get("publication_only"), dict) if job else False
+    if publication_only:
+        from apps.worker.settlement_publication_only import run_settlement_publication_job
+        return run_settlement_publication_job(
+            factory, job_id=job_id, claim_id=claim_id, lease_duration=lease_duration,
+            heartbeat_interval_seconds=heartbeat_interval_seconds,
+        )
     if claim_id is None:
         claim_id = claim_settlement_rebuild_job(
             factory,
@@ -1314,6 +1329,15 @@ def run_settlement_month_rebuild_job(
 
     if factory is None:
         raise RuntimeError("settlement rebuild requires a database session factory")
+    with factory() as session:
+        job = session.get(JobRun, job_id)
+        publication_only = isinstance((job.metadata_json or {}).get("publication_only"), dict) if job else False
+    if publication_only:
+        from apps.worker.settlement_publication_only import run_settlement_publication_job
+        return run_settlement_publication_job(
+            factory, job_id=job_id, claim_id=claim_id, lease_duration=lease_duration,
+            heartbeat_interval_seconds=heartbeat_interval_seconds,
+        )
     if not _MONTH_KEY_PATTERN.match(business_month):
         raise ValueError(f"invalid business month: {business_month}")
     if claim_id is None:

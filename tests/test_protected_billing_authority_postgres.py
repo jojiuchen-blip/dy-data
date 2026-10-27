@@ -80,6 +80,36 @@ def test_migrated_postgres_authority_and_fail_closed_leave_sources_unchanged(pos
         assert session.execute(text("SELECT source_name,generation FROM dashboard_publication_source_counters ORDER BY source_name")).all() == counters
 
 
+@pytest.mark.parametrize("postgres_engine", ("metadata", "migration"), indirect=True)
+def test_postgres_publication_only_complete_apply(postgres_engine, monkeypatch):
+    from test_settlement_publication_only import test_apply_publishes_without_fee_rebuild_and_versions_only_unprotected_bill as apply
+    with Session(postgres_engine, autoflush=False) as session:
+        apply(session, monkeypatch)
+
+
+def test_postgres_publication_only_atomic_billing_rollback(postgres_engine, monkeypatch):
+    from test_settlement_publication_only import test_billing_failure_rolls_back_publication_and_statement_switch as rollback
+    with Session(postgres_engine, autoflush=False) as session:
+        rollback(session, monkeypatch)
+
+
+def test_postgres_publication_only_refuses_existing_heavy_claim_lock(postgres_engine):
+    from test_settlement_publication_only import _setup
+    from apps.worker.repositories import HEAVY_SYNC_CLAIM_LOCK_KEY
+    from apps.worker.settlement_publication_only import preview_settlement_publication, apply_settlement_publication
+    from apps.api.dy_api.models import JobRun
+    from sqlalchemy import func
+
+    with Session(postgres_engine, autoflush=False) as session:
+        factory = _setup(session)
+        preview = preview_settlement_publication(factory, months=("2026-08",))
+        with postgres_engine.begin() as other:
+            assert other.scalar(select(func.pg_try_advisory_xact_lock(HEAVY_SYNC_CLAIM_LOCK_KEY)))
+            with pytest.raises(RuntimeError, match="claim is unavailable"):
+                apply_settlement_publication(factory, months=("2026-08",), preview_hash=preview["preview_hash"])
+        assert session.scalar(select(func.count()).select_from(JobRun)) == 0
+
+
 def test_postgres_capture_waits_for_confirmation_then_rereads_whole_bill(postgres_engine):
     with Session(postgres_engine, autoflush=False) as setup:
         _seed(setup)
