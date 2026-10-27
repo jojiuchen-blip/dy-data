@@ -3620,7 +3620,7 @@ def test_finance_import_detects_no_change_and_difference(
             headers={"Idempotency-Key": idempotency_key},
         )
 
-    first = upload("APPROVED_SETTLED", "finance-import-first-upload-key-0001")
+    first = upload("REJECTED_REUPLOAD", "finance-import-first-upload-key-0001")
     assert first.status_code == 200
     first_data = first.json()["data"]
     assert first_data["scenario"] == "FIRST_IMPORT_READY"
@@ -3631,7 +3631,7 @@ def test_finance_import_detects_no_change_and_difference(
     )
     assert committed.status_code == 200
 
-    unchanged = upload("APPROVED_SETTLED", "finance-import-no-change-key-0001")
+    unchanged = upload("REJECTED_REUPLOAD", "finance-import-no-change-key-0001")
     assert unchanged.status_code == 200
     unchanged_data = unchanged.json()["data"]
     assert unchanged_data["scenario"] == "NO_CHANGE"
@@ -3639,7 +3639,7 @@ def test_finance_import_detects_no_change_and_difference(
     assert unchanged_data["currentVersion"] == 1
     assert unchanged_data["contentChanged"] is False
 
-    changed = upload("REJECTED_REUPLOAD", "finance-import-diff-key-0001")
+    changed = upload("APPROVED_SETTLED", "finance-import-diff-key-0001")
     assert changed.status_code == 200
     changed_data = changed.json()["data"]
     assert changed_data["scenario"] == "DIFF_CONFIRMATION_REQUIRED"
@@ -3691,7 +3691,7 @@ def test_finance_import_correction_rejects_stale_competing_preview(
         assert response.status_code == 200
         return response.json()["data"]
 
-    initial = upload("APPROVED_SETTLED", "finance-conflict-upload-initial-0001")
+    initial = upload("REJECTED_REUPLOAD", "finance-conflict-upload-initial-0001")
     committed = client.post(
         f"/api/v1/admin/finance-imports/{initial['batchId']}/commits",
         json={"readVersion": 0, "changeReason": "首次导入"},
@@ -3699,8 +3699,8 @@ def test_finance_import_correction_rejects_stale_competing_preview(
     )
     assert committed.status_code == 200
 
-    winner = upload("REJECTED_REUPLOAD", "finance-conflict-upload-winner-0001")
-    stale = upload("REJECTED_REUPLOAD", "finance-conflict-upload-stale-0001")
+    winner = upload("APPROVED_SETTLED", "finance-conflict-upload-winner-0001")
+    stale = upload("APPROVED_SETTLED", "finance-conflict-upload-stale-0001")
     assert winner["scenario"] == stale["scenario"] == "DIFF_CONFIRMATION_REQUIRED"
     corrected = client.post(
         f"/api/v1/admin/finance-imports/{winner['batchId']}/corrections",
@@ -3741,7 +3741,7 @@ def test_finance_import_correction_rejects_stale_competing_preview(
     )
     assert current_invoice is not None
     assert current_invoice.version_no == 3
-    assert current_invoice.invoice_status == 4
+    assert current_invoice.invoice_status == 3
 
 
 def test_management_invoice_xlsx_and_factory_deduction_are_versioned_in_full(

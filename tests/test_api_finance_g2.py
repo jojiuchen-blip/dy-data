@@ -1052,7 +1052,7 @@ def test_finance_import_reversal_locks_version_slot_before_business_targets(
     assert lock_order == ["version-slot", "business-targets"]
 
 
-def test_finance_import_reversal_restores_or_tombstones_all_four_fact_types(
+def test_finance_import_reversal_restores_profiles_but_protects_settled_factory_facts(
     client: TestClient,
     db_session: Session,
 ) -> None:
@@ -1225,6 +1225,10 @@ def test_finance_import_reversal_restores_or_tombstones_all_four_fact_types(
             json={"readVersion": 1, "changeReason": f"撤销 {batch_id}"},
             headers={"Idempotency-Key": f"reversal-{batch_id}-0001"},
         )
+        if batch_id in {"management-batch-v1", "promotion-batch-v1"}:
+            assert response.status_code == 409, response.text
+            assert response.json()["detail"]["code"] == "IMPORT_SETTLEMENT_PROTECTED"
+            continue
         assert response.status_code == 200, response.text
         responses[batch_id] = response.json()["data"]
         assert responses[batch_id]["scenario"] == "REVERSED"
@@ -1250,13 +1254,13 @@ def test_finance_import_reversal_restores_or_tombstones_all_four_fact_types(
     assert sap_current.version_no == 3 and sap_current.source_type == 3
     management_current = db_session.scalar(
         select(InvoiceRecord).where(
-            InvoiceRecord.invoice_id.not_in(["management-import-v1"]),
+            InvoiceRecord.invoice_id == "management-import-v1",
             InvoiceRecord.store_id == "g2-store-1",
             InvoiceRecord.statement_month == "2026-10",
             InvoiceRecord.is_current.is_(True),
         )
     )
-    assert management_current is not None and management_current.is_tombstone is True
+    assert management_current is not None and management_current.is_tombstone is False
     promotion_current = db_session.scalar(
         select(PromotionInvoice).where(
             PromotionInvoice.physical_invoice_id == "promotion-physical-1",
@@ -1264,18 +1268,18 @@ def test_finance_import_reversal_restores_or_tombstones_all_four_fact_types(
         )
     )
     assert promotion_current is not None
-    assert promotion_current.invoice_status == 2
-    assert promotion_current.version_no == 3
+    assert promotion_current.invoice_status == 3
+    assert promotion_current.version_no == 2
     assert db_session.scalar(
         select(func.count())
         .select_from(FinanceImportRow)
         .where(FinanceImportRow.reversal_effect_type.is_not(None))
-    ) == 4
+    ) == 2
     assert db_session.scalar(
         select(func.count())
         .select_from(FinanceOperationAudit)
-        .where(FinanceOperationAudit.operation_type == "FINANCE_IMPORT_REVERSAL")
-    ) == 4
+        .where(FinanceOperationAudit.operation_type == "FINANCE_IMPORT_REVERSAL", FinanceOperationAudit.result_status == 1)
+    ) == 2
 
     replay = client.post(
         "/api/v1/admin/finance-imports/basic-batch-v1/reversals",
@@ -1464,7 +1468,7 @@ def test_reversal_of_reimport_preserves_previous_tombstone_for_all_fact_types(
     assert restored_promotion.is_tombstone is True
 
 
-def test_management_reversal_to_previous_tombstone_reprojects_and_reports_tombstone(
+def test_management_reversal_to_previous_tombstone_preserves_current_deduction(
     client: TestClient,
     db_session: Session,
     monkeypatch: pytest.MonkeyPatch,
@@ -1538,11 +1542,15 @@ def test_management_reversal_to_previous_tombstone_reprojects_and_reports_tombst
         headers={"Idempotency-Key": "management-reimport-reversal"},
     )
 
-    assert response.status_code == 200, response.text
-    assert synchronized[-1]["invoice_id_by_statement"] == {}
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "IMPORT_SETTLEMENT_PROTECTED"
+    assert synchronized == []
     detail = client.get("/api/v1/admin/finance-imports/management-reimport-batch")
     assert detail.status_code == 200
-    assert detail.json()["data"]["reversalRows"]["list"][0]["effectType"] == "TOMBSTONE"
+    assert detail.json()["data"]["canReverse"] is False
+    assert detail.json()["data"]["reverseNotAllowedCode"] == "IMPORT_SETTLEMENT_PROTECTED"
+    db_session.refresh(current_reimport)
+    assert current_reimport.is_current and not current_reimport.is_tombstone
 
 
 def test_finance_import_reversal_rejects_one_overwritten_business_key_atomically(

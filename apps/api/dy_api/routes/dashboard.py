@@ -1830,6 +1830,7 @@ def create_finance_import(
     error_rows = 0
     first_errors: list[dict] = []
     seen_business_keys: set[str] = set()
+    seen_invoice_numbers: set[str] = set()
     for row_number, raw_row in _iter_finance_import_rows(file, filename, request):
         if total_rows >= MAX_FINANCE_IMPORT_ROWS:
             session.rollback()
@@ -1873,6 +1874,14 @@ def create_finance_import(
                 )
             )
         seen_business_keys.add(business_key)
+        if normalized_type == "MANAGEMENT_FACTORY_RESULT":
+            invoice_number = str(normalized_payload.get("invoiceNumber") or "")
+            if invoice_number and invoice_number in seen_invoice_numbers:
+                errors.append(_finance_import_error(
+                    row_number, business_key, "invoiceNumber", invoice_number,
+                    "批次内发票号码重复，不能跨门店或账期重复登记", "每张真实票据只登记一次",
+                ))
+            seen_invoice_numbers.add(invoice_number)
         normalized_hasher.update(
             json.dumps(
                 normalized_payload,
@@ -1884,6 +1893,11 @@ def create_finance_import(
         if errors:
             error_rows += 1
             first_errors.extend(errors[: max(0, 100 - len(first_errors))])
+        normalized_payload["__preview"] = _capture_finance_import_preview(
+            session, normalized_type, normalized_payload, errors, batch.submitted_at,
+        )
+        if normalized_type in ("BASIC_INFO", "SAP_CONFIRMATION"):
+            normalized_payload["_previewProfileId"] = normalized_payload["__preview"]["targetRecordId"]
         session.add(
             FinanceImportRow(
                 batch_id=batch.batch_id,
@@ -1897,6 +1911,15 @@ def create_finance_import(
         if total_rows % 500 == 0:
             session.flush()
 
+    if not total_rows:
+        session.rollback()
+        _raise_reporting_error(
+            request,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "IMPORT_EMPTY_FILE",
+            "财务导入文件没有数据行，请填写模板后重新上传",
+            field="file",
+        )
     batch.normalized_sha256 = normalized_hasher.hexdigest()
     batch.total_rows = total_rows
     batch.error_rows = error_rows
@@ -1906,7 +1929,7 @@ def create_finance_import(
         batch.batch_status = 6
         scenario = "BATCH_VALIDATION_FAILED"
     else:
-        unchanged_batch_id = session.scalar(
+        unchanged_batch_ids = session.scalars(
             select(FinanceImportBatch.batch_id).where(
                 FinanceImportBatch.batch_id != batch.batch_id,
                 FinanceImportBatch.import_type == batch.import_type,
@@ -1914,6 +1937,11 @@ def create_finance_import(
                 FinanceImportBatch.normalized_sha256 == batch.normalized_sha256,
                 FinanceImportBatch.batch_status.in_((5, 8)),
             )
+        )
+        unchanged_batch_id = next(
+            (candidate for candidate in unchanged_batch_ids
+             if _finance_import_batch_targets_current(session, candidate)),
+            None,
         )
         if unchanged_batch_id is not None:
             batch.content_changed = False
@@ -2149,6 +2177,52 @@ def get_finance_import(
     return _reporting_success(request, data)
 
 
+@router.get("/admin/finance-imports/{batch_id}/rows")
+def list_finance_import_preview_rows(
+    batch_id: str,
+    request: Request,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=50, alias="pageSize"),
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    """Return frozen, field-limited upload previews without rereading business facts."""
+    _require_finance_admin(current_user, request)
+    session = _billing_session(store, request)
+    batch = session.scalar(select(FinanceImportBatch).where(FinanceImportBatch.batch_id == batch_id))
+    if batch is None:
+        _raise_reporting_error(request, status.HTTP_404_NOT_FOUND, "RESOURCE_NOT_FOUND", "财务导入批次不存在")
+    _require_finance_admin(current_user, request, page_key=_finance_import_page_key(batch.import_type))
+    _require_finance_import_batch_scope(session, batch, current_user, request)
+    rows = session.scalars(select(FinanceImportRow).where(
+        FinanceImportRow.batch_id == batch_id,
+    ).order_by(FinanceImportRow.row_number).offset((page - 1) * page_size).limit(page_size))
+    unavailable = {
+        "available": False, "reason_code": "PREVIEW_SNAPSHOT_UNAVAILABLE",
+        "reason": "此批次未保存字段预览，请重新上传",
+    }
+    snapshots = list(session.scalars(select(FinanceImportRow.normalized_payload).where(
+        FinanceImportRow.batch_id == batch_id,
+    )))
+    available_count = sum(bool(item.get("__preview", {}).get("available")) for item in snapshots)
+    blocked_count = sum(
+        not item.get("__preview", {}).get("stateTransition", {}).get("allowed", False)
+        for item in snapshots
+    )
+    return _reporting_success(request, {
+        "list": [{
+            "row_number": row.row_number, "business_key": row.business_key,
+            "row_status": row.row_status,
+            "preview": row.normalized_payload.get("__preview") or unavailable,
+        } for row in rows],
+        "total": batch.total_rows, "page": page, "page_size": page_size,
+        "preview_summary": {
+            "frozen_available": bool(batch.total_rows) and available_count == batch.total_rows,
+            "blocked_row_count": blocked_count, "total_rows": batch.total_rows,
+        },
+    })
+
+
 @router.post("/admin/finance-imports/{batch_id}/commits")
 def commit_finance_import(
     batch_id: str,
@@ -2252,6 +2326,7 @@ def _finance_import_reversal_plan(session, batch: FinanceImportBatch, request: R
                     "门店财务资料已被后续导入或页面操作覆盖",
                     data={"business_key": row.business_key},
                 )
+            _require_finance_import_reversal_unprotected(session, batch.import_type, row.target_record_id, request)
             previous = session.scalar(
                 select(StoreFinanceProfile)
                 .where(
@@ -2278,6 +2353,7 @@ def _finance_import_reversal_plan(session, batch: FinanceImportBatch, request: R
                     "管理服务费记录已被后续导入或页面操作覆盖",
                     data={"business_key": row.business_key},
                 )
+            _require_finance_import_reversal_unprotected(session, batch.import_type, row.target_record_id, request)
             previous = session.scalar(
                 select(InvoiceRecord)
                 .where(
@@ -2304,6 +2380,7 @@ def _finance_import_reversal_plan(session, batch: FinanceImportBatch, request: R
                 "推广服务费厂家结果已被后续导入或页面操作覆盖",
                 data={"business_key": row.business_key},
             )
+        _require_finance_import_reversal_unprotected(session, batch.import_type, row.target_record_id, request)
         previous = (
             session.scalar(
                 select(PromotionInvoice).where(
@@ -2876,6 +2953,16 @@ def _execute_finance_import_commit(
             "IMPORT_BATCH_NOT_READY",
             "财务导入批次不是可提交状态",
         )
+    if batch.total_rows and any(
+        not item.get("__preview", {}).get("available")
+        for item in session.scalars(select(FinanceImportRow.normalized_payload).where(
+            FinanceImportRow.batch_id == batch.batch_id,
+        ))
+    ):
+        _raise_reporting_error(
+            request, status.HTTP_409_CONFLICT, "IMPORT_PREVIEW_SNAPSHOT_REQUIRED",
+            "旧批次没有冻结字段预览，请重新上传并核对后提交",
+        )
 
     current_version = int(
         session.scalar(
@@ -2929,6 +3016,13 @@ def _execute_finance_import_commit(
         .where(FinanceImportRow.batch_id == batch.batch_id)
         .order_by(FinanceImportRow.row_number)
     ).yield_per(500)
+
+    if batch.import_type == 3:
+        numbers = session.scalars(select(FinanceImportRow.normalized_payload).where(
+            FinanceImportRow.batch_id == batch.batch_id,
+        ))
+        for number in sorted({item["invoiceNumber"] for item in numbers}):
+            _lock_management_invoice_number(session, number)
 
     before_snapshot = {
         "batchStatus": batch.batch_status,
@@ -4439,6 +4533,12 @@ def correct_management_invoice(
             field="invoiceDate",
         )
 
+    _lock_management_invoice_number(session, invoice_number)
+    if _management_invoice_number_conflict(session, invoice_number, store_id, statement_month):
+        _raise_reporting_error(
+            request, status.HTTP_409_CONFLICT, "INVOICE_NUMBER_ALREADY_USED",
+            "发票号码已用于其他门店、账期或费用方向", field="invoiceNumber",
+        )
     current = session.scalar(
         select(InvoiceRecord)
         .where(
@@ -6956,7 +7056,7 @@ def _validate_final_finance_import_row(
 
     if import_type == "PROMOTION_FACTORY_RESULT":
         business_key = invoice_number
-        if len(invoice_number) != 20 or not invoice_number.isdigit():
+        if len(invoice_number) != 20 or not invoice_number.isascii() or not invoice_number.isdigit():
             add_error(
                 "invoiceNumber", invoice_number, "发票号码必须为 20 位数字", "填写有效数电专票号码"
             )
@@ -7011,6 +7111,11 @@ def _validate_final_finance_import_row(
                 "结算金额必须等于当前推广费发票全额",
                 "填写当前有效发票全额，不允许部分结算",
             )
+        if current_invoice is not None and current_invoice.invoice_status == 3 and result != "APPROVED_SETTLED":
+            add_error(
+                "reviewResult", result, "已结算厂家结果不能回退为审核不通过",
+                "保留已结算事实，使用经授权的独立账务更正流程",
+            )
         normalized_payload.update(
             {
                 "storeId": current_invoice.store_id if current_invoice is not None else "",
@@ -7033,13 +7138,16 @@ def _validate_final_finance_import_row(
             "行账期必须与批次账期一致",
             f"填写 {statement_month}",
         )
-    if len(invoice_number) != 20 or not invoice_number.isdigit():
+    if len(invoice_number) != 20 or not invoice_number.isascii() or not invoice_number.isdigit():
         add_error(
             "invoiceNumber", invoice_number, "发票号码必须为 20 位数字", "填写有效数电专票号码"
         )
     invoice_date = parse_date("invoiceDate")
     deduction_date = parse_date("deductionDate")
     deduction_amount, amount_valid = parse_positive_cent("deductionAmountCent")
+    duplicate_invoice = _management_invoice_number_conflict(session, invoice_number, store_id, statement_month)
+    if duplicate_invoice is not None:
+        add_error("invoiceNumber", invoice_number, "发票号码已用于其他门店、账期或费用方向", "核对票据归属，禁止重复登记")
     normalized_payload.update(
         {
             "storeId": store_id,
@@ -7084,7 +7192,7 @@ def _management_import_payload_is_current(session, payload: dict) -> bool:
             FinanceImportRow.row_status == 5,
         )
     )
-    return current_row is not None and current_row.normalized_payload == payload
+    return current_row is not None and _finance_import_business_payload(current_row.normalized_payload) == _finance_import_business_payload(payload)
 
 
 def _validate_finance_import_row(
@@ -7474,7 +7582,52 @@ def _finance_import_reversal_eligibility(
                 "REVERSAL_BUSINESS_VERSION_CONFLICT",
                 f"业务键 {row.business_key} 已被后续版本覆盖",
             )
+        protection = _finance_import_reversal_protection(session, batch.import_type, row.target_record_id)
+        if protection is not None:
+            return False, protection[0], protection[1]
     return True, None, None
+
+
+def _finance_import_reversal_protection(
+    session, import_type: int, target_record_id: str,
+) -> tuple[str, str] | None:
+    """Keep settled and consumed facts effective; history alone does not protect them."""
+    if import_type in (1, 4):
+        consumed = session.scalar(select(SettlementStatement.statement_id).where(
+            SettlementStatement.store_snapshot_profile_id == target_record_id,
+        ).limit(1)) or session.scalar(select(SapSuggestion.suggestion_id).where(
+            SapSuggestion.confirmed_profile_id == target_record_id,
+        ).limit(1))
+        if consumed:
+            return "IMPORT_DEPENDENCY_PROTECTED", "门店财务资料已被账单快照或确认记录引用，不能撤销"
+    elif import_type == 3:
+        target = session.scalar(select(InvoiceRecord).where(InvoiceRecord.invoice_id == target_record_id))
+        if target is not None and not target.is_tombstone and (
+            target.invoice_status == 3 or target.factory_deduction_date is not None
+            or target.factory_deduction_amount_cent is not None
+        ):
+            return "IMPORT_SETTLEMENT_PROTECTED", "管理费已登记厂家扣款事实，不能撤销"
+    else:
+        target = session.scalar(select(PromotionInvoice).where(PromotionInvoice.invoice_id == target_record_id))
+        if target is not None and not target.is_tombstone:
+            if target.invoice_status == 3:
+                return "IMPORT_SETTLEMENT_PROTECTED", "推广费已结算，不能撤销厂家结果"
+            dependency = session.scalar(select(PromotionInvoiceLifecycleEvent.id).where(
+                PromotionInvoiceLifecycleEvent.physical_invoice_id == target.physical_invoice_id,
+            ).limit(1)) or session.scalar(select(PromotionInvoiceReplacementSource.id).where(
+                PromotionInvoiceReplacementSource.source_physical_invoice_id == target.physical_invoice_id,
+            ).limit(1))
+            if dependency:
+                return "IMPORT_DEPENDENCY_PROTECTED", "推广费发票已有后续生命周期或换票事实，不能撤销"
+    return None
+
+
+def _require_finance_import_reversal_unprotected(
+    session, import_type: int, target_record_id: str, request: Request,
+) -> None:
+    protection = _finance_import_reversal_protection(session, import_type, target_record_id)
+    if protection is not None:
+        _raise_reporting_error(request, status.HTTP_409_CONFLICT, protection[0], protection[1])
 
 
 def _finance_import_target_is_current(
@@ -7700,9 +7853,11 @@ def _commit_final_finance_import_row(
     request: Request,
 ) -> None:
     """Route one valid row to the exact frozen template target."""
+    # A preview does not reserve its target. Recheck the formal row contract
+    # under the target locks in each writer before making any business change.
     if batch.import_type in (1, 4):
         _commit_store_finance_profile_row(
-            session, batch=batch, row=row, committed_at=committed_at
+            session, batch=batch, row=row, committed_at=committed_at, request=request
         )
     elif batch.import_type == 2:
         _commit_promotion_factory_result_row(
@@ -7731,17 +7886,30 @@ def _commit_store_finance_profile_row(
     batch: FinanceImportBatch,
     row: FinanceImportRow,
     committed_at: datetime,
+    request: Request,
 ) -> None:
     """Append a version on the formal type-1 finance-controlled SAP chain."""
     payload = row.normalized_payload
     profile_type = 1
+    session.scalar(
+        select(DimStore).where(DimStore.store_id == payload["storeId"])
+        .with_for_update().execution_options(populate_existing=True)
+    )
     current = session.scalar(
         select(StoreFinanceProfile).where(
             StoreFinanceProfile.store_id == payload["storeId"],
             StoreFinanceProfile.profile_type == profile_type,
             StoreFinanceProfile.is_current.is_(True),
-        )
+        ).with_for_update().execution_options(populate_existing=True)
     )
+    if "_previewProfileId" in payload and payload["_previewProfileId"] != (
+        current.profile_id if current is not None else None
+    ):
+        _raise_reporting_error(
+            request, status.HTTP_409_CONFLICT, "IMPORT_PREVIEW_STALE",
+            "门店财务资料已变化，请重新上传校验", field="storeId",
+        )
+    _revalidate_finance_import_row(session, batch=batch, row=row, request=request)
     next_version = 1
     if current is not None:
         next_version = current.version_no + 1
@@ -7806,7 +7974,7 @@ def _commit_promotion_factory_result_row(
             PromotionInvoiceAllocation.statement_month == batch.statement_month,
             PromotionInvoiceAllocation.is_current.is_(True),
         )
-        .with_for_update()
+        .with_for_update().execution_options(populate_existing=True)
     )
     if current_invoice is None:
         _raise_reporting_error(
@@ -7831,7 +7999,7 @@ def _commit_promotion_factory_result_row(
             PromotionInvoiceAllocation.statement_month == batch.statement_month,
             PromotionInvoiceAllocation.is_current.is_(True),
         )
-        .with_for_update()
+        .with_for_update().execution_options(populate_existing=True)
     )
     if current_invoice is None:
         _raise_reporting_error(
@@ -7841,6 +8009,16 @@ def _commit_promotion_factory_result_row(
             "推广费发票版本已变化，请重新预检导入文件",
             field="invoiceNumber",
         )
+    preview = payload.get("__preview") or {}
+    if preview.get("available") and (
+        preview.get("targetRecordId") != current_invoice.invoice_id
+        or preview.get("targetVersion") != current_invoice.version_no
+    ):
+        _raise_reporting_error(
+            request, status.HTTP_409_CONFLICT, "IMPORT_PREVIEW_STALE",
+            "推广费发票已发生版本变化，请重新上传校验", field="invoiceNumber",
+        )
+    _revalidate_finance_import_row(session, batch=batch, row=row, request=request)
     settlement_amount = payload.get("settlementAmountCent")
     if (
         settlement_amount is not None
@@ -7938,12 +8116,13 @@ def _commit_management_factory_result_row(
 ) -> None:
     """Append the combined management invoice and factory-deduction version."""
     payload = row.normalized_payload
+    _lock_management_invoice_number(session, payload["invoiceNumber"])
     statement = session.scalar(
         select(SettlementStatement).where(
             SettlementStatement.store_id == payload["storeId"],
             SettlementStatement.statement_month == batch.statement_month,
             SettlementStatement.is_current.is_(True),
-        )
+        ).with_for_update().execution_options(populate_existing=True)
     )
     if statement is None:
         _raise_reporting_error(
@@ -7953,6 +8132,13 @@ def _commit_management_factory_result_row(
             "管理服务费账期不存在当前账单",
             field="businessKey",
         )
+    list(session.scalars(
+        select(SettlementStatementConfirmation).where(
+            SettlementStatementConfirmation.statement_id == statement.statement_id,
+            SettlementStatementConfirmation.fee_direction == 2,
+        ).with_for_update().execution_options(populate_existing=True)
+    ))
+    _revalidate_finance_import_row(session, batch=batch, row=row, request=request)
     _, carryforward_applications = _management_invoiceable_projection(
         session,
         store_id=payload["storeId"],
@@ -8002,6 +8188,155 @@ def _commit_management_factory_result_row(
     )
     row.row_status = 5
     row.target_record_id = next_invoice_id
+
+
+def _revalidate_finance_import_row(
+    session, *, batch: FinanceImportBatch, row: FinanceImportRow, request: Request,
+) -> None:
+    """Reject a stale preview instead of silently writing a changed target."""
+    business_payload = _finance_import_business_payload(row.normalized_payload)
+    business_key, normalized, errors = _validate_final_finance_import_row(
+        session,
+        import_type=FINANCE_IMPORT_TYPE_FROM_DB[batch.import_type],
+        statement_month=batch.statement_month,
+        row_number=row.row_number,
+        raw_row=business_payload,
+    )
+    if errors or business_key != row.business_key or normalized != business_payload:
+        _raise_reporting_error(
+            request,
+            status.HTTP_409_CONFLICT,
+            "IMPORT_PREVIEW_STALE",
+            "导入预览的业务目标或校验条件已变化，请重新上传校验",
+            data={"row_number": row.row_number, "business_key": row.business_key, "errors": errors},
+        )
+
+
+def _lock_management_invoice_number(session, invoice_number: str) -> None:
+    """Serialize number ownership in both management import and correction writers."""
+    if session.get_bind().dialect.name == "postgresql":
+        session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:slot_key, 0))"),
+            {"slot_key": f"finance-management-invoice:{invoice_number}"},
+        )
+
+
+def _finance_import_business_payload(payload: dict) -> dict:
+    """Keep upload control snapshots out of content equality and row validation."""
+    return {key: value for key, value in payload.items() if key not in {"_previewProfileId", "__preview"}}
+
+
+def _capture_finance_import_preview(
+    session, import_type: str, payload: dict, errors: list[dict], captured_at: datetime,
+) -> dict:
+    """Freeze only formal template fields and related status at upload time."""
+    fields = FINANCE_IMPORT_TEMPLATE_FIELDS[import_type]
+    after = {field: payload.get(field) for field in fields}
+    target = None
+    before = None
+    from_state = None
+    if import_type in ("BASIC_INFO", "SAP_CONFIRMATION"):
+        target_type = "STORE_FINANCE_PROFILE"
+        target = session.scalar(select(StoreFinanceProfile).where(
+            StoreFinanceProfile.store_id == payload.get("storeId"),
+            StoreFinanceProfile.profile_type == 1, StoreFinanceProfile.is_current.is_(True),
+        ))
+        if target is not None:
+            values = {
+                "storeId": target.store_id, "storeName": target.store_name_snapshot,
+                "sapCode": target.sap_code, "importedAt": None,
+                "financeInitialSap": target.initial_sap_code, "serviceStoreCode": target.service_store_code,
+                "finalSapCode": target.sap_code,
+                "factoryConfirmationResult": ("CONFIRMED" if target.factory_confirmed else "REJECTED") if target.factory_confirmed is not None else None,
+                "confirmedAt": target.confirmed_at.isoformat() if target.confirmed_at else None,
+            }
+            source_row = session.scalar(select(FinanceImportRow).where(FinanceImportRow.target_record_id == target.profile_id).limit(1))
+            if source_row is not None:
+                values["importedAt"] = source_row.normalized_payload.get("importedAt")
+            before = {field: values.get(field) for field in fields}
+            from_state = values["factoryConfirmationResult"] if import_type == "SAP_CONFIRMATION" else "CURRENT_PROFILE"
+            if target.is_tombstone:
+                before = None
+                from_state = "TOMBSTONE"
+        to_state = payload.get("factoryConfirmationResult") if import_type == "SAP_CONFIRMATION" else "CURRENT_PROFILE"
+        allowed_changes = ["追加财务资料版本；不改变费用、账单、发票、付款或锁账事实"]
+    elif import_type == "PROMOTION_FACTORY_RESULT":
+        target_type = "PROMOTION_INVOICE"
+        target = session.scalar(select(PromotionInvoice).join(PromotionInvoiceAllocation, PromotionInvoiceAllocation.invoice_id == PromotionInvoice.invoice_id).where(
+            PromotionInvoice.invoice_number == payload.get("invoiceNumber"), PromotionInvoice.is_current.is_(True),
+            PromotionInvoiceAllocation.statement_month == payload.get("statementMonth"), PromotionInvoiceAllocation.is_current.is_(True),
+        ))
+        if target is not None:
+            event = session.scalar(select(InvoiceStatusEvent).where(InvoiceStatusEvent.invoice_id == target.invoice_id).order_by(InvoiceStatusEvent.occurred_at.desc(), InvoiceStatusEvent.id.desc()).limit(1))
+            from_state = INVOICE_STATUS_NAMES[target.invoice_status]
+            before = {
+                "invoiceNumber": target.invoice_number, "reviewResult": from_state,
+                "rejectionReason": event.result_reason if event else None,
+                "settlementDate": event.business_date.isoformat() if event and event.business_date else None,
+                "settlementAmountCent": event.business_amount_cent if event else None,
+            }
+        to_state = payload.get("reviewResult")
+        allowed_changes = ["仅更新该票厂家审核/全额结算结果，保留原金额与账期分配", "已结算不得退回拒绝或撤销"]
+    else:
+        target_type = "MANAGEMENT_INVOICE"
+        target = session.scalar(select(InvoiceRecord).where(
+            InvoiceRecord.store_id == payload.get("storeId"), InvoiceRecord.statement_month == payload.get("statementMonth"),
+            InvoiceRecord.fee_direction == 2, InvoiceRecord.is_current.is_(True),
+        ))
+        from_state = "PENDING_INVOICE"
+        if target is not None and not target.is_tombstone:
+            from_state = INVOICE_STATUS_NAMES[target.invoice_status]
+            before = {
+                "storeId": target.store_id, "statementMonth": target.statement_month,
+                "storeName": session.scalar(select(DimStore.store_name).where(DimStore.store_id == target.store_id)), "invoiceNumber": target.invoice_number,
+                "invoiceDate": target.invoice_date.isoformat(), "deductionDate": target.factory_deduction_date.isoformat() if target.factory_deduction_date else None,
+                "deductionAmountCent": target.factory_deduction_amount_cent, "invoiceStatus": from_state,
+            }
+        to_state = "APPROVED_SETTLED"
+        after["invoiceStatus"] = to_state
+        allowed_changes = ["同一管理账期登记发票与全额厂家扣款，不增加应计费用", "已扣款不得撤销；已有票据的变更走正式更正入口"]
+    return {
+        "available": True, "schemaVersion": 1, "capturedAt": captured_at.isoformat(),
+        "targetType": target_type,
+        "targetRecordId": (target.profile_id if isinstance(target, StoreFinanceProfile) else target.invoice_id) if target else None,
+        "targetVersion": target.version_no if target else None,
+        "targetTombstone": bool(target.is_tombstone) if target else False,
+        "before": before, "after": after,
+        "stateTransition": {"fromState": from_state, "toState": to_state, "allowed": not errors},
+        "allowedChanges": allowed_changes, "blockedReasons": [error["reason"] for error in errors],
+    }
+
+
+def _management_invoice_number_conflict(
+    session, invoice_number: str, store_id: str, statement_month: str,
+) -> str | None:
+    """Historical versions retain their original invoice-number ownership."""
+    return session.scalar(select(InvoiceRecord.invoice_id).where(
+        InvoiceRecord.invoice_number == invoice_number,
+        or_(InvoiceRecord.store_id != store_id, InvoiceRecord.statement_month != statement_month,
+            InvoiceRecord.fee_direction != 2),
+    ).limit(1))
+
+
+def _finance_import_batch_targets_current(session, batch_id: str) -> bool:
+    """A historical content match is a no-op only while all targets are current."""
+    batch = session.scalar(select(FinanceImportBatch).where(FinanceImportBatch.batch_id == batch_id))
+    model = (
+        StoreFinanceProfile if batch.import_type in (1, 4)
+        else PromotionInvoice if batch.import_type == 2 else InvoiceRecord
+    )
+    target_id = model.profile_id if model is StoreFinanceProfile else model.invoice_id
+    current_count = session.scalar(
+        select(func.count()).select_from(FinanceImportRow)
+        .join(model, target_id == FinanceImportRow.target_record_id)
+        .where(
+            FinanceImportRow.batch_id == batch_id,
+            FinanceImportRow.row_status == 5,
+            model.is_current.is_(True),
+            model.is_tombstone.is_(False),
+        )
+    )
+    return bool(batch.success_rows) and current_count == batch.success_rows
 
 
 def _commit_promotion_review_row(

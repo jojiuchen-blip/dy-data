@@ -106,6 +106,22 @@ def test_dydata105_four_import_buttons_commit_readback_replay_and_reverse(
         expect(page.get_by_role("button", name="确认提交", exact=True)).to_be_disabled()
         page.goto(vite_live_admin_api_base_url + f"/finance/imports?month=2026-08&importType={import_type}")
         page.get_by_role("button", name=batch["batchId"], exact=True).click()
+        if import_type in {"PROMOTION_FACTORY_RESULT", "MANAGEMENT_FACTORY_RESULT"}:
+            detail = context.request.get(live_admin_fastapi_base_url + f"/api/v1/admin/finance-imports/{batch['batchId']}").json()["data"]
+            assert detail["canReverse"] is False
+            assert detail["reverseNotAllowedCode"] == "IMPORT_SETTLEMENT_PROTECTED"
+            expect(page.get_by_role("button", name="撤销批次", exact=True)).to_have_count(0)
+            refused = context.request.post(
+                live_admin_fastapi_base_url + f"/api/v1/admin/finance-imports/{batch['batchId']}/reversals",
+                data={"readVersion": detail["currentVersion"], "changeReason": "已结算事实不得撤销"},
+                headers={"Idempotency-Key": f"dy104-protected-{import_type}"},
+            )
+            assert refused.status == 409, refused.text()
+            with factory() as session:
+                fact = session.scalar(select(model).where(id_field == target_id))
+                assert fact is not None and fact.is_current and not fact.is_tombstone
+            page.screenshot(path=tmp_path / f"{import_type}-protected.png", full_page=True)
+            return
         page.get_by_placeholder("说明为何需要生成更正覆盖版本", exact=True).fill("撤销合成验收结果")
         with page.expect_response(lambda response: response.request.method == "POST" and response.url.endswith("/reversals")) as reverse_pending:
             page.get_by_role("button", name="撤销批次", exact=True).click()
