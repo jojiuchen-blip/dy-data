@@ -121,7 +121,7 @@ def test_every_release_workflow_runs_publication_postgres_gate_before_deploy():
         workflow = yaml.safe_load((ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8"))
         verify = workflow["jobs"]["verify"]
         gates = [step for step in verify["steps"]
-                 if "DYDATA_PUBLICATION_TEST_DATABASE_URL" in step.get("env", {})]
+                 if step.get("name") == "Verify static dashboard publications on PostgreSQL"]
         assert len(gates) == 1, name
         gate = gates[0]
         assert "test" in gate["env"]["DYDATA_PUBLICATION_TEST_DATABASE_URL"].rsplit("/", 1)[-1]

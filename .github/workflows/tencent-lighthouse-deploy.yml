@@ -96,6 +96,20 @@ jobs:
           python -c 'import psycopg; conn = psycopg.connect("host=127.0.0.1 port=5432 dbname=dydata_release user=postgres password=postgres", autocommit=True); conn.execute("CREATE DATABASE dydata_publication_test"); conn.close()'
           python -m pytest -q tests/test_dashboard_publications_postgres.py tests/test_dashboard_publication_*_postgres.py tests/test_dashboard_publication_migration.py tests/test_api_promotion_invoice_postgres.py tests/test_settlement_rule_patch_postgres.py tests/test_supplement_sku_catalog_postgres.py tests/test_historical_sale_attribution_postgres.py tests/test_product_sync_sku_lookup_postgres.py
 
+      # Full pytest may skip opt-in PG cases. This gate must execute every
+      # selected case, including finance concurrency and immutable month-end DDL.
+      - name: Verify DYDATA-104 financial operations and month-end evidence on PostgreSQL
+        timeout-minutes: 30
+        env:
+          DYDATA_FINANCE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_delivery_test
+          DYDATA_HISTORICAL_FEE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_delivery_test
+          DYDATA_PUBLICATION_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_publication_test
+        run: |
+          mkdir -p logs/ci
+          python -c 'import psycopg; conn = psycopg.connect("host=127.0.0.1 port=5432 dbname=dydata_release user=postgres password=postgres", autocommit=True); conn.execute("CREATE DATABASE dydata_delivery_test"); conn.close()'
+          python -m pytest -q -ra tests/test_dydata104_finance_state_matrix.py tests/test_account_qualification_postgres.py tests/test_historical_fee_correction_postgres.py tests/test_product_sync_completeness_postgres.py tests/test_product_sync_sku_lookup_postgres.py --junitxml=logs/ci/dydata104-postgres.xml
+          python -c 'import xml.etree.ElementTree as E; suites = list(E.parse("logs/ci/dydata104-postgres.xml").getroot().iter("testsuite")); assert suites and sum(int(s.get("tests", 0)) for s in suites) > 0, "DYDATA-104 PostgreSQL gate collected no tests"; assert all(int(s.get(k, 0)) == 0 for s in suites for k in ("skipped", "failures", "errors")), "DYDATA-104 PostgreSQL gate must not skip or fail selected tests"'
+
       - name: Install frontend dependencies
         working-directory: apps/web
         run: npm ci
@@ -134,6 +148,23 @@ jobs:
             --output /dev/null --write-out 'Ubuntu archive HTTP %{http_code} in %{time_total}s\n' \
             https://archive.ubuntu.com/ubuntu/dists/noble/InRelease
           timeout 10m python -m playwright install chromium --with-deps
+
+      - name: Verify DYDATA-104 financial preview and operation buttons in Chromium
+        timeout-minutes: 15
+        run: |
+          mkdir -p logs/ci
+          python -m pytest -q -ra tests/test_dydata104_finance_preview_browser.py tests/test_dydata105_buttons_browser.py --junitxml=logs/ci/dydata104-finance-browser.xml
+          python -c 'import xml.etree.ElementTree as E; suites = list(E.parse("logs/ci/dydata104-finance-browser.xml").getroot().iter("testsuite")); assert suites and sum(int(s.get("tests", 0)) for s in suites) > 0, "DYDATA-104 browser gate collected no tests"; assert all(int(s.get(k, 0)) == 0 for s in suites for k in ("skipped", "failures", "errors")), "DYDATA-104 browser gate must not skip or fail selected tests"'
+
+      - name: Upload DYDATA-104 verification receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dydata104-verification-${{ github.job }}-${{ github.sha }}
+          path: |
+            logs/ci/dydata104-postgres.xml
+            logs/ci/dydata104-finance-browser.xml
+          if-no-files-found: warn
 
       - name: Run tests
         run: python -m pytest
