@@ -81,6 +81,10 @@ jobs:
             echo 'Original deployment remains active; blocking duplicate deployment'
             exit 1
           fi
+          df -h / /opt/dy-dashboard /var/lib/docker
+          sudo docker system df
+          sudo du -x -h --max-depth=1 /opt/dy-dashboard /opt/dy-dashboard/logs /tmp | sort -h
+          sudo find /opt/dy-dashboard/logs/backups -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
           echo 'Inspecting deployment state (no secrets)'
           if test -f /opt/dy-dashboard/logs/last-deploy.json; then
             sudo cat /opt/dy-dashboard/logs/last-deploy.json
@@ -104,6 +108,7 @@ jobs:
               backups = list((root / 'logs' / 'backups').glob('pre-migrate-*.dump'))
               latest = max(backups, key=lambda p: p.stat().st_mtime) if backups else None
               backup_reserve = latest.stat().st_size * 1.5 if latest else 0
+              print('Capacity evidence:', {'total': total, 'free': free, 'source_bytes': reserve, 'backup_reserve': backup_reserve, 'minimum_free': max(10 * 1024**3, total * .15)}, flush=True)
               assert free - reserve - backup_reserve >= max(10 * 1024**3, total * .15), 'Source staging capacity gate failed'
               stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
               stage = root / ('repo-stage-' + stamp)
