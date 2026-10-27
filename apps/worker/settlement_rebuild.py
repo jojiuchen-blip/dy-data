@@ -1329,6 +1329,22 @@ def run_settlement_month_rebuild_job(
         ) as report_progress:
             report_progress("settle_month", 0, None)
             with session_scope(factory) as session:
+                if business_month >= "2026-10":
+                    from apps.worker.account_qualification import freeze_month, frozen_version, AccountQualificationError
+                    try:
+                        try:
+                            qualification = frozen_version(session, business_month)
+                        except AccountQualificationError:
+                            qualification = freeze_month(session, business_month)
+                    except AccountQualificationError as exc:
+                        raise SettlementSourceNotReady("month-end account qualification is not ready") from exc
+                    job = session.get(JobRun, job_id)
+                    expected = (job.metadata_json or {}).get("account_qualification_version_id") if job else None
+                    if expected is not None and expected != qualification.version_id:
+                        raise SettlementSourceNotReady("month-end account qualification version changed")
+                    if job is not None:
+                        job.metadata_json = {**(job.metadata_json or {}),
+                                             "account_qualification_version_id": qualification.version_id}
                 coupon_ids = select_coupon_ids_by_verify_business_month(
                     session, business_month
                 )

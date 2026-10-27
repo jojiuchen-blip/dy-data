@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
 from typing import Any
 
 from openpyxl import load_workbook
 
 from apps.worker.collectors.normalizers import text
+from apps.worker.account_qualification import BindingRecords
 
 
 HEADER_ALIASES: dict[str, tuple[str, ...]] = {
     "douyin_nickname": ("\u6296\u97f3\u6635\u79f0", "\u6296\u97f3\u53f7\u6635\u79f0", "nickname", "douyin_nickname"),
     "douyin_id": ("\u6296\u97f3id", "\u6296\u97f3ID", "\u6296\u97f3\u53f7", "aweme_id", "aweme_short_id", "douyin_id"),
     "account_id": (
+        "账户所属id",
+        "账户所属ID",
         "\u6240\u5c5e\u8d26\u6237id",
         "\u6240\u5c5e\u8d26\u6237ID",
         "\u8d26\u6237id",
@@ -73,7 +77,21 @@ def parse_backend_aweme_workbook(path: str | Path) -> list[dict[str, Any]]:
         }
         if any(record[key] for key in ("douyin_nickname", "douyin_id", "account_id", "poi_id")):
             records.append(record)
-    return records
+    required = (
+        any(key in headers for key in ("账号类型", "账户类型", "account_type"))
+        and any(key in headers for key in HEADER_ALIASES["binding_status"])
+        and any(key in headers for key in HEADER_ALIASES["account_id"])
+    )
+    nonempty = sum(any(_cell_text(cell) for cell in row) for row in rows[1:])
+    return BindingRecords(records, source_type="backend_workbook", proof={
+        # A parsed file alone cannot prove an unfiltered, untruncated export.
+        # The browser adapter corroborates its identity multiset and total.
+        "complete": False,
+        "file_complete": bool(required and len(set(headers)) == len(headers) and nonempty == len(records)),
+        "record_count": len(records), "export_row_count": nonempty,
+        "workbook_sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest(),
+        "schema_present": required, "scope": "backend_export",
+    })
 
 
 def _alias_value(raw_payload: dict[str, str], field: str) -> str | None:

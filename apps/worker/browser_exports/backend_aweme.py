@@ -4,14 +4,16 @@ import argparse
 import json
 import os
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any
+from datetime import UTC, datetime
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 from urllib.request import urlopen
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.dy_api.db import get_session_factory, session_scope
 from apps.api.dy_api.models import DimStorePoiMapping
@@ -60,16 +62,32 @@ def run_backend_aweme_export(
     export_url: str | None = None,
     run_dir: str | Path | None = None,
 ) -> PhaseStats:
-    with browser_export_active():
-        if workbook_path:
-            records = parse_backend_aweme_workbook(Path(workbook_path))
-        else:
-            records = export_backend_aweme_records_via_browser(
-                cdp_url=cdp_url,
-                export_url=export_url,
-                run_dir=run_dir,
-            )
-        return upsert_backend_aweme_records(session, records, source_run_id=source_run_id)
+    from apps.worker.account_qualification import start_observation, complete_observation, fail_observation
+
+    # A tiny separate transaction survives the stage's rollback or process kill.
+    # Only running is committed here; successful evidence and raw ingestion are
+    # committed atomically by the caller's fenced stage transaction.
+    factory = sessionmaker(bind=session.get_bind().engine, expire_on_commit=False)
+    with factory.begin() as audit_session:
+        observation_id = start_observation(audit_session, source_run_id=source_run_id)
+    try:
+        with browser_export_active():
+            if workbook_path:
+                records = parse_backend_aweme_workbook(Path(workbook_path))
+            else:
+                records = export_backend_aweme_records_via_browser(
+                    cdp_url=cdp_url, export_url=export_url, run_dir=run_dir,
+                )
+    except Exception:
+        # Do not include browser error strings, URLs or credentials in evidence.
+        with factory.begin() as audit_session:
+            fail_observation(audit_session, observation_id, error_code="backend_collection_failed")
+        raise
+    # Do not open another transaction after business writes begin: on any DB
+    # error the caller rolls back, leaving the durable attempt running/blocked.
+    stats = upsert_backend_aweme_records(session, records, source_run_id=source_run_id)
+    complete_observation(session, observation_id, records, ended_at=datetime.now(UTC))
+    return stats
 
 
 def export_backend_aweme_records_via_browser(
@@ -84,7 +102,32 @@ def export_backend_aweme_records_via_browser(
         if "Timed out waiting for backend aweme workbook download" not in str(exc):
             raise
         return fetch_backend_aweme_records_via_bind_list_api(cdp_url=cdp_url)
-    return parse_backend_aweme_workbook(workbook)
+    records = parse_backend_aweme_workbook(workbook)
+    try:
+        # Numeric API types/statuses are not translated into qualification.
+        # Only the complete list's stable ID multiset corroborates the export.
+        source = fetch_backend_aweme_records_via_bind_list_api(cdp_url=cdp_url)
+    except BrowserExportError:
+        records.proof["corroboration_error"] = "backend_full_list_unavailable"
+        return records
+    return corroborate_backend_workbook(records, source)
+
+
+def corroborate_backend_workbook(records, source):
+    from apps.worker.account_qualification import digest
+
+    def identities(rows):
+        return Counter((str(row.get("account_id") or ""), str(row.get("douyin_id") or "")) for row in rows)
+    source_proof = getattr(source, "proof", {})
+    matches = identities(records) == identities(source)
+    records.proof.update({
+        "complete": bool(records.proof.get("file_complete") and source_proof.get("complete") and matches),
+        "corroborated_total": source_proof.get("expected_total"),
+        "source_page_count": source_proof.get("page_count"),
+        "identity_multiset_matches": matches,
+        "identity_sha256": digest(sorted((account, douyin, count) for (account, douyin), count in identities(source).items())),
+    })
+    return records
 
 
 def upsert_backend_aweme_records(
@@ -324,12 +367,15 @@ def fetch_backend_aweme_bind_list_records(page: Any, bind_list_url: str) -> list
         key: values[-1] if values else ""
         for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
     }
+    filtered = any(value and any(part in key.lower() for part in ("filter", "status", "account_type", "keyword", "search", "aweme")) for key, value in params.items())
     params["page"] = "1"
     params["size"] = str(BIND_LIST_PAGE_SIZE)
     base_url = urlunparse(parsed._replace(query=""))
 
     first = fetch_backend_aweme_bind_list_page(page, base_url, params)
-    total = _safe_int(first.get("Total"), 0)
+    if not isinstance(first.get("Total"), int) or isinstance(first.get("Total"), bool) or first["Total"] < 0:
+        raise BrowserExportError("Backend aweme bind list total is missing or invalid.")
+    total = first["Total"]
     items = list(first.get("integration_info") or [])
     page_count = max(1, (total + BIND_LIST_PAGE_SIZE - 1) // BIND_LIST_PAGE_SIZE) if total else 1
     max_pages = _safe_int(os.getenv("BACKEND_AWEME_BIND_LIST_MAX_PAGES"), 100)
@@ -339,9 +385,20 @@ def fetch_backend_aweme_bind_list_records(page: Any, bind_list_url: str) -> list
     for page_number in range(2, page_count + 1):
         params["page"] = str(page_number)
         payload = fetch_backend_aweme_bind_list_page(page, base_url, params)
+        if payload.get("Total") != total:
+            raise BrowserExportError("Backend aweme bind list total changed during pagination.")
         items.extend(payload.get("integration_info") or [])
-
-    return records_from_backend_aweme_api_items(items)
+    canonical = [json.dumps(item, sort_keys=True, ensure_ascii=False) for item in items]
+    if len(items) != total or len(set(canonical)) != len(items):
+        raise BrowserExportError("Backend aweme bind list is partial or contains duplicate rows.")
+    from apps.worker.account_qualification import BindingRecords
+    records = records_from_backend_aweme_api_items(items)
+    return BindingRecords(records, source_type="backend_bind_list_api", proof={
+        "complete": len(records) == total and not filtered, "record_count": len(records),
+        "expected_total": total, "page_count": page_count,
+        "scope": "backend_bind_list_api", "numeric_contract_verified": False,
+        "unfiltered": not filtered,
+    })
 
 
 def fetch_backend_aweme_bind_list_page(page: Any, base_url: str, params: dict[str, str]) -> dict[str, Any]:

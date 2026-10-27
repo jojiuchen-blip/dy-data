@@ -9,6 +9,7 @@ from pathlib import Path
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 import pytest
+from account_qualification_fixtures import seed_month_qualification
 from sqlalchemy import create_engine, event, func, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -859,6 +860,7 @@ def test_reverification_is_not_zeroed_by_previous_cancellation(db_session: Sessi
     db_session.flush()
     rebuild_dual_fee_results(db_session, calculation_run_id="old-cancel")
     _add_scope_rule(db_session, "2026-10")
+    seed_month_qualification(db_session)
     upsert_verify_record(
         db_session, "verify-coupon-dual" if reuse_verify_id else "verify-again", coupon_id="coupon-dual", verify_status="valid",
         verify_time=_dual_time(10, 10), poi_id="poi-verify", sku_id="sku-dual",
@@ -915,6 +917,7 @@ def test_old_cancellation_does_not_keep_invalid_reverification_current(db_sessio
     db_session.flush()
     rebuild_dual_fee_results(db_session, calculation_run_id="exit-cancel")
     _add_scope_rule(db_session, "2026-10")
+    seed_month_qualification(db_session)
     upsert_verify_record(
         db_session, "exit-new", coupon_id="coupon-dual", verify_status="valid",
         verify_time=_dual_time(10, 10), poi_id="poi-verify", sku_id="sku-dual",
@@ -1021,6 +1024,7 @@ def test_locked_reverification_appends_delta_and_preserves_history(
     db_session.flush()
     rebuild_dual_fee_results(db_session, calculation_run_id="locked-reverify-cancel")
     _add_scope_rule(db_session, "2026-10")
+    seed_month_qualification(db_session)
     verify_id = "verify-coupon-dual" if reuse_verify_id else "locked-new"
     upsert_verify_record(
         db_session, verify_id, coupon_id="coupon-dual", verify_status="valid",

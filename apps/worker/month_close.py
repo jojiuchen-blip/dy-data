@@ -34,6 +34,9 @@ from apps.api.dy_api.models import (
     SettlementStatement,
 )
 from apps.worker.historical_sale_attribution import month_decision_digest
+from apps.worker.account_qualification import (
+    FIRST_MONTH, AccountQualificationError, freeze_month, frozen_version,
+)
 from apps.worker.priority_scheduler import _day_state, _priority_rows_for_day
 from apps.worker.repositories import queue_job_run, upsert_data_quality_issue
 from apps.worker.settlement import FORMAL_SETTLEMENT_START
@@ -57,11 +60,12 @@ NO_CURRENT_RESULTS = "no_current_results"
 LOCKED = "locked"
 ACTIVE_REBUILD = "active_rebuild"
 READY = "ready"
+QUALIFICATION_NOT_READY = "account_qualification_not_ready"
 
 # Operator-visible readiness alert type.  One row per (business_month, state),
 # removed again as soon as the month becomes dispatchable.
 READINESS_ISSUE_TYPE = "month_close_source_not_ready"
-_NOT_READY_STATES = (WATERMARK_INCOMPLETE, NO_CURRENT_RESULTS, LOCKED)
+_NOT_READY_STATES = (WATERMARK_INCOMPLETE, NO_CURRENT_RESULTS, LOCKED, QUALIFICATION_NOT_READY)
 
 _logger = logging.getLogger("apps.worker.month_close")
 
@@ -175,6 +179,9 @@ def month_source_watermark(session: Session, business_month: str) -> str | None:
     unknown or missing returns ``None``: fail closed.
     """
 
+    qualification = _qualification_digest(session, business_month)
+    if business_month >= FIRST_MONTH and qualification is None:
+        return None
     revisions = published_days_revisions(session, business_month)
     if revisions is None:
         return None
@@ -184,13 +191,15 @@ def month_source_watermark(session: Session, business_month: str) -> str | None:
     if result_count == 0:
         # Zero commission results must never reach statement generation.
         return None
-    return _watermark_from(revisions, results_fingerprint, month_decision_digest(session, business_month))
+    return _watermark_from(revisions, results_fingerprint, month_decision_digest(session, business_month), qualification)
 
 
-def _watermark_from(revisions: list[str], results_fingerprint: str, decision_digest: str | None = None) -> str:
+def _watermark_from(revisions: list[str], results_fingerprint: str, decision_digest: str | None = None, qualification_digest: str | None = None) -> str:
     payload = ",".join(revisions) + "||" + results_fingerprint
     if decision_digest is not None:
         payload += "||historical-sale-attribution:" + decision_digest
+    if qualification_digest is not None:
+        payload += "||account-qualification:" + qualification_digest
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
@@ -214,6 +223,9 @@ def month_close_preflight(session: Session, business_month: str) -> tuple[str, s
     )
     if locked is not None:
         return LOCKED, None
+    qualification = _qualification_digest(session, business_month)
+    if business_month >= FIRST_MONTH and qualification is None:
+        return QUALIFICATION_NOT_READY, None
     revisions = published_days_revisions(session, business_month)
     if revisions is None:
         return WATERMARK_INCOMPLETE, None
@@ -222,10 +234,30 @@ def month_close_preflight(session: Session, business_month: str) -> tuple[str, s
     )
     if result_count == 0:
         return NO_CURRENT_RESULTS, None
-    watermark = _watermark_from(revisions, results_fingerprint, month_decision_digest(session, business_month))
+    watermark = _watermark_from(revisions, results_fingerprint, month_decision_digest(session, business_month), qualification)
     if _active_rebuild_exists(session):
         return ACTIVE_REBUILD, watermark
     return READY, watermark
+
+
+def _qualification_digest(session: Session, business_month: str) -> str | None:
+    if business_month < FIRST_MONTH:
+        return None
+    try:
+        version = frozen_version(session, business_month)
+    except AccountQualificationError:
+        return None
+    # Existing old/unpinned results may not pass a month-end preflight merely
+    # because at least one other result uses the new basis.
+    mismatch = session.scalar(select(SettlementFeeResult.fee_result_id).join(
+        SettlementFeeResultCurrent,
+        SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.fee_result_id,
+    ).where(
+        SettlementFeeResult.original_business_month == business_month,
+        (SettlementFeeResult.account_qualification_version_id.is_(None)
+         | (SettlementFeeResult.account_qualification_version_id != version.version_id)),
+    ).limit(1))
+    return version.version_id + ":" + version.content_sha256 if mismatch is None else None
 
 
 def _sync_readiness_issue(
@@ -291,6 +323,12 @@ def ensure_month_close_job(
         return None
     business_month = previous_business_month(now)
     with session_scope(factory) as session:
+        if business_month >= FIRST_MONTH:
+            try:
+                freeze_month(session, business_month, now=now)
+            except AccountQualificationError:
+                _sync_readiness_issue(session, business_month, QUALIFICATION_NOT_READY)
+                return None
         state, watermark = month_close_preflight(session, business_month)
         if _in_formal_window(business_month):
             # Keep the operator-visible readiness alert in sync every tick.
@@ -315,6 +353,8 @@ def ensure_month_close_job(
                 "trigger": "month_close",
                 "source_run_id": job_id,
                 "source_watermark": watermark,
+                **({"account_qualification_version_id": frozen_version(session, business_month).version_id}
+                   if business_month >= FIRST_MONTH else {}),
             },
         )
     return job_id

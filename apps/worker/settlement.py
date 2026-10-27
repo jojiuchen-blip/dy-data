@@ -3178,14 +3178,48 @@ def _materialize_dual_fee_direction(
         )
         return False
     sale_diagnostic = None
+    qualification_version_id = None
+    verify_month = _business_month(verify.verify_time) if verify is not None and verify.verify_time is not None else None
+    monthend_rows = None
+    if verify_month is not None and verify_month >= "2026-10":
+        from apps.worker.account_qualification import qualified_version, qualified_records, AccountQualificationError
+        try:
+            qualification = qualified_version(
+                session, month=verify_month, order=order,
+                pinned_version_id=(current.account_qualification_version_id
+                                   if current is not None and current.original_business_month == verify_month else None),
+            )
+            qualification_version_id = qualification.version_id
+            monthend_rows = qualified_records(session, version=qualification, order=order)
+        except AccountQualificationError as exc:
+            _block_dual_fee(
+                session, calculation_run_id, coupon, order,
+                "dual_fee_monthend_account_qualification", "账期月末账号资格未就绪或不合格。",
+                directions=(direction,), context={"business_month": verify_month, "reason_code": str(exc)},
+            )
+            return False
     if attribution_decision is not None:
         sale_account = OwnerAccountMatch(
             account_id=attribution_decision.source_account_id,
             store_id=attribution_decision.store_id,
             match_source="historical_sale_attribution",
         )
+    elif (current is not None and qualification_version_id is not None
+          and current.account_qualification_version_id == qualification_version_id
+          and current.original_business_month == verify_month
+          and _same_qualifying_verification(current, verify)):
+        # A later current binding/status/POI edit is not a correction to an
+        # already established historical sale. Keep that result's attribution
+        # basis; an explicit historical attribution decision above can correct
+        # it without repurposing the month-end eligibility snapshot.
+        sale_account = OwnerAccountMatch(
+            account_id=order.owner_account_id, store_id=current.sale_store_id,
+            match_source="prior_qualified_fee_result",
+        )
     else:
-        sale_diagnostic = _diagnose_dual_fee_sale_account(session, order)
+        sale_diagnostic = _diagnose_dual_fee_sale_account(
+            session, order, ignore_proven_personal_aliases=monthend_rows is not None,
+        )
         sale_account = sale_diagnostic.match
     if sale_account is None:
         _block_dual_fee(
@@ -3298,6 +3332,7 @@ def _materialize_dual_fee_direction(
         return True
     business_month = business_date.strftime("%Y-%m")
 
+
     scope_rule = resolve_settlement_scope_rule(
         session,
         business_month=business_month,
@@ -3406,6 +3441,7 @@ def _materialize_dual_fee_direction(
         qualifying_verify_time=verify.verify_time,
         sale_attribution_decision_id=attribution_decision.decision_id if attribution_decision else None,
         sale_attribution_evidence_sha256=attribution_decision.evidence_sha256 if attribution_decision else None,
+        account_qualification_version_id=qualification_version_id,
     )
     if (
         current is not None
@@ -3517,6 +3553,7 @@ def _materialize_dual_fee_direction(
         qualifying_verify_store_id=qualifying_store.store_id if qualifying_store else None,
         qualifying_verify_store_name=qualifying_store.store_name if qualifying_store else None,
         sale_attribution_decision_id=attribution_decision.decision_id if attribution_decision else None,
+        account_qualification_version_id=qualification_version_id,
         reverification_anchor_id=(current.reverification_anchor_id or current.fee_result_id) if adjustment_only else None,
         calculated_at=utcnow(),
     )
@@ -4483,6 +4520,7 @@ def _fee_result_input_fingerprint(
     qualifying_verify_time: datetime | None = None,
     sale_attribution_decision_id: str | None = None,
     sale_attribution_evidence_sha256: str | None = None,
+    account_qualification_version_id: str | None = None,
 ) -> str:
     """Return a deterministic SHA-256 over business inputs and result fields."""
 
@@ -4512,6 +4550,8 @@ def _fee_result_input_fingerprint(
     if sale_attribution_decision_id is not None:
         payload["sale_attribution_decision_id"] = sale_attribution_decision_id
         payload["sale_attribution_evidence_sha256"] = sale_attribution_evidence_sha256
+    if account_qualification_version_id is not None:
+        payload["account_qualification_version_id"] = account_qualification_version_id
     normalized = {
         key: _canonical_fingerprint_value(value)
         for key, value in payload.items()
@@ -5904,6 +5944,7 @@ def diagnose_dual_fee_sale_account(
 
 def _diagnose_dual_fee_sale_account(
     session: Session, order: RawDouyinOrder,
+    *, ignore_proven_personal_aliases: bool = False,
 ) -> DualFeeSaleAccountDiagnostic:
     """Resolve order identity across UID and backend binding ID namespaces.
 
@@ -5975,6 +6016,22 @@ def _diagnose_dual_fee_sale_account(
             RawAwemeBinding.douyin_nickname == order.owner_account_name
         )
     )) if order.owner_account_name else []
+    exact_personal_guard_match = None
+    if ignore_proven_personal_aliases:
+        # Only an independently validated exact UID + sale-time interval may
+        # exclude a different personal-account nickname alias. Unknown types,
+        # same-ID contradictions and real multi-store conflicts remain guards.
+        exact = _diagnose_openapi_interval_sale_account(
+            session, order, legacy=outcome("no_valid_store", "unique_valid_store"),
+        )
+        if exact.match is not None:
+            exact_personal_guard_match = exact.match
+            raw_bindings = [binding for binding in raw_bindings if not (
+                binding.account_id != owner_id
+                and str((binding.raw_payload or {}).get("账号类型")
+                        or (binding.raw_payload or {}).get("account_type") or "").strip()
+                    in {"个人号", "个人账号"}
+            )]
     # Backend exports include status in the row key and retain earlier rows.
     # Do not let a retained ACTIVE row resurrect the same unbound identity.
     # POI, Douyin ID and account type distinguish unrelated binding records.
@@ -6038,6 +6095,10 @@ def _diagnose_dual_fee_sale_account(
         raw_bindings=[binding for binding in raw_bindings
                       if _is_active_dual_fee_binding_status(binding.binding_status)],
     )
+    if exact_personal_guard_match is not None:
+        # Removing a proven personal alias must not hide another remaining
+        # unknown-type or genuinely conflicting store candidate.
+        candidates.append(exact_personal_guard_match)
     if direct is not None and direct.store_id:
         candidates.append(OwnerAccountMatch(
             account_id=direct.account_id,
