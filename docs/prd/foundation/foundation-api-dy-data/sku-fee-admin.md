@@ -15,7 +15,7 @@
 | `productId` | string/null | 商品 ID | `.product_id` |
 | `productName` | string/null | 商品名称 | `.product_name` |
 | `spuId` | string/null | SPU ID | `.spu_id` |
-| `productScope` | string | 产品范围 | `.product_scope` |
+| `productScope` | string | 内部兼容范围，只读；独立打榜沿用 | `.product_scope` |
 | `productType` | string | 商品类型 | `.product_type` |
 | `isServiceProduct` | boolean | 是否服务类商品 | `.is_service_product` |
 | `creatorAccountId` | string/null | 创建者账号 ID | `.creator_account_id` |
@@ -81,7 +81,7 @@
 
 > 数据源表: `dim_sku_product_rules`
 
-**请求参数**：`page`、`pageSize`、`q`（SKU ID/名称/商品名）、`productScope`、`productType`、`productStatus`、`isActiveProduct`。
+**请求参数**：`page`、`pageSize`、`q`（SKU ID/名称/商品名）、`productType`、`productStatus`、`isActiveProduct`；旧 `productScope` 接受但忽略。类型有效即分类完整，旧 PARTIAL 枚举兼容但当前统计为0。
 
 **响应 `data`**：分页对象，`list` 项为 `SkuProductItem`。
 
@@ -95,13 +95,27 @@
 
 | 字段 | 类型 | 必填 | 说明 | 写入列 |
 |------|------|:---:|------|--------|
-| `productScope` | string | 是 | 产品范围，1～128 字符 | `.product_scope` |
-| `productType` | string | 是 | 商品类型，1～128 字符 | `.product_type` |
-| `isServiceProduct` | boolean | 是 | 是否服务类商品 | `.is_service_product` |
+| `productScope` | string/null | 否 | 仅兼容接收，忽略，不修改内部范围 | 无写入 |
+| `productType` | string | 条件 | 1～128字符；禁止空、all/unknown/keep；与服务标记至少给一项 | `.product_type` |
+| `isServiceProduct` | boolean | 条件 | 与类型至少给一项 | `.is_service_product` |
+| `expectedManualModifiedAt` | datetime/null | 是 | 单条乐观并发版本；初始值允许null | `.manual_modified_at` 比较 |
 
 **响应 `data`**：更新后的 `SkuProductItem`。
 
-**约束**：只允许更新三个人工字段和审计列；请求中的平台字段即使出现也必须拒绝。SKU 不存在返回 404。成功后使筛选元数据和相关投影缓存失效。
+**约束**：全国管理员才可写分类；只写类型/服务标记及审计列，平台字段拒绝。精确内部 scope=精诚养车的当前类型强制精诚养车，其他 scope 保留人工类型，不从名称推断。SKU不存在404，版本不匹配409 CONCURRENT_MODIFICATION。历史费用/账单类型与金额不改，独立打榜 scope 不改。
+
+### 2.1 既有批量与分类导入补充合同
+
+`PUT /api/v1/admin/sku-products/bulk` 请求 `skuIds`（1..5000、非空不重复）及上述类型/服务标记至少一项；不接单条 expectedManualModifiedAt。锁定全部精确SKU后整批写，成功 `updatedCount/skuIds`。分类导入使用以下既有路径，与双费率四列导入区分：
+
+| 方法/路径 | 请求与响应 |
+|---|---|
+| GET `/api/v1/admin/sku-product-imports/template` | 下载 UTF-8 BOM CSV，新列 skuId,productType |
+| POST `/api/v1/admin/sku-product-imports` | multipart file，.xlsx/UTF-8 .csv；旧 skuId,productScope,productType 三列兼容但 scope 忽略；返回 batch/errorPreview（最多100错误行）/hasMoreErrors 及 normalizedTypeCount/normalizationNotice |
+| GET `/api/v1/admin/sku-product-imports/{batchId}` | 返回保存的 batch/rows |
+| POST `/api/v1/admin/sku-product-imports/{batchId}/commit` | 无分类覆盖请求体；锁定批次与全部SKU，原子应用已校验内容，返回 batch，已完成幂等返回 |
+
+归一提示仅统计精确目标，提交后重读实际类型；旧待提交三列批次也不重新写 scope。延续原格式、行数/文件限额和事务/权限校验，不把当前目录转换当费用重建。legacy `/sku-rules` 纯分类修改返回 `job_id=null/rebuild_status=not_required`，费率/服务标记仍遵循既有重建合同。完整语义见 [分类合同](../../../api/product-type-classification.md)。
 
 ## 3 `GET /api/v1/admin/sku-fee-rules` — 双费率版本列表
 

@@ -2,6 +2,7 @@
 
 > 生成时间: 2026-07-17 15:46
 > 来源: foundation-builder Phase 3
+> 当前增量: 2026-10-27，DYDATA-104 的资格证据、历史归属决定、财务预览/撤销与保护来源已按实际 PostgreSQL 模型回捞；不改写历史确认事实，不代表部署或生产验收。
 > 关联: [术语表](foundation-glossary-dy-data.md) · [API](foundation-api-dy-data.md)
 > 范围: DYDATA-1/19/21/30/31/33/38 的商品、费率、双费用结算、账单确认、异议、发票登记、财务导入与查询地基；本文是结构索引，不是 DDL
 > 增量修订: 2026-08-20 按 DYDATA-19 将账单改为不可变版本，新增方向确认、异议、发票登记版本、财务导入与财务操作审计；最新规则覆盖旧的只读开票假设
@@ -13,10 +14,10 @@
 
 - DYDATA-87 / 0051 实际结构增量：费用结果新增五个可空核销血缘字段及重核销锚点索引；新增私有 `settlement_billing_source_bundle`，采用复合主键、JSONB、`created_at`，是下述通用三字段约定的已实现结构例外，不新增 DDL 决策。
 
-- 新表遵循小写下划线、单数表名、`id / gmt_create / gmt_modified` 三字段规范；现有复数表名为兼容迁移保留，不在本轮强制重命名。
+- 宿主以 PostgreSQL、实际 models/迁移为准；下文早期设计的 MySQL unsigned/tinyint/AUTO_INCREMENT 是历史类型示意，不用于生成本次迁移。新证据表采用实码主键、JSONB 和 timestamptz，不补造通用三字段；既有复数表名兼容保留。
 - 金额统一使用有符号整数“分”，字段后缀为 `_cent`；退款调整允许负数，禁止浮点金额。
 - 费率统一使用 `decimal(8,6)`，取值范围 `0` 到 `1`；计算结果按单券四舍五入到分后再汇总。
-- 表间只保存逻辑关联 ID，不创建数据库外键或级联；应用服务负责存在性校验和一致性。
+- 外键按宿主实际合同逐表记录：0065/0066 采用真实 FK 和 ON DELETE RESTRICT，不能套用套件 MySQL 示例的“禁止外键”覆盖现有 PostgreSQL 约束；其余早期表的逻辑关联说明不改变这些新约束。
 - 外部枚举同时保存 `_raw` 原始值和 `_normalized` 标准化值；未知渠道默认不计费并记录数据质量问题。
 - 同一 SKU、同一规则生效日只能有一个费率版本，由唯一索引约束；同月不同日期允许创建新版本，订单按业务日匹配不晚于该日的最新有效版本。
 - 订单费用结果按“券 + 费用方向 + 结果版本”不可变保存；当前版本由独立指针表维护。
@@ -57,10 +58,14 @@
 | 27 | `finance_import_row` | 财务导入 | 新建 | 保存逐行标准化内容和全部校验错误 | [账单与发票 §7](foundation-schema-dy-data/billing-invoice.md#7-finance_import_row--财务导入逐行结果) | **新增** |
 | 28 | `finance_operation_audit` | 操作审计 | 新建 | 保存账单、异议、发票和导入操作留痕 | [账单与发票 §8](foundation-schema-dy-data/billing-invoice.md#8-finance_operation_audit--财务操作审计) | **新增** |
 | 29 | `settlement_billing_source_bundle` | 发布账单来源 | 0051 新建 | 发布前冻结门店账期来源及空槽位，不提供公开 CRUD | [结算与报表 §9](foundation-schema-dy-data/settlement-reporting.md#9-settlement_billing_source_bundle--私有冻结账单来源包0051-新增) | **新增** |
+| 30 | `historical_sale_attribution_decisions` | 历史归属 | 0065 已实现 | 审批到精确券/核销的不可变决定 | [历史归属](foundation-schema-dy-data/historical-sale-attribution.md) | **回捞** |
+| 31 | `account_qualification_snapshot` | 月末资格 | 0066 已实现 | 内容 hash 去重的完整规范证据 | [月末资格 §1](foundation-schema-dy-data/account-qualification.md#1-account_qualification_snapshot) | **回捞** |
+| 32 | `account_qualification_observation` | 月末资格 | 0066 已实现 | 尝试、实际时间、完整性和错误 | [月末资格 §2](foundation-schema-dy-data/account-qualification.md#2-account_qualification_observation) | **回捞** |
+| 33 | `account_qualification_version` | 月末资格 | 0066 已实现 | 业务月唯一不可变资格版本 | [月末资格 §3](foundation-schema-dy-data/account-qualification.md#3-account_qualification_version) | **回捞** |
 
 ### §1.1 本轮外既有依赖表
 
-以下表不计入 29 张目标设计表（原 28 张加 0051 私有来源包），因为本轮不改变其结构；它们仍是 API 字段和结算计算的明确数据来源，不能用“查询派生”掩盖：
+以下 5 张表不计入上方 33 张核心设计/回捞表，因为本轮不改变其结构；它们仍是明确数据来源，不能用“查询派生”掩盖。发票号码与生命周期的 3 张既有支持表另在 [发票来源](foundation-schema-dy-data/invoice-source.md) 引用定义，也不宣称本次新增：
 
 | 既有表 | 本轮读取字段 | 用途 | 定义于 |
 |--------|-------------|------|--------|
@@ -80,6 +85,9 @@
 | [settlement-reporting.md](foundation-schema-dy-data/settlement-reporting.md) | < 400 | 费用结果、当前指针、调整、账单头、账单汇总行、账单来源项与报表投影 |
 | [existing-read-dependencies.md](foundation-schema-dy-data/existing-read-dependencies.md) | < 400 | 门店、POI 映射与核销原始记录的既有只读字段定义 |
 | [billing-invoice.md](foundation-schema-dy-data/billing-invoice.md) | < 400 | 账单方向确认、异议、发票版本、四类财务导入和操作审计 |
+| [account-qualification.md](foundation-schema-dy-data/account-qualification.md) | < 400 | 0066 三表、nullable 费用 FK、来源计数、月末窗口及容量边界 |
+| [historical-sale-attribution.md](foundation-schema-dy-data/historical-sale-attribution.md) | < 400 | 0065 精确归属决定及已有人工纠错锚点 |
+| [invoice-source.md](foundation-schema-dy-data/invoice-source.md) | < 400 | 发票可信金额、号码归属和既有来源链支持表 |
 
 ## §3 页面 → 表字段追溯
 

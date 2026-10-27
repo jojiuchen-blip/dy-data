@@ -2,6 +2,7 @@
 
 > 所属索引: [foundation-api-dy-data.md](../foundation-api-dy-data.md)
 > 消费页面: 全国门店榜单、单店分账、订单费用明细
+> DYDATA-104: 普通查询类型/默认月份见 [公共合同](common-contract.md)，历史快照类型不随目录改名；月末资格/整账保护/仅发布见 [内部合同](settlement-authority.md)。无显式月份或固定账单上下文时，页面默认上海上一完整自然月，以下必填月份由该默认值填入，不取消查询上下文校验。
 > 增量边界: 本文件保留双费用查询契约；DYDATA-19 的账单确认、异议、发票登记和财务导入见 `billing-invoice.md`。系统仍不执行真实开票或系统内审核
 
 ## 0 共享枚举与口径
@@ -27,8 +28,8 @@
 |------|------|:---:|:---:|------|
 | `periodType` | string | 否 | `MONTHLY` | 月度或正式累计 |
 | `periodKey` | string | 是 | — | 所选月份或累计截止月 `YYYY-MM` |
-| `productScope` | string | 否 | `all` | 产品范围 |
-| `productType` | string | 否 | `all` | 商品类型，须受产品范围约束 |
+| `productScope` | string | 否 | `all` | 旧参数兼容接收但忽略；独立打榜另按原合同 |
+| `productType` | string | 否 | `all` | 实际类型精确匹配，不做范围配对 |
 | `q` | string | 否 | — | 门店名称关键词 |
 | `sortBy` | string | 否 | `NET_SETTLEMENT_REFERENCE` | 可选 `SALES_AMOUNT/VERIFIED_AMOUNT/PROMOTION_FEE/MANAGEMENT_FEE/NET_SETTLEMENT_REFERENCE` |
 | `sortOrder` | string | 否 | `DESC` | `ASC/DESC` |
@@ -73,7 +74,7 @@
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |------|------|:---:|:---:|------|
 | `month` | string | 是 | — | `YYYY-MM` |
-| `productScope` | string | 否 | `all` | 产品范围 |
+| `productScope` | string | 否 | `all` | 旧参数兼容接收但忽略；独立打榜另按原合同 |
 | `productType` | string | 否 | `all` | 商品类型 |
 
 **响应 `data` 顶层**：
@@ -157,7 +158,7 @@
 | `saleMonth` | string | 否 | 额外按销售月份筛选 |
 | `verifyMonth` | string | 否 | 额外按核销月份筛选，支撑当前页面筛选语义 |
 | `feeDirection` | string | 是 | `PROMOTION/MANAGEMENT` |
-| `productScope` / `productType` | string | 否 | 产品筛选 |
+| `productScope` / `productType` | string | 否 | 普通查询忽略scope，类型按实际名称筛选 |
 | `feeRates` | decimal-string[] | 否 | 来源汇总行实际费率集合；只作上下文校验 |
 | `ruleVersions` | string[] | 否 | 来源汇总行规则版本集合；只作上下文校验 |
 | `dataStatus` | string | 否 | `VALID/ADJUSTED/BLOCKED/LOCKED` |

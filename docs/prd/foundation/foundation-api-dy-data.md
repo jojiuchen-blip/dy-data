@@ -2,6 +2,7 @@
 
 > 生成时间: 2026-07-20 11:20
 > 来源: foundation-builder Phase 4
+> 当前合同: 2026-10-27 DYDATA-104 回捞；§9 及关联子文档覆盖早期分类配对、手填发票金额和 current 费用来源假设。§7/§8 百分比与确认是历史记录，不作为本次全量运行验收。
 > 关联: [术语表](foundation-glossary-dy-data.md) · [Schema](foundation-schema-dy-data.md)
 > 范围: DYDATA-1/19/21/30/31/33/38 的商品、双费率、商品同步、双费用结算、账单确认、异议、发票登记与财务导入
 > 状态: **2026-08-20 按 DYDATA-19 增量冻结**；最新规则覆盖 2026-07-20 的只读开票假设，本文不表示运行接口已经实现
@@ -66,6 +67,8 @@
 | 40 | POST | `/api/v1/admin/finance-imports/{batchId}/commits` | 新建 | 确认差异并原子提交 | 导入、发票、事件、审计 | **新增** | [账单发票 §5.3](foundation-api-dy-data/billing-invoice.md#53-post-batchidcommits-与-corrections) |
 | 41 | POST | `/api/v1/admin/finance-imports/{batchId}/corrections` | 新建 | 更正导入覆盖当前版本 | 同上 | **新增** | [账单发票 §5.3](foundation-api-dy-data/billing-invoice.md#53-post-batchidcommits-与-corrections) |
 | 42 | GET | `/api/v1/admin/finance-imports/{batchId}/error-file` | 新建 | 下载全部错误行 | 导入行 | **新增** | [账单发票 §5](foundation-api-dy-data/billing-invoice.md#5-四类财务导入) |
+| 43 | GET | `/api/v1/admin/finance-imports/{batchId}/rows` | 已实现回捞 | 上传时冻结字段预览 | finance_import_row.normalized_payload | **变更** | [预览合同](foundation-api-dy-data/billing-invoice.md#54-冻结逐行预览与撤销) |
+| 44 | POST | `/api/v1/admin/finance-imports/{batchId}/reversals` | 已实现回捞 | 原子追加撤销批次 | 导入/目标/事件/审计 | **变更** | [撤销合同](foundation-api-dy-data/billing-invoice.md#54-冻结逐行预览与撤销) |
 
 ## §2 拆分子文件
 
@@ -76,8 +79,9 @@
 | [product-sync.md](foundation-api-dy-data/product-sync.md) | 商品同步运行、SKU 历史与外部接口待映射边界 | < 400 |
 | [settlement-reporting.md](foundation-api-dy-data/settlement-reporting.md) | 门店榜单、单店分账、订单费用明细与导出 | < 400 |
 | [billing-invoice.md](foundation-api-dy-data/billing-invoice.md) | 账单确认、异议、发票登记、财务查询和四类导入 | < 400 |
+| [settlement-authority.md](foundation-api-dy-data/settlement-authority.md) | 来源身份、受保护整账与仅发布 CLI，均非新增 HTTP 接口 | < 400 |
 
-## §3 27 张表 → 接口覆盖
+## §3 核心表 → 接口/内部消费者覆盖
 
 | 表 | 读取接口 | 写入接口 / 写入主体 |
 |----|----------|--------------------|
@@ -108,6 +112,9 @@
 | `finance_import_batch` | #37—#42 | #38 创建，#40 提交，#41 更正覆盖 |
 | `finance_import_row` | #38—#42 | 流式校验逐行写入；正式业务表保持整批原子 |
 | `finance_operation_audit` | #25、#27—#30、#36、#38—#41 | 业务写接口在同事务记录，不提供业务修改/删除 |
+| `historical_sale_attribution_decisions` | #20—#24/#31—#34 经费用血缘间接读取 | 受控审批 manifest 应用，无公开写接口 |
+| `account_qualification_snapshot/observation/version` | #20—#24/#31—#34 经费用/发布血缘消费 | 导出采集/冻结/结算/月结内部链，不提供资格 CRUD |
+| `settlement_billing_source_bundle` | 发布后 #20—#24/#31—#34 的来源投影 | 发布前冻结、最终事务校验，无公开 payload 透传 |
 
 ## §4 旧接口兼容边界
 
@@ -271,3 +278,22 @@ Phase 5 自查未改变 Phase 4 已确认的业务边界；需用户确认本节
 - DYDATA-19 locked 交互语义覆盖率：4/4（100%）
 - S4 账单版本回捞覆盖率：6/6（100%）
 - 未解决冲突：0；旧的静态只读开票假设已显式标记为历史并被覆盖
+
+## §9 DYDATA-104 当前增量与一致性（2026-10-27）
+
+本轮按已确认 FCR004—008 回捞，并同步仍冲突的001—003来源/发票合同；不改变原确认事实、金额修复范围、月份或独立打榜。编号接口扩展为44项；既有分类批量/导入5条路径在 [SKU子文档 §2.1](foundation-api-dy-data/sku-fee-admin.md#21-既有批量与分类导入补充合同) 单列，不把编号统计冒充全库 HTTP 路由总数。现有发票详情/生命周期/替换候选路由未在本轮扩权，相关持久化见 [发票来源](foundation-schema-dy-data/invoice-source.md)。
+
+| 检查 | 页面/API 或内部消费 | Schema/合同落点 |
+|---|---|---|
+| C2/C3 分类单条、批量及导入 | productType、isServiceProduct、单条 expectedManualModifiedAt；scope 仅兼容 | dim_sku_product_rules.product_type/is_service_product/manual_modified_at；实际分类导入行，精确 scope 归一 |
+| C2/C3 发票登记 | #30 的号码/日期/手机号、完整组与账单读取版本；金额只读派生 | promotion_invoice、allocation、号码来源链；负抵扣保留，合票一次舍入 |
+| C2/C3 财务预览/撤销 | #43 冻结 before/after/transition；#44 readVersion/changeReason/幂等 | finance_import_row.normalized_payload.__preview、reverses_batch_id/逐行恢复锚点、目标与审计 |
+| C3/C4 月末资格 | 无新公开字段；worker 使用实际观察/冻结版，费用/月结指纹固定 | 0066 三表、nullable fee FK、version 来源计数；身份命名空间不混用 |
+| C3/C4 历史归属/人工纠错 | 无公开任意修复入口，受控 manifest/预演 hash | 0065 决定、nullable fee FK、既有 MANUAL_CORRECTION/finance audit 精确原结果锚点 |
+| C3/C5 受保护来源 | 发布整账读取旧 entry/精确原fee，display NULL 不猜补 | entry/line/header 金额闭合；独立事件+原锚点，不能替换current达到发布 |
+| C5 内部证据表消费 | 结算、月结、来源指纹/私有来源包消费，不是孤立表 | 无公开CRUD是有意边界，非遗漏Web写入口 |
+| C6/C7 已冻结交互与当前已确认增量 | 财务页面字段预览、批次撤销；普通分类/查询、默认上完整月 | 本轮子合同对齐实际页面/types与routes；原方向确认/异议状态机不扩展 |
+
+原普通分类“范围约束类型”由类型精确匹配覆盖；默认月份按上海上一完整自然月，显式账期/固定账单上下文优先。sales/clue-overview/settlement 使用 product-type-v2；finance 与独立 douyin-ranking 不受分类合同升级影响。见 [公共合同](foundation-api-dy-data/common-contract.md) 与 [分类 API说明](../../api/product-type-classification.md)。仅发布 CLI 的预演/应用与 status4 拒绝见 [内部来源合同](foundation-api-dy-data/settlement-authority.md)。
+
+本次对全部 Foundation 索引/声明文件进行结构、引用及术语一致性检查；业务字段核对限定在本轮变更面，不沿用历史百分比宣称61个页面或全库路由已全量重验。不写生产、不执行历史修复/冻结/发布，真实采集和冻结后自动重算/月结闭环由主控运行验收。
