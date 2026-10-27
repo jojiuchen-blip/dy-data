@@ -10,12 +10,16 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.worker import account_qualification as q
-from apps.worker.browser_exports import backend_aweme as backend
+from apps.worker.browser_exports import active_marker, backend_aweme as backend
 from test_dashboard_publication_migration import full_pg_stack
 from account_qualification_fixtures import binding, observe
 
 
-def test_real_postgres_migration_atomicity_immutability_and_concurrent_freeze(full_pg_stack, monkeypatch):
+def test_real_postgres_migration_atomicity_immutability_and_concurrent_freeze(full_pg_stack, monkeypatch, tmp_path):
+    # Keep the real marker protocol while isolating the host's writable path.
+    marker = tmp_path / "browser-export.active"
+    monkeypatch.setattr(active_marker, "FIXED_BROWSER_EXPORT_ACTIVE_FILE", marker)
+    monkeypatch.setenv("BROWSER_EXPORT_ACTIVE_FILE", str(marker))
     config, engine = full_pg_stack
     command.upgrade(config, "head")
     factory = sessionmaker(bind=engine, expire_on_commit=False)
@@ -49,6 +53,7 @@ def test_real_postgres_migration_atomicity_immutability_and_concurrent_freeze(fu
         with pytest.raises(backend.BrowserExportError):
             backend.run_backend_aweme_export(session, source_run_id="failed-fetch")
         session.rollback()
+    assert not marker.exists()
     with factory() as session:
         failed = session.scalar(select(q.Observation).where(q.Observation.source_run_id == "failed-fetch"))
         assert failed.state == "failed" and failed.error_code == "backend_collection_failed"
@@ -58,6 +63,7 @@ def test_real_postgres_migration_atomicity_immutability_and_concurrent_freeze(fu
     with factory() as session:
         backend.run_backend_aweme_export(session, source_run_id="rolled-back-success")
         session.rollback()
+    assert not marker.exists()
     with factory() as session:
         rolled_back = session.scalar(select(q.Observation).where(q.Observation.source_run_id == "rolled-back-success"))
         assert rolled_back.state == "running" and not rolled_back.complete and rolled_back.content_sha256 is None
