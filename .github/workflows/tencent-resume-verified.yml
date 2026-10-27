@@ -82,6 +82,13 @@ jobs:
             exit 1
           fi
           cd /opt/dy-dashboard/repo
+          df -B1 /opt/dy-dashboard
+          sudo docker system df
+          sudo docker image ls --no-trunc --format '{{json .}}'
+          sudo docker ps -a --no-trunc --format '{{.ID}} {{.Image}} {{.Status}}'
+          sudo cat /opt/dy-dashboard/logs/backups/images-20261027T025005Z.manifest
+          sudo cat /opt/dy-dashboard/logs/backups/images-20261023T132349Z.manifest
+          exit 0
           cutover="$(sudo python3 - "$archive" <<'PY'
           import hashlib, os, pathlib, shutil, sys, tarfile, tempfile
           root = pathlib.Path('/opt/dy-dashboard/repo')
