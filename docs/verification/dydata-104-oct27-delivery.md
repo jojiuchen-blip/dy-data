@@ -23,7 +23,7 @@
 | D 冻结逐行预览UI及提交竞态 | `c4aa8dd`、`733423f`：上传确认/批次详情共用保存的旧→新字段、状态转换与阻断原因；分页/全批阻断；提交期间scope控件禁用，切月后提交终态通知仍触发且旧结果不污染新表单。[UI专项](dydata-104-oct27-finance-preview.md) | 真实本地FastAPI/Vite/Chromium验证，含旧快照未知、零/null/缺字段、分页、移动端及延迟提交切月。旧财务浏览器测试不能代替这次新增UI测试 | 未部署；生产角色/页面/上传确认仍待补 |
 | D/E 全部真实下载、旧权限/发布/线索等 | `ebd9a0e`；[验收清单](dydata-104-oct27-acceptance.md)逐按钮列DL01–DL19及四面板错误下载，包含完整权限、管理员发布、批量门店筛选、PR64自店核销、类型/上月默认及独立打榜保护 | 真实API/浏览器、61行跨页全集和24次下载回读；业务/任务/发布表指纹不变，允许并单验正常访问审计。不存在独立下载按钮的页面明确标“不提供”，没有自动算done | 多组定界测试，非新集成全仓通过；没有执行生产发布或生产下载验收 |
 | E 受保护账单完整来源authority | `4095a7c`：整份受保护current bill全部immutable entries/lines及双方金额权威；精确旧fee经济基数、跨店/月链闭包、精确事件anchor、锁后复读；不修指针、不改受保护金额。[专项](dydata-104-oct27-protected-authority.md) | 主线程实际离线379来源（376原费+3调整）可回溯；128是唯一指针漂移组，19方向差359分，余109方向金额不变但来源基数变化。隔离SQL/确认竞争与失败关闭已测，详见下表 | 本core不等于生产恢复发布；实际全量来源一致性仍待主线程验收 |
-| E 只发布coordinator | `e9d42b6`（worker原提交`faf0ad6`）：默认dry-run、preview hash、闭包、heavy admission/claim/lease、锁后再捕获、正常publish与pending bill生成原子提交；不调用fee rebuild，拒绝status4。[专项](dydata-104-oct27-publication-only.md) | worker隔离preview/apply、protected指纹/CSV/榜单一致、晚到确认/失败回滚、真实PG已测；根线程新增4PG+13SQLite复验正在进行 | 已本地集成，**未执行生产preview或apply**；不能以合成通过声称实际379来源已恢复 |
+| E 只发布coordinator | `e9d42b6`（worker原提交`faf0ad6`）：默认dry-run、preview hash、闭包、heavy admission/claim/lease、锁后再捕获、正常publish与pending bill生成原子提交；不调用fee rebuild，拒绝status4。[专项](dydata-104-oct27-publication-only.md) | worker隔离preview/apply、protected指纹/CSV/榜单一致、晚到确认/失败回滚、真实PG已测；根线程完整coordinator集成24项通过（13 SQLite + 11 PG，包含新增4 PG） | 已本地集成，**未执行生产preview或apply**；不能以合成通过声称实际379来源已恢复 |
 | E 身份桥与实收4券来源 | [身份桥证据](dydata-104-identity-bridge-oct27.md)、[受保护决定及实收§7–8](dydata-104-oct27-protected-decisions.md#8-2026-10-27-1555-精确订单实测来源一致独占仍未证实)已记录同源配对、真实精确4单响应与官方合同 | 候选UID/短号配对不是历史区间或月末完整来源。4单最新count均2、各仅1个不同券、2个type100商品子单；目标item各精确匹配一条，组套ID全空，父订单total1不证明嵌套券完整 | 桥未授权外推；**实收4券继续阻断**。需独立券级商家实收或完整券→item→子单映射/独占合同，不猜另一券存在或状态、不盲均摊 |
 
 ## 已执行的专项测试收据
@@ -38,13 +38,13 @@
 | 财务新增UI | 初交43 passed（5真实API浏览器+38文案约束）；提交切月竞态修正后真实API浏览器7 passed，TypeScript/Vite build exit0 | 两个阶段分列；均非生产浏览器或最终集成build |
 | 历史更正初交/生命周期 | 初交112 passed / 2 skipped，其中本项真实PG5个全部通过；零差额生命周期增量后248 passed | 2个初交skip属于既有账单另一PG变量，未记通过；248来自更正/CLI/生命周期/结算定界组，不称全仓或新PG重跑 |
 | protected authority core | 相关回归213 passed / 2 skipped；普通month-scoped等127 passed；精确adjustment anchor后36 passed；最终专用PG7 passed | core阶段测试，后续coordinator结果须独立收据，不把未集成阶段算入此组 |
-| publication-only worker交付 | 定界140 passed；新增PG4 passed，增强真实CSV后其中完整apply2项重验通过；最终独立13 passed | 另有capture/billing组53 passed / 2 skipped、普通worker/API15 passed；全部是worker专项，根线程新增4PG+13SQLite复验待填 |
+| publication-only worker交付 | 定界140 passed；新增PG4 passed，增强真实CSV后其中完整apply2项重验通过；最终独立13 passed | 另有capture/billing组53 passed / 2 skipped、普通worker/API15 passed；全部是worker专项，根线程完整集成24 passed / 0 skipped / 11 warnings / 190.81秒，包含新增4 PG收据 |
 | 有效旧范围与全部下载 | JUnit按用例采用最新结果去重447 passed，0遗留fail/skip；内含浏览器65、PG补跑10、两份新增最终测试5 | 首轮夹具失败/PG跳过原记录保留，后续修正覆盖；24文件回执与截图在专项忽略工件，非单轮447全仓 |
 | CI接线/静态合同 | `932f4d4`、`843ba4e`；静态/部署/治理69 passed，追加静态25 passed；YAML解析与58个bash run块语法通过；本地PG烟测10 passed | [CI专项](dydata-104-oct27-ci-coverage.md)将PG与浏览器显式门禁、JUnit零测试/skip/fail/error拒绝及工件保存接线；**未运行远端目标提交CI** |
 | 根线程发布集成PG | `4f0f2a1`上6文件101 passed / 0 skipped / 0 failures / 0 errors，229 warnings，1474.31秒，exit0 | `.tmp/integrated-pg-gate.xml`及`.log`实读；包含财务矩阵80、历史更正5、资格1、SKU完整性及查询8、protected core7；不覆盖后合入coordinator |
 | 根线程Web构建 | 主线程工具执行`npm ci`、TypeScript检查及Vite build均通过 | 构建成功不等于浏览器业务验收、远端CI或生产发布；最新coordinator后最终HEAD验证仍独立记录 |
 
-旧PR63为4599 passed / 342 skipped；PR65 `d950233` run `40302948158`为4595 passed / 329 skipped，部署skipped。这些仅保留为原分支历史。旧`integrated-full-baseline-oct27.log`包含失败且没有完整结束汇总，不能称新全仓pass；新发布树完整测试仍进行中。当前没有一个可用于替代最终全仓、显式PG、真实浏览器、镜像及部署验收的总通过数。
+旧PR63为4599 passed / 342 skipped；PR65 `d950233` run `40302948158`为4595 passed / 329 skipped，部署skipped。这些仅保留为原分支历史。旧`integrated-full-baseline-oct27.log`结束为12 failed / 4782 passed / 253 skipped，达到maxfail=12后停止，不能称新全仓pass；剩余尾段另外118 passed / 116 PG-only skipped。迁移来源清单断言、财务冻结预览旧测试及资源marker会话已修正；两项时序等待失败分别重验后均通过，资源/浏览器整组56 passed。新完整集成与CI仍须最终记录。当前没有一个可用于替代最终全仓、显式PG、真实浏览器、镜像及部署验收的总通过数。
 
 ## 来源缺口与仍受保护的决定
 
@@ -52,13 +52,13 @@
 - 身份桥同对象UID→短号配对已可证，但历史适用区间、逐对来源、范围外复用及完整月末来源不足；16是整体候选对数，不能当1154笔子集的distinct账号数。OpenAPI fetched2334/retained1926的408差额不能仅凭代码归因，完整性门禁保持。
 - 后22券补录继续暂停，阜阳指定8券与其不交叉。3.59元只代表19个金额变化方向；同组其余109方向金额虽相同，来源基数并未相同，不能自动换旧来源ID。
 - 19方向3.59元、首次漏记26券/27方向488.88元、另4券8方向134.40元仍禁止擅自更正、重算或入账。已形成逐笔/保护事实及“保留原确认、向待选开放月追加”或“正式历史更正版本并处理重新确认/票据”的候选方案；方式和月份尚未获准。另4券不是实收拦截4券。
-- 月末Schema/API与财务冻结预览、SAP字段/撤销保护等foundation漂移由主线程在[既有变更请求](../plans/foundation-plans/foundation-change-requests-dydata-104-oct23.md)回收；存在实现或请求记录不等于上游合同已修订完成。
+- 月末Schema/API与财务冻结预览、SAP字段/撤销保护等foundation漂移由主线程在[既有变更请求](../plans/foundation-plans/foundation-change-requests-dydata-104-oct23.md)回收；上述基础合同已由foundation-builder提交9ba40d1回捞；新发现自动月结启动及共同发布前资格校验增量仍在实现和回捞中，不宣称长期自动路径通过。
 
 ## 最终集成与生产闸门：明确待填
 
 | 闸门 | 当前状态 | 主线程追加的最小收据 |
 |---|---|---|
-| 发布coordinator集成与379来源复核 | **e9d42b6已集成；根线程复验及实际来源验收进行中，待填** | 根线程4PG+13SQLite结束收据、闭包月份、dry-run/apply审阅、379完整来源/经济基数与账单/CSV/榜单一致性；不得改费指针或差额 |
+| 发布coordinator集成与379来源复核 | **e9d42b6已集成；根线程24项复验通过，实际来源生产验收待填** | 根线程24项结束收据已取得；生产闭包月份、dry-run/apply审阅、379完整来源/经济基数与账单/CSV/榜单一致性；不得改费指针或差额 |
 | 最终整树回归 | **进行中，待填**；不得引用旧PR或旧baseline代替 | 最终HEAD、全仓命令/结束汇总与JUnit、失败处理、skip原因；显式PG及真实浏览器必须非零且零skip |
 | 精确提交远端CI、构建与迁移 | **未完成，待填** | CI链接和提交SHA、PG/Nginx/API/Web/四镜像、0066完整/有数据迁移与安全回退拒绝、无源码挂载启动、源码/镜像label绑定 |
 | 生产部署与运行 | **未执行本轮部署，待填**；目前9b1feb8 / 0065 | 新源码/镜像/DB head、迁移前备份与构建后容量/恢复门禁、健康/后台任务/资源、必要回滚或前滚方案 |
@@ -123,3 +123,7 @@
 - `python -m pytest tests/test_project_governance.py -q`：exit 0，9 passed in 6.85s。
 - 链接索引诊断`run-project-link-indexer ... --trigger need_broken_link_or_reverse_link_check --json`与`collect-project-links ... --dry-run --json`：命令exit 0，但诊断仍有37项历史缺失引用；本写集未命中新增问题，不宣称全库链接通过。为遵守限定写集未改`docs/index/*`，主线程在最终集成树正式刷新。
 - `git diff --check`：exit 0。未运行本轮业务测试、最终集成CI或生产验收；文档门禁不代表这些项目通过。foundation预期请求仍待实现后由主线程回收具体路径、行号及正式状态。
+
+## 自动月结追加核查（10月27日）
+
+两个内存数据库实证包含完整31日来源及末次完整资格观察：旧10月未引用资格版本的费用、新规则月份无费用，均能冻结却不能由ensure自动派发；普通incremental无源变化时处理0券，不能替代整月重算。另实际月runner对身份尚未关联的旧10月费用仅记DQ并保留current，可能继续进入refresh。已决定分开“可启动计算”与“可正式出账”：完整日来源和成功冻结后可派正常幂等月重算，重算提交前及三类正式出账入口在实际月份闭包内检查全部current引用对应资格版本；不删除/归零未知旧费用，不让8/9月份无关地依赖尚未结束10月。当前修复和实际自动路径测试仍在进行，不能称已完成。

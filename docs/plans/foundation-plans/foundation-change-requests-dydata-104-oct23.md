@@ -11,7 +11,7 @@
 | 指向代码块 | routes/fee_admin.py、routes/_data.py、dashboard_publications/、product_classification.py、convert_jingcheng_product_types.py、订单分佣页面 |
 | 目标 foundation 文件:章节 | foundation-api-dy-data/sku-fee-admin.md 分类与导入；foundation-schema-dy-data/product-rule-source.md 类型/范围；订单分佣默认筛选合同 |
 | 严重度 | 必须保持权限、不可变财务事实及独立打榜语义 |
-| 状态 | 实现与验证中；冻结 foundation 回捞待评审，未宣称生产生效 |
+| 状态 | 已改（foundation 9ba40d1；仅合同回捞，不代表生产完成） |
 
 现行增量合同见[商品类型与默认账期](../../api/product-type-classification.md)。新分类仅需有效类型；旧 scope 输入忽略并保留内部字段。精诚养车当前目录按精确存储值归一，转换先预演再锁定摘要应用，持续同步/编辑一致；历史费用、账单行键、确认及发票不改。分析类型在发布时冻结，财务仍使用历史类型；不引入 GET 重算。独立打榜保持全部/精诚养车/比亚迪本品。默认账期按上海上一完整月，显式月份和固定账单上下文优先，不以累计或更早月份代替。
 
@@ -26,7 +26,7 @@
 | 指向代码块 | apps/api/dy_api/routes/dashboard.py:757；apps/api/dy_api/routes/dashboard.py:3830；tests/test_api_store_billing.py |
 | 目标 foundation 文件:章节 | docs/prd/foundation/foundation-api-dy-data/billing-invoice.md §2.1、§4.2；foundation-schema-dy-data/billing-invoice.md 发票金额与审计 |
 | 严重度 | 建议 |
-| 状态 | 待评审 |
+| 状态 | 已改（foundation 9ba40d1；仅合同回捞，不代表生产完成） |
 
 当前实现合同：`storeId/invoiceNumber/invoiceDate/fillerPhone/allocations[]`，分配项为 `statementId/statementMonth/readVersion/promotionInvoiceGroupId`，保留可选 `replacesInvoiceId`。旧五项人工字段及分配金额接受但忽略，不进入新幂等摘要。当前有效完整组必须全部覆盖，组内负抵扣保留；无合格组摘要为 null。总额由锁定后的确认金额合计，净额按整数分 `floor((总额×100+53)/106)`，税额为差额，整张合票只舍入一次。20位 ASCII 数字保留前导零，不调用外部验真。权限、日期、状态、版本、号码唯一性、事务和历史保护保持；旧幂等请求从持久化历史事实重建校验，不重写旧金额。
 
@@ -41,13 +41,13 @@
 | 指向代码块 | apps/worker/settlement.py:3063；apps/worker/product_sync.py:785 |
 | 目标 foundation 文件:章节 | docs/prd/foundation/foundation-glossary-dy-data.md 有效商品；foundation-schema-dy-data/product-rule-source.md 历史快照 |
 | 严重度 | 建议；需回捞术语，避免历史资格再次受当前在售状态误阻断 |
-| 状态 | 已按需求原文澄清并实现，foundation 回捞待评审 |
+| 状态 | 已改（foundation 9ba40d1；仅合同回捞，不代表生产完成） |
 
 用户追问“需求是怎么写的”后重新核对 Linear 原文：“首先按附件规则在系统配置中补充分佣商品列表”，配置完成后重跑8、9月，并“使用第一步已核验的有效商品规则”。原文未规定当前下架便排除历史订单；此前提问把“有效商品规则”简化为“有效商品”不准确。本次据既有需求解释并修正实现，不记作用户另行批准了新的业务规则。
 
 当前在售状态与历史计费资格分开：保留原有效标记路径，仅额外允许已有档案且平台状态为 INACTIVE、同步为 SUCCESS 的商品继续进入原有校验。仍须满足正式付款与有效核销、稳定归属账号、唯一销售门店、渠道与范围规则、核销日生效费率、可证明实收及退款等条件；缺档案、未知/封禁/删除状态或失败同步不获新资格。不重写商品平台状态，不按本次SKU或月份硬编码，已确认/开票/锁账保护保持。34项专项及邻近结算回归共245 passed/2 PG skipped；平台档案无DML有SQL监听与全字段快照证明。
 
-foundation-glossary 的“至少要求平台状态有效”及 T2.3 沿用的“有效商品”待按以上解释回捞；本轮 S4 不直接改写冻结的 foundation 文件。
+该项旧术语冲突已由后续 foundation-builder 增量提交 9ba40d1 回捞；原 S4 实装保持不直接修改冻结文件的边界。
 
 ## S4-FCR-003 精确历史销售归属证据
 
@@ -60,7 +60,7 @@ foundation-glossary 的“至少要求平台状态有效”及 T2.3 沿用的“
 | 指向代码块 | apps/worker/historical_sale_attribution.py；apps/worker/settlement.py；alembic/versions/20261023_0065_historical_sale_attribution.py |
 | 目标 foundation 文件:章节 | foundation-schema-dy-data 历史归属证据、费用结果来源；foundation-api-dy-data 运维导入边界 |
 | 严重度 | 必须保留原始身份、审批及财务保护边界 |
-| 状态 | 按已批准修复范围实施及验证；foundation 回捞待评审 |
+| 状态 | 已改（foundation 9ba40d1；仅合同回捞，不代表生产完成） |
 
 导入限定原始内部/业务订单、券、原始账号、有效核销ID/时间/上海业务月及目标门店，记录来源摘要、审批证据、执行者和批次；默认只读预演，应用需精确文件SHA256，共享写入锁与同事务审计。裁决不可修改或删除，不创建当前账号绑定，不赋予查询权限，不自动创建重算任务。
 
@@ -77,7 +77,7 @@ foundation-glossary 的“至少要求平台状态有效”及 T2.3 沿用的“
 | 指向代码块 | apps/api/dy_api/routes/dashboard.py:2181、8251、8237；tests/test_dydata104_finance_state_matrix.py；apps/web/src/components/FinanceImportPreviewTable.tsx |
 | 目标 foundation 文件:章节 | docs/prd/foundation/foundation-api-dy-data/billing-invoice.md 财务导入、SAP及撤销；foundation-schema-dy-data/billing-invoice.md 导入行和票号所有权 |
 | 严重度 | 阻断错误财务写入；接口与实现合同须回捞 |
-| 状态 | 待评审 |
+| 状态 | 已改（foundation 9ba40d1；仅合同回捞，不代表生产完成） |
 
 `GET /api/v1/admin/finance-imports/{batchId}/rows` 按真实分页返回上传时保存的原值、新值、状态转换、允许变化与阻断原因；整批权限和阻断摘要不局限当前页。只读请求不从当前业务值拼造原预览。未保存冻结预览的旧待提交批次明确要求重新上传；已经提交的幂等回放保留。上传仍仅写导入批次与校验记录，确认提交重新检查当前档案/票据版本与范围。
 
@@ -94,7 +94,7 @@ foundation-glossary 的“至少要求平台状态有效”及 T2.3 沿用的“
 | 指向代码块 | apps/worker/historical_fee_correction.py:418；apps/worker/settlement.py:4430；tests/test_historical_fee_correction_lifecycle.py |
 | 目标 foundation 文件:章节 | docs/prd/foundation/foundation-schema-dy-data/settlement-reporting.md 调整、来源与历史保护；foundation-api-dy-data/billing-invoice.md 历史更正与票据事实 |
 | 严重度 | 阻断错误历史更正及重复冲减 |
-| 状态 | 待评审 |
+| 状态 | 已改（foundation 9ba40d1；仅合同回捞，不代表生产完成） |
 
 本次服务限定2026年9月、8券16方向，逐条验证附件文件/行摘要、订单/券、门店、原费用与当前账单版本；预演无写入，应用必须提供预演摘要并在锁后重验，全批原子提交。仅非零差额增加调整，零差额仍留精确审计；原费用、原账单及目标外条目保留。已确认/开票/争议/复杂结转拒绝进入本次窄更正，不擅选其他入账月，也不登记缺证票据。
 
@@ -113,7 +113,7 @@ foundation-glossary 的“至少要求平台状态有效”及 T2.3 沿用的“
 | 指向代码块 | apps/worker/account_qualification.py；apps/worker/browser_exports/backend_aweme_proof.py；apps/worker/month_close.py；alembic/versions/20261027_0066_account_qualification.py |
 | 目标 foundation 文件:章节 | docs/prd/foundation/foundation-schema-dy-data/settlement-reporting.md 费用来源及资格快照；foundation-api-dy-data/billing-invoice.md 月结预检 |
 | 严重度 | 阻断资格漂移及未知身份误计费 |
-| 状态 | 待评审 |
+| 状态 | 已回捞（foundation 9ba40d1）；自动启动及共同发布前资格校验增量待补 |
 
 自2026-10起，同一来源行类型为子机构门店号/区域号且绑定状态认证成功才合格，认证信息自由文本不限制。上海月末最后2小时内启动且截止前完成的最后完整采集可冻结；最新失败、不完整、跨截止或仍运行均暂停月结。保留真实时间，不声称精确午夜状态，不把10月27日资料回填为月末。冻结后只引用该版本，销售门店关联、核销账期及费率日期保持各自合同。
 
@@ -132,7 +132,7 @@ foundation-glossary 的“至少要求平台状态有效”及 T2.3 沿用的“
 | 指向代码块 | apps/worker/protected_billing_authority.py；apps/worker/billing_source_capture.py；apps/worker/settlement_publication_only.py；scripts/ops/publish_settlement_authority.py；tests/test_protected_billing_authority_postgres.py |
 | 目标 foundation 文件:章节 | docs/prd/foundation/foundation-schema-dy-data/settlement-reporting.md 不可变来源及投影；foundation-api-dy-data/billing-invoice.md 保护状态与发布恢复 |
 | 严重度 | 阻断错误确认金额及页面、导出不一致 |
-| 状态 | 待评审 |
+| 状态 | 已改（foundation 9ba40d1；仅合同回捞，不代表生产完成） |
 
 已确认/锁账、任一方向确认、争议或票据依赖均保护整份 current bill；来源采用全部 immutable entries 及精确原 FeeResult，逐项核验身份、金额、行和头部闭合。展示快照的 NULL 保留，经济实收基数不能用展示快照或当前费用替代。同券同方向的新 primary 在跨店、跨月后也不能覆盖冻结依据；调整只按精确事件 ID 与原 anchor 判断，保留可证明的合法原依据退款/撤销/结转，不按券批量吞掉其他方向或其他 anchor。
 
