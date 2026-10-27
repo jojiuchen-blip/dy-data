@@ -8,8 +8,11 @@ from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from zoneinfo import ZoneInfo
+
+if TYPE_CHECKING:
+    from apps.worker.missing_fee_repair import NewFeeQuote
 
 from sqlalchemy import (
     and_,
@@ -3168,7 +3171,28 @@ def _materialize_dual_fee_direction(
     calculation_run_id: str,
     current: SettlementFeeResult | None,
     force_recalculate: bool = False,
-) -> bool:
+    quote_only: bool = False,
+) -> bool | NewFeeQuote:
+    # Import lazily to keep the existing worker initialization graph unchanged.
+    from apps.worker.missing_fee_repair import NewFeeQuote, NewFeeQuoteError
+
+    if quote_only:
+        if session.autoflush or session.new or session.dirty or session.deleted:
+            raise NewFeeQuoteError("quote requires clean session with autoflush disabled")
+        if current is not None or session.scalar(select(SettlementFeeResult.id).where(
+            SettlementFeeResult.coupon_id == coupon.coupon_id).limit(1)) is not None:
+            raise NewFeeQuoteError("quote requires no fee history in any month/direction/status")
+        if session.scalar(select(SettlementFeeResultCurrent.coupon_id).where(
+            SettlementFeeResultCurrent.coupon_id == coupon.coupon_id).limit(1)) is not None:
+            raise NewFeeQuoteError("quote requires no current pointer")
+        if direction not in (PROMOTION_FEE, MANAGEMENT_FEE):
+            raise NewFeeQuoteError("invalid fee direction")
+
+    def reject_or_block(*args: Any, **kwargs: Any) -> int:
+        if quote_only:
+            raise NewFeeQuoteError(str(args[4]))
+        return _block_dual_fee(*args, **kwargs)
+
     direction_name = "promotion" if direction == PROMOTION_FEE else "management"
     product = (
         session.scalar(
@@ -3187,7 +3211,7 @@ def _materialize_dual_fee_direction(
             and product.sync_status == "SUCCESS"
         )
     ):
-        _block_dual_fee(
+        reject_or_block(
             session,
             calculation_run_id,
             coupon,
@@ -3201,7 +3225,7 @@ def _materialize_dual_fee_direction(
 
     product_owner_account_id = _first_text(product.owner_account_id)
     if not product_owner_account_id:
-        _block_dual_fee(
+        reject_or_block(
             session,
             calculation_run_id,
             coupon,
@@ -3217,7 +3241,7 @@ def _materialize_dual_fee_direction(
         return False
 
     if _is_non_commission_owner_account(session, order.owner_account_name):
-        _block_dual_fee(
+        reject_or_block(
             session,
             calculation_run_id,
             coupon,
@@ -3240,7 +3264,7 @@ def _materialize_dual_fee_direction(
             session, order=order, coupon=coupon, verify=verify, current_result=current,
         )
     except HistoricalAttributionError:
-        _block_dual_fee(
+        reject_or_block(
             session, calculation_run_id, coupon, order,
             "historical_sale_attribution_source_drift",
             "历史销售归属裁决的精确来源已变化，费用方向已阻断。",
@@ -3251,6 +3275,8 @@ def _materialize_dual_fee_direction(
     qualification_version_id = None
     verify_month = _business_month(verify.verify_time) if verify is not None and verify.verify_time is not None else None
     monthend_rows = None
+    if quote_only and verify_month is not None and verify_month >= "2026-10":
+        raise NewFeeQuoteError("quote does not freeze October-or-later account qualification")
     if verify_month is not None and verify_month >= "2026-10":
         from apps.worker.account_qualification import qualified_version, qualified_records, AccountQualificationError
         try:
@@ -3268,7 +3294,7 @@ def _materialize_dual_fee_direction(
                        "账期账号身份来源存在冲突。" if reason_code in {
                            "qualification_identity_ambiguous", "qualification_identity_source_conflict"} else
                        "账期月末账号资格未就绪或不合格。")
-            _block_dual_fee(
+            reject_or_block(
                 session, calculation_run_id, coupon, order,
                 "dual_fee_monthend_account_qualification", message,
                 directions=(direction,), context={"business_month": verify_month, "reason_code": reason_code},
@@ -3298,7 +3324,7 @@ def _materialize_dual_fee_direction(
         )
         sale_account = sale_diagnostic.match
     if sale_account is None:
-        _block_dual_fee(
+        reject_or_block(
             session,
             calculation_run_id,
             coupon,
@@ -3319,7 +3345,7 @@ def _materialize_dual_fee_direction(
 
     channel = _dual_sale_channel(order)
     if channel not in {"live", "short_video"}:
-        _block_dual_fee(
+        reject_or_block(
             session,
             calculation_run_id,
             coupon,
@@ -3334,7 +3360,7 @@ def _materialize_dual_fee_direction(
     sale_time = _first_datetime(order.sale_time, order.pay_time)
     sale_business_date = _business_date(sale_time)
     if sale_business_date is None:
-        _block_dual_fee(
+        reject_or_block(
             session,
             calculation_run_id,
             coupon,
@@ -3346,6 +3372,8 @@ def _materialize_dual_fee_direction(
         )
         return False
     if sale_business_date < FORMAL_SETTLEMENT_START:
+        if quote_only:
+            raise NewFeeQuoteError("sale before formal settlement window")
         # Management also requires the corresponding sale to be in the formal window.
         if current is not None:
             _retire_unqualified_fee_result(session, current)
@@ -3358,7 +3386,7 @@ def _materialize_dual_fee_direction(
             # historical false positive in the current published population.
             if cancelled is None:
                 _retire_unqualified_fee_result(session, current)
-        _block_dual_fee(
+        reject_or_block(
             session,
             calculation_run_id,
             coupon,
@@ -3377,7 +3405,7 @@ def _materialize_dual_fee_direction(
     else:
         poi_mapping = _find_poi_mapping(session, verify.poi_id)
         if poi_mapping is None or session.get(DimStore, poi_mapping.store_id) is None:
-            _block_dual_fee(
+            reject_or_block(
                 session,
                 calculation_run_id,
                 coupon,
@@ -3394,7 +3422,7 @@ def _materialize_dual_fee_direction(
     business_date = _business_date(business_time)
     if business_date is None or business_date < FORMAL_SETTLEMENT_START:
         if business_date is None:
-            _block_dual_fee(
+            reject_or_block(
                 session,
                 calculation_run_id,
                 coupon,
@@ -3405,6 +3433,8 @@ def _materialize_dual_fee_direction(
                 context={"direction": direction_name},
             )
             return False
+        if quote_only:
+            raise NewFeeQuoteError("verification before formal settlement window")
         return True
     business_month = business_date.strftime("%Y-%m")
 
@@ -3417,7 +3447,7 @@ def _materialize_dual_fee_direction(
     )
     if scope_rule is None or not scope_rule.is_active:
         scope_state = "disabled" if scope_rule is not None else "unconfigured"
-        _block_dual_fee(
+        reject_or_block(
             session,
             calculation_run_id,
             coupon,
@@ -3438,7 +3468,7 @@ def _materialize_dual_fee_direction(
 
     fee_rule = _match_fee_rule(session, product.sku_id, business_date)
     if fee_rule is None:
-        _block_dual_fee(
+        reject_or_block(
             session,
             calculation_run_id,
             coupon,
@@ -3452,7 +3482,7 @@ def _materialize_dual_fee_direction(
 
     source_amount = _direction_source_amount(session, order, coupon, verify)
     if source_amount is None:
-        _block_dual_fee(
+        reject_or_block(
             session,
             calculation_run_id,
             coupon,
@@ -3526,6 +3556,28 @@ def _materialize_dual_fee_direction(
     ):
         return True
 
+    if quote_only:
+        qualifying_mapping = _find_poi_mapping(session, verify.poi_id)
+        qualifying_store = session.get(DimStore, qualifying_mapping.store_id) if qualifying_mapping else None
+        if qualifying_store is None:
+            raise NewFeeQuoteError("qualifying verification store snapshot unavailable")
+        return NewFeeQuote(
+            coupon_id=coupon.coupon_id, order_id=order.order_id, fee_direction=direction,
+            original_business_month=business_month, rule_match_date=business_date,
+            sale_store_id=sale_account.store_id, verify_store_id=verify_store_id,
+            sku_id=product.sku_id, product_scope=product.product_scope,
+            product_type=product.product_type, sale_channel_normalized=channel,
+            source_amount_cent=source_amount, refunded_amount_cent=refunded_amount,
+            fee_base_cent=fee_base, fee_rate=fee_rate, fee_amount_cent=fee_amount,
+            rule_version=fee_rule.rule_version, scope_rule_version=scope_rule.scope_rule_version,
+            result_status=ACTIVE_FEE_RESULT, input_fingerprint=input_fingerprint,
+            qualifying_verify_id=verify.verify_id, qualifying_verify_time=verify.verify_time,
+            qualifying_verify_store_id=qualifying_store.store_id,
+            qualifying_verify_store_name=qualifying_store.store_name,
+            sale_attribution_decision_id=attribution_decision.decision_id if attribution_decision else None,
+            account_qualification_version_id=qualification_version_id,
+        )
+
     target_slot = (responsible_store_id, business_month)
     prior_store_id = (
         current.sale_store_id if direction == PROMOTION_FEE else current.verify_store_id
@@ -3576,7 +3628,7 @@ def _materialize_dual_fee_direction(
             issue_type = "dual_fee_historical_correction_basis_pinned"
             message = "历史人工纠错已固定本券费用依据，禁止重算替换原结果。"
         if not adjustment_only:
-            _block_dual_fee(
+            reject_or_block(
                 session, calculation_run_id, coupon, order, issue_type, message,
                 directions=(direction,),
                 context={"direction": direction_name, "business_month": business_month},
