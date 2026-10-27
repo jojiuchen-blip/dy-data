@@ -57,6 +57,9 @@ export function FinanceImportActionPanel({
   const [commitKey, setCommitKey] = useState(() => crypto.randomUUID());
   const [fileInputVersion, setFileInputVersion] = useState(0);
   const requestVersion = useRef(0);
+  const activeCommit = useRef(false);
+  const onCommittedRef = useRef(onCommitted);
+  useLayoutEffect(() => { onCommittedRef.current = onCommitted; }, [onCommitted]);
   const [previewReadiness, setPreviewReadiness] = useState({ batchId: "", ready: false });
   const handlePreviewReadiness = useCallback((batchId: string, ready: boolean) => {
     setPreviewReadiness({ batchId, ready });
@@ -66,18 +69,20 @@ export function FinanceImportActionPanel({
   // can otherwise clear a file selected immediately after the panel opens.
   useLayoutEffect(() => {
     requestVersion.current += 1;
+    setImportType((current) => fixedImportType ?? (
+      importOptions[scope].some(([value]) => value === current) ? current : importOptions[scope][0][0]
+    ));
     setFile(null);
     setPreview(null);
     setMessage("");
     setCommitKey(crypto.randomUUID());
     setFileInputVersion((current) => current + 1);
     setUploading(false);
-    setCommitting(false);
   }, [fixedImportType, month, scope]);
 
   const handleUpload = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!file) return;
+    if (!file || activeCommit.current) return;
     const request = ++requestVersion.current;
     setUploading(true);
     setMessage("");
@@ -105,8 +110,9 @@ export function FinanceImportActionPanel({
   };
 
   const handleCommit = async () => {
-    if (!preview || !canCommit || committing) return;
+    if (!preview || !canCommit || activeCommit.current) return;
     const request = requestVersion.current;
+    activeCommit.current = true;
     setCommitting(true);
     setMessage("");
     try {
@@ -119,13 +125,15 @@ export function FinanceImportActionPanel({
       } else {
         await commitFinanceImport(preview.batchId, payload, commitKey);
       }
+      // A successful write must refresh the owner even if its visible month
+      // changed while the independent commit request was in flight.
+      onCommittedRef.current();
       if (request !== requestVersion.current) return;
       setMessage("导入结果已生效；导入时间作为审核通过或结算完成时间。");
       setPreview(null);
       setFile(null);
       setCommitKey(crypto.randomUUID());
       setFileInputVersion((current) => current + 1);
-      onCommitted();
     } catch (error) {
       if (request !== requestVersion.current) return;
       const conflict = error instanceof ApiRequestError && error.status === 409;
@@ -144,7 +152,8 @@ export function FinanceImportActionPanel({
         ),
       );
     } finally {
-      if (request === requestVersion.current) setCommitting(false);
+      activeCommit.current = false;
+      setCommitting(false);
     }
   };
 
@@ -181,15 +190,16 @@ export function FinanceImportActionPanel({
           <h2>导入财务数据</h2>
           <p>管理员导入系统外已完成处理的数据；原文件不保存，系统整批校验，确认后生成当前有效新版本。</p>
         </div>
-        <a href={`/finance/imports?importType=${encodeURIComponent(importType)}&month=${encodeURIComponent(month)}`}>查看导入记录</a>
+        <a aria-disabled={committing} onClick={(event) => { if (activeCommit.current) event.preventDefault(); }} href={`/finance/imports?importType=${encodeURIComponent(importType)}&month=${encodeURIComponent(month)}`}>查看导入记录</a>
       </div>
       <form className="finance-form-grid" onSubmit={handleUpload}>
         <label>
           <span>导入模板</span>
           <SearchableStoreSelect
-            disabled={Boolean(fixedImportType)}
+            disabled={Boolean(fixedImportType) || committing}
             emptyMessage="未找到导入模板"
             onChange={(value) => {
+              if (activeCommit.current) return;
               requestVersion.current += 1;
               setUploading(false);
               setImportType(value);
@@ -207,11 +217,13 @@ export function FinanceImportActionPanel({
         <TextField disabled label="业务账期" value={month} />
         <TextField
           accept=".csv,.xlsx"
+          disabled={committing}
           key={`finance-import-file-${fileInputVersion}`}
           label="文件"
           required
           type="file"
           onChange={(event) => {
+            if (activeCommit.current) return;
             requestVersion.current += 1;
             setUploading(false);
             setFile(event.target.files?.[0] ?? null);
@@ -220,7 +232,7 @@ export function FinanceImportActionPanel({
             setCommitKey(crypto.randomUUID());
           }}
         />
-        <div className="finance-form-actions"><Button disabled={!file} loading={uploading} type="submit" variant="primary">上传并预览</Button>{message ? <span role="status">{message}</span> : null}</div>
+        <div className="finance-form-actions"><Button disabled={!file || committing} loading={uploading} type="submit" variant="primary">上传并预览</Button>{message ? <span role="status">{message}</span> : null}</div>
       </form>
       {preview ? (
         <div className="finance-import-preview">
@@ -240,7 +252,7 @@ export function FinanceImportActionPanel({
             <ResourcePanel>校验结果不会自动写入，提交前仍可放弃。</ResourcePanel>
           )}
           <div className="finance-form-actions">
-            <TextField fieldClassName="finance-change-reason" label="变更原因" value={changeReason} onChange={(event) => setChangeReason(event.target.value)} />
+            <TextField disabled={committing} fieldClassName="finance-change-reason" label="变更原因" value={changeReason} onChange={(event) => setChangeReason(event.target.value)} />
             <Button disabled={!canCommit} loading={committing} onClick={handleCommit} variant="primary">确认提交</Button>
           </div>
         </div>

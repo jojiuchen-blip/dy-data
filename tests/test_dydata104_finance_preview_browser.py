@@ -98,6 +98,8 @@ def test_upload_frozen_before_pagination_permission_failure_and_retry(
             profile = session.scalar(select(StoreFinanceProfile).where(StoreFinanceProfile.profile_id == "preview-profile-0"))
             profile.sap_code = "AFTER-UPLOAD-MUST-NOT-SHOW"
             session.commit()
+        for route in held:
+            route.continue_()
         page.unroute("**/api/v1/admin/finance-imports/*/rows?*")
         expect(preview).to_contain_text("SAP-OLD-000")
         expect(preview).not_to_contain_text("AFTER-UPLOAD-MUST-NOT-SHOW")
@@ -143,6 +145,8 @@ def test_batch_switch_legacy_unknown_and_empty_rows_do_not_reuse_previous_data(
         page.get_by_role("button", name=batch["batchId"], exact=True).click()
         expect(preview).to_contain_text("SAP-DETAIL-000")
         assert held
+        for route in held:
+            route.continue_()
         page.unroute(pattern)
         expect(preview).not_to_contain_text("SAP-RACE-OLD-000")
         page.get_by_role("button", name="uat-error-import", exact=True).click()
@@ -236,5 +240,86 @@ def test_frozen_preview_requires_explicit_confirm_and_commits_real_profile(
         expect(panel).to_contain_text("导入结果已生效")
         with preview_stores() as session:
             assert session.scalar(select(StoreFinanceProfile.sap_code).where(StoreFinanceProfile.store_id == STORE_IDS[0], StoreFinanceProfile.is_current.is_(True))) == "SAP-CONFIRMED-000"
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("switch_month", [False, True])
+def test_inflight_commit_locks_scope_and_releases_after_real_delayed_response(
+    browser, vite_live_admin_api_base_url, live_admin_fastapi_base_url, preview_stores, switch_month,
+):
+    context = browser.new_context(viewport={"width": 1440, "height": 1000})
+    page = context.new_page()
+    held = []
+    errors = []
+    refreshes = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.on("request", lambda request: refreshes.append(request.url)
+            if request.method == "GET" and "/admin/finance/stores?" in request.url else None)
+    commit_pattern = "**/api/v1/admin/finance-imports/*/*"
+
+    def delay_actual_commit_response(route):
+        if route.request.method == "POST" and route.request.url.endswith(("/commits", "/corrections")):
+            # Execute the genuine write, then hold its unchanged response. This
+            # reproduces a server commit completed before the UI knows its result.
+            response = route.fetch()
+            held.append((route, response))
+            page.evaluate("window.__financeCommitResponseHeld = true")
+        else:
+            route.continue_()
+
+    try:
+        suffix = "SCOPE" if switch_month else "SAME"
+        page.goto(vite_live_admin_api_base_url + "/finance/stores?month=" + MONTH)
+        page.get_by_role("button", name="导入门店基础信息", exact=True).click()
+        panel = page.locator(".finance-import-card")
+        file_input = panel.get_by_label("文件", exact=True)
+        file_input.set_input_files({"name": "commit-a.csv", "mimeType": "text/csv", "buffer": content(1, suffix=f"A-{suffix}")})
+        panel.get_by_role("button", name="上传并预览", exact=True).click()
+        expect(panel.get_by_role("region", name="逐行字段预览", exact=True)).to_contain_text(f"SAP-A-{suffix}-000")
+        confirm = panel.get_by_role("button", name="确认提交", exact=True)
+        expect(confirm).to_be_enabled()
+        page.route(commit_pattern, delay_actual_commit_response)
+        confirm.click()
+        page.wait_for_function("window.__financeCommitResponseHeld === true")
+        assert len(held) == 1 and held[0][1].status == 200
+        expect(file_input).to_be_disabled()
+        expect(panel.get_by_role("button", name="上传并预览", exact=True)).to_be_disabled()
+        expect(panel.get_by_label("变更原因", exact=True)).to_be_disabled()
+        expect(panel.get_by_role("link", name="查看导入记录", exact=True)).to_have_attribute("aria-disabled", "true")
+        # set_input_files can dispatch change even on a disabled input. The
+        # independent request guard must reject this programmatic scope change.
+        file_input.set_input_files({"name": "premature-b.csv", "mimeType": "text/csv", "buffer": content(1, suffix=f"B-{suffix}")})
+        expect(panel.get_by_role("button", name="上传并预览", exact=True)).to_be_disabled()
+        with preview_stores() as session:
+            assert session.scalar(select(StoreFinanceProfile.sap_code).where(StoreFinanceProfile.store_id == STORE_IDS[0], StoreFinanceProfile.is_current.is_(True))) == f"SAP-A-{suffix}-000"
+        if switch_month:
+            with page.expect_response(lambda response: "/admin/finance/stores?" in response.url and "month=2026-09" in response.url):
+                page.get_by_label("账期", exact=True).fill("2026-09")
+            expect(panel.get_by_label("业务账期", exact=True)).to_have_value("2026-09")
+            expect(panel.get_by_label("文件", exact=True)).to_be_disabled()
+        refresh_count = len(refreshes)
+        with page.expect_response(lambda response: "/admin/finance/stores?" in response.url) as refreshed:
+            held[0][0].fulfill(response=held[0][1])
+        assert refreshed.value.status == 200
+        assert len(refreshes) > refresh_count  # onCommitted refreshes even after scope change.
+        expect(panel.get_by_label("文件", exact=True)).to_be_enabled()
+        if switch_month:
+            expect(panel).not_to_contain_text("导入结果已生效")
+            expect(panel).not_to_contain_text(f"SAP-A-{suffix}-000")
+        else:
+            expect(panel).to_contain_text("导入结果已生效")
+        page.unroute(commit_pattern)
+        panel.get_by_label("文件", exact=True).set_input_files({"name": "commit-b.csv", "mimeType": "text/csv", "buffer": content(1, suffix=f"B-{suffix}")})
+        panel.get_by_role("button", name="上传并预览", exact=True).click()
+        expect(panel.get_by_role("region", name="逐行字段预览", exact=True)).to_contain_text(f"SAP-B-{suffix}-000")
+        expect(panel.get_by_role("button", name="确认提交", exact=True)).to_be_enabled()
+        with page.expect_response(lambda response: response.request.method == "POST" and response.url.endswith(("/commits", "/corrections"))) as committed_b:
+            panel.get_by_role("button", name="确认提交", exact=True).click()
+        assert committed_b.value.status == 200, committed_b.value.text()
+        expect(panel).to_contain_text("导入结果已生效")
+        with preview_stores() as session:
+            assert session.scalar(select(StoreFinanceProfile.sap_code).where(StoreFinanceProfile.store_id == STORE_IDS[0], StoreFinanceProfile.is_current.is_(True))) == f"SAP-B-{suffix}-000"
+        assert not errors
     finally:
         context.close()
