@@ -1,253 +1,56 @@
-name: Tencent Lighthouse Deploy
-
-"on":
+name: Six-store eligibility maintenance 20261027
+on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-
-concurrency:
-  group: tencent-lighthouse-${{ github.ref }}
-  cancel-in-progress: false
-
+    inputs:
+      mode:
+        type: choice
+        options: [dry-run, apply]
+        default: dry-run
+        required: true
+      previous_version:
+        type: string
+        required: false
 permissions:
   contents: read
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  PYTHON_VERSION: "3.12"
-  NODE_VERSION: "22"
-
+concurrency:
+  group: ranking-eligibility-configuration-maintenance
+  cancel-in-progress: false
 jobs:
-  verify:
-    name: Verify
+  maintain:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || vars.TENCENT_DEPLOY_ON_PUSH == 'true'
-
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: dydata_release
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d dydata_release"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-          cache-dependency-path: requirements.txt
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: apps/web/package-lock.json
-
-      - name: Select current formal delivery plan
-        run: node scripts/prepare_governance_plan.mjs .
-
-      - name: Run project governance gates
-        run: |
-          npm --prefix .agent/project-manager-suite run test:ai-pm
-          node .agent/project-manager-suite/tools/verify-suite-lock.mjs .
-          node .agent/project-manager-suite/tools/check-protocol-alignment.mjs .agent/project-manager-suite
-          node .agent/project-manager-suite/tools/validate-global-files.mjs .
-          node .agent/project-manager-suite/tools/route-check.mjs .
-
-      - name: Run real PostgreSQL release gate
-        env:
-          DY_RELEASE_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_release
-        run: |
-          python scripts/verify_postgres_release_gate.py
-          python -m pytest -q tests/test_settlement_rebuild_postgres.py
-          python -m pytest -q tests/test_priority_budget_pause_postgres.py
-          python -m pytest -q tests/test_shop_poi_postgres.py
-
-      - name: Verify clue state transitions on PostgreSQL
-        env:
-          DYDATA_CLUE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_clue_test
-          DYDATA_RANKING_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_clue_test
-        run: |
-          python -c 'import psycopg; conn = psycopg.connect("host=127.0.0.1 port=5432 dbname=dydata_release user=postgres password=postgres", autocommit=True); conn.execute("CREATE DATABASE dydata_clue_test"); conn.close()'
-          python -m pytest -q tests/test_clue_follow_up_postgres.py tests/test_formal_allocation_runtime_postgres.py tests/test_ranking_lifecycle_postgres.py tests/test_clue_materialization_lock_wait.py
-
-      - name: Verify static dashboard publications on PostgreSQL
-        env:
-          DYDATA_PUBLICATION_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_publication_test
-        run: |
-          python -c 'import psycopg; conn = psycopg.connect("host=127.0.0.1 port=5432 dbname=dydata_release user=postgres password=postgres", autocommit=True); conn.execute("CREATE DATABASE dydata_publication_test"); conn.close()'
-          python -m pytest -q tests/test_dashboard_publications_postgres.py tests/test_dashboard_publication_*_postgres.py tests/test_dashboard_publication_migration.py tests/test_api_promotion_invoice_postgres.py tests/test_settlement_rule_patch_postgres.py tests/test_supplement_sku_catalog_postgres.py tests/test_historical_sale_attribution_postgres.py tests/test_product_sync_sku_lookup_postgres.py
-
-      - name: Install frontend dependencies
-        working-directory: apps/web
-        run: npm ci
-
-      - name: Install Playwright browser
-        run: |
-          # Bound individual mirror connections; never bypass failed setup.
-          printf '%s\n' \
-            'Acquire::http::Timeout "30";' \
-            'Acquire::https::Timeout "30";' \
-            'Acquire::Retries "2";' \
-            | sudo tee /etc/apt/apt.conf.d/zzzz-codex-playwright-network >/dev/null
-          # Playwright downloads its own Chromium; the runner's unrelated
-          # Chrome apt feed can block dependency installation during CDN sync.
-          for source in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
-            [ -f "$source" ] || continue
-            if grep -q 'dl.google.com/linux/chrome' "$source"; then
-              sudo mv -- "$source" "${source}.disabled"
-            fi
-          done
-          if [ -f /etc/apt/apt-mirrors.txt ]; then
-            # The full archive also publishes the signed security suites.
-            printf '%s\n' \
-              'https://archive.ubuntu.com/ubuntu' \
-              | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-          fi
-          for source in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
-            [ -f "$source" ] || continue
-            sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|https://archive.ubuntu.com/ubuntu|g' "$source"
-          done
-          sudo apt-config dump | grep -E '^Acquire::(http::Timeout|https::Timeout|Retries)'
-          sudo apt-config dump | grep -Fx 'Acquire::http::Timeout "30";'
-          sudo apt-config dump | grep -Fx 'Acquire::https::Timeout "30";'
-          sudo apt-config dump | grep -Fx 'Acquire::Retries "2";'
-          curl --fail --silent --show-error --connect-timeout 10 --max-time 30 \
-            --output /dev/null --write-out 'Ubuntu archive HTTP %{http_code} in %{time_total}s\n' \
-            https://archive.ubuntu.com/ubuntu/dists/noble/InRelease
-          timeout 10m python -m playwright install chromium --with-deps
-
-      - name: Run tests
-        run: python -m pytest
-
-      - name: Build frontend
-        working-directory: apps/web
-        run: npm run build
-
-      - name: Build API Docker image
-        run: docker build --build-arg PIP_INDEX_URL=https://pypi.org/simple -f apps/api/Dockerfile -t dy-dashboard-api:ci .
-
-      - name: Build Worker Docker image
-        run: docker build --build-arg PIP_INDEX_URL=https://pypi.org/simple -f apps/worker/Dockerfile -t dy-dashboard-worker:ci .
-
-      - name: Build Browser Docker image
-        run: docker build --build-arg PIP_INDEX_URL=https://pypi.org/simple -f deploy/browser/Dockerfile -t dy-dashboard-browser:ci .
-
-      - name: Build Web Docker image
-        run: docker build -f apps/web/Dockerfile -t dy-dashboard-web:ci apps/web
-
-  deploy:
-    name: Deploy Tencent Lighthouse
-    runs-on: ubuntu-latest
-    needs: verify
-    if: github.event_name == 'workflow_dispatch' || vars.TENCENT_DEPLOY_ON_PUSH == 'true'
-    timeout-minutes: 30
-
+    timeout-minutes: 5
     env:
+      MODE: ${{ inputs.mode }}
+      PREVIOUS: ${{ inputs.previous_version }}
       TENCENT_HOST: ${{ vars.TENCENT_HOST }}
       TENCENT_SSH_PORT: ${{ vars.TENCENT_SSH_PORT }}
       TENCENT_SSH_USER: ${{ vars.TENCENT_SSH_USER }}
-      TENCENT_APT_MIRROR: ${{ vars.TENCENT_APT_MIRROR }}
-      TENCENT_START_WORKER: ${{ vars.TENCENT_START_WORKER }}
-      DY_WEB_BASE_URL: ${{ vars.DY_WEB_BASE_URL }}
       TENCENT_SSH_KEY: ${{ secrets.TENCENT_SSH_KEY }}
       TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Check required Tencent deployment settings
-        run: |
-          required=(
-            TENCENT_HOST
-            TENCENT_SSH_USER
-            DY_WEB_BASE_URL
-            TENCENT_START_WORKER
-            TENCENT_SSH_KEY
-            TENCENT_KNOWN_HOSTS
-          )
-          for name in "${required[@]}"; do
-            if [ -z "${!name}" ]; then
-              echo "::error::$name is not configured"
-              exit 1
-            fi
-          done
-          if [ "$TENCENT_START_WORKER" != "true" ]; then
-            echo "::error::TENCENT_START_WORKER must be true for recoverable finance detection jobs"
-            exit 1
-          fi
-
-      - name: Configure SSH
+      - name: Configure existing SSH credentials
         run: |
           install -m 700 -d ~/.ssh
           printf '%s\n' "$TENCENT_SSH_KEY" > ~/.ssh/tencent_lighthouse
           chmod 600 ~/.ssh/tencent_lighthouse
           printf '%s\n' "$TENCENT_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-
-      - name: Deploy on server
+      - name: Maintain only the versioned ranking eligibility list
         run: |
-          port="${TENCENT_SSH_PORT:-22}"
-          archive="/tmp/dy-dashboard-${GITHUB_SHA}.tar.gz"
-
-          git archive --format=tar "$GITHUB_SHA" | gzip > /tmp/dy-dashboard-source.tar.gz
-          scp -i ~/.ssh/tencent_lighthouse \
-            -P "$port" \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            -o ServerAliveInterval=30 \
-            -o ServerAliveCountMax=20 \
-            /tmp/dy-dashboard-source.tar.gz \
-            "$TENCENT_SSH_USER@$TENCENT_HOST:$archive"
-
-          cat > /tmp/tencent-deploy-bootstrap.sh <<'REMOTE'
           set -euo pipefail
-          target_sha="$1"
-          archive_path="$2"
-          web_base_url="$3"
-          start_worker="$4"
-          app_dir="${APP_DIR:-/opt/dy-dashboard/repo}"
-          log_dir="${LOG_DIR:-/opt/dy-dashboard/logs}"
-          apt_mirror="${TENCENT_APT_MIRROR:-http://mirrors.tencentyun.com}"
-
-          mkdir -p "$app_dir" "$log_dir"
-          cd "$app_dir"
-          if [ -d .git ] && (! git diff --quiet || ! git diff --cached --quiet); then
-            dirty_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-            git status --short > "$log_dir/pre-bootstrap-dirty-$dirty_stamp.status"
-            git diff > "$log_dir/pre-bootstrap-dirty-$dirty_stamp.patch"
-          fi
-
-          find "$app_dir" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
-          tar -xzf "$archive_path" -C "$app_dir"
-          rm -f "$archive_path"
-
-          SKIP_GIT_SYNC=true APT_MIRROR="$apt_mirror" DY_WEB_BASE_URL="$web_base_url" TENCENT_START_WORKER="$start_worker" bash deploy/tencent/deploy.sh "$target_sha"
+          [[ "$MODE" == dry-run || "$MODE" == apply ]]
+          [[ -z "$PREVIOUS" || "$PREVIOUS" =~ ^elig-[A-Za-z0-9-]{1,120}$ ]]
+          if [[ "$MODE" == apply && -z "$PREVIOUS" ]]; then exit 2; fi
+          ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" -o StrictHostKeyChecking=yes -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=5 "$TENCENT_SSH_USER@$TENCENT_HOST" "bash -s -- '$MODE' '$PREVIOUS'" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          mode="$1"
+          previous="$2"
+          if pgrep -f '[b]ash deploy/tencent/deploy.sh' >/dev/null; then echo 'Deployment active; maintenance deferred'; exit 75; fi
+          cd /opt/dy-dashboard/repo
+          report="/opt/dy-dashboard/logs/eligibility-closed-six-20261027-${mode}-$(date -u +%Y%m%dT%H%M%SZ).json"
+          printf '%s' 'IiIiT25lIGFwcHJvdmVkIGVsaWdpYmlsaXR5LWxpc3QgY2hhbmdlLiBObyBhcHBsaWNhdGlvbiBvciBzdG9yZS1zdGF0ZSB3cml0ZXMuIiIiCmltcG9ydCBoYXNobGliCmltcG9ydCBqc29uCmltcG9ydCBvcwpmcm9tIGRhdGV0aW1lIGltcG9ydCBkYXRldGltZSwgdGltZXpvbmUKZnJvbSBzcWxhbGNoZW15IGltcG9ydCBzZWxlY3QsIHRleHQKZnJvbSBhcHBzLmFwaS5keV9hcGkubW9kZWxzIGltcG9ydCBEaW1TdG9yZQpmcm9tIGFwcHMuYXBpLmR5X2FwaS5yYW5raW5nX3NjaGVtYV92MSBpbXBvcnQgZWxpZ2liaWxpdHksIG9yZ19oaXN0b3J5CmZyb20gYXBwcy5hcGkuZHlfYXBpLnJhbmtpbmdfY29uZmlndXJhdGlvbiBpbXBvcnQgUkFOS0lOR19XUklURV9MT0NLCgpFRkZFQ1RJVkUgPSBkYXRldGltZSgyMDI2LCAxMCwgMjYsIDE2LCB0emluZm89dGltZXpvbmUudXRjKQpUQVJHRVRTID0geydCWURKWDA3MFcnOiAn5ZCJ5a6J5a6P6L+qJywgJ0JZREpYMDczVyc6ICfljZfmmIzlro/ov6onLCAnQllERUpYMDMwVyc6ICflkInlronnpaXov6onLCAnQllESlgwNTdXJzogJ+i1o+W3nuael+S9sycsICdCWURKWDA3N1cnOiAn5Y2X5piM5piM6b6ZJ30KUUlOR1lVQU5fSUQgPSAnNzUzNzU2Njk4NjkxMDM2OTgwMScKCmRlZiB1dGModmFsdWUpOgogICAgcmV0dXJuIHZhbHVlLnJlcGxhY2UodHppbmZvPXRpbWV6b25lLnV0YykgaWYgdmFsdWUudHppbmZvIGlzIE5vbmUgZWxzZSB2YWx1ZS5hc3RpbWV6b25lKHRpbWV6b25lLnV0YykKCmRlZiBkaWdlc3QoY29kZXMpOgogICAgcmV0dXJuIGhhc2hsaWIuc2hhMjU2KGpzb24uZHVtcHMoc29ydGVkKGNvZGVzKSwgZW5zdXJlX2FzY2lpPUZhbHNlLCBzb3J0X2tleXM9VHJ1ZSwgc2VwYXJhdG9ycz0oJywnLCAnOicpKS5lbmNvZGUoKSkuaGV4ZGlnZXN0KCkKCmRlZiBwbGFuKHNlc3Npb24pOgogICAgbGF0ZXN0ID0gc2Vzc2lvbi5leGVjdXRlKHNlbGVjdChlbGlnaWJpbGl0eSkud2hlcmUoZWxpZ2liaWxpdHkuYy5wcm9kdWN0X3Njb3BlID09ICfnsr7or5rlhbvovaYnKS5vcmRlcl9ieShlbGlnaWJpbGl0eS5jLmVmZmVjdGl2ZV9mcm9tLmRlc2MoKSwgZWxpZ2liaWxpdHkuYy5lbGlnaWJpbGl0eV92ZXJzaW9uLmRlc2MoKSkubGltaXQoMSkpLm1hcHBpbmdzKCkuZmlyc3QoKQogICAgaWYgbGF0ZXN0IGlzIE5vbmU6CiAgICAgICAgcmFpc2UgVmFsdWVFcnJvcignTm8gZWxpZ2liaWxpdHkgYmFzZWxpbmUnKQogICAgb3JnX3ZlcnNpb24gPSBzZXNzaW9uLnNjYWxhcihzZWxlY3Qob3JnX2hpc3RvcnkuYy5tYXBwaW5nX3ZlcnNpb24pLm9yZGVyX2J5KG9yZ19oaXN0b3J5LmMuZWZmZWN0aXZlX2Zyb20uZGVzYygpLCBvcmdfaGlzdG9yeS5jLm1hcHBpbmdfdmVyc2lvbi5kZXNjKCkpLmxpbWl0KDEpKQogICAgb3JncyA9IHNlc3Npb24uZXhlY3V0ZShzZWxlY3Qob3JnX2hpc3RvcnkpLndoZXJlKG9yZ19oaXN0b3J5LmMubWFwcGluZ192ZXJzaW9uID09IG9yZ192ZXJzaW9uKSkubWFwcGluZ3MoKS5hbGwoKQogICAgcSA9IFtyIGZvciByIGluIG9yZ3MgaWYgclsnc3RvcmVfaWQnXSA9PSBRSU5HWVVBTl9JRCBhbmQgJ+Wuiei/queRnicgaW4gclsnc3RvcmVfbmFtZSddXQogICAgaWYgbGVuKHEpICE9IDE6CiAgICAgICAgcmFpc2UgVmFsdWVFcnJvcignUWluZ3l1YW4gaWRlbnRpdHkgYW1iaWd1b3VzIG9yIGFic2VudCcpCiAgICB0YXJnZXRzID0geyoqVEFSR0VUUywgcVswXVsnc2VydmljZV9zdG9yZV9jb2RlJ106ICflronov6rnkZ4nfQogICAgaWYgbGVuKHRhcmdldHMpICE9IDY6CiAgICAgICAgcmFpc2UgVmFsdWVFcnJvcignU2l4IHVuaXF1ZSB0YXJnZXQgY29kZXMgcmVxdWlyZWQnKQogICAgcmVzb2x2ZWQgPSBbXQogICAgZm9yIGNvZGUsIG5hbWUgaW4gdGFyZ2V0cy5pdGVtcygpOgogICAgICAgIHJvd3MgPSBbciBmb3IgciBpbiBvcmdzIGlmIHJbJ3NlcnZpY2Vfc3RvcmVfY29kZSddID09IGNvZGVdCiAgICAgICAgaWYgbGVuKHJvd3MpICE9IDEgb3IgbmFtZSBub3QgaW4gcm93c1swXVsnc3RvcmVfbmFtZSddOgogICAgICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCdUYXJnZXQgY29kZS9uYW1lIGRvZXMgbm90IHJlc29sdmUgdW5pcXVlbHk6ICcgKyBjb2RlKQogICAgICAgIHJlc29sdmVkLmFwcGVuZChkaWN0KHJvd3NbMF0pKQogICAgYmVmb3JlID0gc2V0KHNlc3Npb24uc2NhbGFycyhzZWxlY3QoZWxpZ2liaWxpdHkuYy5zZXJ2aWNlX3N0b3JlX2NvZGUpLndoZXJlKGVsaWdpYmlsaXR5LmMuZWxpZ2liaWxpdHlfdmVyc2lvbiA9PSBsYXRlc3RbJ2VsaWdpYmlsaXR5X3ZlcnNpb24nXSwgZWxpZ2liaWxpdHkuYy5wcm9kdWN0X3Njb3BlID09ICfnsr7or5rlhbvovaYnKSkpCiAgICBpZiB1dGMobGF0ZXN0WydlZmZlY3RpdmVfZnJvbSddKSA+IEVGRkVDVElWRToKICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCdBIG5ld2VyIGVsaWdpYmlsaXR5IHRpbWVsaW5lIGV4aXN0czsgcmVxdWlyZXMgcmV2aWV3JykKICAgIHJlbW92ZWQgPSBiZWZvcmUgJiBzZXQodGFyZ2V0cykKICAgIGlmIHJlbW92ZWQgYW5kIHV0YyhsYXRlc3RbJ2VmZmVjdGl2ZV9mcm9tJ10pID49IEVGRkVDVElWRToKICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCdDb25mbGljdGluZyBlbGlnaWJpbGl0eSB2ZXJzaW9uIGF0IGVmZmVjdGl2ZSBib3VuZGFyeScpCiAgICBhZnRlciA9IGJlZm9yZSAtIHNldCh0YXJnZXRzKQogICAgaWYgbm90IGFmdGVyOgogICAgICAgIHJhaXNlIFZhbHVlRXJyb3IoJ1dvdWxkIGVtcHR5IGVsaWdpYmlsaXR5IGJhc2VsaW5lJykKICAgIHN0YXR1c2VzID0gW10KICAgIGZvciByIGluIHJlc29sdmVkOgogICAgICAgIHN0b3JlID0gc2Vzc2lvbi5nZXQoRGltU3RvcmUsIHJbJ3N0b3JlX2lkJ10pCiAgICAgICAgaWYgc3RvcmUgaXMgTm9uZToKICAgICAgICAgICAgcmFpc2UgVmFsdWVFcnJvcignU3RvcmUgZGltZW5zaW9uIG1pc3NpbmcnKQogICAgICAgIHN0YXR1c2VzLmFwcGVuZCh7J2NvZGUnOiByWydzZXJ2aWNlX3N0b3JlX2NvZGUnXSwgJ2luX3ByZXZpb3VzX2VsaWdpYmlsaXR5Jzogclsnc2VydmljZV9zdG9yZV9jb2RlJ10gaW4gYmVmb3JlLAogICAgICAgICAgICAgICAgICAgICAgICAgJ2FjdGl2ZSc6IGJvb2woc3RvcmUuaXNfYWN0aXZlKSwgJ3BhcnRpY2lwYXRlc19pbl9hbGxvY2F0aW9uJzogYm9vbChzdG9yZS5wYXJ0aWNpcGF0ZXNfaW5fY2x1ZV9hbGxvY2F0aW9uKX0pCiAgICByZXR1cm4gZGljdChwcmV2aW91c192ZXJzaW9uPWxhdGVzdFsnZWxpZ2liaWxpdHlfdmVyc2lvbiddLCBtYXBwaW5nX3ZlcnNpb249b3JnX3ZlcnNpb24sCiAgICAgICAgICAgICAgICBiZWZvcmU9YmVmb3JlLCBhZnRlcj1hZnRlciwgcmVtb3ZlZD1yZW1vdmVkLCB0YXJnZXRzPXNldCh0YXJnZXRzKSwgc3RhdHVzZXM9c3RhdHVzZXMsCiAgICAgICAgICAgICAgICBzb3VyY2VfaGFzaD1kaWdlc3QoYWZ0ZXIpLCBuZXdfdmVyc2lvbj0nZWxpZy0yMDI2MTAyNy1jbG9zZWQtc2l4LScgKyBkaWdlc3QoYWZ0ZXIpWzoxMl0pCgpkZWYgZXhlY3V0ZShzZXNzaW9uLCAqLCBhcHBseT1GYWxzZSwgZXhwZWN0ZWRfdmVyc2lvbj1Ob25lKToKICAgIGlmIHNlc3Npb24uZ2V0X2JpbmQoKS5kaWFsZWN0Lm5hbWUgPT0gJ3Bvc3RncmVzcWwnOgogICAgICAgIHNlc3Npb24uZXhlY3V0ZSh0ZXh0KCJTRVQgTE9DQUwgc3RhdGVtZW50X3RpbWVvdXQgPSAnMjBzJyIpKQogICAgICAgIHNlc3Npb24uZXhlY3V0ZSh0ZXh0KCJTRVQgTE9DQUwgbG9ja190aW1lb3V0ID0gJzJzJyIpKQogICAgICAgIGlmIG5vdCBzZXNzaW9uLnNjYWxhcih0ZXh0KCdTRUxFQ1QgcGdfdHJ5X2Fkdmlzb3J5X3hhY3RfbG9jayg6a2V5KScpLCB7J2tleSc6IFJBTktJTkdfV1JJVEVfTE9DS30pOgogICAgICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCdSYW5raW5nIGNvbmZpZ3VyYXRpb24gYnVzeTsgcmV0cnkgbGF0ZXInKQogICAgcCA9IHBsYW4oc2Vzc2lvbikKICAgIHJlcG9ydCA9IGRpY3QobW9kZT0nYXBwbHknIGlmIGFwcGx5IGVsc2UgJ2RyeS1ydW4nLCBlZmZlY3RpdmVfZnJvbT1FRkZFQ1RJVkUuaXNvZm9ybWF0KCksIHByZXZpb3VzX3ZlcnNpb249cFsncHJldmlvdXNfdmVyc2lvbiddLAogICAgICAgICAgICAgICAgICB0YXJnZXRfY291bnQ9NiwgdG9fcmVtb3ZlPWxlbihwWydyZW1vdmVkJ10pLCBhbHJlYWR5X2V4Y2x1ZGVkPTYtbGVuKHBbJ3JlbW92ZWQnXSksCiAgICAgICAgICAgICAgICAgIG9yZ2FuaXphdGlvbl91bmNoYW5nZWQ9VHJ1ZSwgYWxsb2NhdGlvbl9mbGFnc191bmNoYW5nZWQ9VHJ1ZSwgc3RhdHVzZXM9cFsnc3RhdHVzZXMnXSkKICAgIGlmIG5vdCBhcHBseSBvciBub3QgcFsncmVtb3ZlZCddOgogICAgICAgIHJlcG9ydFsnY2hhbmdlZCddID0gRmFsc2UKICAgICAgICByZXBvcnRbJ2FsbF9zaXhfZXhjbHVkZWQnXSA9IG5vdCBib29sKHBbJ3JlbW92ZWQnXSkKICAgICAgICByZXR1cm4gcmVwb3J0CiAgICBpZiBleHBlY3RlZF92ZXJzaW9uICE9IHBbJ3ByZXZpb3VzX3ZlcnNpb24nXToKICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCdQcmV2aW91cyBlbGlnaWJpbGl0eSB2ZXJzaW9uIGNoYW5nZWQgc2luY2UgZHJ5LXJ1bicpCiAgICBpZiBzZXNzaW9uLnNjYWxhcihzZWxlY3QoZWxpZ2liaWxpdHkuYy5lbGlnaWJpbGl0eV92ZXJzaW9uKS53aGVyZShlbGlnaWJpbGl0eS5jLmVsaWdpYmlsaXR5X3ZlcnNpb24gPT0gcFsnbmV3X3ZlcnNpb24nXSkubGltaXQoMSkpOgogICAgICAgIHJhaXNlIFZhbHVlRXJyb3IoJ1VuZXhwZWN0ZWQgZXhpc3RpbmcgdGFyZ2V0IHZlcnNpb24nKQogICAgc2Vzc2lvbi5leGVjdXRlKGVsaWdpYmlsaXR5Lmluc2VydCgpLCBbZGljdChlbGlnaWJpbGl0eV92ZXJzaW9uPXBbJ25ld192ZXJzaW9uJ10sIHNlcnZpY2Vfc3RvcmVfY29kZT1jb2RlLCBwcm9kdWN0X3Njb3BlPSfnsr7or5rlhbvovaYnLCBlZmZlY3RpdmVfZnJvbT1FRkZFQ1RJVkUsIHNvdXJjZV9oYXNoPXBbJ3NvdXJjZV9oYXNoJ10pIGZvciBjb2RlIGluIHNvcnRlZChwWydhZnRlciddKV0pCiAgICBvbGRfY29kZXMgPSBzZXQoc2Vzc2lvbi5zY2FsYXJzKHNlbGVjdChlbGlnaWJpbGl0eS5jLnNlcnZpY2Vfc3RvcmVfY29kZSkud2hlcmUoZWxpZ2liaWxpdHkuYy5lbGlnaWJpbGl0eV92ZXJzaW9uID09IHBbJ3ByZXZpb3VzX3ZlcnNpb24nXSwgZWxpZ2liaWxpdHkuYy5wcm9kdWN0X3Njb3BlID09ICfnsr7or5rlhbvovaYnKSkpCiAgICBhY3R1YWwgPSBzZXQoc2Vzc2lvbi5zY2FsYXJzKHNlbGVjdChlbGlnaWJpbGl0eS5jLnNlcnZpY2Vfc3RvcmVfY29kZSkud2hlcmUoZWxpZ2liaWxpdHkuYy5lbGlnaWJpbGl0eV92ZXJzaW9uID09IHBbJ25ld192ZXJzaW9uJ10sIGVsaWdpYmlsaXR5LmMucHJvZHVjdF9zY29wZSA9PSAn57K+6K+a5YW76L2mJykpKQogICAgYXNzZXJ0IG9sZF9jb2RlcyA9PSBwWydiZWZvcmUnXSBhbmQgYWN0dWFsID09IHBbJ2FmdGVyJ10KICAgIGFzc2VydCBub3QgYWN0dWFsICYgcFsndGFyZ2V0cyddIGFuZCBwWydiZWZvcmUnXSAtIGFjdHVhbCA9PSBwWydyZW1vdmVkJ10KICAgIGFzc2VydCBzZXNzaW9uLnNjYWxhcihzZWxlY3Qob3JnX2hpc3RvcnkuYy5tYXBwaW5nX3ZlcnNpb24pLm9yZGVyX2J5KG9yZ19oaXN0b3J5LmMuZWZmZWN0aXZlX2Zyb20uZGVzYygpLCBvcmdfaGlzdG9yeS5jLm1hcHBpbmdfdmVyc2lvbi5kZXNjKCkpLmxpbWl0KDEpKSA9PSBwWydtYXBwaW5nX3ZlcnNpb24nXQogICAgcmVwb3J0LnVwZGF0ZShjaGFuZ2VkPVRydWUsIG5ld192ZXJzaW9uPXBbJ25ld192ZXJzaW9uJ10sIGFsbF9zaXhfZXhjbHVkZWQ9VHJ1ZSkKICAgIHJldHVybiByZXBvcnQKCmlmIF9fbmFtZV9fID09ICdfX21haW5fXyc6CiAgICBmcm9tIGFwcHMuYXBpLmR5X2FwaS5kYiBpbXBvcnQgZ2V0X3Nlc3Npb25fZmFjdG9yeQogICAgZmFjdG9yeSA9IGdldF9zZXNzaW9uX2ZhY3RvcnkoKQogICAgaWYgZmFjdG9yeSBpcyBOb25lOgogICAgICAgIHJhaXNlIFJ1bnRpbWVFcnJvcignRGF0YWJhc2UgdW5hdmFpbGFibGUnKQogICAgbW9kZSA9IG9zLmVudmlyb24uZ2V0KCdFTElHSUJJTElUWV9NT0RFJywgJ2RyeS1ydW4nKQogICAgaWYgbW9kZSBub3QgaW4geydkcnktcnVuJywgJ2FwcGx5J306CiAgICAgICAgcmFpc2UgVmFsdWVFcnJvcignSW52YWxpZCBtb2RlJykKICAgIHdpdGggZmFjdG9yeSgpIGFzIHNlc3Npb246CiAgICAgICAgaWYgbW9kZSA9PSAnZHJ5LXJ1bicgYW5kIHNlc3Npb24uZ2V0X2JpbmQoKS5kaWFsZWN0Lm5hbWUgPT0gJ3Bvc3RncmVzcWwnOgogICAgICAgICAgICBzZXNzaW9uLmV4ZWN1dGUodGV4dCgnU0VUIFRSQU5TQUNUSU9OIFJFQUQgT05MWScpKQogICAgICAgIHJlc3VsdCA9IGV4ZWN1dGUoc2Vzc2lvbiwgYXBwbHk9bW9kZSA9PSAnYXBwbHknLCBleHBlY3RlZF92ZXJzaW9uPW9zLmVudmlyb24uZ2V0KCdFWFBFQ1RFRF9FTElHSUJJTElUWV9WRVJTSU9OJykpCiAgICAgICAgaWYgbW9kZSA9PSAnYXBwbHknOgogICAgICAgICAgICBzZXNzaW9uLmNvbW1pdCgpCiAgICAgICAgZWxzZToKICAgICAgICAgICAgc2Vzc2lvbi5yb2xsYmFjaygpCiAgICBwcmludChqc29uLmR1bXBzKHJlc3VsdCwgZW5zdXJlX2FzY2lpPVRydWUpLCBmbHVzaD1UcnVlKQo=' | sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml exec -T -e ELIGIBILITY_MODE="$mode" -e EXPECTED_ELIGIBILITY_VERSION="$previous" api python -c 'import sys,base64,json; source=base64.b64decode(sys.stdin.read());
+          try: exec(compile(source,"approved_eligibility_maintenance","exec"))
+          except Exception as error:
+              print(json.dumps({"ok":False,"error_type":type(error).__name__,"detail":str(error) if isinstance(error,ValueError) else "Operation failed; database changes rolled back"}));sys.exit(1)' | tee "$report"
           REMOTE
-          ssh -i ~/.ssh/tencent_lighthouse \
-            -p "$port" \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            -o ServerAliveInterval=30 \
-            -o ServerAliveCountMax=20 \
-            "$TENCENT_SSH_USER@$TENCENT_HOST" \
-            "bash -s -- '$GITHUB_SHA' '$archive' '$DY_WEB_BASE_URL' '$TENCENT_START_WORKER'" < /tmp/tencent-deploy-bootstrap.sh
