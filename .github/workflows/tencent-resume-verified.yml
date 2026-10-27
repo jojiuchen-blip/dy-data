@@ -81,85 +81,63 @@ jobs:
             echo 'Original deployment remains active; blocking duplicate deployment'
             exit 1
           fi
-          df -h / /opt/dy-dashboard /var/lib/docker
-          sudo docker system df
-          sudo du -x -h --max-depth=1 /opt/dy-dashboard /opt/dy-dashboard/logs /tmp | sort -h
-          sudo find /opt/dy-dashboard/logs/backups -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
-          echo 'Inspecting deployment state (no secrets)'
-          if test -f /opt/dy-dashboard/logs/last-deploy.json; then
-            sudo cat /opt/dy-dashboard/logs/last-deploy.json
-          fi
-          retention_script="$(mktemp /tmp/dy-release-retention.XXXXXX.py)"
-          tar -xOf "$archive" scripts/backup_retention.py > "$retention_script"
-          postgres_id="$(sudo docker ps -q --filter label=com.docker.compose.project=dy-dashboard --filter label=com.docker.compose.service=postgres)"
-          [[ "$postgres_id" =~ ^[a-f0-9]{12,64}$ ]]
-          sudo docker exec "$postgres_id" pg_restore --version
-          retention_asof="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          sudo python3 "$retention_script" --backup-dir /opt/dy-dashboard/logs/backups \
-            --validator-command "docker exec -i $postgres_id pg_restore" \
-            --as-of "$retention_asof" \
-            --report-file /opt/dy-dashboard/logs/clue-release-retention-dry-run.json
-          sudo python3 -c 'import json; p=json.load(open("/opt/dy-dashboard/logs/clue-release-retention-dry-run.json")); assert not p["blocked"]; assert set(p["would_delete"]) <= {"pre-migrate-20260929T103506Z.dump"}; assert "pre-migrate-20261023T132355Z.dump" in p["kept"]'
-          # Read the newest complete archive before removing the single expired
-          # September restore point; preserve every current weekly/latest point.
-          sudo sh -c 'docker exec -i "$1" pg_restore --file=/dev/null < /opt/dy-dashboard/logs/backups/pre-migrate-20261023T132355Z.dump' sh "$postgres_id"
-          sudo python3 "$retention_script" --backup-dir /opt/dy-dashboard/logs/backups \
-            --validator-command "docker exec -i $postgres_id pg_restore" \
-            --as-of "$retention_asof" --apply \
-            --report-file "/opt/dy-dashboard/logs/backups/backup-retention-clue-release-$(date -u +%Y%m%dT%H%M%SZ).json"
-          rm -f "$retention_script"
-          # Stage and preserve the complete existing directory. Never recursively
-          # delete a mixed-owner checkout, and do not relax its permissions.
-          sudo python3 - "$archive" <<'PY'
-          import os, pathlib, shutil, sys, tarfile, time
-          root = pathlib.Path('/opt/dy-dashboard')
-          app = root / 'repo'
-          assert root.resolve() == root and app.resolve() == app
-          assert app.is_dir() and not app.is_symlink()
-          with tarfile.open(sys.argv[1], 'r:gz') as source:
-              members = source.getmembers()
-              for member in members:
-                  path = pathlib.PurePosixPath(member.name)
-                  assert not path.is_absolute() and '..' not in path.parts
-                  assert member.isfile() or member.isdir(), 'Unexpected archive member'
-              reserve = sum(member.size for member in members)
-              total, used, free = shutil.disk_usage(root)
-              backups = list((root / 'logs' / 'backups').glob('pre-migrate-*.dump'))
-              latest = max(backups, key=lambda p: p.stat().st_mtime) if backups else None
-              backup_reserve = latest.stat().st_size * 1.5 if latest else 0
-              print('Capacity evidence:', {'total': total, 'free': free, 'source_bytes': reserve, 'backup_reserve': backup_reserve, 'minimum_free': max(10 * 1024**3, total * .15)}, flush=True)
-              assert free - reserve - backup_reserve >= max(10 * 1024**3, total * .15), 'Source staging capacity gate failed'
-              stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
-              stage = root / ('repo-stage-' + stamp)
-              preserved = root / ('repo-preserved-' + stamp)
-              assert not stage.exists() and not preserved.exists()
-              stage.mkdir(mode=0o700)
-              source.extractall(stage, members=members, filter='data')
-          assert (stage / 'deploy/tencent/deploy.sh').is_file()
-          assert (stage / 'apps/web/src/pages/ClueCenterPage.tsx').is_file()
-          # Deployment commands run as the existing SSH user. Chown only the
-          # newly staged trusted source, never existing business data or volumes.
-          uid, gid = int(os.environ['SUDO_UID']), int(os.environ['SUDO_GID'])
-          for parent, dirs, files in os.walk(stage):
-              os.chown(parent, uid, gid)
-              for name in files:
-                  os.chown(pathlib.Path(parent) / name, uid, gid)
-          app.rename(preserved)
-          try:
-              stage.rename(app)
-          except BaseException:
-              preserved.rename(app)
-              raise
-          print('Preserved previous source:', preserved)
-          print('Source staging gate passed; free bytes before staging:', free)
-          PY
           cd /opt/dy-dashboard/repo
-          log="/opt/dy-dashboard/logs/release-resume-${target:0:8}-$(date -u +%Y%m%dT%H%M%SZ).log"
-          echo "Resuming verified deployment; server log=$log"
-          # Original script repeats backup, lineage, migration and all health gates.
-          # Output also stays on server so interruption does not lose evidence.
-          sudo env SKIP_GIT_SYNC=true DY_WEB_BASE_URL="$web_url" TENCENT_START_WORKER="$worker" DEPLOY_PRUNE_BUILD_CACHE_AFTER_BUILD=true \
-            bash deploy/tencent/deploy.sh "$target" 2>&1 | sudo tee "$log"
+          cutover="$(sudo python3 - "$archive" <<'PY'
+          import hashlib, os, pathlib, shutil, sys, tarfile, tempfile
+          root = pathlib.Path('/opt/dy-dashboard/repo')
+          assert root.resolve() == root
+          total, used, free = shutil.disk_usage(root)
+          assert free >= max(10 * 1024**3, total * .15), 'Cutover capacity gate failed'
+          with tarfile.open(sys.argv[1], 'r:gz') as archive:
+              for member in archive.getmembers():
+                  if member.isfile():
+                      path = pathlib.PurePosixPath(member.name)
+                      assert not path.is_absolute() and '..' not in path.parts
+                      actual = root / member.name
+                      assert actual.is_file() and not actual.is_symlink(), member.name
+                      assert hashlib.sha256(actual.read_bytes()).digest() == hashlib.sha256(archive.extractfile(member).read()).digest(), member.name
+          source = (root / 'deploy/tencent/deploy.sh').read_text()
+          prefix = source.split('trap on_error ERR', 1)[0]
+          tail = source[source.index('log "starting independent publication worker before API replacement"'):]
+          gate = r'''trap on_error ERR
+          cd "$APP_DIR"
+          test "$START_WORKER" = true
+          validate_compose_config
+          backup_running_images
+          check_production_migration_lineage
+          compose run --rm --no-deps migrate python -c 'from alembic.config import Config; from alembic.script import ScriptDirectory; from sqlalchemy import text; from apps.api.dy_api.db import get_session_factory; s=get_session_factory()(); assert s.execute(text("select version_num from alembic_version")).scalar_one() == ScriptDirectory.from_config(Config("alembic.ini")).get_current_head(); s.close()'
+          validate_backup_path /opt/dy-dashboard/logs/backups/pre-migrate-20261027T025642Z.dump
+          # Verify built application images against the already verified source.
+          for service in api worker; do
+            for file in apps/api/dy_api/routes/_data.py apps/worker/clue_center.py; do
+              expected="$(sha256sum "$file" | cut -d' ' -f1)"
+              actual="$(compose run --rm --no-deps "$service" sha256sum "/app/$file" | cut -d' ' -f1)"
+              test "$actual" = "$expected"
+            done
+          done
+          compose run --rm --no-deps web sh -c 'grep -l "核销门店暂缺" /usr/share/nginx/html/assets/ClueCenterPage-*.js'
+          # Retain all readiness gates. Retry only this consistency phase; no
+          # forced publication, new database dump, or duplicate image build.
+          ready=false
+          for attempt in 1 2 3; do
+            if warm_dashboard_publications; then ready=true; break; fi
+            log "publication consistency retry=$attempt"
+            sleep 10
+          done
+          test "$ready" = true
+          '''
+          # Reuse the original snapshot-exception gate unchanged.
+          exceptions = source[source.index('log "checking unresolved statement snapshot migration exceptions"'):source.index('# Do not replace the old API')]
+          gate = gate.replace('ready=false', exceptions + '\nready=false', 1)
+          handle, name = tempfile.mkstemp(prefix='dy-clue-cutover-', suffix='.sh')
+          with os.fdopen(handle, 'w') as out:
+              out.write(prefix + gate + '\n' + tail)
+          print(name)
+          PY
+          )"
+          log="/opt/dy-dashboard/logs/clue-cutover-$(date -u +%Y%m%dT%H%M%SZ).log"
+          sudo env SKIP_GIT_SYNC=true DY_WEB_BASE_URL="$web_url" TENCENT_START_WORKER="$worker" \
+            bash "$cutover" "$target" 2>&1 | sudo tee "$log"
           REMOTE
           ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" \
             -o BatchMode=yes -o IdentitiesOnly=yes \
