@@ -120,14 +120,14 @@ def test_clean_and_populated_full_postgres_chain_upgrade(full_pg_stack, populate
             session.commit()
     command.upgrade(config, "head")
     with Session(engine) as session:
-        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261023_0065"
-        assert session.scalar(text("SELECT count(*) FROM dashboard_publication_source_counters")) == 43
+        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261027_0066"
+        assert session.scalar(text("SELECT count(*) FROM dashboard_publication_source_counters")) == 44
         assert source_fingerprint(session, "sales")
         if populated:
             assert session.get(DimStore, "migration-store").store_name == "Migration Store"
         assert session.scalar(text("SELECT count(*) FROM pg_trigger WHERE tgname='dashboard_publication_change' "
                                    "AND tgrelid IN (SELECT c.oid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
-                                   "WHERE n.nspname=current_schema())")) == 43
+                                   "WHERE n.nspname=current_schema())")) == 44
     # The new revision itself is reversible before any sidecar facts exist;
     # source facts survive and can be tracked again after re-upgrading.
     command.downgrade(config, "20261009_0062")
