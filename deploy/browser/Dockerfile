@@ -53,10 +53,10 @@ RUN python3 -m pip install --break-system-packages --no-cache-dir --upgrade pip 
 
 # Shadow audited packages in local site-packages, preserving apt files and dependencies.
 RUN python3 -m pip install --break-system-packages --no-cache-dir --ignore-installed --no-deps \
-    'urllib3==2.7.0' 'msgpack==1.2.1' 'Pillow==12.3.0' 'idna==3.19' 'jwcrypto==1.5.7'
+    'urllib3==2.8.0' 'msgpack==1.2.1' 'Pillow==13.0.0' 'idna==3.19' 'jwcrypto==1.5.7'
 RUN python3 -c "from importlib.metadata import version; from pathlib import Path; \
     import urllib3, msgpack, PIL, idna; from PIL import Image; from jwcrypto import jwk; \
-    expected = {'urllib3': '2.7.0', 'msgpack': '1.2.1', 'Pillow': '12.3.0', 'idna': '3.19', 'jwcrypto': '1.5.7'}; \
+    expected = {'urllib3': '2.8.0', 'msgpack': '1.2.1', 'Pillow': '13.0.0', 'idna': '3.19', 'jwcrypto': '1.5.7'}; \
     assert {name: version(name) for name in expected} == expected; \
     modules = (urllib3, msgpack, PIL, Image, idna, jwk); \
     assert all(Path(module.__file__).resolve().is_relative_to('/usr/local/lib') for module in modules), [(module.__name__, module.__file__) for module in modules]; \
