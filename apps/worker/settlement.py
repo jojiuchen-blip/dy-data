@@ -1968,7 +1968,10 @@ def settle_impacted_coupons(
     commit.  ``last_impact_id`` advances only after an entire impact page has
     been consumed.  ``affected_months`` and ``affected_store_ids`` are sorted
     de-duplicated checkpoint dimensions gathered from both impact closures and
-    committed coupon results.
+    committed coupon results. ``unresolved_verify_impact_count`` counts verify
+    impacts with no exact identity linked to a current coupon. ``completed``
+    means the impact stream was consumed, not that these orphan records had
+    calculable fees; their original impacts remain the diagnostic evidence.
     """
 
     if not callable(session_factory):
@@ -1990,6 +1993,7 @@ def settle_impacted_coupons(
         "detail_count": 0,
         "result_count": 0,
         "adjustment_count": 0,
+        "unresolved_verify_impact_count": 0,
         "last_impact_id": 0,
         "affected_months": [],
         "affected_store_ids": [],
@@ -2026,9 +2030,15 @@ def settle_impacted_coupons(
         page_verify_ids: set[str] = set()
         page_poi_ids: set[str] = set()
         page_selector_store_ids: set[str] = set()
+        page_verify_selectors: list[_SettlementCouponSelectors] = []
         for impact in impact_page:
             selectors = _settlement_coupon_selectors(impact)
-            if not selectors.has_sources:
+            is_verify = impact["entity_type"] in {
+                "verify", "verify_record", "douyin_verify_record"
+            }
+            if is_verify:
+                page_verify_selectors.append(selectors)
+            if not selectors.has_sources and not is_verify:
                 continue
             _collect_settlement_impact_dimensions(
                 impact,
@@ -2049,6 +2059,11 @@ def settle_impacted_coupons(
                 page_months=page_months,
                 page_store_ids=page_store_ids,
             )
+        summary["unresolved_verify_impact_count"] += (
+            _count_unresolved_settlement_verify_impacts(
+                session_factory, page_verify_selectors
+            )
+        )
         selectors = _SettlementCouponSelectors(
             direct_coupon_ids=tuple(sorted(page_coupon_ids)),
             order_ids=tuple(sorted(page_order_ids)),
@@ -2405,13 +2420,8 @@ def _settlement_coupon_selectors(impact: Mapping[str, Any]) -> _SettlementCoupon
             verify_ids.update(
                 typed_values(payload, ("verify_ids",), ("verify_id",))
             )
-            for field_names in (
-                ("poi_ids",),
-                ("verify_poi_ids",),
-                ("intention_poi_ids",),
-            ):
-                poi_ids.update(typed_values(payload, field_names, ()))
-            poi_ids.update(typed_values(payload, (), ("poi_id",)))
+            # POIs describe publication dimensions for an ordinary verify
+            # event; only a mapping change authorizes historical POI fanout.
         if entity_key:
             verify_ids.add(entity_key)
     elif entity_type in mapping_types:
@@ -2491,6 +2501,15 @@ def _read_settlement_coupon_page(
                     )
                 )
             )
+            # A changed/deleted raw coupon link can still have an exact
+            # historical detail link. Never infer siblings from its order.
+            predicates.append(
+                RawDouyinOrderCoupon.coupon_id.in_(
+                    select(SettlementOrderDetail.coupon_id).where(
+                        SettlementOrderDetail.verify_id.in_(selectors.verify_ids)
+                    )
+                )
+            )
         if selectors.poi_ids:
             predicates.append(
                 RawDouyinOrderCoupon.coupon_id.in_(
@@ -2533,6 +2552,53 @@ def _read_settlement_coupon_page(
             statement = statement.where(RawDouyinOrderCoupon.coupon_id > after_coupon_id)
         statement = statement.order_by(RawDouyinOrderCoupon.coupon_id).limit(limit)
         return [str(value) for value in session.scalars(statement)]
+    finally:
+        try:
+            session.rollback()
+        finally:
+            session.close()
+
+
+def _count_unresolved_settlement_verify_impacts(
+    session_factory: Any,
+    selectors: list[_SettlementCouponSelectors],
+) -> int:
+    """Resolve a bounded impact page using exact current or historical links."""
+    if not selectors:
+        return 0
+    coupon_ids = {value for item in selectors for value in item.direct_coupon_ids}
+    verify_ids = {value for item in selectors for value in item.verify_ids}
+    statements = []
+    if coupon_ids:
+        statements.append(
+            select(literal("coupon"), RawDouyinOrderCoupon.coupon_id).where(
+                RawDouyinOrderCoupon.coupon_id.in_(coupon_ids)
+            )
+        )
+    if verify_ids:
+        for model in (RawDouyinVerifyRecord, SettlementOrderDetail):
+            statements.append(
+                select(literal("verify"), model.verify_id)
+                .join(
+                    RawDouyinOrderCoupon,
+                    RawDouyinOrderCoupon.coupon_id == model.coupon_id,
+                )
+                .where(model.verify_id.in_(verify_ids))
+            )
+    if not statements:
+        return len(selectors)
+    # UNION returns at most one row per supplied identity, even if historical
+    # details share a verify id. Both sets are bounded by the impact page gate.
+    statement = union(*statements).limit(len(coupon_ids) + len(verify_ids))
+    session = session_factory()
+    try:
+        session.begin()
+        resolved = set(session.execute(statement))
+        return sum(
+            not any(("coupon", value) in resolved for value in item.direct_coupon_ids)
+            and not any(("verify", value) in resolved for value in item.verify_ids)
+            for item in selectors
+        )
     finally:
         try:
             session.rollback()
