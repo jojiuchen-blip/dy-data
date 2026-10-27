@@ -194,7 +194,9 @@ def _same_frozen_primary(entry: SettlementStatementEntry, original: SettlementFe
 
 def validate_protected_authority(session: Session, months: tuple[str, ...]) -> None:
     """Fail closed on incomplete bills and ambiguous event bases before aggregation."""
-    from apps.worker.settlement import _active_adjustment_condition, _effective_adjustment_totals, _has_verify_cancellation
+    from apps.worker.settlement import (
+        _active_adjustment_condition, _as_utc, _effective_adjustment_totals, _has_verify_cancellation,
+    )
 
     bills = list(session.scalars(select(SettlementStatement).where(
         SettlementStatement.is_current.is_(True), SettlementStatement.statement_month.in_(months),
@@ -274,8 +276,10 @@ def validate_protected_authority(session: Session, months: tuple[str, ...]) -> N
             SettlementCarryforwardSource.adjustment_fee_cent == basis.fee_amount_cent,
         ).limit(1))
         if not (basis.reverification_anchor_id == entry.original_fee_result_id and basis.result_status == 2 and basis.qualifying_verify_id
-                and basis.qualifying_verify_time and anchor is not None
-                and anchor.qualifying_verify_id and basis.qualifying_verify_id != anchor.qualifying_verify_id
+                and basis.qualifying_verify_time is not None and anchor is not None
+                and anchor.qualifying_verify_id and anchor.qualifying_verify_time is not None
+                and (basis.qualifying_verify_id != anchor.qualifying_verify_id
+                     or _as_utc(basis.qualifying_verify_time) != _as_utc(anchor.qualifying_verify_time))
                 and restoration and _has_verify_cancellation(session, anchor)
                 and anchor.fee_amount_cent + _effective_adjustment_totals(session, original_fee_result_id=anchor.fee_result_id)[1] == 0):
             raise ProtectedBillingAuthorityError("adjustment uses an unapproved replacement of a frozen fee basis")

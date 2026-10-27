@@ -1,10 +1,11 @@
 """Protected current bills, not replacement pointers, define publication money."""
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
     Base, DimStore, SettlementFeeAdjustment, SettlementFeeResult,
@@ -264,6 +265,63 @@ def test_reverification_anchor_requires_cancellation_and_explicit_restoration(db
         with pytest.raises(ProtectedBillingAuthorityError, match="unapproved replacement"):
             collect_billing_sources(db_session, months=("2026-08", "2026-09"))
     assert _facts(db_session) == before
+
+
+@pytest.mark.parametrize("reuse_verify_id,time_case,allowed", (
+    (True, "different_time", True),
+    (False, "same_time", True),
+    (True, "same_time", False),
+    (True, "same_instant_other_timezone", False),
+    (True, "missing_anchor_time", False),
+    (False, "missing_anchor_time", False),
+    (True, "missing_basis_time", False),
+    (False, "missing_basis_time", False),
+))
+def test_reverification_authority_uses_complete_id_and_time_lineage(
+    db_session: Session, reuse_verify_id: bool, time_case: str, allowed: bool,
+) -> None:
+    """A new redemption needs a distinct complete lineage and all frozen proofs."""
+    _seed(db_session)
+    anchor = db_session.scalar(select(SettlementFeeResult).where(
+        SettlementFeeResult.fee_result_id == "old-promotion",
+    ))
+    _adjustment(db_session, "lineage-cancel", anchor.fee_result_id, amount=-800, base=-8000, kind=3)
+    basis = _result(db_session, "lineage-basis", amount=1200, base=12000,
+                    version=3, month="2026-09", anchor=anchor.fee_result_id)
+    basis.result_status = 2
+    if reuse_verify_id:
+        basis.qualifying_verify_id = anchor.qualifying_verify_id
+    if time_case == "different_time":
+        basis.qualifying_verify_time = NOW + timedelta(days=1)
+    elif time_case == "same_instant_other_timezone":
+        # Keep the aware ORM snapshots: SQLite storage drops offset information.
+        basis.qualifying_verify_time = NOW.astimezone(timezone(timedelta(hours=8)))
+    elif time_case == "missing_anchor_time":
+        anchor.qualifying_verify_time = None
+    elif time_case == "missing_basis_time":
+        basis.qualifying_verify_time = None
+    _adjustment(db_session, "lineage-restore", basis.fee_result_id,
+                amount=1200, base=12000, kind=4, original_month="2026-09")
+    _adjustment(db_session, "lineage-refund", basis.fee_result_id,
+                amount=-50, base=-500, original_month="2026-09")
+    db_session.flush()
+    entry_query = select(SettlementStatementEntry).order_by(SettlementStatementEntry.statement_entry_id)
+    frozen_entries = [(row.statement_entry_id, row.source_record_id, row.base_amount_cent, row.fee_amount_cent)
+                      for row in db_session.scalars(entry_query)]
+    pointer_query = select(SettlementFeeResultCurrent.fee_result_id).order_by(SettlementFeeResultCurrent.fee_direction)
+    pointers = list(db_session.scalars(pointer_query))
+    if allowed:
+        sources = collect_billing_sources(db_session, months=("2026-08", "2026-09"))
+        events = {row.source_record_id: row for row in sources}
+        assert events["lineage-restore"].original_fee_result_id == basis.fee_result_id
+        assert events["lineage-restore"].fee_amount_cent == 1200
+        assert events["lineage-refund"].fee_amount_cent == -50
+    else:
+        with pytest.raises(ProtectedBillingAuthorityError, match="unapproved replacement"):
+            collect_billing_sources(db_session, months=("2026-08", "2026-09"))
+    assert [(row.statement_entry_id, row.source_record_id, row.base_amount_cent, row.fee_amount_cent)
+            for row in db_session.scalars(entry_query)] == frozen_entries
+    assert list(db_session.scalars(pointer_query)) == pointers
 
 
 def test_exact_frozen_carryforward_keeps_only_active_application_without_losing_other_direction(db_session):
