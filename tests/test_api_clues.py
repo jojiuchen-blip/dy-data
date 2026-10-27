@@ -1067,7 +1067,9 @@ def test_clue_date_end_filter_includes_selected_calendar_day(
 
 
 def test_self_filter_uses_store_fact_without_follow_success(client: TestClient, db_session: Session) -> None:
+    from test_clue_verification_facts import add_verification
     _seed_clue_center(db_session)
+    add_verification(db_session)
     row = db_session.get(ClueAssignmentRound, "order-1-1")
     row.is_self_store_verified = False
     row.is_follow_success = False
@@ -1081,12 +1083,16 @@ def test_self_filter_uses_store_fact_without_follow_success(client: TestClient, 
     assert [item["order_id"] for item in csv.DictReader(io.StringIO(exported.text.lstrip("\ufeff")))] == ["order-1"]
     row.verified_store_id = None
     db_session.commit()
-    assert client.get(url, params=filters).json()["data"]["rows"] == []
+    # Missing projection fields must not suppress the authoritative coupon fact.
+    assert len(client.get(url, params=filters).json()["data"]["rows"]) == 1
     assert client.get(url, params={"verification_status": "other_store_verified"}).json()["data"]["rows"] == []
 
 
 def test_self_verified_filter_excludes_other_store_and_export_matches(client: TestClient, db_session: Session) -> None:
+    from test_clue_verification_facts import add_verification
     _seed_clue_center(db_session)
+    add_verification(db_session)
+    add_verification(db_session, order_id="order-2", suffix="2", store="store-2")
     other = db_session.get(ClueAssignmentRound, "order-2-1")
     other.verified_at = _dt(2)
     other.verified_store_id = "store-2"
@@ -1114,7 +1120,9 @@ def test_self_verified_filter_excludes_other_store_and_export_matches(client: Te
 def test_clue_rounds_can_filter_by_location_store_and_verification_status(
     client: TestClient, db_session: Session
 ) -> None:
+    from test_clue_verification_facts import add_verification
     _seed_clue_center(db_session)
+    add_verification(db_session)
     _login(client)
 
     unverified = client.get(

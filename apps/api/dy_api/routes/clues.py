@@ -379,7 +379,7 @@ def _clue_export_response(filters, current_user, store):
         headers={
             "Content-Disposition": f"attachment; filename*=UTF-8''{filename}",
             "X-Export-Generated-At": generated,
-            "X-Export-Filters": store.export_filter_header(filters),
+            "X-Export-Filters": store.export_filter_header({key: value for key, value in filters.items() if key != "phone"}),
         },
     )
 

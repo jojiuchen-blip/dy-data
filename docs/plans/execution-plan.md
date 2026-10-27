@@ -1,3 +1,12 @@
+# 当前执行：DYDATA-106 线索明细筛选（2026-10-27）
+
+- 当前阶段：S4 / Phase 1 / T1.1，进行中；用户已明确授权修复、合入main并部署。
+- 当前正式计划：[DYDATA-106](delivery-plans/main-delivery-plan-dydata-106.md)；[任务看板](delivery-plans/task-kanban-dydata-106.md)；[当前子计划](delivery-plans/sub-delivery-plan-dydata-106-T1.1-clue-filters.md)。
+- 下一步：核销原始事实筛选与完整11位手机号POST精准筛选实现、权限/导出组合回归及CI部署验收。
+- 完成标准摘要：保留考核原意，不泄露号码；列表/总数/分页/导出同口径；完整验证和生产证据据实回填，用户验收前不关闭需求。
+- 下方保留其他需求历史入口，不覆盖本轮当前任务。
+
+---
 # 当前执行：DYDATA-104 10月23日新增范围
 
 - 用户已批准开始；继续S4/T3.1，当前Codex负责集成，基于ca61eff。

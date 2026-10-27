@@ -90,7 +90,8 @@ type ClueFilterKey =
   | "storeDisplayStatus"
   | "selfStoreVerified"
   | "productType"
-  | "organization";
+  | "organization"
+  | "phone";
 
 interface ActiveClueFilter {
   key: ClueFilterKey;
@@ -401,6 +402,21 @@ export function ClueCenterPage({
     searchParams.get("product_type") ?? "",
   );
   const [page, setPage] = useState(1);
+  // Sensitive selections remain in component memory, never URL/storage.
+  const [phoneInput, setPhoneInput] = useState("");
+  const [phone, setPhone] = useState("");
+  const [phoneFilterError, setPhoneFilterError] = useState("");
+  const applyPhoneFilter = () => {
+    const value = phoneInput.trim();
+    if (value && !/^1[3-9][0-9]{9}$/.test(value)) {
+      setPhoneFilterError("请输入完整的11位中国大陆手机号");
+      return;
+    }
+    setPhoneFilterError("");
+    setPhoneInput(value);
+    setPhone(value);
+    setPage(1);
+  };
   const [selfStoreVerified, setSelfStoreVerified] = useState(
     searchParams.get("verification_status") === "self_store_verified",
   );
@@ -476,6 +492,7 @@ export function ClueCenterPage({
     () => ({
       assigned_store_id: !isDetailsView && showStoreLocationFilters ? assignedStoreId : "",
       assigned_store_ids: isDetailsView ? selectedStores?.map(store => store.store_id) ?? null : null,
+      phone: isDetailsView ? phone : null,
       assigned_date_start: assignedDateStart,
       assigned_date_end: assignedDateEnd,
       store_display_status: storeDisplayStatus,
@@ -487,7 +504,7 @@ export function ClueCenterPage({
       city: showStoreLocationFilters ? city : "",
     }),
     [
-      assignedStoreId, selectedStores,
+      assignedStoreId, selectedStores, phone,
       assignedDateEnd,
       assignedDateStart,
       activeProductType,
@@ -502,6 +519,7 @@ export function ClueCenterPage({
 
   const activeFilterChips: ActiveClueFilter[] = useMemo(() => {
     const chips: ActiveClueFilter[] = [];
+    if (isDetailsView && phone) chips.push({ key: "phone", label: "手机号", value: `${phone.slice(0, 3)}****${phone.slice(-4)}` });
     if (isDetailsView && selectedStores !== null) {
       chips.push({ key: "selectedStores", label: "门店", value: selectedStores.length ? `${selectedStores.length}家` : "无匹配" });
     }
@@ -553,7 +571,7 @@ export function ClueCenterPage({
     }
     return chips;
   }, [
-    selectedStores,
+    selectedStores, phone,
     activeProductType,
     selfStoreVerified,
     isDetailsView, orgKey, orgResource.data,
@@ -570,6 +588,7 @@ export function ClueCenterPage({
   const roundsResource = useApiResource(
     () => fetchClueAssignmentRounds({ filters, page, pageSize }),
     [
+      phone,
       selectedStores,
       assignedStoreId,
       assignedDateEnd,
@@ -983,6 +1002,7 @@ export function ClueCenterPage({
   }, [phoneActionMessage]);
 
   const resetFilters = () => {
+    setPhone(""); setPhoneInput(""); setPhoneFilterError("");
     setOrgLevel("all"); setOrgKey(""); setOrgQuery("");
     setProvince("");
     setCity("");
@@ -999,6 +1019,9 @@ export function ClueCenterPage({
 
   const removeFilter = (key: ClueFilterKey) => {
     setPage(1);
+    if (key === "phone") {
+      setPhone(""); setPhoneInput(""); setPhoneFilterError("");
+    }
     if (key === "organization") {
       setOrgLevel("all"); setOrgKey(""); setOrgQuery("");
     }
@@ -1318,6 +1341,21 @@ export function ClueCenterPage({
             </div>
           </>
         ) : null}
+        {isDetailsView && <FilterField label="手机号精准查询">
+          <FieldInput
+            aria-label="手机号精准查询"
+            aria-invalid={Boolean(phoneFilterError)}
+            aria-describedby={phoneFilterError ? "clue-phone-filter-error" : undefined}
+            autoComplete="off"
+            inputMode="tel"
+            placeholder="完整11位手机号"
+            value={phoneInput}
+            onChange={event => { setPhoneInput(event.target.value); setPhoneFilterError(""); }}
+            onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); applyPhoneFilter(); } }}
+          />
+          <Button type="button" onClick={applyPhoneFilter}>查询手机号</Button>
+          {phoneFilterError && <span id="clue-phone-filter-error" role="alert">{phoneFilterError}</span>}
+        </FilterField>}
         <FilterField label="线索生成日期起">
           <FieldInput
             onChange={(event) => {

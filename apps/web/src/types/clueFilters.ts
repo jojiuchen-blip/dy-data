@@ -2,6 +2,7 @@ import type { ClueOverviewFilters } from "./dashboard";
 
 export interface ClueListFilters extends ClueOverviewFilters {
   assigned_store_ids?: string[] | null;
+  phone?: string | null;
 }
 
 export interface ClueSelectedStore {
