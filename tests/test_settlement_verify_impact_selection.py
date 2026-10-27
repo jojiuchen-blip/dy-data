@@ -260,6 +260,34 @@ def test_unresolved_count_survives_normalization_and_durable_stage_checkpoint(db
         assert stage.checkpoint_json["settlement_summary"]["completed"] is True
 
 
+@pytest.mark.parametrize("fence_succeeds", (True, False))
+def test_blank_only_verify_page_preserves_dimensions_only_after_successful_fence(
+    selector_factory, monkeypatch, fence_succeeds,
+):
+    run_id = f"verify-blank-only-{fence_succeeds}"
+    with selector_factory.begin() as session:
+        _seed_coupon(session, "blank-page-unrelated", poi_id="poi-blank-only")
+        session.add(_impact(
+            run_id, entity_key="", new_values_json={},
+            affected_closure_json={
+                "poi_ids": ["poi-blank-only"],
+                "store_ids": ["store-blank-only"],
+                "affected_months": ["2025-03"],
+            },
+        ))
+    visited = _record_batches(monkeypatch)
+    result = settlement_worker.settle_impacted_coupons(
+        selector_factory, run_id, lambda _session: fence_succeeds, 1, 1,
+    )
+    assert result["completed"] is fence_succeeds
+    assert result["impact_count"] == result["unresolved_verify_impact_count"] == 1
+    assert result["coupon_count"] == 0
+    assert visited == []
+    assert result["affected_months"] == (["2025-03"] if fence_succeeds else [])
+    assert result["affected_store_ids"] == (["store-blank-only"] if fence_succeeds else [])
+    assert (result["last_impact_id"] > 0) is fence_succeeds
+
+
 def test_legitimate_same_coupon_impacts_keep_existing_crosspage_semantics(selector_factory, monkeypatch):
     run_id = "verify-legitimate-repeat"
     with selector_factory.begin() as session:

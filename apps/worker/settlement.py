@@ -2125,9 +2125,10 @@ def settle_impacted_coupons(
                 summary["affected_months"] = sorted(affected_months)
                 summary["affected_store_ids"] = sorted(affected_store_ids)
                 return summary
-        if selectors.has_sources:
-            affected_months.update(page_months)
-            affected_store_ids.update(page_store_ids)
+        # The successful page fence also covers unresolved verify impacts
+        # without exact selectors. Their publication dimensions still matter.
+        affected_months.update(page_months)
+        affected_store_ids.update(page_store_ids)
 
         last_impact_id = int(impact_page[-1]["id"])
         summary["last_impact_id"] = last_impact_id
