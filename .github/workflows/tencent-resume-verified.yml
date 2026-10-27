@@ -94,11 +94,20 @@ jobs:
           postgres_id="$(sudo docker ps -q --filter label=com.docker.compose.project=dy-dashboard --filter label=com.docker.compose.service=postgres)"
           [[ "$postgres_id" =~ ^[a-f0-9]{12,64}$ ]]
           sudo docker exec "$postgres_id" pg_restore --version
+          retention_asof="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           sudo python3 "$retention_script" --backup-dir /opt/dy-dashboard/logs/backups \
             --validator-command "docker exec -i $postgres_id pg_restore" \
+            --as-of "$retention_asof" \
             --report-file /opt/dy-dashboard/logs/clue-release-retention-dry-run.json
+          sudo python3 -c 'import json; p=json.load(open("/opt/dy-dashboard/logs/clue-release-retention-dry-run.json")); assert not p["blocked"]; assert set(p["would_delete"]) <= {"pre-migrate-20260929T103506Z.dump"}; assert "pre-migrate-20261023T132355Z.dump" in p["kept"]'
+          # Read the newest complete archive before removing the single expired
+          # September restore point; preserve every current weekly/latest point.
+          sudo sh -c 'docker exec -i "$1" pg_restore --file=/dev/null < /opt/dy-dashboard/logs/backups/pre-migrate-20261023T132355Z.dump' sh "$postgres_id"
+          sudo python3 "$retention_script" --backup-dir /opt/dy-dashboard/logs/backups \
+            --validator-command "docker exec -i $postgres_id pg_restore" \
+            --as-of "$retention_asof" --apply \
+            --report-file "/opt/dy-dashboard/logs/backups/backup-retention-clue-release-$(date -u +%Y%m%dT%H%M%SZ).json"
           rm -f "$retention_script"
-          exit 0
           # Stage and preserve the complete existing directory. Never recursively
           # delete a mixed-owner checkout, and do not relax its permissions.
           sudo python3 - "$archive" <<'PY'
@@ -149,7 +158,7 @@ jobs:
           echo "Resuming verified deployment; server log=$log"
           # Original script repeats backup, lineage, migration and all health gates.
           # Output also stays on server so interruption does not lose evidence.
-          sudo env SKIP_GIT_SYNC=true DY_WEB_BASE_URL="$web_url" TENCENT_START_WORKER="$worker" \
+          sudo env SKIP_GIT_SYNC=true DY_WEB_BASE_URL="$web_url" TENCENT_START_WORKER="$worker" DEPLOY_PRUNE_BUILD_CACHE_AFTER_BUILD=true \
             bash deploy/tencent/deploy.sh "$target" 2>&1 | sudo tee "$log"
           REMOTE
           ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" \
