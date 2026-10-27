@@ -6270,6 +6270,22 @@ def test_finance_import_clears_stale_preview_after_409(
     try:
         install_api_routes(page)
         page.route("**/api/v1/admin/finance-imports", upload_preview)
+        page.route("**/api/v1/admin/finance-imports/FIN-PREVIEW-001/rows?*", lambda route: route.fulfill(
+            status=200, content_type="application/json", body=api_payload({
+                "list": [{"rowNumber": 2, "businessKey": "12345678901234567890", "rowStatus": 1,
+                    "preview": {"available": True, "schemaVersion": 1,
+                        "capturedAt": "2026-08-08T10:00:00+08:00", "targetType": "PROMOTION_INVOICE",
+                        "targetRecordId": "INV-PREVIEW-001", "targetVersion": 1,
+                        "before": {"invoiceNumber": "12345678901234567890", "reviewResult": "SUBMITTED_PENDING_FACTORY_REVIEW",
+                            "rejectionReason": None, "settlementDate": None, "settlementAmountCent": None},
+                        "after": {"invoiceNumber": "12345678901234567890", "reviewResult": "APPROVED_SETTLED",
+                            "rejectionReason": None, "settlementDate": "2026-08-08", "settlementAmountCent": 38000},
+                        "stateTransition": {"fromState": "SUBMITTED_PENDING_FACTORY_REVIEW", "toState": "APPROVED_SETTLED", "allowed": True},
+                        "allowedChanges": ["更新厂家审核及结算结果"], "blockedReasons": []}}],
+                "total": 1, "page": 1, "pageSize": 50,
+                "previewSummary": {"frozenAvailable": True, "blockedRowCount": 0, "totalRows": 1},
+            }),
+        ))
         page.route("**/api/v1/admin/finance-imports/FIN-PREVIEW-001/commits", commit_preview)
         page.goto(
             f"{vite_base_url}/finance/promotion?month=2026-08",
@@ -6283,7 +6299,7 @@ def test_finance_import_clears_stale_preview_after_409(
         file_input.set_input_files({
             "name": "promotion-review.csv",
             "mimeType": "text/csv",
-            "buffer": b"invoiceNumber,reviewResult,rejectionReason,settlementDate,settlementAmountCent\n12345678901234567890,APPROVED,,2026-08-08,38000\n",
+            "buffer": b"invoiceNumber,reviewResult,rejectionReason,settlementDate,settlementAmountCent\n12345678901234567890,APPROVED_SETTLED,,2026-08-08,38000\n",
         })
         upload_button = page.get_by_role("button", name="上传并预览")
         expect(upload_button).to_be_enabled(timeout=10000)
@@ -6293,5 +6309,16 @@ def test_finance_import_clears_stale_preview_after_409(
         page.get_by_text("数据已发生变化，请刷新后重新操作。", exact=True).wait_for(timeout=10000)
         assert page.get_by_text("首次导入，待确认", exact=True).count() == 0
         assert commit_attempts == 1
+        expect(page.get_by_role("region", name="逐行字段预览", exact=True)).to_have_count(0)
+        expect(upload_button).to_be_disabled()
+        page.get_by_label("文件").set_input_files({
+            "name": "promotion-review-retry.csv", "mimeType": "text/csv",
+            "buffer": b"invoiceNumber,reviewResult,rejectionReason,settlementDate,settlementAmountCent\n12345678901234567890,APPROVED_SETTLED,,2026-08-08,38000\n",
+        })
+        upload_button.click()
+        expect(page.get_by_role("region", name="逐行字段预览", exact=True)).to_contain_text("380.00")
+        page.get_by_role("button", name="确认提交").click()
+        page.get_by_text("导入结果已生效；导入时间作为审核通过或结算完成时间。", exact=True).wait_for(timeout=10000)
+        assert commit_attempts == 2
     finally:
         context.close()

@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import re
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from io import StringIO
 from pathlib import Path
 from uuid import uuid4
@@ -28,6 +29,7 @@ from dy_api.models import (
     RawDouyinOrder, RawDouyinOrderCoupon, RawDouyinVerifyRecord,
     SettlementFeeAdjustment, SettlementFeeResult, SettlementFeeResultCurrent,
     SettlementStatement, SettlementStatementConfirmation, StoreFinanceProfile,
+    SettlementStatementEntry, SettlementStatementLine,
 )
 from publication_fixture_helpers import publish_fixture
 
@@ -302,6 +304,35 @@ def test_remaining_status_pagination_and_real_terminated_candidate_recovery(
                 store_name_snapshot=store_id, sap_code_snapshot="R105SAP", store_snapshot_status="LIVE_CAPTURED"))
             session.add(SettlementStatementConfirmation(confirmation_id=store_id, statement_id=store_id,
                 fee_direction=1, confirmation_status=1, confirmed_amount_cent=amount, confirmed_by="synthetic", confirmed_at=NOW))
+            source_id = f"{store_id}-fee-1"
+            line_id = f"{store_id}-line-1"
+            base = amount * 10
+            session.add(SettlementFeeResult(
+                fee_result_id=source_id, coupon_id=source_id, order_id=source_id,
+                fee_direction=1, result_version=1, original_business_month="2026-09",
+                rule_match_date=date(2026, 9, 20), sale_store_id=store_id, verify_store_id=store_id,
+                sku_id=source_id, product_scope="精诚养车", product_type="养车服务", sale_channel_normalized="LIVE",
+                source_amount_cent=base, refunded_amount_cent=0, fee_base_cent=base,
+                fee_rate=Decimal("0.1"), fee_amount_cent=amount, rule_version="resume-fixture-v1",
+                scope_rule_version="resume-scope-v1", result_status=1, calculation_run_id=source_id, calculated_at=NOW,
+            ))
+            session.add(SettlementFeeResultCurrent(coupon_id=source_id, fee_direction=1, fee_result_id=source_id))
+            session.add(SettlementStatementLine(
+                statement_line_id=line_id, statement_id=store_id, fee_direction=1,
+                product_scope="精诚养车", product_type="养车服务", original_entry_count=1,
+                adjustment_entry_count=0, original_base_cent=base, adjustment_base_cent=0,
+                net_base_cent=base, original_fee_cent=amount, adjustment_fee_cent=0, net_fee_cent=amount,
+            ))
+            session.add(SettlementStatementEntry(
+                statement_entry_id=f"{store_id}-entry-1", statement_id=store_id, statement_line_id=line_id,
+                source_type=1, source_record_id=source_id, original_fee_result_id=source_id,
+                coupon_id=source_id, order_id=source_id, fee_direction=1,
+                original_business_month="2026-09", statement_posting_month="2026-09",
+                product_scope="精诚养车", product_type="养车服务", base_amount_cent=base,
+                fee_amount_cent=amount, rule_version="resume-fixture-v1",
+                received_amount_cent_snapshot=base, fee_rate_snapshot=Decimal("0.1"),
+                sale_store_id_snapshot=store_id, verify_store_id_snapshot=store_id,
+            ))
         for index in (61,):
             is_resume = index == 61
             key = f"R105-P-{index:03d}"

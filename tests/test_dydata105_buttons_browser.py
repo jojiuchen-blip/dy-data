@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import re
 from datetime import datetime, timezone
+from decimal import Decimal
 from io import BytesIO, StringIO
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -24,6 +25,7 @@ from dy_api.models import (
     DimStore, SettlementStatement, SettlementStatementConfirmation,
     PromotionInvoiceAllocation, PromotionInvoiceLifecycleEvent,
     SettlementDispute, AggStoreRanking, SapSuggestion,
+    SettlementFeeResult, SettlementFeeResultCurrent, SettlementStatementEntry, SettlementStatementLine,
 )
 from publication_fixture_helpers import publish_fixture
 
@@ -252,6 +254,39 @@ def test_dydata105_store_confirm_invoice_lifecycle_and_replacement_real_readback
             sap_code_snapshot="SAP105FLOW", store_snapshot_status="LIVE_CAPTURED",
             created_at=datetime(2026, 9, 30, tzinfo=timezone.utc),
         ))
+        # UI confirmation protects this bill for subsequent module tests. Its
+        # immutable lines/entries must already explain the unchanged header.
+        for direction, amount in ((1, 12345), (2, 6789)):
+            source_id = f"{key}-fee-{direction}"
+            line_id = f"{key}-line-{direction}"
+            base = amount * 10
+            session.add(SettlementFeeResult(
+                fee_result_id=source_id, coupon_id=source_id, order_id=source_id,
+                fee_direction=direction, result_version=1, original_business_month="2026-09",
+                rule_match_date=datetime(2026, 9, 30).date(), sale_store_id=key, verify_store_id=key,
+                sku_id=source_id, product_scope="精诚养车", product_type="养车服务", sale_channel_normalized="LIVE",
+                source_amount_cent=base, refunded_amount_cent=0, fee_base_cent=base,
+                fee_rate=Decimal("0.1"), fee_amount_cent=amount, rule_version="flow-fixture-v1",
+                scope_rule_version="flow-scope-v1", result_status=1, calculation_run_id=source_id,
+                calculated_at=datetime(2026, 9, 30, tzinfo=timezone.utc),
+            ))
+            session.add(SettlementFeeResultCurrent(coupon_id=source_id, fee_direction=direction, fee_result_id=source_id))
+            session.add(SettlementStatementLine(
+                statement_line_id=line_id, statement_id=key, fee_direction=direction,
+                product_scope="精诚养车", product_type="养车服务", original_entry_count=1,
+                adjustment_entry_count=0, original_base_cent=base, adjustment_base_cent=0,
+                net_base_cent=base, original_fee_cent=amount, adjustment_fee_cent=0, net_fee_cent=amount,
+            ))
+            session.add(SettlementStatementEntry(
+                statement_entry_id=f"{key}-entry-{direction}", statement_id=key, statement_line_id=line_id,
+                source_type=1, source_record_id=source_id, original_fee_result_id=source_id,
+                coupon_id=source_id, order_id=source_id, fee_direction=direction,
+                original_business_month="2026-09", statement_posting_month="2026-09",
+                product_scope="精诚养车", product_type="养车服务", base_amount_cent=base,
+                fee_amount_cent=amount, rule_version="flow-fixture-v1",
+                received_amount_cent_snapshot=base, fee_rate_snapshot=Decimal("0.1"),
+                sale_store_id_snapshot=key, verify_store_id_snapshot=key,
+            ))
         session.commit()
         publish_fixture(session, "settlement")
     context = browser.new_context(viewport={"width": 1440, "height": 900}, permissions=["clipboard-read", "clipboard-write"])
