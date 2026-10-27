@@ -25,6 +25,7 @@ PG_FILES = {
     "tests/test_product_sync_sku_lookup_postgres.py",
     "tests/test_month_close_auto_bootstrap_postgres.py",
     "tests/test_missing_fee_repair_postgres.py",
+    "tests/test_settlement_verify_impact_selection.py",
 }
 BROWSER_FILES = {
     "tests/test_dydata104_finance_preview_browser.py",
@@ -118,6 +119,14 @@ def test_opt_in_databases_and_explicit_cases_are_verified_before_release(name: s
         assert url.host == "127.0.0.1" and url.port == 5432
         assert url.database == database and url.drivername == "postgresql+psycopg"
     assert "CREATE DATABASE dydata_delivery_test" in gate["run"]
+    selector_url = make_url(gate["env"]["DYDATA_T12_TEST_DATABASE_URL"])
+    assert selector_url.host == "127.0.0.1" and selector_url.port == 55432
+    assert selector_url.database == selector_url.username == "dydata_t12"
+    selector_service = workflow["jobs"]["verify"]["services"]["settlement-postgres"]
+    assert selector_service["image"] == "postgres:16"
+    assert selector_service["ports"] == ["55432:5432"]
+    assert selector_service["env"]["POSTGRES_USER"] == selector_service["env"]["POSTGRES_DB"] == "dydata_t12"
+    assert selector_service["env"]["POSTGRES_PASSWORD"] == selector_url.password
     publication = _step(workflow, "Verify static dashboard publications on PostgreSQL")
     assert "CREATE DATABASE dydata_publication_test" in publication["run"]
     assert steps.index(publication) < steps.index(gate)
@@ -228,6 +237,33 @@ def test_release_workflows_share_the_same_pg_contract() -> None:
     assert gates[0]["env"] == gates[1]["env"]
     assert gates[0]["run"] == gates[1]["run"]
     assert gates[0]["timeout-minutes"] == gates[1]["timeout-minutes"]
+
+
+@pytest.mark.parametrize("name", WORKFLOWS)
+@pytest.mark.parametrize("invalid_case", (None, "missing", "wrong_module", "skipped", "failure", "error"))
+def test_verify_impact_receipt_requires_eleven_successful_postgres_cases(
+    name: str, invalid_case: str | None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gate = _step(_workflow(name), PG_NAME)
+    guard = shlex.split(next(line for line in gate["run"].splitlines() if "all eleven verify impact" in line))[2]
+    document = Element("testsuites")
+    suite = SubElement(document, "testsuite")
+    for index in range(11):
+        if index == 0 and invalid_case == "missing":
+            continue
+        module = "tests.test_other" if index == 0 and invalid_case == "wrong_module" else "tests.test_settlement_verify_impact_selection"
+        case = SubElement(suite, "testcase", classname=module, name=f"verify_case_{index}[postgres]")
+        if index == 0 and invalid_case in {"skipped", "failure", "error"}:
+            SubElement(case, invalid_case)
+    directory = tmp_path / "logs/ci"
+    directory.mkdir(parents=True)
+    ElementTree(document).write(directory / "dydata104-postgres.xml")
+    monkeypatch.chdir(tmp_path)
+    if invalid_case is None:
+        exec(compile(guard, "<workflow-verify-impact-guard>", "exec"), {})
+    else:
+        with pytest.raises(AssertionError, match="verify impact"):
+            exec(compile(guard, "<workflow-verify-impact-guard>", "exec"), {})
 
 
 @pytest.mark.parametrize("name", WORKFLOWS)
