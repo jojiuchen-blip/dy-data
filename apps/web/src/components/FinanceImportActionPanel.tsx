@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type FormEvent } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import {
   ApiRequestError,
   commitFinanceImport,
@@ -13,6 +13,7 @@ import { Button } from "./Button";
 import { TextField } from "./FormControls";
 import { ResourcePanel } from "./ResourceState";
 import { SearchableStoreSelect } from "./SearchableStoreSelect";
+import { FinanceImportPreviewTable } from "./FinanceImportPreviewTable";
 
 const importOptions = {
   PROMOTION: [
@@ -55,20 +56,29 @@ export function FinanceImportActionPanel({
   const [downloadIsError, setDownloadIsError] = useState(false);
   const [commitKey, setCommitKey] = useState(() => crypto.randomUUID());
   const [fileInputVersion, setFileInputVersion] = useState(0);
+  const requestVersion = useRef(0);
+  const [previewReadiness, setPreviewReadiness] = useState({ batchId: "", ready: false });
+  const handlePreviewReadiness = useCallback((batchId: string, ready: boolean) => {
+    setPreviewReadiness({ batchId, ready });
+  }, []);
 
   // Reset the input before the panel becomes interactive. A passive effect
   // can otherwise clear a file selected immediately after the panel opens.
   useLayoutEffect(() => {
+    requestVersion.current += 1;
     setFile(null);
     setPreview(null);
     setMessage("");
     setCommitKey(crypto.randomUUID());
     setFileInputVersion((current) => current + 1);
-  }, [fixedImportType, month]);
+    setUploading(false);
+    setCommitting(false);
+  }, [fixedImportType, month, scope]);
 
   const handleUpload = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!file) return;
+    const request = ++requestVersion.current;
     setUploading(true);
     setMessage("");
     setDownloadMessage("");
@@ -76,6 +86,7 @@ export function FinanceImportActionPanel({
     setPreview(null);
     try {
       const response = await uploadFinanceImport({ importType, statementMonth: month, file });
+      if (request !== requestVersion.current) return;
       setPreview(response.data);
       setCommitKey(crypto.randomUUID());
       setMessage(
@@ -86,14 +97,16 @@ export function FinanceImportActionPanel({
             : "整批校验通过，请核对版本和变更原因后提交。",
       );
     } catch (error) {
+      if (request !== requestVersion.current) return;
       setMessage(userFacingError(error, "上传校验失败，请稍后重试。"));
     } finally {
-      setUploading(false);
+      if (request === requestVersion.current) setUploading(false);
     }
   };
 
   const handleCommit = async () => {
-    if (!preview || !changeReason.trim()) return;
+    if (!preview || !canCommit || committing) return;
+    const request = requestVersion.current;
     setCommitting(true);
     setMessage("");
     try {
@@ -106,6 +119,7 @@ export function FinanceImportActionPanel({
       } else {
         await commitFinanceImport(preview.batchId, payload, commitKey);
       }
+      if (request !== requestVersion.current) return;
       setMessage("导入结果已生效；导入时间作为审核通过或结算完成时间。");
       setPreview(null);
       setFile(null);
@@ -113,6 +127,7 @@ export function FinanceImportActionPanel({
       setFileInputVersion((current) => current + 1);
       onCommitted();
     } catch (error) {
+      if (request !== requestVersion.current) return;
       const conflict = error instanceof ApiRequestError && error.status === 409;
       if (conflict) {
         setPreview(null);
@@ -129,7 +144,7 @@ export function FinanceImportActionPanel({
         ),
       );
     } finally {
-      setCommitting(false);
+      if (request === requestVersion.current) setCommitting(false);
     }
   };
 
@@ -152,7 +167,9 @@ export function FinanceImportActionPanel({
   const canCommit = Boolean(
     preview &&
       preview.errorRows === 0 &&
-      preview.scenario !== "NO_CHANGE" &&
+      ["FIRST_IMPORT_READY", "DIFF_CONFIRMATION_REQUIRED"].includes(preview.scenario) &&
+      previewReadiness.batchId === preview.batchId && previewReadiness.ready &&
+      !uploading && !committing &&
       !preview.committedAt &&
       changeReason.trim(),
   );
@@ -173,6 +190,8 @@ export function FinanceImportActionPanel({
             disabled={Boolean(fixedImportType)}
             emptyMessage="未找到导入模板"
             onChange={(value) => {
+              requestVersion.current += 1;
+              setUploading(false);
               setImportType(value);
               setFile(null);
               setPreview(null);
@@ -193,6 +212,8 @@ export function FinanceImportActionPanel({
           required
           type="file"
           onChange={(event) => {
+            requestVersion.current += 1;
+            setUploading(false);
             setFile(event.target.files?.[0] ?? null);
             setPreview(null);
             setMessage("");
@@ -209,6 +230,7 @@ export function FinanceImportActionPanel({
             <span>错误行<strong>{preview.errorRows}</strong></span>
             <span>读取 / 当前版本<strong>V{preview.readVersion} / V{preview.currentVersion}</strong></span>
           </div>
+          <FinanceImportPreviewTable key={preview.batchId} batchId={preview.batchId} onReadinessChange={handlePreviewReadiness} />
           {preview.errorRows > 0 ? (
             <>
               <Button disabled={downloadingErrors} loading={downloadingErrors} onClick={handleDownloadErrors} variant="secondary">下载全部错误</Button>

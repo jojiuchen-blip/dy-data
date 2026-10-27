@@ -2483,6 +2483,42 @@ export interface FinanceImportErrorRow {
   suggestion: string;
 }
 
+export type FinanceImportPreviewValue = string | number | boolean | null;
+
+export interface FinanceImportFrozenPreview {
+  available: true;
+  schemaVersion: number;
+  capturedAt: string;
+  targetType: "STORE_FINANCE_PROFILE" | "PROMOTION_INVOICE" | "MANAGEMENT_INVOICE";
+  targetRecordId: string | null;
+  targetVersion: number | null;
+  targetTombstone?: boolean;
+  before: Record<string, FinanceImportPreviewValue> | null;
+  after: Record<string, FinanceImportPreviewValue>;
+  stateTransition: { fromState: string | null; toState: string | null; allowed: boolean };
+  allowedChanges: string[];
+  blockedReasons: string[];
+}
+
+export interface FinanceImportPreviewRow {
+  rowNumber: number;
+  businessKey: string;
+  rowStatus: number;
+  preview: FinanceImportFrozenPreview | {
+    available: false;
+    reasonCode: string;
+    reason: string;
+  };
+}
+
+export interface FinanceImportPreviewData {
+  list: FinanceImportPreviewRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  previewSummary: { frozenAvailable: boolean; blockedRowCount: number; totalRows: number };
+}
+
 export interface FinanceImportBatchRow {
   batchId: string;
   importType: string;

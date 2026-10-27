@@ -87,6 +87,7 @@ import type {
   FinanceImportBatchDetailData,
   FinanceImportBatchListData,
   FinanceImportBatchRow,
+  FinanceImportPreviewData,
   FinanceInvoiceListData,
   FinanceInvoiceRow,
   FinanceOrderDetailListData,
@@ -3342,6 +3343,15 @@ export function fetchFinanceImportDetail(
   return requestJson<FinanceImportBatchDetailData>(
     `/admin/finance-imports/${encodeURIComponent(batchId)}`,
     query,
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function fetchFinanceImportPreview(
+  batchId: string,
+  query: { page: number; pageSize: number },
+): Promise<ApiLoadResult<FinanceImportPreviewData>> {
+  return requestJson<FinanceImportPreviewData>(
+    `/admin/finance-imports/${encodeURIComponent(batchId)}/rows`, query,
   ).then((response) => ({ ...response, usingMock: false }));
 }
 
