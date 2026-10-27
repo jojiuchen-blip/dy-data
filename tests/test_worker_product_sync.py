@@ -418,7 +418,6 @@ def test_real_adapter_maps_all_statuses_and_uses_id_fallback():
         known_products={
             "product-visible": {"sku-visible"},
             "product-hidden": {"sku-hidden"},
-            "product-missing": {"sku-missing"},
         },
     )
     cursor = None
@@ -432,7 +431,7 @@ def test_real_adapter_maps_all_statuses_and_uses_id_fallback():
 
     by_sku = {item.sku_id: item for item in items}
     assert [call["status"] for call in client.list_calls] == [1, 2, 3]
-    assert client.id_calls == [["product-hidden", "product-missing"]]
+    assert client.id_calls == [["product-hidden"]]
     assert by_sku["sku-visible"].product_status_normalized == "ACTIVE"
     assert by_sku["sku-visible"].owner_account_id == "2001"
     assert by_sku["sku-visible"].owner_account_name == "Owner account"
@@ -441,8 +440,7 @@ def test_real_adapter_maps_all_statuses_and_uses_id_fallback():
     )
     assert by_sku["sku-hidden"].product_status_normalized == "BANNED"
     assert by_sku["sku-hidden-2"].product_status_normalized == "BANNED"
-    assert by_sku["sku-missing"].sync_status == "NOT_FOUND"
-    assert by_sku["sku-missing"].product_status_normalized == "UNKNOWN"
+    assert "sku-missing" not in by_sku
 
 
 class MissingSkuDouyinProductClient:
@@ -576,7 +574,7 @@ def test_extract_known_order_products_uses_products_array_and_deduplicates(db_se
     }
 
 
-def test_not_found_sync_attempt_preserves_last_good_platform_fields(db_session: Session):
+def test_missing_product_exhausts_retries_and_preserves_last_good_platform_fields(db_session: Session):
     existing = DimSkuProductRule(
         sku_id="sku-missing",
         sku_name="Trusted SKU",
@@ -607,14 +605,15 @@ def test_not_found_sync_attempt_preserves_last_good_platform_fields(db_session: 
     row = db_session.scalar(
         select(DimSkuProductRule).where(DimSkuProductRule.sku_id == "sku-missing")
     )
-    assert result.status == "SUCCESS"
+    assert result.status == "FAILED"
+    assert result.error_code == "INCOMPLETE_RESPONSE"
     assert row is not None
     assert row.sku_name == "Trusted SKU"
     assert row.owner_account_id == "owner-trusted"
     assert row.product_status_normalized == "ACTIVE"
     assert row.is_active_product is True
-    assert row.sync_status == "NOT_FOUND"
-    assert row.sync_error == "product_not_returned"
+    assert row.sync_status == "SUCCESS"
+    assert row.sync_error is None
     assert row.product_scope == "Manual scope"
     assert row.product_type == "Manual type"
 
@@ -791,15 +790,13 @@ def test_missing_detail_does_not_mark_already_listed_sku_not_found(
             client, known_products={"product-1": {"sku-a", "sku-b"}}
         ),
     )
-    assert result.status == "SUCCESS"
-    assert client.id_calls == [["product-1"]]
+    assert result.status == "FAILED"
+    assert result.error_code == "INCOMPLETE_RESPONSE"
+    assert client.id_calls == [["product-1"]] * 3
     current = {
         row.sku_id: row for row in db_session.scalars(select(DimSkuProductRule))
     }
-    assert current["sku-a"].sync_status == "SUCCESS"
-    assert current["sku-b"].sync_status == "NOT_FOUND"
-    assert current["sku-b"].owner_account_id is None
-    assert current["sku-b"].is_active_product is False
+    assert current == {}
 
 
 def test_twenty_three_product_partial_sku_reply_preserves_all_current_catalog(db_session: Session):
@@ -822,4 +819,4 @@ def test_twenty_three_product_partial_sku_reply_preserves_all_current_catalog(db
     assert len(current) == 23
     assert all(row.sku_name == "Trusted before scan" and row.sync_status == "SUCCESS" and row.is_active_product for row in current)
     assert client.id_calls == [product_ids[:10]]
-    assert client.sku_calls == [(product_ids[0], [f"{product_ids[0]}-missing"])]
+    assert client.sku_calls == [(product_ids[0], [f"{product_ids[0]}-missing"])] * 3

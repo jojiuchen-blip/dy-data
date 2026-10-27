@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+import logging
 import os
 from typing import Any, Protocol
 
@@ -43,6 +44,8 @@ DOUYIN_ONLINE_STATUS_MAP = {
 }
 DOUYIN_PRODUCT_STATUS_SEQUENCE = (1, 2, 3)
 DOUYIN_PRODUCT_CURSOR_PREFIX = "dy-product-v1:"
+PRODUCT_LOOKUP_ATTEMPTS = 3
+logger = logging.getLogger(__name__)
 PRODUCT_RAW_PAYLOAD_FIELDS = (
     "skuId",
     "skuName",
@@ -82,6 +85,10 @@ class ProductSyncAdapter(Protocol):
 
 class ProductSyncPayloadError(ValueError):
     pass
+
+
+class ProductSyncIncompleteError(ProductSyncPayloadError):
+    """An exact-ID lookup remained incomplete after bounded retries."""
 
 
 @dataclass(frozen=True)
@@ -181,17 +188,46 @@ class DouyinProductSyncAdapter:
                 if sku_id in known_sku_products and known_sku_products[sku_id] != product_id:
                     raise ProductSyncPayloadError("Known SKU has conflicting product identities")
                 known_sku_products[sku_id] = product_id
+        self._known_sku_products = known_sku_products
+        self._observed_skus: dict[str, dict[str, Any]] = {}
         self._sku_lookup_cache: dict[str, dict[str, Mapping[str, Any]]] = {}
         self._page_size = page_size
         self._goods_query_type = goods_query_type
         self._seen_product_skus: dict[str, set[str]] = {}
         self._fallback_product_ids: list[str] | None = None
+        self._seen_list_cursors: set[tuple[int, str | None]] = set()
+        self.lookup_stats = {
+            "attempt_limit_per_batch": PRODUCT_LOOKUP_ATTEMPTS,
+            "product_id_requests": 0,
+            "sku_requests": 0,
+            "partial_responses": 0,
+            # Existing client transport retries apply per request. Partial
+            # retries never catch transport/quota errors or restart a batch.
+            "business_attempt_limit_per_query": max(1, getattr(client, "retry_attempts", 1)),
+            "transport_attempt_limit_per_business_attempt": max(1, getattr(client, "retry_attempts", 1)),
+            "product_http_attempt_upper_bound_per_query": max(1, getattr(client, "retry_attempts", 1)) ** 2,
+        }
+
+    def _validate_sku_identity(self, row: dict[str, Any], previous: dict[str, Any] | None) -> None:
+        sku_id, product_id = row.get("skuId"), row.get("productId")
+        if self._known_sku_products.get(sku_id, product_id) != product_id:
+            raise ProductSyncPayloadError("Observed SKU conflicts with known product identity")
+        if previous and any(
+            previous.get(field) and row.get(field) and previous[field] != row[field]
+            for field in ("productId", "ownerAccountId", "creatorAccountId")
+        ):
+            raise ProductSyncPayloadError("Repeated SKU product or ownership identity conflicts")
 
     def _observe_product_skus(self, rows: list[dict[str, Any]]) -> None:
         for row in rows:
             product_id = row.get("productId")
             sku_id = row.get("skuId")
             if product_id and sku_id:
+                previous = self._observed_skus.get(sku_id)
+                self._validate_sku_identity(row, previous)
+                self._observed_skus[sku_id] = {
+                    **(previous or {}), **{field: value for field, value in row.items() if value is not None}
+                }
                 self._seen_product_skus.setdefault(product_id, set()).add(sku_id)
 
     def _products_with_sku_gaps(self) -> list[str]:
@@ -221,13 +257,14 @@ class DouyinProductSyncAdapter:
         if status_index < 0 or status_index >= len(DOUYIN_PRODUCT_STATUS_SEQUENCE):
             raise ProductSyncPayloadError("Invalid product status page cursor")
         status = DOUYIN_PRODUCT_STATUS_SEQUENCE[status_index]
+        self._seen_list_cursors.add((status_index, upstream_cursor))
         payload = self._client.query_online_products(
             status=status,
             cursor=upstream_cursor,
             count=self._page_size,
             goods_query_type=self._goods_query_type,
         )
-        data = _required_mapping(payload.get("data"), "Product list response data")
+        data = _product_response_data(payload, "Product list")
         rows = data.get("products")
         if not isinstance(rows, list):
             raise ProductSyncPayloadError("Product list response products must be a list")
@@ -240,7 +277,7 @@ class DouyinProductSyncAdapter:
             raise ProductSyncPayloadError("Product list response has_more must be a boolean")
         next_upstream = _optional_text(data.get("next_cursor"))
         if has_more:
-            if not next_upstream or next_upstream == upstream_cursor:
+            if not next_upstream or (status_index, next_upstream) in self._seen_list_cursors:
                 raise ProductSyncPayloadError(
                     "Product list response requires a new next_cursor"
                 )
@@ -318,37 +355,75 @@ class DouyinProductSyncAdapter:
             uncached = [sku_id for sku_id in missing if sku_id not in cache]
             for offset in range(0, len(uncached), 50):
                 batch = uncached[offset:offset + 50]
-                payload = self._client.query_product_skus(product_id, batch)
-                data = _required_mapping(payload.get("data"), "SKU response data")
-                for container, field in ((payload, "error_code"), (data, "error_code"),
-                                         (payload.get("extra", {}), "error_code"),
-                                         (payload.get("BaseResp", {}), "StatusCode")):
-                    if isinstance(container, Mapping) and container.get(field) not in (None, 0, "0"):
-                        raise ProductSyncPayloadError("SKU lookup returned an upstream error code")
-                returned = data.get("skus")
-                if not isinstance(returned, list) or len(returned) != len(batch):
-                    raise ProductSyncPayloadError("SKU lookup returned an incomplete batch")
-                by_id = {}
-                for sku in returned:
-                    if not isinstance(sku, Mapping):
-                        raise ProductSyncPayloadError("SKU lookup row must be an object")
-                    sku_id = _optional_text(sku.get("sku_id"))
-                    if sku_id not in batch or sku_id in by_id:
-                        raise ProductSyncPayloadError("SKU lookup returned unexpected or duplicate identities")
-                    if sku.get("product_id") not in (None, "", product_id) or (
-                        sku.get("owner_account_id") not in (None, "")
-                        and str(sku["owner_account_id"]) != str(product["owner_account_id"])
-                    ):
-                        raise ProductSyncPayloadError("SKU lookup product or owner identity conflicts")
-                    # SKU status is a separate enum from product online_status.
-                    # Only its documented online=1 state is accepted here;
-                    # deleted/unknown variants cannot inherit product ACTIVE.
-                    if type(sku.get("status")) is not int or sku["status"] != 1:
-                        raise ProductSyncPayloadError("SKU lookup did not return an online variant")
-                    by_id[sku_id] = sku
-                cache.update(by_id)
+                cache.update(self._fetch_sku_batch(product_id, product, batch))
             result.append({**record, "sku": {}, "skus": available + [cache[sku_id] for sku_id in missing]})
         return result
+
+    def _fetch_sku_batch(
+        self, product_id: str, product: Mapping[str, Any], batch: list[str]
+    ) -> dict[str, Mapping[str, Any]]:
+        found: dict[str, Mapping[str, Any]] = {}
+        pending = list(batch)
+        for attempt in range(1, PRODUCT_LOOKUP_ATTEMPTS + 1):
+            self.lookup_stats["sku_requests"] += 1
+            payload = self._client.query_product_skus(product_id, pending)
+            data = _product_response_data(payload, "SKU")
+            returned = data.get("skus")
+            if not isinstance(returned, list):
+                raise ProductSyncPayloadError("SKU response skus must be a list")
+            by_id = {}
+            for sku in returned:
+                if not isinstance(sku, Mapping):
+                    raise ProductSyncPayloadError("SKU lookup row must be an object")
+                sku_id = _optional_text(sku.get("sku_id"))
+                if sku_id not in pending or sku_id in by_id:
+                    raise ProductSyncPayloadError("SKU lookup returned unexpected or duplicate identities")
+                if (_optional_text(sku.get("product_id")) not in (None, product_id)
+                    or any(_optional_text(sku.get(field)) not in (None, _optional_text(product.get(field)))
+                           for field in ("owner_account_id", "creator_account_id"))):
+                    raise ProductSyncPayloadError("SKU lookup product or owner identity conflicts")
+                # SKU status has a separate enum; never infer online from a
+                # deleted/unknown SKU, including under an inactive product.
+                if type(sku.get("status")) is not int or sku["status"] != 1:
+                    raise ProductSyncPayloadError("SKU lookup did not return an online variant")
+                by_id[sku_id] = sku
+            found.update(by_id)
+            pending = [sku_id for sku_id in pending if sku_id not in by_id]
+            if not pending:
+                return found
+            self.lookup_stats["partial_responses"] += 1
+            logger.warning("Incomplete SKU lookup: attempt=%s missing_count=%s", attempt, len(pending))
+        raise ProductSyncIncompleteError("SKU lookup incomplete after bounded retries; missing_count=" + str(len(pending)))
+
+    def _fetch_product_batch(self, batch: list[str]) -> list[Any]:
+        rows = []
+        response_skus: dict[str, dict[str, Any]] = {}
+        pending = list(batch)
+        for attempt in range(1, PRODUCT_LOOKUP_ATTEMPTS + 1):
+            self.lookup_stats["product_id_requests"] += 1
+            payload = self._client.query_online_products_by_id(pending)
+            data = _product_response_data(payload, "Product ID")
+            returned = data.get("product_onlines")
+            if not isinstance(returned, list):
+                raise ProductSyncPayloadError("Product ID response product_onlines must be a list")
+            found = set()
+            for record in returned:
+                product = record.get("product") if isinstance(record, Mapping) else None
+                if not isinstance(product, Mapping) or _optional_text(product.get("product_id")) not in pending:
+                    raise ProductSyncPayloadError("Product ID lookup returned an unexpected product")
+                found.add(_optional_text(product.get("product_id")))
+            normalized_rows, _ = _normalize_douyin_online_rows(returned)
+            for row in normalized_rows:
+                sku_id = row.get("skuId")
+                self._validate_sku_identity(row, response_skus.get(sku_id) or self._observed_skus.get(sku_id))
+                response_skus[sku_id] = row
+            rows.extend(returned)
+            pending = [product_id for product_id in pending if product_id not in found]
+            if not pending:
+                return rows
+            self.lookup_stats["partial_responses"] += 1
+            logger.warning("Incomplete product ID lookup: attempt=%s missing_count=%s", attempt, len(pending))
+        raise ProductSyncIncompleteError("Product ID lookup incomplete after bounded retries; missing_count=" + str(len(pending)))
 
     def _fetch_id_page(self, offset: int) -> ProductSyncPage:
         if self._fallback_product_ids is None:
@@ -358,46 +433,18 @@ class DouyinProductSyncAdapter:
             return parse_normalized_product_page(
                 {"items": [], "hasMore": False, "nextCursor": None}
             )
-        payload = self._client.query_online_products_by_id(batch)
-        data = _required_mapping(payload.get("data"), "Product ID response data")
-        rows = data.get("product_onlines")
-        if not isinstance(rows, list):
-            raise ProductSyncPayloadError(
-                "Product ID response product_onlines must be a list"
-            )
-        for record in rows:
-            product = record.get("product") if isinstance(record, Mapping) else None
-            if not isinstance(product, Mapping) or _optional_text(product.get("product_id")) not in batch:
-                raise ProductSyncPayloadError("Product ID lookup returned an unexpected product")
+        rows = self._fetch_product_batch(batch)
         normalized_rows, skipped_count = _normalize_douyin_online_rows(
             self._supplement_known_skus(rows)
         )
-        returned_product_ids = {
-            row["productId"] for row in normalized_rows if row.get("productId")
-        }
+        previously_seen = {product_id: set(self._seen_product_skus.get(product_id, set())) for product_id in batch}
+        self._observe_product_skus(normalized_rows)
         # Details may repeat list observations. Emit only new variants so a
         # later snapshot of an already seen SKU cannot conflict with that page.
         normalized_rows = [
             row for row in normalized_rows
-            if row.get("skuId") not in self._seen_product_skus.get(row.get("productId"), set())
+            if row.get("skuId") not in previously_seen.get(row.get("productId"), set())
         ]
-        self._observe_product_skus(normalized_rows)
-        for product_id in batch:
-            if product_id in returned_product_ids:
-                continue
-            for sku_id in sorted(
-                self._known_products.get(product_id, set())
-                - self._seen_product_skus.get(product_id, set())
-            ):
-                normalized_rows.append(
-                    {
-                        "skuId": sku_id,
-                        "productId": product_id,
-                        "productStatus": "UNKNOWN",
-                        "syncStatus": "NOT_FOUND",
-                        "syncError": "product_not_returned",
-                    }
-                )
         next_offset = offset + len(batch)
         next_cursor = (
             _encode_douyin_product_cursor(stage="ids", offset=next_offset)
@@ -550,10 +597,11 @@ def execute_product_sync(
         try:
             page = adapter.fetch_page(mode=mode, cursor=current_cursor)
         except ProductSyncPayloadError as exc:
+            incomplete = isinstance(exc, ProductSyncIncompleteError)
             _record_quality_issue(
                 session,
                 job_id=job_id,
-                issue_type="product_sync_invalid_response",
+                issue_type="product_sync_incomplete_response" if incomplete else "product_sync_invalid_response",
                 message=str(exc),
                 sequence=page_count + 1,
             )
@@ -564,9 +612,9 @@ def execute_product_sync(
                 observed_count=observed_count,
                 skipped_count=skipped_count,
                 failed_count=max(1, invalid_count),
-                error_code="INVALID_RESPONSE",
+                error_code="INCOMPLETE_RESPONSE" if incomplete else "INVALID_RESPONSE",
                 error_message=str(exc),
-                retryable=False,
+                retryable=incomplete,
                 next_cursor=current_cursor,
                 page_count=page_count,
             )
@@ -584,6 +632,12 @@ def execute_product_sync(
                 next_cursor=current_cursor,
                 page_count=page_count,
             )
+        finally:
+            if hasattr(adapter, "lookup_stats"):
+                job.metadata_json = {
+                    **(job.metadata_json or {}),
+                    "lookup_stats": dict(adapter.lookup_stats),
+                }
 
         if page.payload_sha256 in seen_page_hashes:
             error_code = "DUPLICATE_PAGE"
@@ -601,6 +655,14 @@ def execute_product_sync(
         page_count += 1
         observed_count += page.observed_count
         skipped_count += page.skipped_count
+        if page.skipped_count:
+            _record_quality_issue(
+                session,
+                job_id=job_id,
+                issue_type="product_sync_missing_sku_identity",
+                message="Product rows omitted exact SKU identities; skipped_count=" + str(page.skipped_count),
+                sequence=page_count,
+            )
 
         for row_index, message in page.invalid_items:
             invalid_count += 1
@@ -1089,6 +1151,17 @@ def _required_mapping(value: Any, label: str) -> Mapping[str, Any]:
     return value
 
 
+def _product_response_data(payload: Any, label: str) -> Mapping[str, Any]:
+    payload = _required_mapping(payload, label + " response")
+    data = _required_mapping(payload.get("data"), label + " response data")
+    for container, field in ((payload, "error_code"), (data, "error_code"),
+                             (payload.get("extra", {}), "error_code"),
+                             (payload.get("BaseResp", {}), "StatusCode")):
+        if isinstance(container, Mapping) and container.get(field) not in (None, 0, "0"):
+            raise ProductSyncPayloadError(label + " lookup returned an upstream error code")
+    return data
+
+
 def _normalize_douyin_online_rows(rows: list[Any]) -> tuple[list[dict[str, Any]], int]:
     normalized: list[dict[str, Any]] = []
     skipped_count = 0
@@ -1100,15 +1173,27 @@ def _normalize_douyin_online_rows(rows: list[Any]) -> tuple[list[dict[str, Any]]
         product = product if isinstance(product, Mapping) else {}
         sku_rows: list[Mapping[str, Any]] = []
         single_sku = record.get("sku")
+        if isinstance(single_sku, Mapping) and single_sku and not _optional_text(single_sku.get("sku_id")):
+            raise ProductSyncPayloadError("Inline SKU row requires an exact SKU identity")
         if isinstance(single_sku, Mapping) and single_sku.get("sku_id") not in (None, ""):
             sku_rows.append(single_sku)
         multiple_skus = record.get("skus")
         if isinstance(multiple_skus, list):
-            sku_rows.extend(row for row in multiple_skus if isinstance(row, Mapping))
+            if any(not isinstance(row, Mapping) or not _optional_text(row.get("sku_id")) for row in multiple_skus):
+                raise ProductSyncPayloadError("Inline SKU row requires an exact SKU identity")
+            sku_rows.extend(multiple_skus)
         deduplicated_skus: dict[str, Mapping[str, Any]] = {}
         for sku in sku_rows:
             sku_id = _optional_text(sku.get("sku_id"))
             if sku_id:
+                if sku_id in deduplicated_skus and _canonical_sha256(deduplicated_skus[sku_id]) != _canonical_sha256(sku):
+                    raise ProductSyncPayloadError("Conflicting duplicate inline SKU metadata")
+                product_id = _optional_text(product.get("product_id"))
+                if not product_id or _optional_text(sku.get("product_id")) not in (None, product_id):
+                    raise ProductSyncPayloadError("Inline SKU product identity conflicts")
+                if any(_optional_text(sku.get(field)) not in (None, _optional_text(product.get(field)))
+                       for field in ("owner_account_id", "creator_account_id")):
+                    raise ProductSyncPayloadError("Inline SKU ownership identity conflicts")
                 deduplicated_skus.setdefault(sku_id, sku)
         if not deduplicated_skus:
             if _optional_text(product.get("product_id")):
