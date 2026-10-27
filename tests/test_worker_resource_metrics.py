@@ -13,9 +13,14 @@ GIB = 1024**3
 def test_backend_aweme_export_holds_shared_marker_during_worker_execution(
     monkeypatch,
     tmp_path: Path,
+    db_session,
 ) -> None:
+    from apps.worker import account_qualification
     from apps.worker.browser_exports import active_marker, backend_aweme
 
+    # This test owns the normal export marker; month-end evidence transactions
+    # are exercised separately with their real successful/failed observations.
+    monkeypatch.setattr(account_qualification, "in_automatic_capture_window", lambda _now: False)
     marker = tmp_path / "browser-export.active"
     monkeypatch.setattr(active_marker, "FIXED_BROWSER_EXPORT_ACTIVE_FILE", marker)
     monkeypatch.delenv("BROWSER_EXPORT_ACTIVE_FILE", raising=False)
@@ -35,7 +40,7 @@ def test_backend_aweme_export_holds_shared_marker_during_worker_execution(
     )
 
     result = backend_aweme.run_backend_aweme_export(
-        object(),
+        db_session,
         source_run_id="worker-export",
         workbook_path=tmp_path / "input.xlsx",
     )
@@ -48,9 +53,12 @@ def test_backend_aweme_export_holds_shared_marker_during_worker_execution(
 def test_backend_aweme_export_cleans_shared_marker_after_exception(
     monkeypatch,
     tmp_path: Path,
+    db_session,
 ) -> None:
+    from apps.worker import account_qualification
     from apps.worker.browser_exports import active_marker, backend_aweme
 
+    monkeypatch.setattr(account_qualification, "in_automatic_capture_window", lambda _now: False)
     marker = tmp_path / "browser-export.active"
     monkeypatch.setattr(active_marker, "FIXED_BROWSER_EXPORT_ACTIVE_FILE", marker)
     monkeypatch.setenv("BROWSER_EXPORT_ACTIVE_FILE", str(marker))
@@ -63,7 +71,7 @@ def test_backend_aweme_export_cleans_shared_marker_after_exception(
 
     with pytest.raises(RuntimeError, match="export failed"):
         backend_aweme.run_backend_aweme_export(
-            object(),
+            db_session,
             source_run_id="worker-export",
             workbook_path=tmp_path / "input.xlsx",
         )
