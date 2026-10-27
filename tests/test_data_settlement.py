@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import runpy
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -8,7 +9,8 @@ from pathlib import Path
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 import pytest
-from sqlalchemy import create_engine, func, inspect, select, text
+from account_qualification_fixtures import seed_month_qualification
+from sqlalchemy import create_engine, event, func, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.dy_api import models as dy_models
@@ -39,6 +41,7 @@ from apps.api.dy_api.models import (
 from apps.api.dy_api.rule_utils import normalize_owner_account_name
 import apps.worker.settlement as settlement_worker
 import apps.worker.billing_source_capture as billing_capture
+import apps.worker.historical_sale_attribution as sale_history
 from apps.worker.repositories import (
     upsert_aweme_account,
     upsert_aweme_binding,
@@ -857,6 +860,7 @@ def test_reverification_is_not_zeroed_by_previous_cancellation(db_session: Sessi
     db_session.flush()
     rebuild_dual_fee_results(db_session, calculation_run_id="old-cancel")
     _add_scope_rule(db_session, "2026-10")
+    seed_month_qualification(db_session)
     upsert_verify_record(
         db_session, "verify-coupon-dual" if reuse_verify_id else "verify-again", coupon_id="coupon-dual", verify_status="valid",
         verify_time=_dual_time(10, 10), poi_id="poi-verify", sku_id="sku-dual",
@@ -913,6 +917,7 @@ def test_old_cancellation_does_not_keep_invalid_reverification_current(db_sessio
     db_session.flush()
     rebuild_dual_fee_results(db_session, calculation_run_id="exit-cancel")
     _add_scope_rule(db_session, "2026-10")
+    seed_month_qualification(db_session)
     upsert_verify_record(
         db_session, "exit-new", coupon_id="coupon-dual", verify_status="valid",
         verify_time=_dual_time(10, 10), poi_id="poi-verify", sku_id="sku-dual",
@@ -1019,6 +1024,7 @@ def test_locked_reverification_appends_delta_and_preserves_history(
     db_session.flush()
     rebuild_dual_fee_results(db_session, calculation_run_id="locked-reverify-cancel")
     _add_scope_rule(db_session, "2026-10")
+    seed_month_qualification(db_session)
     verify_id = "verify-coupon-dual" if reuse_verify_id else "locked-new"
     upsert_verify_record(
         db_session, verify_id, coupon_id="coupon-dual", verify_status="valid",
@@ -1472,6 +1478,590 @@ def test_dual_fee_invalid_direct_store_cannot_be_replaced_by_same_name(
 
     assert _fee_result(db_session, "coupon-dual", 1) is None
     assert _fee_result(db_session, "coupon-dual", 2) is None
+
+
+@pytest.mark.parametrize(
+    ("scenario", "reason_code", "failure_node"),
+    [
+        ("direct_inactive", "direct_binding_inactive", "direct_account_validity"),
+        ("direct_expired", "direct_binding_after_valid_to", "direct_account_validity"),
+        ("direct_future", "direct_binding_before_valid_from", "direct_account_validity"),
+        ("direct_missing_sale", "direct_sale_date_missing", "direct_account_validity"),
+        ("direct_store_missing", "direct_store_missing", "direct_store"),
+        ("direct_store_inactive", "direct_store_inactive", "direct_store"),
+        ("direct_raw_inactive", "direct_identity_has_inactive_binding", "binding_identity_statuses"),
+        ("mixed_statuses", "binding_identity_status_conflict", "binding_identity_statuses"),
+        ("direct_store_raw_inactive", "direct_store_bindings_inactive", "direct_store_binding_statuses"),
+        ("candidate_inactive", "candidate_binding_inactive", "candidate_account_validity"),
+        ("candidate_expired", "candidate_binding_after_valid_to", "candidate_account_validity"),
+        ("candidate_future", "candidate_binding_before_valid_from", "candidate_account_validity"),
+        ("candidate_missing_sale", "candidate_sale_date_missing", "candidate_account_validity"),
+        ("candidate_store_conflict", "candidate_store_conflict", "candidate_store_consistency"),
+        ("candidate_unknown_store", "no_valid_store", "unique_valid_store"),
+        ("candidate_inactive_store", "no_valid_store", "unique_valid_store"),
+        ("multiple_stores", "multiple_valid_stores", "unique_valid_store"),
+        ("no_stores", "no_valid_store", "unique_valid_store"),
+        ("resolved", "resolved", None),
+    ],
+)
+def test_dual_fee_sale_diagnostic_identifies_the_actual_rejection_node(
+    db_session: Session, scenario: str, reason_code: str, failure_node: str | None,
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    direct = db_session.get(DimAwemeAccount, order.owner_account_id)
+    assert direct is not None
+    if not scenario.startswith("direct_"):
+        order.owner_account_id = "opaque-order-uid"
+    if scenario == "direct_inactive":
+        direct.binding_status = "已解绑"
+    elif scenario == "direct_expired":
+        direct.valid_to = date(2026, 8, 9)
+    elif scenario == "direct_future":
+        direct.valid_from = date(2026, 8, 11)
+    elif scenario == "direct_missing_sale":
+        direct.valid_from = date(2026, 8, 1)
+        order.sale_time = order.pay_time = None
+    elif scenario == "direct_store_missing":
+        direct.store_id = "missing-store"
+    elif scenario == "direct_store_inactive":
+        db_session.get(dy_models.DimStore, "store-sale").is_active = False
+    elif scenario == "direct_raw_inactive":
+        upsert_aweme_binding(
+            db_session, "direct-inactive", account_id=direct.account_id,
+            douyin_nickname=order.owner_account_name, binding_status="已解绑",
+        )
+    elif scenario == "direct_store_raw_inactive":
+        upsert_aweme_binding(
+            db_session, "direct-store-inactive", account_id="store-sale",
+            douyin_nickname=order.owner_account_name, binding_status="已解绑",
+        )
+    elif scenario != "no_stores":
+        statuses = ("active", "已解绑") if scenario == "mixed_statuses" else ("active",)
+        for status in statuses:
+            upsert_aweme_binding(
+                db_session, f"diagnostic-{status}", account_id=(
+                    "unknown-store" if scenario == "candidate_unknown_store" else "store-sale"
+                ),
+                douyin_id="seller-one", poi_id="poi-sale",
+                douyin_nickname=order.owner_account_name, binding_status=status,
+                raw_payload={"account_type": 1, "private_secret": "never-copy-raw-payload"},
+            )
+        if scenario.startswith("candidate_"):
+            if scenario == "candidate_inactive_store":
+                db_session.get(dy_models.DimStore, "store-sale").is_active = False
+            upsert_aweme_account(
+                db_session, "store-sale", store_id=(
+                    "store-verify" if scenario == "candidate_store_conflict" else "store-sale"
+                ), binding_status="已解绑" if scenario == "candidate_inactive" else "active",
+                valid_to=date(2026, 8, 9) if scenario == "candidate_expired" else None,
+                valid_from=date(2026, 8, 11) if scenario in {
+                    "candidate_future", "candidate_missing_sale",
+                } else None,
+            )
+            if scenario == "candidate_missing_sale":
+                order.sale_time = order.pay_time = None
+        elif scenario == "multiple_stores":
+            upsert_aweme_binding(
+                db_session, "another-store", account_id="store-verify",
+                douyin_nickname=order.owner_account_name, binding_status="active",
+            )
+    db_session.flush()
+
+    diagnostic = settlement_worker.diagnose_dual_fee_sale_account(db_session, order)
+
+    assert diagnostic.reason_code == reason_code
+    assert diagnostic.failure_node == failure_node
+    assert diagnostic.match == settlement_worker._resolve_dual_fee_sale_account(db_session, order)
+    assert (diagnostic.match is not None) == (scenario == "resolved")
+    context = diagnostic.as_context()
+    assert context["reason_code"] == reason_code
+    assert "never-copy-raw-payload" not in json.dumps(context)
+    if scenario == "mixed_statuses":
+        assert {row["binding_status"] for row in context["raw_bindings"]} == {"active", "已解绑"}
+        assert context["failure_evidence"] == {
+            "account_id": "store-sale", "douyin_id": "seller-one", "poi_id": "poi-sale",
+            "account_type": "1", "active_values": [False, True],
+        }
+    if scenario == "multiple_stores":
+        assert set(context["valid_store_ids"]) == {"store-sale", "store-verify"}
+    if scenario in {"candidate_unknown_store", "candidate_inactive_store"}:
+        assert context["candidates"][0]["reason_code"] == (
+            "candidate_store_missing" if scenario == "candidate_unknown_store" else "candidate_store_inactive"
+        )
+
+
+def test_dual_fee_sale_diagnostic_bounds_context_but_retains_the_failure_identity(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    order.owner_account_id = "opaque-order-uid"
+    for index in range(51):
+        upsert_aweme_binding(
+            db_session, f"unrelated-{index}", account_id="store-sale",
+            douyin_id=f"seller-{index}", douyin_nickname=order.owner_account_name,
+            binding_status="active",
+        )
+    for status in ("active", "已解绑"):
+        upsert_aweme_binding(
+            db_session, f"conflict-{status}", account_id="store-sale",
+            douyin_id="failing-identity", douyin_nickname=order.owner_account_name,
+            binding_status=status,
+        )
+    db_session.flush()
+
+    diagnostic = settlement_worker.diagnose_dual_fee_sale_account(db_session, order)
+    context = diagnostic.as_context()
+
+    assert diagnostic.reason_code == "binding_identity_status_conflict"
+    assert context["raw_binding_count"] == 53
+    assert len(context["raw_bindings"]) == 50
+    assert context["evidence_truncated"] is True
+    assert context["failure_evidence"]["douyin_id"] == "failing-identity"
+
+
+def test_dual_fee_sale_diagnostic_is_read_only_and_does_not_autoflush(db_session: Session) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    db_session.flush()
+    order.product_name = "pending unrelated source edit"
+    statements: list[str] = []
+    connection = db_session.connection()
+
+    def capture_write(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().lower().startswith(("insert", "update", "delete")):
+            statements.append(statement)
+
+    event.listen(connection, "before_cursor_execute", capture_write)
+    original_autoflush = db_session.autoflush
+    try:
+        # Enable the ordinary Session default to prove diagnostic reads suppress it.
+        db_session.autoflush = True
+        diagnostic = settlement_worker.diagnose_dual_fee_sale_account(db_session, order)
+    finally:
+        db_session.autoflush = original_autoflush
+        event.remove(connection, "before_cursor_execute", capture_write)
+
+    assert diagnostic.match is not None
+    assert statements == []
+    assert order in db_session.dirty
+
+
+@pytest.mark.parametrize("source", ["account", "binding"])
+@pytest.mark.parametrize("autoflush", [False, True])
+def test_dual_fee_resolver_preserves_session_autoflush_for_pending_sources(
+    db_session: Session, source: str, autoflush: bool,
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    order.owner_account_id = "pending-owner"
+    db_session.flush()
+    pending = (
+        DimAwemeAccount(
+            account_id="pending-owner", store_id="store-sale", binding_status="active",
+        ) if source == "account" else dy_models.RawAwemeBinding(
+            binding_key="pending-binding", account_id="store-sale",
+            douyin_nickname=order.owner_account_name, binding_status="active",
+        )
+    )
+    db_session.add(pending)
+    original_autoflush = db_session.autoflush
+    try:
+        db_session.autoflush = autoflush
+        diagnostic = settlement_worker.diagnose_dual_fee_sale_account(db_session, order)
+        assert diagnostic.match is None
+        assert pending in db_session.new
+
+        match = settlement_worker._resolve_dual_fee_sale_account(db_session, order)
+
+        assert (match is not None) is autoflush
+        if autoflush:
+            assert match.store_id == "store-sale"
+        assert (pending in db_session.new) is not autoflush
+        assert db_session.autoflush is autoflush
+    finally:
+        db_session.autoflush = original_autoflush
+
+
+@pytest.mark.parametrize("source", ["account", "binding"])
+def test_dual_fee_materialization_keeps_pending_source_autoflush(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch, source: str,
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    order.owner_account_id = "pending-owner"
+    db_session.flush()
+    original_lookup = settlement_worker.resolve_historical_sale_attribution
+    pending_added = False
+
+    def add_source_after_historical_lookup(session, **kwargs):
+        nonlocal pending_added
+        decision = original_lookup(session, **kwargs)
+        if not pending_added:
+            pending_added = True
+            session.add(
+                DimAwemeAccount(
+                    account_id="pending-owner", store_id="store-sale", binding_status="active",
+                ) if source == "account" else dy_models.RawAwemeBinding(
+                    binding_key="pending-binding", account_id="store-sale",
+                    douyin_nickname=order.owner_account_name, binding_status="active",
+                )
+            )
+        return decision
+
+    monkeypatch.setattr(
+        settlement_worker, "resolve_historical_sale_attribution", add_source_after_historical_lookup,
+    )
+    original_autoflush = db_session.autoflush
+    try:
+        db_session.autoflush = True
+        rebuild_dual_fee_results(db_session, calculation_run_id="pending-source-autoflush")
+    finally:
+        db_session.autoflush = original_autoflush
+
+    assert pending_added
+    assert _fee_result(db_session, "coupon-dual", 1) is not None
+    assert _fee_result(db_session, "coupon-dual", 2) is not None
+    assert not list(db_session.scalars(select(DataQualityIssue).where(
+        DataQualityIssue.issue_type == "dual_fee_missing_sale_store",
+    )))
+
+
+def test_dual_fee_missing_sale_store_persists_specific_diagnostic(db_session: Session) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    order.owner_account_id = "opaque-order-uid"
+    for status in ("active", "已解绑"):
+        upsert_aweme_binding(
+            db_session, f"dq-{status}", account_id="store-sale", douyin_id="seller-one",
+            douyin_nickname=order.owner_account_name, binding_status=status,
+        )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="diagnostic-dq")
+
+    issues = list(db_session.scalars(select(DataQualityIssue).where(
+        DataQualityIssue.issue_type == "dual_fee_missing_sale_store",
+    )))
+    assert issues
+    for issue in issues:
+        diagnostic = issue.raw_context_json["sale_attribution_diagnostic"]
+        assert diagnostic["reason_code"] == "binding_identity_status_conflict"
+        assert diagnostic["failure_node"] == "binding_identity_statuses"
+    assert _fee_result(db_session, "coupon-dual", 1) is None
+    assert _fee_result(db_session, "coupon-dual", 2) is None
+
+
+def _load_openapi_sale_binding_fixture(db_session: Session):
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    order.owner_account_id = "craftsman-exact"
+    # A changed nickname must not prevent an exact source UID match.
+    order.owner_account_name = "Earlier seller nickname"
+    instant = int(settlement_worker._as_utc(order.sale_time).timestamp())
+    payload = {
+        "craftsman_uid": "craftsman-exact", "account_id": "merchant-account",
+        "poi_id": "poi-api-sale", "bind_status": 2,
+        "bind_start_time": instant - 60, "bind_end_time": instant + 60,
+        "real_name": "never-copy-private-source",
+    }
+    binding = upsert_aweme_binding(
+        db_session, "craftsman-exact:dy-api-sale:poi-api-sale",
+        account_id="craftsman-exact", douyin_id="dy-api-sale",
+        douyin_nickname="Current seller nickname", poi_id="poi-api-sale",
+        binding_status="2", raw_payload=payload,
+    )
+    upsert_store_poi_mapping(db_session, "store-sale", "poi-api-sale", mapping_source="test")
+    db_session.flush()
+    return order, binding
+
+
+@pytest.mark.parametrize("status", [2, 105, 5, "105"])
+@pytest.mark.parametrize("unit", ["seconds", "milliseconds"])
+def test_openapi_sale_fallback_uses_exact_uid_covering_interval_and_poi(
+    db_session: Session, status: int | str, unit: str,
+) -> None:
+    order, binding = _load_openapi_sale_binding_fixture(db_session)
+    # The inclusive point interval is compared as an instant, not a calendar day.
+    order.sale_time = datetime(2026, 8, 11, 0, 0, 0, 123000, tzinfo=timezone(timedelta(hours=8)))
+    instant = int(settlement_worker._as_utc(order.sale_time).timestamp())
+    boundary = instant * 1000 + 123 if unit == "milliseconds" else instant
+    if unit == "seconds":
+        order.sale_time = order.sale_time.replace(microsecond=0)
+    binding.binding_status = str(status)
+    binding.raw_payload = {
+        **binding.raw_payload, "bind_status": status,
+        "bind_start_time": str(boundary), "bind_end_time": boundary,
+    }
+    db_session.flush()
+
+    diagnostic = settlement_worker.diagnose_dual_fee_sale_account(db_session, order)
+
+    assert diagnostic.match is not None
+    assert diagnostic.match.account_id == order.owner_account_id
+    assert diagnostic.match.store_id == "store-sale"
+    assert diagnostic.match.match_source == "openapi_binding_interval"
+    assert diagnostic.reason_code == "resolved_openapi_binding_interval"
+    context = diagnostic.as_context()
+    assert context["openapi_bindings"][0]["reason_code"] == "valid_openapi_candidate"
+    assert "never-copy-private-source" not in json.dumps(context)
+
+
+@pytest.mark.parametrize(
+    ("case", "reason_code"),
+    [
+        ("missing_sale_time", "openapi_sale_time_missing"),
+        ("missing_start", "openapi_interval_missing"),
+        ("missing_end", "openapi_interval_missing"),
+        ("zero", "openapi_interval_invalid"),
+        ("negative", "openapi_interval_invalid"),
+        ("bool", "openapi_interval_invalid"),
+        ("float", "openapi_interval_invalid"),
+        ("text", "openapi_interval_invalid"),
+        ("overflow", "openapi_interval_invalid"),
+        ("huge_text", "openapi_interval_invalid"),
+        ("reverse", "openapi_interval_invalid"),
+        ("before_start", "openapi_sale_outside_interval"),
+        ("after_end", "openapi_sale_outside_interval"),
+        ("payload_uid_mismatch", "openapi_source_identity_mismatch"),
+        ("payload_poi_mismatch", "openapi_source_identity_mismatch"),
+        ("payload_status_mismatch", "openapi_source_status_mismatch"),
+        ("settlement_id_mismatch", "openapi_source_identity_mismatch"),
+        ("unverified_source_key", "openapi_source_unverified"),
+        ("missing_craftsman_uid", "no_valid_store"),
+        ("different_owner_uid", "no_valid_store"),
+        ("pending", "openapi_binding_status_ineligible"),
+        ("disabled", "openapi_binding_status_ineligible"),
+        ("unknown_status", "openapi_binding_status_ineligible"),
+        ("missing_mapping", "openapi_poi_mapping_missing"),
+        ("inactive_store", "openapi_store_inactive"),
+        ("multiple_bindings", "openapi_multiple_bindings"),
+        ("multiple_stores", "openapi_multiple_stores"),
+    ],
+)
+def test_openapi_sale_fallback_fails_closed_without_exact_historical_evidence(
+    db_session: Session, case: str, reason_code: str,
+) -> None:
+    order, binding = _load_openapi_sale_binding_fixture(db_session)
+    payload = dict(binding.raw_payload)
+    instant = int(settlement_worker._as_utc(order.sale_time).timestamp())
+    if case == "missing_sale_time":
+        order.sale_time = order.pay_time = None
+    elif case in {"missing_start", "missing_end"}:
+        payload.pop("bind_start_time" if case == "missing_start" else "bind_end_time")
+    elif case in {"zero", "negative", "bool", "float", "text", "overflow", "huge_text"}:
+        payload["bind_start_time"] = {
+            "zero": 0, "negative": -1, "bool": True, "float": 1.5,
+            "text": "not-a-time", "overflow": 10 ** 30, "huge_text": "9" * 5000,
+        }[case]
+    elif case == "reverse":
+        payload["bind_start_time"], payload["bind_end_time"] = instant + 1, instant - 1
+    elif case == "before_start":
+        payload["bind_start_time"] = instant + 1
+    elif case == "after_end":
+        payload["bind_end_time"] = instant - 1
+    elif case == "payload_uid_mismatch":
+        payload["craftsman_uid"] = "different-craftsman"
+    elif case == "payload_poi_mismatch":
+        payload["poi_id"] = "different-poi"
+    elif case == "payload_status_mismatch":
+        payload["bind_status"] = 105
+    elif case == "settlement_id_mismatch":
+        payload["account_id_for_settlement"] = "different-canonical-id"
+    elif case == "unverified_source_key":
+        binding.binding_key = "backend-style:with-status:2"
+    elif case == "missing_craftsman_uid":
+        payload.pop("craftsman_uid")
+    elif case == "different_owner_uid":
+        order.owner_account_id = "different-order-owner"
+        binding.douyin_nickname = order.owner_account_name
+    elif case in {"pending", "disabled", "unknown_status"}:
+        status = {"pending": 1, "disabled": 106, "unknown_status": 99}[case]
+        binding.binding_status = str(status)
+        payload["bind_status"] = status
+    elif case == "missing_mapping":
+        mapping = db_session.scalar(select(dy_models.DimStorePoiMapping).where(
+            dy_models.DimStorePoiMapping.poi_id == binding.poi_id,
+        ))
+        db_session.delete(mapping)
+    elif case == "inactive_store":
+        db_session.get(dy_models.DimStore, "store-sale").is_active = False
+    elif case in {"multiple_bindings", "multiple_stores"}:
+        second_poi = "poi-api-other" if case == "multiple_stores" else binding.poi_id
+        if case == "multiple_stores":
+            upsert_store_poi_mapping(db_session, "store-verify", second_poi, mapping_source="test")
+        second_payload = {**payload, "poi_id": second_poi}
+        if case == "multiple_bindings":
+            second_payload["bind_start_time"] -= 1
+        upsert_aweme_binding(
+            db_session, f"craftsman-exact:second-douyin:{second_poi}",
+            account_id=order.owner_account_id, douyin_id="second-douyin", poi_id=second_poi,
+            binding_status="2", douyin_nickname="Another current nickname",
+            raw_payload=second_payload,
+        )
+    binding.raw_payload = payload
+    db_session.flush()
+
+    diagnostic = settlement_worker.diagnose_dual_fee_sale_account(db_session, order)
+
+    assert diagnostic.match is None
+    assert diagnostic.reason_code == reason_code
+    assert settlement_worker._resolve_dual_fee_sale_account(db_session, order) is None
+
+
+@pytest.mark.parametrize("guard", ["direct_inactive", "direct_expired", "mixed_statuses", "legacy_one", "legacy_multiple"])
+def test_openapi_sale_fallback_preserves_existing_hard_guards_and_candidates(
+    db_session: Session, guard: str,
+) -> None:
+    order, _binding = _load_openapi_sale_binding_fixture(db_session)
+    if guard.startswith("direct_"):
+        upsert_aweme_account(
+            db_session, order.owner_account_id, store_id="store-sale",
+            binding_status="inactive" if guard == "direct_inactive" else "active",
+            valid_to=date(2026, 8, 9) if guard == "direct_expired" else None,
+        )
+    else:
+        rows = [("store-verify", "active")]
+        if guard == "mixed_statuses":
+            rows.append(("store-verify", "unbound"))
+        elif guard == "legacy_multiple":
+            rows.append(("store-sale", "active"))
+        for store_id, status in rows:
+            upsert_aweme_binding(
+                db_session, f"legacy-{store_id}-{status}", account_id=store_id,
+                douyin_nickname=order.owner_account_name, binding_status=status,
+            )
+    db_session.flush()
+
+    diagnostic = settlement_worker.diagnose_dual_fee_sale_account(db_session, order)
+
+    if guard == "legacy_one":
+        assert diagnostic.match is not None and diagnostic.match.store_id == "store-verify"
+        assert diagnostic.match.match_source == "raw_aweme_bindings"
+    else:
+        assert diagnostic.match is None
+        assert diagnostic.reason_code == {
+            "direct_inactive": "direct_binding_inactive",
+            "direct_expired": "direct_binding_after_valid_to",
+            "mixed_statuses": "binding_identity_status_conflict",
+            "legacy_multiple": "multiple_valid_stores",
+        }[guard]
+
+
+@pytest.mark.parametrize("difference", ["none", "interval", "status", "poi", "invalid_peer"])
+def test_openapi_sale_fallback_deduplicates_only_identical_validated_facts(
+    db_session: Session, difference: str,
+) -> None:
+    order, binding = _load_openapi_sale_binding_fixture(db_session)
+    payload = dict(binding.raw_payload)
+    second_poi = binding.poi_id
+    second_status = "2"
+    if difference == "interval":
+        payload["bind_start_time"] -= 1
+    elif difference == "status":
+        payload["bind_status"] = 105
+        second_status = "105"
+    elif difference == "poi":
+        second_poi = payload["poi_id"] = "different-poi-same-store"
+        upsert_store_poi_mapping(db_session, "store-sale", second_poi, mapping_source="test")
+    elif difference == "invalid_peer":
+        payload["bind_end_time"] = 0
+    upsert_aweme_binding(
+        db_session, f"craftsman-exact:old-douyin-alias:{second_poi}",
+        account_id=order.owner_account_id, douyin_id="old-douyin-alias",
+        poi_id=second_poi, binding_status=second_status,
+        douyin_nickname="Previous name", raw_payload=payload,
+    )
+    db_session.flush()
+
+    diagnostic = settlement_worker.diagnose_dual_fee_sale_account(db_session, order)
+
+    if difference == "none":
+        assert diagnostic.match is not None
+        assert diagnostic.match.store_id == "store-sale"
+        assert diagnostic.reason_code == "resolved_openapi_binding_interval"
+        evidence = diagnostic.as_context()["openapi_bindings"]
+        assert len(evidence) == 2
+        assert len({row["binding_key"] for row in evidence}) == 2
+        assert len({row["canonical_fact_sha256"] for row in evidence}) == 1
+    else:
+        assert diagnostic.match is None
+        assert diagnostic.reason_code == (
+            "openapi_interval_invalid" if difference == "invalid_peer" else "openapi_multiple_bindings"
+        )
+
+
+def test_openapi_sale_fallback_rejects_ambiguous_poi_mapping(db_session: Session, monkeypatch) -> None:
+    order, _binding = _load_openapi_sale_binding_fixture(db_session)
+    original_scalars = db_session.scalars
+
+    def conflicting_mapping(statement, *args, **kwargs):
+        if statement.column_descriptions[0].get("entity") is dy_models.DimStorePoiMapping:
+            return iter(["store-sale", "store-verify"])
+        return original_scalars(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db_session, "scalars", conflicting_mapping)
+    diagnostic = settlement_worker.diagnose_dual_fee_sale_account(db_session, order)
+    assert diagnostic.match is None
+    assert diagnostic.reason_code == "openapi_poi_mapping_ambiguous"
+
+
+def test_openapi_sale_fallback_reads_without_changing_binding_or_permissions(db_session: Session) -> None:
+    order, binding = _load_openapi_sale_binding_fixture(db_session)
+    before = dict(binding.raw_payload)
+    statements = []
+
+    def watch(_conn, _cursor, statement, _params, _context, _executemany):
+        if statement.lstrip().lower().startswith(("insert", "update", "delete")):
+            statements.append(statement)
+
+    connection = db_session.connection()
+    event.listen(connection, "before_cursor_execute", watch)
+    try:
+        diagnostic = settlement_worker.diagnose_dual_fee_sale_account(db_session, order)
+    finally:
+        event.remove(connection, "before_cursor_execute", watch)
+
+    assert diagnostic.match is not None
+    assert statements == []
+    assert binding.raw_payload == before
+    assert db_session.get(DimAwemeAccount, order.owner_account_id) is None
+    assert not db_session.new and not db_session.dirty
+
+
+def test_openapi_sale_fallback_materializes_fees_and_keeps_historical_decision_priority(
+    db_session: Session, monkeypatch,
+) -> None:
+    order, _binding = _load_openapi_sale_binding_fixture(db_session)
+    rebuild_dual_fee_results(db_session, calculation_run_id="openapi-interval-fees")
+    assert _fee_result(db_session, "coupon-dual", 1).sale_store_id == "store-sale"
+    assert _fee_result(db_session, "coupon-dual", 2).sale_store_id == "store-sale"
+
+    coupon = db_session.scalar(select(RawDouyinOrderCoupon))
+    verify = settlement_worker._select_valid_verify_record(db_session, coupon.coupon_id)
+    identity = sale_history._live_identity(order, coupon, verify, "store-verify")
+    sale_history.import_decisions(db_session, {
+        "batch_id": "synthetic-history-priority", "actor": "synthetic-operator",
+        "evidence_sha256": "a" * 64,
+        "approval_evidence": {"issue": "DYDATA-104", "approval": "synthetic review"},
+        "rows": [{**identity, "approved_business_months": ["2026-09"]}],
+    }, apply=True)
+
+    def reject_ordinary_lookup(*args, **kwargs):
+        raise AssertionError("a historical decision must precede all ordinary attribution")
+
+    monkeypatch.setattr(settlement_worker, "_diagnose_dual_fee_sale_account", reject_ordinary_lookup)
+    rebuild_dual_fee_results(db_session, calculation_run_id="openapi-history-priority")
+    assert _fee_result(db_session, "coupon-dual", 1).sale_store_id == "store-verify"
+    assert _fee_result(db_session, "coupon-dual", 2).sale_store_id == "store-verify"
 
 
 def test_newer_inactive_fee_rule_suppresses_older_active_rule(

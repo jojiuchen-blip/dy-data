@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import re
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from io import StringIO
 from pathlib import Path
 from uuid import uuid4
@@ -28,6 +29,7 @@ from dy_api.models import (
     RawDouyinOrder, RawDouyinOrderCoupon, RawDouyinVerifyRecord,
     SettlementFeeAdjustment, SettlementFeeResult, SettlementFeeResultCurrent,
     SettlementStatement, SettlementStatementConfirmation, StoreFinanceProfile,
+    SettlementStatementEntry, SettlementStatementLine,
 )
 from publication_fixture_helpers import publish_fixture
 
@@ -234,13 +236,16 @@ def test_remaining_import_list_filters_and_nested_error_reversal_pagination(
         page.goto(vite_live_admin_api_base_url + "/finance/imports?month=2026-09&importType=BASIC_INFO")
         page.get_by_role("button", name=invalid["batchId"], exact=True).click()
         panel = page.locator(".finance-import-detail")
-        errors_nav = panel.get_by_role("navigation", name="表格分页")
+        errors_nav = panel.locator(':scope > nav[aria-label="表格分页"]')
+        expect(errors_nav).to_have_count(1)
+        frozen_nav = panel.get_by_role("region", name="逐行字段预览", exact=True).get_by_role("navigation", name="表格分页")
         error_detail = context.request.get(live_admin_fastapi_base_url + f"/api/v1/admin/finance-imports/{invalid['batchId']}").json()["data"]
         errors_total = error_detail["errors"]["total"]
         exercise_pagination(errors_nav, errors_total)
         errors_nav.get_by_label("每页条数", exact=True).click()
         page.get_by_role("option", name="每页 20 条", exact=True).click()
         exercise_pagination(errors_nav, errors_total, size=20)
+        expect(frozen_nav).to_contain_text("第 1 / 2 页")
         with page.expect_download() as downloaded:
             panel.get_by_role("button", name="下载全部错误", exact=True).click()
         assert len(list(csv.DictReader(StringIO(Path(downloaded.value.path()).read_bytes().decode("utf-8-sig"))))) == errors_total
@@ -260,11 +265,13 @@ def test_remaining_import_list_filters_and_nested_error_reversal_pagination(
         with page.expect_response(lambda response: response.request.method == "POST" and response.url.endswith("/reversals")) as reversed_response:
             panel.get_by_role("button", name="撤销批次", exact=True).click()
         assert reversed_response.value.status == 200, reversed_response.value.text()
-        lineage_nav = panel.get_by_role("navigation", name="表格分页")
+        lineage_nav = panel.locator(':scope > nav[aria-label="表格分页"]')
+        expect(lineage_nav).to_have_count(1)
         exercise_pagination(lineage_nav, 61)
         lineage_nav.get_by_label("每页条数", exact=True).click()
         page.get_by_role("option", name="每页 20 条", exact=True).click()
         exercise_pagination(lineage_nav, 61, size=20)
+        expect(panel.get_by_role("region", name="逐行字段预览", exact=True).get_by_role("navigation", name="表格分页")).to_contain_text("第 1 / 2 页")
         with factory() as session:
             original_rows = list(session.scalars(select(FinanceImportRow).where(FinanceImportRow.batch_id == valid["batchId"])))
             assert len(original_rows) == 61
@@ -297,6 +304,35 @@ def test_remaining_status_pagination_and_real_terminated_candidate_recovery(
                 store_name_snapshot=store_id, sap_code_snapshot="R105SAP", store_snapshot_status="LIVE_CAPTURED"))
             session.add(SettlementStatementConfirmation(confirmation_id=store_id, statement_id=store_id,
                 fee_direction=1, confirmation_status=1, confirmed_amount_cent=amount, confirmed_by="synthetic", confirmed_at=NOW))
+            source_id = f"{store_id}-fee-1"
+            line_id = f"{store_id}-line-1"
+            base = amount * 10
+            session.add(SettlementFeeResult(
+                fee_result_id=source_id, coupon_id=source_id, order_id=source_id,
+                fee_direction=1, result_version=1, original_business_month="2026-09",
+                rule_match_date=date(2026, 9, 20), sale_store_id=store_id, verify_store_id=store_id,
+                sku_id=source_id, product_scope="精诚养车", product_type="养车服务", sale_channel_normalized="LIVE",
+                source_amount_cent=base, refunded_amount_cent=0, fee_base_cent=base,
+                fee_rate=Decimal("0.1"), fee_amount_cent=amount, rule_version="resume-fixture-v1",
+                scope_rule_version="resume-scope-v1", result_status=1, calculation_run_id=source_id, calculated_at=NOW,
+            ))
+            session.add(SettlementFeeResultCurrent(coupon_id=source_id, fee_direction=1, fee_result_id=source_id))
+            session.add(SettlementStatementLine(
+                statement_line_id=line_id, statement_id=store_id, fee_direction=1,
+                product_scope="精诚养车", product_type="养车服务", original_entry_count=1,
+                adjustment_entry_count=0, original_base_cent=base, adjustment_base_cent=0,
+                net_base_cent=base, original_fee_cent=amount, adjustment_fee_cent=0, net_fee_cent=amount,
+            ))
+            session.add(SettlementStatementEntry(
+                statement_entry_id=f"{store_id}-entry-1", statement_id=store_id, statement_line_id=line_id,
+                source_type=1, source_record_id=source_id, original_fee_result_id=source_id,
+                coupon_id=source_id, order_id=source_id, fee_direction=1,
+                original_business_month="2026-09", statement_posting_month="2026-09",
+                product_scope="精诚养车", product_type="养车服务", base_amount_cent=base,
+                fee_amount_cent=amount, rule_version="resume-fixture-v1",
+                received_amount_cent_snapshot=base, fee_rate_snapshot=Decimal("0.1"),
+                sale_store_id_snapshot=store_id, verify_store_id_snapshot=store_id,
+            ))
         for index in (61,):
             is_resume = index == 61
             key = f"R105-P-{index:03d}"

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type DependencyList } from "react";
 import { ApiRequestError, type ApiLoadResult } from "../api/client";
 import { useDashboardPublication } from "./PublicationContext";
-import { isPublicationPeriodNotReady, PUBLICATION_PERIOD_NOT_READY_TEXT } from "../utils/apiErrors";
+import { isPublicationNotReady, isPublicationPeriodNotReady, PUBLICATION_NOT_READY_TEXT, PUBLICATION_PERIOD_NOT_READY_TEXT } from "../utils/apiErrors";
 
 interface PublishedState<T> {
   data?: ApiLoadResult<T>;
@@ -95,9 +95,9 @@ export function usePublishedResource<T>(
         403: "当前账号没有查看此分析结果的权限。",
         410: "原结果版本已过期，请读取最新结果。",
         422: "筛选条件不正确，请调整后重试。",
-        503: "发布结果暂不可用，请稍后重试；后台会继续准备数据。",
+        503: "发布结果读取失败，请稍后重试。",
       };
-      const message = isPublicationPeriodNotReady(error) ? PUBLICATION_PERIOD_NOT_READY_TEXT : error instanceof ApiRequestError
+      const message = isPublicationPeriodNotReady(error) ? PUBLICATION_PERIOD_NOT_READY_TEXT : isPublicationNotReady(error) ? PUBLICATION_NOT_READY_TEXT : error instanceof ApiRequestError
         ? statusMessages[error.status] ?? "发布结果读取失败，请稍后重试。"
         : error instanceof TypeError ? "网络连接异常，请检查后重试。"
         : "发布结果或版本信息暂不可用，请读取最新结果。";

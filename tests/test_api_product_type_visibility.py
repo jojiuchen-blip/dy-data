@@ -18,6 +18,7 @@ from apps.api.dy_api.models import (  # noqa: E402
     ClueAssignmentRound,
     ClueCenterOrder,
     DimSkuProductRule,
+    ProductTypeVisibilitySetting,
     DimStore,
     SettlementOrderDetail,
     User,
@@ -371,7 +372,7 @@ def test_legacy_visibility_setting_no_longer_hides_settlement_or_clue_data(
     assert clue_filters.status_code == 200
     assert set(clue_filters.json()["data"]["product_types"]) == {
         JINGCHENG_PRODUCT,
-        "比亚迪本品",
+        HIDDEN_PRODUCT,
     }
     assert clue_filters.json()["data"]["default_product_type"] == "all"
 
@@ -390,7 +391,7 @@ def test_legacy_visibility_setting_no_longer_hides_settlement_or_clue_data(
     assert hidden_detail.status_code == 200
 
 
-def test_product_type_visibility_returns_and_saves_product_scopes(
+def test_legacy_visibility_ignores_scope_payload_and_preserves_stored_scope(
     client: TestClient, db_session: Session
 ) -> None:
     db_session.merge(
@@ -403,6 +404,10 @@ def test_product_type_visibility_returns_and_saves_product_scopes(
             is_service_product=True,
         )
     )
+    db_session.add(ProductTypeVisibilitySetting(
+        setting_key="global", enabled=False, visible_product_scopes=["保留内部范围"],
+        visible_product_types=[], default_product_type="all",
+    ))
     db_session.commit()
     _login_admin(client)
 
@@ -410,8 +415,8 @@ def test_product_type_visibility_returns_and_saves_product_scopes(
 
     assert initial.status_code == 200
     data = initial.json()["data"]
-    assert "精诚养车" in data["available_product_scopes"]
-    assert data["product_scope_type_map"]["精诚养车"] == ["268保养"]
+    assert data["available_product_scopes"] == []
+    assert data["product_scope_type_map"] == {}
 
     saved = client.put(
         "/api/v1/admin/product-type-visibility",
@@ -425,9 +430,11 @@ def test_product_type_visibility_returns_and_saves_product_scopes(
 
     assert saved.status_code == 200
     saved_data = saved.json()["data"]
-    assert saved_data["visible_product_scopes"] == ["精诚养车"]
+    assert saved_data["visible_product_scopes"] == []
     assert saved_data["visible_product_types"] == ["268保养"]
     assert saved_data["default_product_type"] == "268保养"
+    db_session.expire_all()
+    assert db_session.get(ProductTypeVisibilitySetting, "global").visible_product_scopes == ["保留内部范围"]
 
 
 def test_product_type_visibility_requires_admin(

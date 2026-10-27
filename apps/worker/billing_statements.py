@@ -23,6 +23,7 @@ from apps.api.dy_api.models import (
     SettlementStatementConfirmation, SettlementStatementEntry, SettlementStatementLine,
 )
 from apps.worker.projection_lineage import resolve_projection_partitions
+from apps.worker.protected_billing_authority import is_protected_statement
 from apps.worker.settlement import (
     StatementSource, _apply_and_validate_statement_totals, _lock_settlement_slot,
     _projection_dimensions, _stable_business_id,
@@ -194,21 +195,7 @@ def _audit_outcome(session: Session, generation_id: str, source_job_id: str | No
 
 
 def _protected(session: Session, statement: SettlementStatement) -> bool:
-    if statement.statement_status in (3, 4) or statement.confirmed_at or statement.locked_at:
-        return True
-    checks = (
-        select(SettlementDispute.id).where(
-            SettlementDispute.store_id == statement.store_id,
-            SettlementDispute.statement_month == statement.statement_month,
-            (SettlementDispute.status.in_((1, 2, 3, 4))) | SettlementDispute.result_statement_id.is_not(None),
-        ),
-        select(SettlementStatementConfirmation.id).where(SettlementStatementConfirmation.statement_id == statement.statement_id),
-        select(PromotionInvoiceAllocation.id).where(PromotionInvoiceAllocation.store_id == statement.store_id,
-                                                  PromotionInvoiceAllocation.statement_month == statement.statement_month),
-        select(InvoiceRecord.id).where(InvoiceRecord.store_id == statement.store_id,
-                                      InvoiceRecord.statement_month == statement.statement_month),
-    )
-    return any(session.scalar(query.limit(1)) is not None for query in checks)
+    return is_protected_statement(session, statement)
 
 
 def _validate_projection(rows: Sequence[StatementSource], projected: Sequence[SettlementMonthlyOverlay]) -> None:

@@ -12,6 +12,7 @@ import { FieldInput } from "../components/FormControls";
 import { ResourceNotice } from "../components/ResourceState";
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
 import { TablePagination } from "../components/TablePagination";
+import { FinanceImportPreviewTable } from "../components/FinanceImportPreviewTable";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
   FinanceImportBatchRow,
@@ -197,6 +198,7 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
           <ResourceNotice loading={detailResource.loading} error={detailResource.error} />
           {detail ? <>
             <div className="finance-import-summary"><span>场景<strong>{displayFinanceImportScenario(detail.scenario)}</strong></span><span>成功<strong>{detail.successRows}</strong></span><span>错误<strong>{detail.errorRows}</strong></span><span>版本<strong>V{detail.readVersion} / V{detail.currentVersion}</strong></span></div>
+            <FinanceImportPreviewTable key={detail.batchId} batchId={detail.batchId} />
             {detail.reversesBatchId ? <p>本批次用于撤销：<strong>{detail.reversesBatchId}</strong></p> : null}
             {detail.reversedByBatchId ? <p>本批次已由以下批次撤销：<strong>{detail.reversedByBatchId}</strong></p> : null}
             <p>覆盖链：{detail.reversalChain.join(" → ")}</p>

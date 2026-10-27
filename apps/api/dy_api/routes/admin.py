@@ -1146,6 +1146,7 @@ def list_sku_rules(
     page_size: int = Query(default=500, ge=1, le=1000),
     q: str | None = None,
     product_scope: str | None = None,
+    product_type: str | None = None,
     _username: str = Depends(get_current_admin),
     store=Depends(get_data_store),
 ):
@@ -1155,7 +1156,7 @@ def list_sku_rules(
             page=page,
             page_size=page_size,
             q=q,
-            product_scope=product_scope,
+            product_type=product_type,
         )
     )
     return {
@@ -1186,24 +1187,26 @@ def update_sku_rules(
 ):
     store = _require_available_store(store)
     rules = [dump_model(rule) for rule in payload.rules]
-    updated_count = store.upsert_sku_rules(rules)
-    job_id = f"admin-sku-rules-{uuid4().hex[:12]}"
-    queue_job_run(
-        store.session,
-        job_id,
-        "settlement_rebuild",
-        metadata_json={
-            "source_run_id": job_id,
-            "trigger": "admin_sku_rules",
-            "updated_rule_count": updated_count,
-        },
-    )
+    updated_count, requires_rebuild = store.upsert_sku_rules(rules, updated_by=_username)
+    job_id = None
+    if requires_rebuild:
+        job_id = f"admin-sku-rules-{uuid4().hex[:12]}"
+        queue_job_run(
+            store.session,
+            job_id,
+            "settlement_rebuild",
+            metadata_json={
+                "source_run_id": job_id,
+                "trigger": "admin_sku_rules",
+                "updated_rule_count": updated_count,
+            },
+        )
     # Make both the rule and its durable queue record visible to the worker.
     store.session.commit()
     data = SkuRuleBulkUpdateResult(
         updated_count=updated_count,
         job_id=job_id,
-        rebuild_status="queued",
+        rebuild_status="queued" if requires_rebuild else "not_required",
     )
     return {
         "data": dump_model(data),

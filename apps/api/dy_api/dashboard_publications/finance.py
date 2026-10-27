@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import (
     JSON, BigInteger, Boolean, Column, ForeignKey, Index, Integer, String,
-    Table, Text, and_, case, func, insert, or_, select, text,
+    Table, Text, and_, case, func, insert, literal, or_, select, text,
 )
 from sqlalchemy.orm import Session
 
@@ -41,6 +41,7 @@ SUMMARY_METRICS = (
 )
 COMMON_SOURCE_TABLES = frozenset({
     "historical_sale_attribution_decisions",
+    "account_qualification_version",
     "dim_stores", "dim_sku_product_rules", "clue_center_orders", "raw_douyin_orders",
     "raw_douyin_verify_records", "settlement_order_details", "agg_store_ranking",
     "agg_store_monthly_settlement", "settlement_ranking_overlay", "settlement_monthly_overlay",
@@ -193,8 +194,8 @@ def _build_dimensions(session, publication_id, store, statement_months, cutoff):
              "key": item["store_id"], "value": item}
             for item in store.list_stores(scope_store_ids=None)]
     values = {
-        "product_scopes": store.list_product_scopes(),
-        "product_scope_type_map": store.product_scope_type_map(),
+        "product_scopes": ["all"],
+        "product_scope_type_map": {},
         "product_types": store.list_product_types(),
         "default_product_type": store.default_product_type(),
         "sale_months": store.list_sale_months(),
@@ -220,9 +221,12 @@ def _build_dimensions(session, publication_id, store, statement_months, cutoff):
 
 
 def _monthly_lines(session, store, month):
-    """Batch freeze statement headers, preview lines and rate/version summaries."""
-    from ..models import SettlementStatement, SettlementStatementLine
+    """Freeze lines from the same protected/current authority as sparse aggregates."""
+    from ..models import SettlementStatement, SettlementStatementLine, SettlementStatementEntry
+    from apps.worker.protected_billing_authority import protected_statement_condition, validate_protected_authority
+    from apps.worker.settlement import _sparse_authority_relation
 
+    validate_protected_authority(session, (month,))
     formal = list(session.scalars(select(SettlementStatement).where(
         SettlementStatement.is_current.is_(True), SettlementStatement.statement_month == month)))
     headers = {row.store_id: {
@@ -230,79 +234,58 @@ def _monthly_lines(session, store, month):
         "statement_status": {1: "GENERATING", 2: "PENDING_CONFIRMATION", 3: "CONFIRMED", 4: "LOCKED"}[row.statement_status],
         "confirmed_at": row.confirmed_at, "locked_at": row.locked_at, "lock_version": row.lock_version,
     } for row in formal}
-    locked = {row.statement_id: row.store_id for row in formal if row.statement_status == 4}
-    # Business interpretation remains here in the builder. SQL groups current
-    # fee facts once per month instead of re-reading them for every store.
-    preview_sql = """
-        SELECT CASE WHEN r.fee_direction = 1 THEN r.sale_store_id ELSE r.verify_store_id END AS store_id,
-               NULL AS statement_line_id, r.fee_direction, r.product_scope, r.product_type,
-               SUM(CASE WHEN r.original_business_month = :month THEN 1 ELSE 0 END) AS original_entry_count,
-               SUM(COALESCE(a.entry_count, 0)) AS adjustment_entry_count,
-               SUM(CASE WHEN r.original_business_month = :month THEN r.fee_base_cent ELSE 0 END) AS original_base_cent,
-               SUM(COALESCE(a.base_cent, 0)) AS adjustment_base_cent,
-               SUM(CASE WHEN r.original_business_month = :month THEN r.fee_base_cent ELSE 0 END)
-                   + SUM(COALESCE(a.base_cent, 0)) AS net_base_cent,
-               SUM(CASE WHEN r.original_business_month = :month THEN r.fee_amount_cent ELSE 0 END) AS original_fee_cent,
-               SUM(COALESCE(a.fee_cent, 0)) AS adjustment_fee_cent,
-               SUM(CASE WHEN r.original_business_month = :month THEN r.fee_amount_cent ELSE 0 END)
-                   + SUM(COALESCE(a.fee_cent, 0)) AS net_fee_cent
-        FROM settlement_fee_result_current c
-        JOIN settlement_fee_result r ON r.fee_result_id = c.fee_result_id
-        LEFT JOIN (
-            SELECT original_fee_result_id, COUNT(*) AS entry_count,
-                   SUM(adjustment_base_cent) AS base_cent, SUM(adjustment_fee_cent) AS fee_cent
-            FROM settlement_fee_adjustment WHERE adjustment_posting_month = :month
-            GROUP BY original_fee_result_id
-        ) a ON a.original_fee_result_id = r.fee_result_id
-        WHERE r.original_business_month = :month OR COALESCE(a.entry_count, 0) > 0
-        GROUP BY CASE WHEN r.fee_direction = 1 THEN r.sale_store_id ELSE r.verify_store_id END,
-                 r.fee_direction, r.product_scope, r.product_type
-    """
-    preview = [dict(row) for row in session.execute(text(preview_sql), {"month": month}).mappings()]
-    locked_rows = []
-    if locked:
-        fields = ("statement_line_id", "fee_direction", "product_scope", "product_type",
-                  "original_entry_count", "adjustment_entry_count", "original_base_cent",
-                  "adjustment_base_cent", "net_base_cent", "original_fee_cent", "adjustment_fee_cent", "net_fee_cent")
-        locked_rows = [dict(row) for row in session.execute(select(
-            SettlementStatementLine.statement_id, *(getattr(SettlementStatementLine, key) for key in fields)
-        ).where(SettlementStatementLine.statement_id.in_(locked))).mappings()]
-    rate_sql = """
-        SELECT DISTINCT CASE WHEN r.fee_direction = 1 THEN r.sale_store_id ELSE r.verify_store_id END AS store_id,
-               r.fee_direction, r.product_scope, r.product_type, r.fee_rate, r.rule_version,
-               NULL AS statement_line_id
-        FROM settlement_fee_result_current c
-        JOIN settlement_fee_result r ON r.fee_result_id = c.fee_result_id
-        WHERE r.original_business_month = :month OR EXISTS (
-            SELECT 1 FROM settlement_fee_adjustment a
-            WHERE a.original_fee_result_id = r.fee_result_id AND a.adjustment_posting_month = :month)
-        UNION
-        SELECT DISTINCT CASE WHEN r.fee_direction = 1 THEN r.sale_store_id ELSE r.verify_store_id END AS store_id,
-               r.fee_direction, r.product_scope, r.product_type, r.fee_rate, r.rule_version,
-               e.statement_line_id
-        FROM settlement_statement s
-        JOIN settlement_statement_line line ON line.statement_id = s.statement_id
-        JOIN settlement_statement_entry e ON e.statement_line_id = line.statement_line_id
-        JOIN settlement_fee_result r ON r.fee_result_id = e.original_fee_result_id
-        WHERE s.is_current = TRUE AND s.statement_status = 4 AND s.statement_month = :month
-          AND line.fee_direction = r.fee_direction
-          AND line.product_scope = r.product_scope AND line.product_type = r.product_type
-    """
+    protected = dict(session.execute(select(SettlementStatement.statement_id, SettlementStatement.store_id).where(
+        SettlementStatement.is_current.is_(True), SettlementStatement.statement_month == month,
+        protected_statement_condition(SettlementStatement),
+    )).all())
+    source = _sparse_authority_relation((month,))
+    # The relation also supplies all/type/scope rollups. Lines use exactly one
+    # original source dimension; counting those rollups would multiply money.
+    exact = and_(source.c.product_scope == source.c.source_product_scope,
+                 source.c.product_type == source.c.source_product_type)
+    is_original = source.c.source_kind == "result"
+    is_adjustment = source.c.source_kind == "adjustment"
+    original_base = func.sum(case((is_original, source.c.base_amount_cent), else_=0))
+    adjustment_base = func.sum(case((is_adjustment, source.c.base_amount_cent), else_=0))
+    original_fee = func.sum(case((is_original, source.c.fee_amount_cent), else_=0))
+    adjustment_fee = func.sum(case((is_adjustment, source.c.fee_amount_cent), else_=0))
+    preview = session.execute(select(
+        source.c.store_id, literal(None).label("statement_line_id"), source.c.fee_direction,
+        source.c.product_scope, source.c.product_type,
+        func.sum(case((is_original, 1), else_=0)).label("original_entry_count"),
+        func.sum(case((is_adjustment, 1), else_=0)).label("adjustment_entry_count"),
+        original_base.label("original_base_cent"), adjustment_base.label("adjustment_base_cent"),
+        (original_base + adjustment_base).label("net_base_cent"),
+        original_fee.label("original_fee_cent"), adjustment_fee.label("adjustment_fee_cent"),
+        (original_fee + adjustment_fee).label("net_fee_cent"),
+    ).where(exact).group_by(source.c.store_id, source.c.fee_direction, source.c.product_scope, source.c.product_type)).mappings()
+    fields = ("statement_line_id", "fee_direction", "product_scope", "product_type",
+              "original_entry_count", "adjustment_entry_count", "original_base_cent",
+              "adjustment_base_cent", "net_base_cent", "original_fee_cent", "adjustment_fee_cent", "net_fee_cent")
+    frozen_lines = [] if not protected else session.execute(select(
+        SettlementStatementLine.statement_id, *(getattr(SettlementStatementLine, key) for key in fields)
+    ).where(SettlementStatementLine.statement_id.in_(protected))).mappings()
+    line_entry = SettlementStatementEntry.__table__.alias("authority_rate_entry")
+    rates_query = select(
+        source.c.store_id, source.c.fee_direction, source.c.product_scope, source.c.product_type,
+        source.c.source_fee_rate, source.c.source_rule_version,
+        line_entry.c.statement_line_id,
+    ).outerjoin(line_entry, line_entry.c.statement_entry_id == source.c.frozen_entry_id).where(exact).distinct()
     rate_groups = {}
-    for row in session.execute(text(rate_sql), {"month": month}).mappings():
+    for row in session.execute(rates_query).mappings():
         key = (row["store_id"], row["fee_direction"], row["product_scope"], row["product_type"], row["statement_line_id"])
         rates, versions = rate_groups.setdefault(key, (set(), set()))
-        rates.add(store._format_rate(row["fee_rate"]))
-        if row["rule_version"]:
-            versions.add(str(row["rule_version"]))
+        if row["source_fee_rate"] is not None:
+            rates.add(store._format_rate(row["source_fee_rate"]))
+        if row["source_rule_version"]:
+            versions.add(str(row["source_rule_version"]))
     lines_by_store = {}
-    locked_stores = set(locked.values())
     for row in preview:
-        if not row["store_id"] or row["store_id"] in locked_stores:
-            continue
-        lines_by_store.setdefault(row["store_id"], []).append(row)
-    for row in locked_rows:
-        row["store_id"] = locked[row.pop("statement_id")]
+        if row["store_id"] and row["store_id"] not in set(protected.values()):
+            lines_by_store.setdefault(row["store_id"], []).append(dict(row))
+    for raw in frozen_lines:
+        row = dict(raw)
+        row["store_id"] = protected[row.pop("statement_id")]
         lines_by_store.setdefault(row["store_id"], []).append(row)
     for store_id, lines in lines_by_store.items():
         for line in lines:
@@ -314,7 +297,6 @@ def _monthly_lines(session, store, month):
             line.pop("store_id", None)
         lines.sort(key=lambda line: (line["fee_direction"] == "MANAGEMENT", line["product_scope"], line["product_type"]))
     return headers, lines_by_store
-
 
 def build_settlement(session: Session, publication_id: str, cutoff: datetime) -> dict:
     """Freeze resolved ranking partitions and monthly display facts; never commit."""
@@ -356,6 +338,11 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
                 f"FROM {source} WHERE {condition}"), params).mappings()}
         keys = set(source_rows)
         headers, lines_by_store = _monthly_lines(session, store, month)
+        from apps.worker.protected_billing_authority import protected_statement_condition
+        from ..models import SettlementStatement
+        protected_statement_ids = set(session.scalars(select(SettlementStatement.statement_id).where(
+            SettlementStatement.is_current.is_(True), SettlementStatement.statement_month == month, protected_statement_condition(SettlementStatement),
+        )))
         keys.update((store_id, "all", "all") for store_id in headers)
         for store_id, lines in lines_by_store.items():
             for line in lines:
@@ -370,7 +357,7 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
                 and (product_type == "all" or line["product_type"] == product_type)]
             values = source_rows.get((store_id, product_scope, product_type), {})
             metrics = {key: int(values.get(key) or 0) for key in MONTH_METRICS}
-            if statement and statement["statement_status"] == "LOCKED":
+            if statement and statement["statement_id"] in protected_statement_ids:
                 for direction in ("PROMOTION", "MANAGEMENT"):
                     selected = [line for line in lines if line["fee_direction"] == direction]
                     for target, field in (("base_cent", "net_base_cent"),
@@ -612,13 +599,29 @@ def read_filters(session: Session, publication_id: str, module: str = "settlemen
     readiness = session.scalar(select(dimensions.c.value).where(
         dimensions.c.publication_id == publication_id,
         dimensions.c.kind == "period_readiness", dimensions.c.key == "v1"))
-    return {**values, "period_readiness": readiness,
+    return {**values, "product_scopes": ["all"], "product_scope_type_map": {},
+        "product_types": _published_product_types(session, publication_id,
+            values.get("product_types", []), scope_store_ids=scope_store_ids),
+        "period_readiness": readiness,
         "stores": sorted(stores, key=lambda item: (item["store_name"], item["store_id"]))}
+
+
+def _published_product_types(session, publication_id, available_types, *, scope_store_ids=None):
+    """Keep historical types selectable using only this publication's facts."""
+    # Catalog choices are global. Restricted callers must derive their options
+    # entirely from facts in their current store scope, including an empty one.
+    types = set(available_types or ()) if scope_store_ids is None else set()
+    if scope_store_ids is not None and not scope_store_ids:
+        return ["all"]
+    for table in (ranking, monthly):
+        types.update(session.scalars(select(table.c.product_type).where(
+            table.c.publication_id == publication_id, *_scope(table, scope_store_ids)).distinct()))
+    return ["all", *sorted(value for value in types if value and value != "all")]
 
 
 def _ranking_conditions(publication_id, filters):
     conditions = [ranking.c.publication_id == publication_id,
-        ranking.c.product_scope == (filters.get("product_scope") or "all"),
+        ranking.c.product_scope == "all",
         ranking.c.product_type == (filters.get("product_type") or "all")]
     # Scope applies even if a caller accidentally labels this GLOBAL.
     conditions += _scope(ranking, filters.get("scope_store_ids"))
@@ -712,7 +715,7 @@ def read_store_ranking(session: Session, publication_id: str, filters: dict[str,
 
     return {"period_type": period_type, "period_key": month, **extra,
         "period_availability": availability,
-        "product_scope": filters.get("product_scope") or "all",
+        "product_scope": "all",
         "product_type": filters.get("product_type") or "all",
         "formal_period_start_month": FORMAL_START,
         "scope_mode": filters.get("scope_mode", "AUTHORIZED"),
@@ -732,7 +735,7 @@ def read_monthly_settlement(session: Session, publication_id: str, filters: dict
     allowed = scope is None or store_id in scope
     row = session.execute(select(monthly).where(monthly.c.publication_id == publication_id,
         monthly.c.store_id == store_id, monthly.c.month == month,
-        monthly.c.product_scope == (filters.get("product_scope") or "all"),
+        monthly.c.product_scope == "all",
         monthly.c.product_type == (filters.get("product_type") or "all"), allowed)).mappings().first()
     store = session.scalar(select(dimensions.c.value).where(
         dimensions.c.publication_id == publication_id, dimensions.c.kind == "store",
@@ -742,7 +745,7 @@ def read_monthly_settlement(session: Session, publication_id: str, filters: dict
         "scope_store_ids": (store_id,) if allowed else ()}) if availability["cumulative_ready"] else None
     has_generation = _has_source_generation(session, publication_id)
     return {"store": store, "month": month, "period_availability": availability,
-        "product_scope": filters.get("product_scope") or "all",
+        "product_scope": "all",
         "product_type": filters.get("product_type") or "all",
         "is_formal_period": month >= FORMAL_START, "statement": None,
         "publication_statement": row["statement"] if row else None,

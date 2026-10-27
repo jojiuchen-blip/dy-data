@@ -115,7 +115,7 @@
 | supersedes_invoice_id | varchar(128) | YES | IDX | NULL | 被替代的推广费发票版本 |
 | invoice_number | varchar(20) | NO | UK* | — | 20 位数电专票号码；仅当前有效版本唯一，历史版本可重复 |
 | invoice_date | date | NO | IDX | — | 系统外开票日期 |
-| invoice_amount_cent | bigint | NO | | — | 发票总金额，非负整数分 |
+| invoice_amount_cent | bigint | NO | | — | 服务端按完整可开票组生成的合票总金额 |
 | invoice_status | smallint | NO | IDX | 2 | 提交成功待厂端审核 / 审核通过已结算 / 审核不通过请重新上传 |
 | registered_by | varchar(128) | NO | IDX | — | 门店登记账号 |
 | registered_at | timestamptz | NO | IDX | now() | 服务器校验通过后的登记时间 |
@@ -128,7 +128,7 @@
 
 ### 4.2 `promotion_invoice_allocation` — 推广费发票账期分配
 
-每个完整账期独立一行。每行金额必须等于对应账期当前有效推广费确认金额；同一发票的全部分配金额必须严格等于发票头金额；同一门店同一账期只允许一条当前有效分配，因此账期不能拆分到多张发票。
+每个完整账期独立一行。每行金额由对应账期当前有效推广费确认生成，允许负账期抵扣；全部可开票组的正负账期整体登记，全部分配严格合计为发票总额。同一门店同一账期仅一条当前有效分配，不能拆分到多张发票。可信购方/税额/手机号及号码归属结构见 [发票来源](invoice-source.md)。
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |---|---|---|---|---|---|
@@ -138,7 +138,8 @@
 | store_id | varchar(128) | NO | UK* / IDX | — | 门店 ID |
 | statement_id | varchar(128) | NO | UK* | — | 对应当前有效账单版本 |
 | statement_month | char(7) | NO | IDX | — | 完整账期 |
-| allocated_amount_cent | bigint | NO | | — | 本账期分配金额，非负整数分 |
+| allocated_amount_cent | bigint | NO | | — | 服务端生成的本账期分配金额，保留负抵扣 |
+| settlement_batch_month | varchar(7) | NO | | — | 实际结算分组月份 |
 | is_current | boolean | NO | IDX | true | 当前有效分配标识 |
 | gmt_create | timestamptz | NO | | now() | 创建时间 |
 | gmt_modified | timestamptz | NO | | now() | 更新时间 |
@@ -182,6 +183,7 @@
 | success_rows | integer | NO | | 0 | 成功行数 |
 | error_rows | integer | NO | | 0 | 错误行数 |
 | content_changed | boolean | NO | | false | 是否有差异 |
+| reverses_batch_id | varchar(128) | YES | IDX | NULL | 被撤销原批次，追加审计链 |
 | upload_idempotency_key_hash | char(64) | YES | UK | NULL | 上传 POST 幂等键摘要 |
 | upload_request_payload_sha256 | char(64) | YES | | NULL | 模板、账期与文件摘要的规范化请求摘要 |
 | submitted_by | varchar(128) | NO | IDX | — | 管理员 |
@@ -191,27 +193,29 @@
 | gmt_create | timestamptz | NO | | now() | 创建时间 |
 | gmt_modified | timestamptz | NO | | now() | 更新时间 |
 
-唯一索引：`upload_idempotency_key_hash`。同一幂等键和同一规范化请求重放原批次；同键不同请求返回 409。
+唯一索引：`upload_idempotency_key_hash`；实际 final-version 部分唯一键为 `(import_type,statement_month,current_version) WHERE batch_status IN (5,8,9)`。状态 CHECK 1..9，9 为撤销批次终态；`reverses_batch_id` 普通索引。同一幂等键/请求重放原批次，同键异参 409；新键同文件仍须比较当前目标，不把旧文件摘要等同 NO_CHANGE。
 
 ### 6.1 `store_finance_profile` — 门店基础信息与 SAP 确认版本
 
-基础信息和 SAP 确认分别维护同一门店的一条当前有效快照；更正导入新增版本并保留历史。
+基础信息和 SAP 确认共用正式 `profile_type=1` 财务受控链；两类导入均锁同一门店/当前版本后新增版本。旧 type=2 数据不作为新双链依据。撤销仍新增值版本或 tombstone，不删除历史。
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |---|---|---|---|---|---|
 | id | bigint | NO | PK | identity | 主键 |
 | profile_id | varchar(128) | NO | UK | — | 快照版本 ID |
 | store_id | varchar(128) | NO | UK* | — | 精确门店 ID |
-| profile_type | smallint | NO | UK* | — | 1基础信息，2 SAP 确认 |
+| profile_type | smallint | NO | UK* | — | 正式读写链为 1；2 仅兼容旧数据 |
+| source_type | integer | NO | | 1（应用） | CHECK 1/2/3，版本来源 |
 | version_no | integer | NO | UK* | 1 | 版本号 |
 | is_current | boolean | NO | IDX | true | 当前有效版本 |
+| is_tombstone | boolean | NO | | false（应用） | 撤销后的无值版本，保留历史 |
 | store_name_snapshot | varchar(255) | NO | | — | 导入时门店名称快照，仅用于二次一致性校验 |
-| sap_code | varchar(128) | YES | | NULL | 基础信息中的 SAP 编码 |
+| sap_code | varchar(128) | YES | | NULL | 正式 SAP；SAP 确认输入 finalSapCode 写此列 |
 | initial_sap_code | varchar(128) | YES | | NULL | 财务初始 SAP |
 | service_store_code | varchar(128) | YES | | NULL | 服务门店编码 |
 | factory_confirmed | boolean | YES | | NULL | 厂家确认结果 |
 | confirmed_at | timestamptz | YES | | NULL | 厂家确认时间 |
-| import_batch_id | varchar(128) | NO | IDX | — | 来源批次 |
+| import_batch_id | varchar(128) | YES | IDX | NULL | 来源批次；实际模型允许非导入来源 |
 | gmt_create | timestamptz | NO | | now() | 创建时间/系统导入时间 |
 | gmt_modified | timestamptz | NO | | now() | 更新时间 |
 
@@ -225,10 +229,13 @@
 | batch_id | varchar(128) | NO | UK* | — | 批次 ID |
 | row_number | integer | NO | UK* | — | 原文件行号 |
 | business_key | varchar(512) | NO | IDX | — | 标准化业务键 |
-| normalized_payload | jsonb | NO | | {} | 标准化字段 |
+| normalized_payload | jsonb | NO | | {} | 标准化字段及上传时冻结 __preview；不是新增预览表/列 |
 | row_status | smallint | NO | IDX | 1 | 通过/无变化/差异/错误/已写入 |
 | validation_errors | jsonb | NO | | [] | 本行全部错误 |
 | target_record_id | varchar(128) | YES | IDX | NULL | 成功目标 ID |
+| reversal_effect_type | integer | YES | | NULL | CHECK NULL/1/2：VALUE 恢复 / TOMBSTONE |
+| reverses_target_record_id | varchar(128) | YES | | NULL | 被撤销目标版本 |
+| previous_target_record_id | varchar(128) | YES | | NULL | 恢复前版本锚点 |
 | gmt_create | timestamptz | NO | | now() | 创建时间 |
 | gmt_modified | timestamptz | NO | | now() | 更新时间 |
 
@@ -254,3 +261,9 @@
 审计不可修改或删除；可归档低成本存储但必须可查。导入流式解析全部错误，任一错误时正式业务表整批零写入；四类更正均新增版本。
 
 四类模板业务键固定为：基础信息 `store_id`；推广服务费厂家结果 `invoice_number`；管理服务费厂家结果 `store_id + statement_month`；SAP 确认 `store_id`。门店名称仅与门店 ID 做精确二次校验，SAP 编码、金额和月份均不得作为模糊匹配键。
+
+## DYDATA-104 冻结预览与撤销边界
+
+上传只写批次/逐行校验，不写正式财务目标。`normalized_payload.__preview` 保存 available/schemaVersion/capturedAt、目标类型/ID/版本/tombstone、before/after、stateTransition、allowedChanges/blockedReasons；字段限制为对应模板正式字段。GET 分页读取冻结内容，整批统计不是当前页统计；NULL/空文本/未提供不混同。旧待提交批次缺预览要求重传，已提交批次仍可幂等回放。
+
+commit/correction 锁后重查权限、目标版本、允许状态转换、金额/分配闭合和号码归属；预览不替代写入时校验。推广费已结算、管理费已扣款，以及被账单/SAP 消费的资料不得逆转依赖；撤销追加批次/逐行目标/事件/审计，任一步冲突整批回滚。见 [API 预览/撤销](../foundation-api-dy-data/billing-invoice.md#54-冻结逐行预览与撤销)。

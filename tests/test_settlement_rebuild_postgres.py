@@ -20,6 +20,7 @@ from apps.api.dy_api.models import (
     JobRun,
     SettlementProjectionActive,
     SettlementProjectionGeneration,
+    SettlementFeeResult, SettlementFeeResultCurrent, SettlementStatement,
 )
 from apps.worker import projection_publish, queued_jobs, settlement_rebuild
 from apps.worker.repositories import queue_job_run
@@ -52,6 +53,7 @@ def rebuild_pg():
             model.__table__ for model in (
                 DimStore, JobRun, JobEvent,
                 SettlementProjectionGeneration, SettlementProjectionActive,
+                SettlementFeeResult, SettlementFeeResultCurrent, SettlementStatement,
             )
         }
         pending = list(tables)

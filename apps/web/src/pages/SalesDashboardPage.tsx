@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { replaceBusinessFiltersInUrl } from "../utils/businessFilters";
+import { useEffect, useState } from "react";
 import { fetchFilterMeta, fetchSalesDashboard } from "../api/client";
 import { DefinitionList } from "../components/DefinitionList";
 import { FilterBar, FilterField } from "../components/Filters";
@@ -30,8 +31,7 @@ import {
 } from "../utils/format";
 import {
   defaultProductType,
-  productOptionsForScope,
-  productScopeOptions,
+  productOptions,
   storeOptions,
 } from "../utils/options";
 
@@ -172,9 +172,6 @@ export function SalesDashboardPage({
     const requested = Number(searchParams.get("year"));
     return Number.isInteger(requested) && requested >= 2000 && requested <= currentYear ? requested : currentYear;
   });
-  const [productScope, setProductScope] = useState(
-    searchParams.get("product_scope") ?? "",
-  );
   const [productType, setProductType] = useState(
     searchParams.get("product_type") ?? "",
   );
@@ -182,8 +179,7 @@ export function SalesDashboardPage({
   const salesResource = usePublishedView(
     (id) => fetchFilterMeta("sales", id),
     (filters, publication_id) => {
-      const scope = productScope || ALL_MONTHS;
-      const type = productType || (scope === ALL_MONTHS ? defaultProductType(filters) : ALL_MONTHS);
+      const type = productType || defaultProductType(filters);
       const period = month || ALL_MONTHS;
       const selectedId = storeId || defaultStoreIdForUser(filters, currentUser);
       const store = selectedId ? selectedStore(filters, selectedId) : ALL_STORES_OPTION;
@@ -192,12 +188,11 @@ export function SalesDashboardPage({
         year: period === ALL_MONTHS ? year : undefined,
         store: store as StoreOption,
         month: period,
-        productScope: scope,
         productType: type,
         trendMonths: trendMonthsForPeriod(filters, period, year),
       });
     },
-    [storeId, month, year, productScope, productType],
+    [storeId, month, year, productType],
   );
   const metaResource = { ...salesResource, data: salesResource.filters };
   const meta = metaResource.data?.data;
@@ -206,12 +201,8 @@ export function SalesDashboardPage({
   const activeStore = activeStoreId ? selectedStore(meta, activeStoreId) : allowAllStores ? ALL_STORES_OPTION : undefined;
   const activeMonth = month || ALL_MONTHS;
   const periodLabel = activeMonth === ALL_MONTHS ? `${year}年全年` : activeMonth === ALL_HISTORY ? "全部历史" : activeMonth;
-  const activeProductScope = productScope || ALL_MONTHS;
-  const activeProductType = productType || (activeProductScope === ALL_MONTHS ? defaultProductType(meta) : ALL_MONTHS);
-  const handleProductScopeChange = (value: string) => {
-    setProductScope(value);
-    setProductType(ALL_MONTHS);
-  };
+  const activeProductType = productType || defaultProductType(meta);
+  useEffect(() => replaceBusinessFiltersInUrl({ product_type: productType || undefined }), [productType]);
 
   const dashboard = salesResource.data?.data;
   const definitions = salesResource.data?.definitions ?? [];
@@ -267,19 +258,9 @@ export function SalesDashboardPage({
           value={activeMonth}
         />
         <SelectField
-          label="产品范围"
-          onChange={handleProductScopeChange}
-          options={productScopeOptions(meta, activeProductScope)}
-          value={activeProductScope}
-        />
-        <SelectField
           label="商品类型"
           onChange={setProductType}
-          options={productOptionsForScope(
-            meta,
-            activeProductScope,
-            activeProductType,
-          )}
+          options={productOptions(meta, activeProductType)}
           value={activeProductType}
         />
       </FilterBar>

@@ -21,6 +21,7 @@ from apps.api.dy_api.models import (
     SettlementProjectionGeneration,
     SettlementProjectionPartitionManifest,
     SettlementStatement,
+    SettlementFeeResult, SettlementFeeResultCurrent,
     utcnow,
 )
 from apps.worker.projection_publish import (
@@ -44,6 +45,7 @@ from apps.worker.settlement import (
     SettlementStats,
     _projection_months,
     _sparse_base_chain,
+    _sparse_expand_affected_months,
     build_settlement_sparse_overlay,
     mark_settlement_sparse_overlay_ready,
     rebuild_dual_fee_results,
@@ -431,6 +433,14 @@ def _lineage_refresh_plan(
         )
         if not affected_months:
             return None
+        # Capture, aggregation and the input fingerprint must consume one
+        # closure. A conflicting frozen chain can move to another month.
+        affected_months = _sparse_expand_affected_months(session, affected_months)
+        blocked = sorted(set(affected_months) & locked_months)
+        if blocked:
+            raise SettlementMonthLockedError(
+                "settlement month closure is locked: " + ",".join(blocked)
+            )
 
         fingerprint_payload = {
             "protocol": "settlement-admin-rebuild-lineage-v1",
@@ -525,6 +535,29 @@ def _lock_billing_publication_base(session: Session, base_generation_id: str) ->
         raise RuntimeError("settlement active pointer changed before billing capture")
 
 
+def _require_publication_qualification(session: Session, months: tuple[str, ...]) -> None:
+    from apps.worker.month_close import require_current_month_qualification
+    from apps.worker.account_qualification import AccountQualificationError
+
+    for month in months:
+        try:
+            require_current_month_qualification(session, month)
+        except AccountQualificationError as exc:
+            raise SettlementSourceNotReady(f"{month} month-end qualification publication blocked: {exc}") from exc
+
+
+def _verify_month_calculation_input(session: Session, business_month: str, job: JobRun | None) -> None:
+    from apps.worker.month_close import CALCULATION_INPUT_PROTOCOL, _calculation_inputs_digest, published_days_revisions
+
+    metadata = (job.metadata_json or {}) if job else {}
+    if "calculation_input_protocol" not in metadata:
+        return
+    revisions = published_days_revisions(session, business_month)
+    if (metadata.get("calculation_input_protocol") != CALCULATION_INPUT_PROTOCOL or revisions is None
+            or _calculation_inputs_digest(session, business_month, revisions) != metadata.get("calculation_input_sha256")):
+        raise SettlementSourceNotReady("month calculation input changed; await a new source-versioned close job")
+
+
 def refresh_active_settlement_lineage(
     factory: sessionmaker,
     *,
@@ -533,6 +566,7 @@ def refresh_active_settlement_lineage(
     progress_callback: Callable[[str, int, int | None], None] | None = None,
     lease_duration: timedelta = DEFAULT_SETTLEMENT_REBUILD_LEASE,
     months: tuple[str, ...] | None = None,
+    source_guard: Callable[[Session], None] | None = None,
 ) -> dict[str, object] | None:
     """Build and publish the active settlement overlay after a full rebuild.
 
@@ -579,7 +613,11 @@ def refresh_active_settlement_lineage(
             SettlementStatement.is_current.is_(True),
             SettlementStatement.statement_month.in_(plan.affected_months),
         )))
+        _require_publication_qualification(session, plan.affected_months)
         frozen_sources = collect_billing_sources(session, months=plan.affected_months, slots=billing_slots)
+        _require_publication_qualification(session, plan.affected_months)
+        if source_guard is not None:
+            source_guard(session)
         freeze_billing_sources(
             session, generation_id=plan.generation_id, job_id=job_id, sources=frozen_sources,
             slots=billing_slots,
@@ -611,9 +649,14 @@ def refresh_active_settlement_lineage(
         # Detailed source data stays in a private table, not an operational log.
         commit_guard(session)
         _lock_billing_publication_base(session, plan.base_generation_id)
+        _require_publication_qualification(session, plan.affected_months)
+        current_sources = collect_billing_sources(session, months=plan.affected_months, slots=billing_slots)
+        _require_publication_qualification(session, plan.affected_months)
+        if source_guard is not None:
+            source_guard(session)
         freeze_billing_sources(
             session, generation_id=plan.generation_id, job_id=job_id,
-            sources=collect_billing_sources(session, months=plan.affected_months, slots=billing_slots),
+            sources=current_sources,
             slots=billing_slots,
         )
         publication = publish_settlement_rebuild(
@@ -1219,6 +1262,15 @@ def run_settlement_rebuild_job(
 
     if factory is None:
         raise RuntimeError("settlement rebuild requires a database session factory")
+    with factory() as session:
+        job = session.get(JobRun, job_id)
+        publication_only = isinstance((job.metadata_json or {}).get("publication_only"), dict) if job else False
+    if publication_only:
+        from apps.worker.settlement_publication_only import run_settlement_publication_job
+        return run_settlement_publication_job(
+            factory, job_id=job_id, claim_id=claim_id, lease_duration=lease_duration,
+            heartbeat_interval_seconds=heartbeat_interval_seconds,
+        )
     if claim_id is None:
         claim_id = claim_settlement_rebuild_job(
             factory,
@@ -1249,6 +1301,13 @@ def run_settlement_rebuild_job(
                     source_run_id=active_source_run_id,
                     progress_callback=report_progress,
                 )
+                economic_months = set(session.scalars(select(SettlementFeeResult.original_business_month).join(
+                    SettlementFeeResultCurrent, SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.fee_result_id,
+                ).where(SettlementFeeResult.original_business_month >= "2026-10").distinct()))
+                economic_months.update(session.scalars(select(SettlementStatement.statement_month).where(
+                    SettlementStatement.is_current.is_(True), SettlementStatement.statement_month >= "2026-10",
+                ).distinct()))
+                _require_publication_qualification(session, tuple(sorted(economic_months)))
                 _fence_settlement_rebuild_commit(
                     session, job_id=job_id, claim_id=claim_id,
                     stage="legacy_projection_committed",
@@ -1305,6 +1364,15 @@ def run_settlement_month_rebuild_job(
 
     if factory is None:
         raise RuntimeError("settlement rebuild requires a database session factory")
+    with factory() as session:
+        job = session.get(JobRun, job_id)
+        publication_only = isinstance((job.metadata_json or {}).get("publication_only"), dict) if job else False
+    if publication_only:
+        from apps.worker.settlement_publication_only import run_settlement_publication_job
+        return run_settlement_publication_job(
+            factory, job_id=job_id, claim_id=claim_id, lease_duration=lease_duration,
+            heartbeat_interval_seconds=heartbeat_interval_seconds,
+        )
     if not _MONTH_KEY_PATTERN.match(business_month):
         raise ValueError(f"invalid business month: {business_month}")
     if claim_id is None:
@@ -1329,6 +1397,23 @@ def run_settlement_month_rebuild_job(
         ) as report_progress:
             report_progress("settle_month", 0, None)
             with session_scope(factory) as session:
+                if business_month >= "2026-10":
+                    from apps.worker.account_qualification import freeze_month, frozen_version, AccountQualificationError
+                    try:
+                        try:
+                            qualification = frozen_version(session, business_month)
+                        except AccountQualificationError:
+                            qualification = freeze_month(session, business_month)
+                    except AccountQualificationError as exc:
+                        raise SettlementSourceNotReady("month-end account qualification is not ready") from exc
+                    job = session.get(JobRun, job_id)
+                    expected = (job.metadata_json or {}).get("account_qualification_version_id") if job else None
+                    if expected is not None and expected != qualification.version_id:
+                        raise SettlementSourceNotReady("month-end account qualification version changed")
+                    if job is not None:
+                        job.metadata_json = {**(job.metadata_json or {}),
+                                             "account_qualification_version_id": qualification.version_id}
+                    _verify_month_calculation_input(session, business_month, job)
                 coupon_ids = select_coupon_ids_by_verify_business_month(
                     session, business_month
                 )
@@ -1349,6 +1434,8 @@ def run_settlement_month_rebuild_job(
                         f"{business_month}: candidates={len(coupon_ids)} "
                         f"current_results={ready_results}"
                     )
+                _require_publication_qualification(session, (business_month,))
+                _verify_month_calculation_input(session, business_month, session.get(JobRun, job_id))
                 _fence_settlement_rebuild_commit(
                     session, job_id=job_id, claim_id=claim_id,
                     stage="business_month_committed",
@@ -1372,7 +1459,7 @@ def run_settlement_month_rebuild_job(
             factory, job_id=job_id, claim_id=claim_id,
             stats=SettlementStats(
                 detail_count=stats.result_count,
-                issue_count=stats.adjustment_count,
+                issue_count=stats.blocked_count,
                 ranking_count=0,
                 monthly_count=0,
             ),

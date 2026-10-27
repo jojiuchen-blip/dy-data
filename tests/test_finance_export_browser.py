@@ -643,7 +643,10 @@ def test_dydata97_export_import_panel_error_file_downloads_real_bytes(
                 live_admin_fastapi_base_url,
                 f"/admin/finance-imports/{uploaded['batchId']}",
             )
-            assert detail["errors"]["total"] == uploaded["errorRows"], (
+            # One rejected source row can have several field/state errors.
+            # Preserve both contracts: every error row is represented and the
+            # download contains every individual error, without page truncation.
+            assert detail["errors"]["total"] >= uploaded["errorRows"], (
                 uploaded,
                 detail["errors"],
             )
@@ -654,6 +657,8 @@ def test_dydata97_export_import_panel_error_file_downloads_real_bytes(
                 rows,
                 detail["errors"],
             )
+            row_number_index = ERROR_FILE_FIELDS.index("rowNumber")
+            assert len({row[row_number_index] for row in rows[1:]}) == uploaded["errorRows"]
     finally:
         context.close()
 

@@ -226,6 +226,8 @@ def test_web_initial_period_prefers_a_valid_url_month_else_the_previous_month(
         "new URLSearchParams(search), now);"
         " return {"
         " valid: at('month=2026-08'),"
+        " periodKey: at('periodKey=2026-07'),"
+        " monthWins: at('month=2026-08&periodKey=2026-07'),"
         " absent: at(''),"
         " otherParams: at('q=SAP&month=2026-07'),"
         " malformed: at('month=2026-13'),"
@@ -235,6 +237,8 @@ def test_web_initial_period_prefers_a_valid_url_month_else_the_previous_month(
 
     assert result == {
         "valid": "2026-08",
+        "periodKey": "2026-07",
+        "monthWins": "2026-08",
         "absent": "2026-09",
         "otherParams": "2026-07",
         "malformed": "2026-09",

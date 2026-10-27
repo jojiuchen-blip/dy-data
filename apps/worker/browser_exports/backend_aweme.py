@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
+import re
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
+from datetime import UTC, datetime
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 from urllib.request import urlopen
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.dy_api.db import get_session_factory, session_scope
 from apps.api.dy_api.models import DimStorePoiMapping
@@ -27,7 +31,7 @@ from apps.worker.repositories import (
 
 
 DEFAULT_EXPORT_URL = "https://life.douyin.com/"
-DEFAULT_EXPORT_SELECTOR = "div.lifep-container-header button.byted-btn"
+DEFAULT_EXPORT_SELECTOR = ""
 BACKEND_AWEME_BIND_LIST_PATH = "/life/merchant/v1/integration-user/bind/list"
 BIND_LIST_PAGE_SIZE = 100
 LOGIN_REQUIRED_ERROR = "douyin_backend_login_required"
@@ -60,16 +64,49 @@ def run_backend_aweme_export(
     export_url: str | None = None,
     run_dir: str | Path | None = None,
 ) -> PhaseStats:
-    with browser_export_active():
-        if workbook_path:
-            records = parse_backend_aweme_workbook(Path(workbook_path))
-        else:
-            records = export_backend_aweme_records_via_browser(
-                cdp_url=cdp_url,
-                export_url=export_url,
-                run_dir=run_dir,
-            )
-        return upsert_backend_aweme_records(session, records, source_run_id=source_run_id)
+    from apps.worker.account_qualification import (
+        begin_automatic_observation, in_automatic_capture_window, complete_observation, fail_observation,
+    )
+
+    # A tiny separate transaction survives the stage's rollback or process kill.
+    # Only running is committed here; successful evidence and raw ingestion are
+    # committed atomically by the caller's fenced stage transaction.
+    started_at = datetime.now(UTC)
+    factory = sessionmaker(bind=session.get_bind().engine, expire_on_commit=False)
+    observation_id = None
+    if in_automatic_capture_window(started_at):
+        with factory.begin() as audit_session:
+            admission = begin_automatic_observation(audit_session, source_run_id=source_run_id, started_at=started_at)
+        if admission.blocked_reason:
+            # The one durable marker has committed before the stage fails.
+            raise BrowserExportError(admission.blocked_reason)
+        observation_id = admission.observation_id
+    try:
+        with browser_export_active():
+            if workbook_path:
+                records = parse_backend_aweme_workbook(Path(workbook_path))
+            else:
+                records = export_backend_aweme_records_via_browser(
+                    cdp_url=cdp_url, export_url=export_url, run_dir=run_dir,
+                )
+    except Exception:
+        # Do not include browser error strings, URLs or credentials in evidence.
+        if observation_id is not None:
+            with factory.begin() as audit_session:
+                fail_observation(audit_session, observation_id, error_code="backend_collection_failed", ended_at=datetime.now(UTC))
+        raise
+    # Do not open another transaction after business writes begin: on any DB
+    # error the caller rolls back, leaving the durable attempt running/blocked.
+    stats = upsert_backend_aweme_records(session, records, source_run_id=source_run_id)
+    if observation_id is not None:
+        complete_observation(session, observation_id, records, ended_at=datetime.now(UTC))
+    else:
+        logging.getLogger(__name__).info("backend_aweme_source_proof %s", json.dumps({
+            "source_run_id": source_run_id, "started_at": started_at.isoformat(),
+            "ended_at": datetime.now(UTC).isoformat(), "permanent_qualification_capture": False,
+            "proof": getattr(records, "proof", {}),
+        }, ensure_ascii=False, sort_keys=True))
+    return stats
 
 
 def export_backend_aweme_records_via_browser(
@@ -78,13 +115,23 @@ def export_backend_aweme_records_via_browser(
     export_url: str | None = None,
     run_dir: str | Path | None = None,
 ) -> list[dict[str, Any]]:
-    try:
-        workbook = export_workbook_via_browser(cdp_url=cdp_url, export_url=export_url, run_dir=run_dir)
-    except BrowserExportError as exc:
-        if "Timed out waiting for backend aweme workbook download" not in str(exc):
-            raise
-        return fetch_backend_aweme_records_via_bind_list_api(cdp_url=cdp_url)
-    return parse_backend_aweme_workbook(workbook)
+    from apps.worker.browser_exports.backend_aweme_proof import apply_export_task_proof
+
+    root = Path(run_dir or os.getenv("BROWSER_EXPORT_RUN_DIR") or os.getenv("BROWSER_EXPORT_ARTIFACT_DIR") or ".").resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    # Only this freshly created private directory is removed. Normalized source
+    # records, exact task proof and file hash are retained in DB observations.
+    with tempfile.TemporaryDirectory(prefix="backend-aweme-", dir=root) as private_dir:
+        try:
+            workbook = export_workbook_via_browser(cdp_url=cdp_url, export_url=export_url, run_dir=private_dir)
+        except BrowserExportError as exc:
+            if "Timed out waiting for backend aweme workbook download" not in str(exc):
+                raise
+            return fetch_backend_aweme_records_via_bind_list_api(cdp_url=cdp_url)
+        records = parse_backend_aweme_workbook(workbook)
+        # The list endpoint has a different scope; its Total is not an export
+        # completeness contract. Only this exact task and file can certify it.
+        return apply_export_task_proof(records, workbook)
 
 
 def upsert_backend_aweme_records(
@@ -173,7 +220,7 @@ def export_workbook_via_browser(
     target_dir.mkdir(parents=True, exist_ok=True)
     target_url = export_url or os.getenv("BACKEND_AWEME_EXPORT_URL", DEFAULT_EXPORT_URL)
     export_selector = os.getenv("BACKEND_AWEME_EXPORT_SELECTOR", DEFAULT_EXPORT_SELECTOR)
-    export_text = os.getenv("BACKEND_AWEME_EXPORT_TEXT", "导出")
+    export_text = os.getenv("BACKEND_AWEME_EXPORT_TEXT", "导出数据")
     timeout_ms = int(os.getenv("BACKEND_AWEME_EXPORT_TIMEOUT_MS", "120000"))
 
     try:
@@ -183,6 +230,9 @@ def export_workbook_via_browser(
             page = context.pages[0] if context.pages else context.new_page()
             completed_download: dict[str, str] = {}
             observed_responses: list[dict[str, Any]] = []
+            from apps.worker.browser_exports.backend_aweme_proof import BackendExportTask, EXPORT_START_PATH
+            task = BackendExportTask()
+            capture_active = False
 
             def capture_export_response(response: Any) -> None:
                 response_url = str(response.url)
@@ -193,19 +243,29 @@ def export_workbook_via_browser(
                     except Exception:
                         payload = None
                     if payload is not None:
-                        item["json"] = json.dumps(payload, ensure_ascii=False)[:1200]
+                        item["response_keys"] = list(payload)[:30] if isinstance(payload, dict) else []
                     observed_responses.append(item)
                     del observed_responses[:-30]
 
-                if "/life/gate/v3/download/mget" not in response_url:
+                if not capture_active:
                     return
                 try:
                     payload = response.json()
                 except Exception:
                     return
-                info = extract_completed_download_info(payload)
-                if info:
-                    completed_download.update(info)
+                path = urlparse(response_url).path
+                if path == EXPORT_START_PATH:
+                    try:
+                        request_json = response.request.post_data_json
+                    except Exception:
+                        request_json = None
+                    task.observe_start(method=response.request.method, url=response_url,
+                                       request_json=request_json, response=payload)
+                elif path.rstrip("/") == "/life/gate/v3/download/mget":
+                    task.observe_poll(payload)
+                    info = task.file_info()
+                    if info:
+                        completed_download.update(info)
 
             page.on("response", capture_export_response)
             try:
@@ -215,52 +275,29 @@ def export_workbook_via_browser(
                 raise
             raise_if_login_required(page)
 
-            download = None
-            click_started_at = time.time() - 5
             try:
-                with page.expect_download(timeout=timeout_ms) as download_info:
-                    click_started_at = time.time() - 5
-                    click_backend_export(
-                        page,
-                        export_selector=export_selector,
-                        export_text=export_text,
-                        timeout_ms=timeout_ms,
-                    )
-                download = download_info.value
+                capture_active = True
+                click_backend_export(page, export_selector=export_selector, export_text=export_text, timeout_ms=timeout_ms)
             except PlaywrightTimeoutError:
-                # Authentication can expire after the initial page load. Do not
-                # accept an unrelated download or mask it with an API fallback.
                 raise_if_login_required(page)
-                downloaded_path = find_recent_workbook(
-                    export_workbook_search_dirs(target_dir),
-                    since_epoch=click_started_at,
-                )
-                if downloaded_path is not None:
-                    return downloaded_path
-                if not completed_download.get("file_url"):
-                    log_export_page_diagnostics(
-                        page,
-                        search_dirs=export_workbook_search_dirs(target_dir),
-                        observed_responses=observed_responses,
-                    )
-                    raise
-            if download is not None:
-                downloaded_path = save_playwright_download_if_workbook(download, target_dir=target_dir)
-                if downloaded_path is not None:
-                    return downloaded_path
+                raise
 
             try:
                 info = wait_for_completed_download(page, completed_download, timeout_ms=timeout_ms)
             except (BrowserExportError, PlaywrightTimeoutError):
                 raise_if_login_required(page)
                 raise
-            return save_workbook_from_file_url(
+            path = save_workbook_from_file_url(
                 context,
                 file_url=info["file_url"],
                 file_name=info.get("file_name") or "",
                 target_dir=target_dir,
                 timeout_ms=timeout_ms,
             )
+            try:
+                return task.bind_file(path)
+            except ValueError as exc:
+                raise BrowserExportError("Backend aweme exact export task proof is invalid.") from exc
     except PlaywrightTimeoutError as exc:
         raise BrowserExportError("Timed out waiting for backend aweme workbook download.") from exc
 
@@ -324,12 +361,15 @@ def fetch_backend_aweme_bind_list_records(page: Any, bind_list_url: str) -> list
         key: values[-1] if values else ""
         for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
     }
+    filtered = any(value and any(part in key.lower() for part in ("filter", "status", "account_type", "keyword", "search", "aweme")) for key, value in params.items())
     params["page"] = "1"
     params["size"] = str(BIND_LIST_PAGE_SIZE)
     base_url = urlunparse(parsed._replace(query=""))
 
     first = fetch_backend_aweme_bind_list_page(page, base_url, params)
-    total = _safe_int(first.get("Total"), 0)
+    if not isinstance(first.get("Total"), int) or isinstance(first.get("Total"), bool) or first["Total"] < 0:
+        raise BrowserExportError("Backend aweme bind list total is missing or invalid.")
+    total = first["Total"]
     items = list(first.get("integration_info") or [])
     page_count = max(1, (total + BIND_LIST_PAGE_SIZE - 1) // BIND_LIST_PAGE_SIZE) if total else 1
     max_pages = _safe_int(os.getenv("BACKEND_AWEME_BIND_LIST_MAX_PAGES"), 100)
@@ -339,9 +379,20 @@ def fetch_backend_aweme_bind_list_records(page: Any, bind_list_url: str) -> list
     for page_number in range(2, page_count + 1):
         params["page"] = str(page_number)
         payload = fetch_backend_aweme_bind_list_page(page, base_url, params)
+        if payload.get("Total") != total:
+            raise BrowserExportError("Backend aweme bind list total changed during pagination.")
         items.extend(payload.get("integration_info") or [])
-
-    return records_from_backend_aweme_api_items(items)
+    canonical = [json.dumps(item, sort_keys=True, ensure_ascii=False) for item in items]
+    if len(items) != total or len(set(canonical)) != len(items):
+        raise BrowserExportError("Backend aweme bind list is partial or contains duplicate rows.")
+    from apps.worker.account_qualification import BindingRecords
+    records = records_from_backend_aweme_api_items(items)
+    return BindingRecords(records, source_type="backend_bind_list_api", proof={
+        "complete": len(records) == total and not filtered, "record_count": len(records),
+        "expected_total": total, "page_count": page_count,
+        "scope": "backend_bind_list_api", "numeric_contract_verified": False,
+        "unfiltered": not filtered,
+    })
 
 
 def fetch_backend_aweme_bind_list_page(page: Any, base_url: str, params: dict[str, str]) -> dict[str, Any]:
@@ -424,7 +475,7 @@ def click_backend_export(page: Any, *, export_selector: str, export_text: str, t
     if export_selector:
         page.locator(export_selector).click(timeout=timeout_ms)
     else:
-        page.get_by_text(export_text, exact=False).click(timeout=timeout_ms)
+        page.get_by_text(export_text, exact=True).click(timeout=timeout_ms)
 
 
 def save_playwright_download_if_workbook(download: Any, *, target_dir: Path) -> Path | None:
@@ -687,6 +738,13 @@ def raise_if_login_required(page: Any) -> None:
         raise BrowserExportError(LOGIN_REQUIRED_ERROR)
     try:
         page_text = page.content()
+        # Prefer rendered body text: script bundles and hidden login templates
+        # are not evidence that an authenticated SPA requires a login.
+        locator = getattr(page, "locator", None)
+        if callable(locator):
+            visible_text = locator("body").inner_text(timeout=3000)
+            if isinstance(visible_text, str):
+                page_text = visible_text
     except PlaywrightError:
         # page.content() can race with the redirect itself.
         if is_login_required(page.url, ""):
@@ -698,10 +756,31 @@ def raise_if_login_required(page: Any) -> None:
 
 def is_login_required(url: str, page_text: str) -> bool:
     parsed_url = urlparse(url)
-    login_location = f"{parsed_url.hostname or ''}{parsed_url.path}".lower()
-    if "login" in login_location or "passport" in login_location:
+    path = parsed_url.path.lower()
+    fragment_path = parsed_url.fragment.split("?", 1)[0].lower()
+    if (re.search(r"/(?:login|signin|sign-in|passport)(?:/|$)", path)
+            or re.search(r"^/?(?:login|signin|sign-in)(?:/|$)", fragment_path)
+            or (parsed_url.hostname or "").lower() in {"passport.douyin.com", "sso.douyin.com"}):
         return True
-    return "登录" in page_text and "抖音号明细" not in page_text
+    if not isinstance(page_text, str):
+        return False
+    clean = re.sub(r"<(script|style)\b[^>]*>.*?</\1\s*>", "", page_text, flags=re.I | re.S)
+    visible = re.sub(r"<[^>]+>", "\n", clean)
+    prompts = ("请登录后继续", "请先登录", "请重新登录", "登录状态已过期", "登录已过期",
+               "登录状态失效", "登录状态已失效", "登录已失效", "扫码登录", "二维码登录")
+    if any(prompt in visible for prompt in prompts):
+        return True
+    if re.search(r"please (?:log|sign) in|(?:log|sign) in to continue|session (?:has )?expired", visible, re.I):
+        return True
+    # A real login form is stronger evidence than the generic word 登录,
+    # which also appears in the authenticated management column 登录人.
+    for form in re.findall(r"<form\b[^>]*>.*?</form\s*>", clean, flags=re.I | re.S):
+        if re.search(r"<form\b[^>]*(?:\bhidden\b|display\s*:\s*none)", form, re.I):
+            continue
+        if (re.search(r"<input\b[^>]*type\s*=\s*['\"]?password\b", form, re.I)
+                and re.search(r"<button\b[^>]*>\s*(?:登录|登入|log in|sign in)\s*</button", form, re.I)):
+            return True
+    return False
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

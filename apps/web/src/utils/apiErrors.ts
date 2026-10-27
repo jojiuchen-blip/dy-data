@@ -1,5 +1,11 @@
 import { ApiRequestError } from "../api/client";
 
+export const PUBLICATION_NOT_READY_TEXT = "分析结果尚未发布，后台正在准备，请稍后读取最新结果。";
+
+export function isPublicationNotReady(error: unknown): boolean {
+  return error instanceof ApiRequestError && error.status === 503 && error.code === "PUBLICATION_NOT_READY";
+}
+
 export const PUBLICATION_PERIOD_NOT_READY_TEXT = "所选账期尚未完成，暂不展示金额或提供导出。请选择其他账期，或稍后读取最新结果。";
 
 export function isPublicationPeriodNotReady(error: unknown): error is ApiRequestError & { status: 503; code: "PUBLICATION_PERIOD_NOT_READY" } {
@@ -17,6 +23,7 @@ export function apiErrorText(
     ? error.message : undefined;
   const parts = [isPublicationPeriodNotReady(error)
     ? PUBLICATION_PERIOD_NOT_READY_TEXT
+    : isPublicationNotReady(error) ? PUBLICATION_NOT_READY_TEXT
     : statusMessages[error.status] ?? businessMessage ?? fallback];
   if (Array.isArray(error.fieldErrors) && error.fieldErrors.length) {
     const fieldSummary = error.fieldErrors

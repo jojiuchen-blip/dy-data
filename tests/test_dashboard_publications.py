@@ -64,6 +64,76 @@ def test_publish_metadata_and_fixed_version(factory):
             resolve_publication(session, "other", first.id)
 
 
+@pytest.mark.parametrize("module", ["sales", "clue-overview"])
+def test_changed_classification_contract_rejects_legacy_rows_without_mutating_them(factory, module):
+    from apps.api.dy_api.dashboard_publications.sources import MODULE_CONTRACT_VERSIONS
+
+    first = publish_module(factory, module, build)
+    with factory.begin() as session:
+        session.execute(update(runs).where(runs.c.id == first.id).values(stats_json={}))
+    with factory() as session:
+        for identifier, expected in ((first.id, ("PUBLICATION_EXPIRED", 410)),
+                                     (None, ("PUBLICATION_NOT_READY", 503))):
+            with pytest.raises(PublicationError) as caught:
+                resolve_publication(session, module, identifier)
+            assert (caught.value.code, caught.value.http_status) == expected
+        assert session.scalar(select(runs.c.stats_json).where(runs.c.id == first.id)) == {}
+    second = publish_module(factory, module, build)
+    with factory() as session:
+        assert resolve_publication(session, module).id == second.id
+        assert session.scalar(select(runs.c.stats_json).where(runs.c.id == second.id))[
+            "contract_version"] == MODULE_CONTRACT_VERSIONS[module]
+
+
+@pytest.mark.parametrize("module", ["settlement", "finance", "douyin-ranking"])
+def test_legacy_financial_and_independent_ranking_publications_remain_readable(factory, module):
+    first = publish_module(factory, module, build)
+    with factory.begin() as session:
+        session.execute(update(runs).where(runs.c.id == first.id).values(stats_json={}))
+    with factory() as session:
+        assert resolve_publication(session, module).id == first.id
+        assert resolve_publication(session, module, first.id).id == first.id
+        assert session.scalar(select(runs.c.stats_json).where(runs.c.id == first.id)) == {}
+
+
+def test_contract_upgrade_rebuilds_even_with_a_custom_unchanged_source_token(factory, monkeypatch):
+    from apps.api.dy_api.dashboard_publications.sources import MODULE_CONTRACT_VERSIONS
+
+    first = publish_module(factory, "sales", build, fingerprint=lambda _: "same-input")
+    monkeypatch.setitem(MODULE_CONTRACT_VERSIONS, "sales", "next-product-type-contract")
+    second = publish_module(factory, "sales", build, fingerprint=lambda _: "same-input")
+    assert second is not None and second.id != first.id
+    with factory() as session:
+        assert resolve_publication(session, "sales").id == second.id
+        with pytest.raises(PublicationError) as caught:
+            resolve_publication(session, "sales", first.id)
+        assert caught.value.code == "PUBLICATION_EXPIRED"
+
+
+def test_module_contract_token_changes_only_affected_source_fingerprints(factory, monkeypatch):
+    import hashlib
+    import json
+    from apps.api.dy_api.dashboard_publications import sources
+    from apps.api.dy_api.dashboard_publications.schema import source_counters
+
+    at = datetime(2026, 10, 26, tzinfo=UTC)
+    with factory.begin() as session:
+        session.execute(source_counters.insert(), [dict(source_name=name, generation=0, changed_at=at)
+            for name in sources.SOURCE_TABLES])
+    with factory() as session:
+        before = {module: sources.source_fingerprint(session, module, now=at)
+            for module in ("sales", "clue-overview", "douyin-ranking")}
+        # The independent board keeps the exact pre-change payload/hash.
+        rows = [(name, 0) for name in sorted(sources.MODULE_SOURCE_TABLES["douyin-ranking"])]
+        assert before["douyin-ranking"] == hashlib.sha256(json.dumps(
+            {"sources": rows, "time": {}}, separators=(",", ":")).encode()).hexdigest()
+        monkeypatch.setitem(sources.MODULE_CONTRACT_VERSIONS, "sales", "next-product-type-contract")
+        assert sources.source_fingerprint(session, "sales", now=at) != before["sales"]
+        assert sources.source_fingerprint(session, "clue-overview", now=at) == before["clue-overview"]
+        assert sources.source_fingerprint(session, "douyin-ranking", now=at) == before["douyin-ranking"]
+        assert set(session.scalars(select(source_counters.c.generation))) == {0}
+
+
 def test_failed_builder_rolls_back_facts_preserves_head_and_redacts_error(factory):
     first = publish_module(factory, "sales", build)
 

@@ -1,3 +1,4 @@
+import { replaceBusinessFiltersInUrl } from "../utils/businessFilters";
 import { ClueStoreFilter } from "../components/ClueStoreFilter";
 import type { ClueListFilters, ClueSelectedStore } from "../types/clueFilters";
 import { usePublishedResource } from "../hooks/usePublishedResource";
@@ -451,6 +452,7 @@ export function ClueCenterPage({
   const filterResource = isDetailsView ? liveFilterResource : { ...overviewResource, data: overviewResource.filters };
   const meta = filterResource.data?.data;
   const activeProductType = productType || clueDefaultProductType(meta);
+  useEffect(() => replaceBusinessFiltersInUrl({ product_type: productType || undefined }), [productType]);
   const liveStoreOptionsResource = useApiResource(
     () => fetchClueStoreOptions({ cacheScope: currentUser.user_id ?? currentUser.username,
       city, limit: 50, province, q: debouncedStoreOptionQuery, selected_store_id: assignedStoreId }),
@@ -549,7 +551,7 @@ export function ClueCenterPage({
       chips.push({ key: "selfStoreVerified", label: "核销", value: "仅看自店核销" });
     }
     if (activeProductType && activeProductType !== "all") {
-      chips.push({ key: "productType", label: "商品", value: ({jingcheng: "精诚养车", byd: "比亚迪本品"} as Record<string, string>)[activeProductType] ?? activeProductType });
+      chips.push({ key: "productType", label: "商品", value: activeProductType });
     }
     return chips;
   }, [
@@ -1361,7 +1363,7 @@ export function ClueCenterPage({
             setPage(1);
             setProductType(value);
           }}
-          options={[{value: "all", label: "全部商品"}, {value: "jingcheng", label: "精诚养车"}, {value: "byd", label: "比亚迪本品"}]}
+          options={[{ value: "all", label: "全部商品" }, ...Array.from(new Set(meta?.product_types ?? [])).filter((value) => value !== "all").map((value) => ({ value, label: value }))]}
           value={activeProductType}
         />
         {isDetailsView && (

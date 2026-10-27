@@ -1,9 +1,9 @@
 # Foundation 交付清单 - dy-data（抖音经营引擎）
 
-> 生成时间: 2026-08-21（增量修订）
+> 生成时间: 2026-10-27（S4 技术合同增量回捞，历史记录保留）
 > Skill: foundation-builder
 > 模式: 增量更新
-> 范围: DYDATA-19 月度账单确认、异议、发票登记、财务导入、查询与审计；最新规则覆盖旧的只读开票假设
+> 范围: 已确认 DYDATA-104 分类/账期、月末资格、精确历史归属/纠错、财务预览/撤销与整账来源权威；同步相关既有发票来源。不修改原业务事实，不新增规则，不代表部署或生产闭环验收。
 
 ## 上游依赖
 
@@ -18,16 +18,16 @@
 
 | 产物 | 文件路径 | 行数 | 拆分子文件 |
 |---|---|---:|---|
-| 术语表 | docs/prd/foundation/foundation-glossary-dy-data.md | 172 | — |
-| 数据库 Schema | docs/prd/foundation/foundation-schema-dy-data.md | 146 | docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md<br>docs/prd/foundation/foundation-schema-dy-data/existing-read-dependencies.md<br>docs/prd/foundation/foundation-schema-dy-data/product-rule-source.md<br>docs/prd/foundation/foundation-schema-dy-data/settlement-reporting.md |
-| API 接口设计 | docs/prd/foundation/foundation-api-dy-data.md | 273 | docs/prd/foundation/foundation-api-dy-data/billing-invoice.md<br>docs/prd/foundation/foundation-api-dy-data/common-contract.md<br>docs/prd/foundation/foundation-api-dy-data/product-sync.md<br>docs/prd/foundation/foundation-api-dy-data/settlement-reporting.md<br>docs/prd/foundation/foundation-api-dy-data/sku-fee-admin.md |
+| 术语表 | docs/prd/foundation/foundation-glossary-dy-data.md | 192 | — |
+| 数据库 Schema | docs/prd/foundation/foundation-schema-dy-data.md | 154 | docs/prd/foundation/foundation-schema-dy-data/account-qualification.md<br>docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md<br>docs/prd/foundation/foundation-schema-dy-data/existing-read-dependencies.md<br>docs/prd/foundation/foundation-schema-dy-data/historical-sale-attribution.md<br>docs/prd/foundation/foundation-schema-dy-data/invoice-source.md<br>docs/prd/foundation/foundation-schema-dy-data/product-rule-source.md<br>docs/prd/foundation/foundation-schema-dy-data/settlement-reporting.md |
+| API 接口设计 | docs/prd/foundation/foundation-api-dy-data.md | 299 | docs/prd/foundation/foundation-api-dy-data/billing-invoice.md<br>docs/prd/foundation/foundation-api-dy-data/common-contract.md<br>docs/prd/foundation/foundation-api-dy-data/product-sync.md<br>docs/prd/foundation/foundation-api-dy-data/settlement-authority.md<br>docs/prd/foundation/foundation-api-dy-data/settlement-reporting.md<br>docs/prd/foundation/foundation-api-dy-data/sku-fee-admin.md |
 
 ## 产物摘要
 
 | 指标 | 数值 |
 |---|---|
-| 数据表总数 | 29 张目标设计表（含 0051 私有来源包）+ 5 张结构不变既有依赖表 |
-| API 接口数 | 42 |
+| 数据表范围 | 33 张核心设计/回捞表（含0051、0065和0066）+ 5 张既有依赖表 + 本轮引用定义的3张既有发票来源支持表；不是全库表数 |
+| API 接口范围 | 主索引编号44项；另列既有分类批量/导入5条路径，非全库路由总数；资格与仅发布CLI不新增HTTP写接口 |
 | DYDATA-19 新增接口 | 20 |
 | DYDATA-19 新增表 | 11（并变更 `settlement_statement` 版本模型） |
 | DYDATA-19 冻结交互语义 | 4 |
@@ -118,3 +118,29 @@
 - `python -m pytest tests/test_project_governance.py -q --tb=short`：9 passed。
 - `node .agent/project-manager-suite/tools/route-check.mjs . --target-stage S2 --json`：`foundationReadyForPrd.pass=true`、`pageStageClosedForPrd.pass=true`；整体退出码 1，`stageWritebackBeforeRouting.pass=false` / `stage_transition_writeback_missing`。当前 S4 至 S2 的阶段日志回写由主控负责，本次限定文档写集不修改日志，不将局部 foundation 门禁通过表述为 S2 整体放行。
 - `node .agent/project-manager-suite/skills/00-03-project-link-indexer/scripts/run-project-link-indexer.mjs . --trigger need_broken_link_or_reverse_link_check --json`：只读检查报告全库 33 项问题，本轮七份文档无命中；未重写索引或扩展修复范围。
+
+## DYDATA-104 回捞与一致性（2026-10-27）
+
+本轮消费已确认增量及 `foundation-change-requests-dydata-104-oct23.md` 的004—008，并消除001—003仍冲突的发票来源、历史下架SKU与精确归属合同。仅建议主控评审状态；本清单不修改FCR、上游冻结记录、开发计划或生产数据。
+
+| 增量 | 可消费文件 | 精确依据/约束 |
+|---|---|---|
+| 004 普通类型/默认月 | glossary、product-rule-source、SKU/common/reporting API | `product_classification.py`、fee_admin schemas/routes、[现有分类合同](../../api/product-type-classification.md)；独立打榜scope不变，财务历史类型不改 |
+| 005 冻结字段预览/撤销 | billing-invoice Schema/API | `dashboard.py` 的 capture/list preview/commit/reversal、前端 FinanceImportPreviewTable/types；__preview上传时固化、summary全批、finalSapCode与type1链、号码锁/依赖保护 |
+| 006 已批准人工纠错 | historical-sale-attribution、settlement-authority | 精确原费用锚点、既有MANUAL_CORRECTION与finance audit；非零/零差额及退款边界，拒绝扩大批准范围 |
+| 007 月末资格 | account-qualification、settlement-authority、费用结果字段 | models/0066/account_qualification/month_close/settlement；三表、nullable FK、仅version来源counter、完整导出proof、窗口和容量预算 |
+| 008 整账权威/仅发布 | settlement-authority、settlement-reporting | protected_billing_authority、settlement_publication_only与CLI；entry+原fee、经济/展示NULL分离、status4拒绝、无fee重算/指针替换 |
+| 001—003 关联冲突 | invoice-source、billing-invoice、historical-sale-attribution | 可信合票金额/负抵扣/号码归属、已知INACTIVE档案其余检查、0065精确核销决定；不回填旧月结果 |
+
+C2/C3 核查了本次页面写字段、模板及冻结预览响应到实际 routes/types/models 的映射；C4 统一账号/UID/短号、资格观察/版本、整账权威及展示/经济金额术语；C5 三个资格表、历史决定及私有来源包均有内部消费者，无公开CRUD是有意边界。C6/C7 对照既有 locked 交互范围及本次已确认规则，保留双方向独立操作与现有发票状态机；不凭历史百分比宣称61个页面或所有运行路由已全量重验。
+
+全部声明 Foundation 文件检查本地链接和<400行约束。宿主 PostgreSQL/models/迁移及 `{data,definitions?,meta}` 覆盖套件默认MySQL/响应示例；不补造自增ID、默认值、外键禁令或HTTP资格写入口。原历史检验记录留存，其百分比不作本轮验收证据。
+
+### 本次验证与待主控收口
+
+- `python -m pytest tests/test_project_governance.py -q --tb=short`：9 passed，退出0。
+- `verify-suite-lock.mjs . --json`：valid，套件v2.0.1；`validate-global-files.mjs . --json`：0 errors/0 warnings。
+- 逐文件本地链接存在性与行数检查：无失效路径，全部<400行；交付清单已枚举全部拆分文件并回填实际行数。
+- `route-check.mjs . --target-stage S2 --json`：foundationReadyForPrd.pass=true、pageStageClosedForPrd.pass=true；整体退出1/canEnter=false，唯一失败子门禁为既有 stageWritebackBeforeRouting（当前S4、阶段回写由主控处理）。不把子门禁通过视为阶段切换。`git diff --check`：退出0，仅既有换行规范提示。
+- 未生产：没有采集、资格冻结、数据库迁移/写入、历史修复、费用重算或发布。月末实际采集、冻结后自动重算/月结链、真实覆盖与部署验收仍由主控验证；不把合同回捞或fixture当作运行闭环完成。
+- 无新增业务规则待确认；004—008及相关001—003的状态由主控根据本提交和运行证据回写。既有项目阶段日志/上游文档的一致性治理超出本次限定写集，保留交主控。

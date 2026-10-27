@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import event, insert, select, update
+from sqlalchemy import event, func, insert, select, update
 
 from apps.api.dy_api.dashboard_publications import sales
 from apps.api.dy_api.dashboard_publications.schema import metadata, runs
@@ -67,7 +67,7 @@ def assert_sales_parity(session):
     assert sales.read(session, "s1", year=2026)["metrics"]["total_sales_order_count"] == 4
     assert sales.read(session, "s1", month="history")["metrics"]["total_sales_order_count"] == 6
     assert sales.read(session, "s1", scope_store_ids=[])["metrics"]["total_sales_order_count"] == 0
-    assert sales.read(session, "s1", product_scope="missing")["product_rows"] == []
+    assert sales.read(session, "s1", product_scope="missing") == sales.read(session, "s1")
     assert sales.read(session, "s1", visible_product_types=[])["cycle_rows"] == []
     # The selected month no longer limits the source of an explicitly wider trend.
     trend = sales.read(session, "s1", store_id="A", month="2026-02", trend_months=["2026-01"])["trend_rows"]
@@ -156,3 +156,44 @@ def assert_cross_product_order_aggregation(session):
 def test_cross_product_order_deduplication(db_session):
     prepare_sales(db_session)
     assert_cross_product_order_aggregation(db_session)
+
+
+def test_sales_freezes_current_sku_types_across_scopes_without_rewriting_facts(db_session):
+    prepare_sales(db_session)
+    db_session.add_all([
+        DimSkuProductRule(sku_id="current-a", product_scope="scope-a", product_type="精诚养车"),
+        DimSkuProductRule(sku_id="current-b", product_scope="scope-b", product_type="精诚养车"),
+        DimSkuProductRule(sku_id="invalid", product_type="unknown"),
+
+    ])
+    db_session.get(SettlementOrderDetail, "c1").sku_id = "current-a"
+    db_session.get(SettlementOrderDetail, "c5").sku_id = "current-b"
+    db_session.get(SettlementOrderDetail, "c2").sku_id = "invalid"
+    db_session.flush()
+    sales.build(db_session, "s2", CUTOFF)
+    db_session.commit()
+    current = sales.read(db_session, "s2", month="history", product_type="精诚养车", product_scope="missing")
+    assert current["product_scope"] == "all"
+    assert current["metrics"]["total_sales_order_count"] == 2
+    assert db_session.scalar(select(func.count()).select_from(sales.coupons).where(sales.coupons.c.publication_id == "s2")) == 7
+    assert sales.read_filters(db_session, "s2")["product_types"] == ["all", "P", "精诚养车"]
+    assert sales.read_filters(db_session, "s2")["product_scope_type_map"] == {}
+    db_session.execute(update(DimSkuProductRule).values(product_type="Changed"))
+    db_session.commit()
+    assert sales.read(db_session, "s2", month="history", product_type="精诚养车") == current
+    assert db_session.get(SettlementOrderDetail, "c1").product_type == "P"
+    assert db_session.get(SettlementOrderDetail, "c5").product_type == "Q"
+
+
+@pytest.mark.parametrize("raw_type, expected", [("", "Q"), ("unknown", "Q"), ("all", "Q"), ("keep", "Q"), ("Current type", "Current type")])
+def test_sales_invalid_current_type_preserves_source_snapshot(db_session, raw_type, expected):
+    prepare_sales(db_session)
+    db_session.add_all([
+        DimSkuProductRule(sku_id="raw-sku", product_type=raw_type),
+    ])
+    db_session.get(SettlementOrderDetail, "c5").sku_id = "raw-sku"
+    db_session.flush()
+    sales.build(db_session, "s2", CUTOFF)
+    frozen = db_session.scalar(select(sales.coupons.c.product_type).where(
+        sales.coupons.c.publication_id == "s2", sales.coupons.c.coupon_id == "c5"))
+    assert frozen == expected
