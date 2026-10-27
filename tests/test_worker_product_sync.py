@@ -476,7 +476,7 @@ class MissingSkuDouyinProductClient:
         return {"data": {"product_onlines": []}}
 
 
-def test_real_adapter_skips_product_rows_without_sku_without_blocking_current_table(
+def test_real_adapter_empty_unknown_product_blocks_current_table_until_reconciled(
     db_session: Session,
 ):
     _queue(db_session)
@@ -485,11 +485,12 @@ def test_real_adapter_skips_product_rows_without_sku_without_blocking_current_ta
     result = execute_product_sync(db_session, job_id="product-sync-1", adapter=adapter)
 
     current = list(db_session.scalars(select(DimSkuProductRule)))
-    assert result.status == "SUCCESS"
+    assert result.status == "FAILED"
+    assert result.error_code == "INCOMPLETE_RESPONSE"
     assert result.observed_count == 2
     assert result.skipped_count == 1
-    assert result.failed_count == 0
-    assert [row.sku_id for row in current] == ["sku-valid"]
+    assert result.failed_count == 1
+    assert current == []
     job = db_session.get(JobRun, "product-sync-1")
     assert job is not None
     assert job.metadata_json["skipped_count"] == 1

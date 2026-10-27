@@ -194,6 +194,7 @@ class DouyinProductSyncAdapter:
         self._page_size = page_size
         self._goods_query_type = goods_query_type
         self._seen_product_skus: dict[str, set[str]] = {}
+        self._products_with_empty_skus: set[str] = set()
         self._fallback_product_ids: list[str] | None = None
         self._seen_list_cursors: set[tuple[int, str | None]] = set()
         self.lookup_stats = {
@@ -231,12 +232,12 @@ class DouyinProductSyncAdapter:
                 self._seen_product_skus.setdefault(product_id, set()).add(sku_id)
 
     def _products_with_sku_gaps(self) -> list[str]:
-        return sorted(
+        return sorted(self._products_with_empty_skus | {
             product_id
             for product_id, sku_ids in self._known_products.items()
             if product_id not in self._seen_product_skus
             or sku_ids - self._seen_product_skus[product_id]
-        )
+        })
 
     def fetch_page(self, *, mode: str, cursor: str | None) -> ProductSyncPage:
         _ = mode
@@ -271,6 +272,18 @@ class DouyinProductSyncAdapter:
         # List pages can expose different variants of the same product. Wait
         # for every page/status before the frozen product-ID gap fallback.
         normalized_rows, skipped_count = _normalize_douyin_online_rows(rows)
+        # An empty record is unresolved even when a different page/status has
+        # already shown some variants. Require one exact-ID reconciliation.
+        for record in rows:
+            if not isinstance(record, Mapping):
+                continue
+            product = record.get("product")
+            product_id = _optional_text(product.get("product_id")) if isinstance(product, Mapping) else None
+            single_sku = record.get("sku")
+            has_single_sku = isinstance(single_sku, Mapping) and _optional_text(single_sku.get("sku_id"))
+            has_multiple_skus = isinstance(record.get("skus"), list) and bool(record["skus"])
+            if product_id and not has_single_sku and not has_multiple_skus:
+                self._products_with_empty_skus.add(product_id)
         self._observe_product_skus(normalized_rows)
         has_more = data.get("has_more")
         if not isinstance(has_more, bool):
@@ -292,8 +305,8 @@ class DouyinProductSyncAdapter:
                 status_index=status_index + 1,
             )
         else:
-            # Freeze the gap set only after every list page/status. Each product
-            # is looked up at most once, even if its details omit known variants.
+            # Freeze the gap set after every page/status. Each product enters
+            # one bounded lookup batch, including newly observed empty rows.
             self._fallback_product_ids = self._products_with_sku_gaps()
             next_cursor = (
                 _encode_douyin_product_cursor(stage="ids", offset=0)
@@ -343,7 +356,11 @@ class DouyinProductSyncAdapter:
                     if sku_id in cache and _canonical_sha256(cache[sku_id]) != _canonical_sha256(row):
                         raise ProductSyncPayloadError("Conflicting repeated known SKU metadata")
                     cache[sku_id] = row
-            missing = sorted(known - present - self._seen_product_skus.get(product_id, set()))
+            seen = (
+                set() if product_id in self._products_with_empty_skus
+                else self._seen_product_skus.get(product_id, set())
+            )
+            missing = sorted(known - present - seen)
             if not missing:
                 result.append(record)
                 continue
@@ -406,18 +423,23 @@ class DouyinProductSyncAdapter:
             returned = data.get("product_onlines")
             if not isinstance(returned, list):
                 raise ProductSyncPayloadError("Product ID response product_onlines must be a list")
-            found = set()
+            returned_product_ids = set()
             for record in returned:
                 product = record.get("product") if isinstance(record, Mapping) else None
                 if not isinstance(product, Mapping) or _optional_text(product.get("product_id")) not in pending:
                     raise ProductSyncPayloadError("Product ID lookup returned an unexpected product")
-                found.add(_optional_text(product.get("product_id")))
+                returned_product_ids.add(_optional_text(product.get("product_id")))
             normalized_rows, _ = _normalize_douyin_online_rows(returned)
+            # A product envelope without any SKU is not complete. Known exact
+            # SKU IDs can be recovered by SKU/get; unknown ones must retry the
+            # product lookup until it actually supplies identities.
+            found = {row.get("productId") for row in normalized_rows if row.get("skuId")}
+            found.update(product_id for product_id in returned_product_ids if self._known_products.get(product_id))
             for row in normalized_rows:
                 sku_id = row.get("skuId")
                 self._validate_sku_identity(row, response_skus.get(sku_id) or self._observed_skus.get(sku_id))
                 response_skus[sku_id] = row
-            rows.extend(returned)
+            rows.extend(record for record in returned if _optional_text(record["product"].get("product_id")) in found)
             pending = [product_id for product_id in pending if product_id not in found]
             if not pending:
                 return rows

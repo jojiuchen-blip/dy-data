@@ -118,7 +118,7 @@ def test_no_lookup_for_untrusted_or_unknown_product(case):
     if case == "unknown-product":
         with pytest.raises(ProductSyncPayloadError, match="incomplete after bounded retries"):
             consume_pages(sync)
-        assert client.id_calls == [["product-known"]] * 3
+        assert client.id_calls == [["product-known", "unknown"]] * 3
     else:
         with pytest.raises(ProductSyncPayloadError): consume_pages(sync)
     assert client.calls == []

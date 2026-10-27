@@ -1,6 +1,7 @@
 """Synthetic completeness, identity, and retry-budget evidence for DYDATA-104."""
 
 import copy
+from datetime import datetime, timezone
 import json
 from urllib.parse import parse_qs, urlsplit
 
@@ -9,7 +10,7 @@ import requests
 from sqlalchemy import select
 
 from apps.api.dy_api.models import DataQualityIssue, DimSkuProductRule, JobRun
-from apps.worker.product_sync import DouyinProductSyncAdapter, execute_product_sync
+from apps.worker.product_sync import DouyinProductSyncAdapter, execute_product_sync, product_sync_latest_success_at
 from src.dy_data.douyin_client import DouyinApiError, DouyinCredentials, DouyinOpenApiClient
 from test_douyin_openapi_client import FakeHttp, FakeResponse
 from test_worker_product_sync import SkuCoverageClient, _platform_product, _queue
@@ -190,14 +191,78 @@ def test_conflicting_partial_product_response_fails_before_retrying_missing_prod
     assert client.id_calls == [["product-a", "product-b"]]
 
 
-def test_unknown_product_without_sku_has_explicit_warning_and_no_fabricated_variant(db_session):
-    client = SkuCoverageClient({(1, None): {"products": [_platform_product("unlisted-product", [])], "has_more": False}}, {})
+def test_unknown_empty_product_is_reconciled_by_exact_id_without_inventing_sku(db_session):
+    client = SkuCoverageClient(
+        {(1, None): {"products": [_platform_product("unlisted-product", [])], "has_more": False}},
+        {"unlisted-product": _platform_product("unlisted-product", ["exact-upstream-sku"])},
+    )
     result = run_sync(db_session, client, {})
     assert result.status == "SUCCESS" and result.skipped_count == 1
-    assert list(db_session.scalars(select(DimSkuProductRule))) == []
-    assert client.id_calls == [] and client.sku_calls == []
+    assert list(db_session.scalars(select(DimSkuProductRule.sku_id))) == ["exact-upstream-sku"]
+    assert client.id_calls == [["unlisted-product"]] and client.sku_calls == []
+    assert product_sync_latest_success_at(db_session, "product-sync-1") is not None
+
+
+def test_unknown_repeated_empty_product_is_not_success_and_preserves_freshness(db_session):
+    source = _platform_product("unlisted-product", [])
+    client = SkuCoverageClient({(1, None): {"products": [source], "has_more": False}}, {"unlisted-product": source})
+    old_time = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    old_job = _queue(db_session, job_id="prior-good-run")
+    old_job.status = "success"
+    old_job.started_at = old_time
+    db_session.add(DimSkuProductRule(sku_id="trusted-sku", product_id="trusted-product", sku_name="Trusted",
+                                    sync_status="SUCCESS", sync_run_id="prior-good-run", last_synced_at=old_time))
+    result = run_sync(db_session, client, {})
+    db_session.commit()
+    db_session.expire_all()
+    assert result.status == "FAILED" and result.error_code == "INCOMPLETE_RESPONSE"
+    job = db_session.get(JobRun, "product-sync-1")
+    assert job.status == "failed" and job.success_count == 0 and job.metadata_json["retryable"]
+    assert job.metadata_json["lookup_stats"]["product_id_requests"] == 3
+    assert client.id_calls == [["unlisted-product"]] * 3 and client.sku_calls == []
+    rows = list(db_session.scalars(select(DimSkuProductRule)))
+    assert len(rows) == 1 and (rows[0].sku_id, rows[0].sku_name, rows[0].sync_run_id) == ("trusted-sku", "Trusted", "prior-good-run")
+    assert rows[0].last_synced_at.replace(tzinfo=timezone.utc) == old_time
+    assert product_sync_latest_success_at(db_session, "product-sync-1") is None
+    assert list(db_session.scalars(select(JobRun.job_id).where(JobRun.status == "success"))) == ["prior-good-run"]
     issues = list(db_session.scalars(select(DataQualityIssue)))
-    assert len(issues) == 1 and issues[0].issue_type == "product_sync_missing_sku_identity"
+    assert {issue.issue_type for issue in issues} == {"product_sync_missing_sku_identity", "product_sync_incomplete_response"}
+
+
+def test_unknown_empty_id_response_retries_then_accepts_actual_sku(db_session):
+    empty = _platform_product("unlisted-product", [])
+    full = _platform_product("unlisted-product", ["new-exact-sku"])
+    client = SkuCoverageClient({(1, None): {"products": [empty], "has_more": False}}, {})
+
+    def initially_empty(product_ids):
+        client.id_calls.append(list(product_ids))
+        return {"data": {"product_onlines": [empty if len(client.id_calls) == 1 else full]}}
+
+    client.query_online_products_by_id = initially_empty
+    result = run_sync(db_session, client, {})
+    assert result.status == "SUCCESS" and result.inserted_count == 1
+    assert client.id_calls == [["unlisted-product"]] * 2
+    assert list(db_session.scalars(select(DimSkuProductRule.sku_id))) == ["new-exact-sku"]
+
+
+@pytest.mark.parametrize("known,detail_has_sku", [(False, True), (False, False), (True, False)])
+def test_empty_record_on_other_status_requires_one_bounded_reconciliation(db_session, known, detail_has_sku):
+    full = _platform_product("same-product", ["same-sku"])
+    empty = _platform_product("same-product", [])
+    client = SkuCoverageClient({
+        (1, None): {"products": [full], "has_more": False},
+        (2, None): {"products": [empty], "has_more": False},
+        (3, None): {"products": [empty], "has_more": False},
+    }, {"same-product": full if detail_has_sku else empty})
+    result = run_sync(db_session, client, {"same-product": {"same-sku"}} if known else {})
+    if known or detail_has_sku:
+        assert result.status == "SUCCESS" and result.inserted_count == 1
+        assert client.id_calls == [["same-product"]]
+        assert client.sku_calls == ([("same-product", ["same-sku"])] if known else [])
+    else:
+        assert result.status == "FAILED" and result.error_code == "INCOMPLETE_RESPONSE"
+        assert client.id_calls == [["same-product"]] * 3
+        assert list(db_session.scalars(select(DimSkuProductRule))) == []
 
 
 def test_nonconsecutive_cursor_loop_fails_before_requery(db_session):
