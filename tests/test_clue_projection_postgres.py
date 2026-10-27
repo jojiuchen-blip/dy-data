@@ -17,6 +17,32 @@ from apps.api.dy_api.models import Base, ClueMasterLead
 from apps.worker.clue_center import _locked_master_leads
 
 
+def test_terminal_verification_backfill_on_postgres(postgres_engine) -> None:
+    from test_worker_clue_center import _closed_verification_case, _dt
+    from apps.api.dy_api.models import SettlementOrderDetail
+    from apps.worker.clue_center import refresh_clue_center_projection
+
+    with Session(postgres_engine) as session:
+        row, fact = _closed_verification_case(session, "pg-late")
+        fact.verify_store_name = None
+        session.add(SettlementOrderDetail(
+            coupon_id="pg-later-name", order_id=row.order_id,
+            product_type="Car Service", is_verified=True,
+            verify_store_id="self", verify_store_name="Known Store",
+            verify_time=_dt(3), updated_at=_dt(3),
+        ))
+        session.commit()
+        refresh_clue_center_projection(session, now=_dt(4))
+        session.commit()
+        assert row.verified_store_name == "Known Store"
+        assert row.verified_at == _dt(2)
+        assert row.round_status == "closed_order_verified"
+        assert row.is_self_store_verified is False
+        refresh_clue_center_projection(session, now=_dt(4))
+        session.commit()
+        assert row.verified_at == _dt(2)
+
+
 @pytest.fixture()
 def postgres_engine():
     url = os.getenv("DYDATA_CLUE_TEST_DATABASE_URL")

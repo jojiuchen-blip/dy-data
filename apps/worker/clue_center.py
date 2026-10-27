@@ -6,8 +6,8 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import case, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy.orm import Session, aliased
 
 from apps.api.dy_api.models import (
     ClueAssignmentRound,
@@ -44,6 +44,95 @@ PHONE_PAYLOAD_KEYS = (
 )
 ENCRYPTED_PHONE_PAYLOAD_KEYS = ("enc_telephone", "encrypted_telephone")
 PhonePlainResolver = Callable[[list[str]], dict[str, str]]
+TERMINAL_VERIFICATION_BATCH_SIZE = 200
+
+
+def _terminal_verification_orders(
+    session: Session, order_ids: set[str] | None,
+) -> list[tuple[str, str, str]]:
+    """Find bounded, repairable latest formal rounds, without loading raw payloads."""
+    newer = aliased(ClueAssignmentRound)
+    round_row = ClueAssignmentRound
+    fact = SettlementOrderDetail
+    repairable_fact = select(fact.coupon_id).where(
+        fact.order_id == round_row.order_id,
+        fact.is_verified.is_(True),
+        or_(round_row.verified_store_id.is_(None),
+            fact.verify_store_id == round_row.verified_store_id),
+        or_(
+            and_(round_row.verified_at.is_(None), fact.verify_time.is_not(None)),
+            and_(round_row.verified_store_id.is_(None), fact.verify_store_id.is_not(None)),
+            and_(round_row.verified_store_name.is_(None),
+                 fact.verify_store_id == round_row.verified_store_id,
+                 fact.verify_store_name.is_not(None)),
+        ),
+    ).exists()
+    statement = (
+        select(round_row.order_id, round_row.lead_key, round_row.assignment_round_id)
+        .join(ClueMasterLead, ClueMasterLead.lead_key == round_row.lead_key)
+        .join(ClueCenterOrder, ClueCenterOrder.order_id == round_row.order_id)
+        .where(
+            ClueMasterLead.order_id == round_row.order_id,
+            ClueMasterLead.lifecycle_status == "closed_verified",
+            round_row.execution_mode == BUSINESS_EXECUTION_MODE,
+            round_row.round_status == "closed_order_verified",
+            ~select(newer.assignment_round_id).where(
+                newer.lead_key == round_row.lead_key,
+                newer.order_id == round_row.order_id,
+                newer.execution_mode == BUSINESS_EXECUTION_MODE,
+                newer.round_no > round_row.round_no,
+            ).exists(),
+            repairable_fact,
+        )
+        .order_by(round_row.updated_at, round_row.assignment_round_id)
+    )
+    if order_ids is not None:
+        statement = statement.where(round_row.order_id.in_(order_ids))
+    else:
+        statement = statement.limit(TERMINAL_VERIFICATION_BATCH_SIZE)
+    with session.no_autoflush:
+        return list(session.execute(statement).tuples())
+
+
+def _backfill_terminal_verifications(
+    session: Session,
+    candidates: list[tuple[str, str, str]],
+    locked_leads: dict[str, ClueMasterLead],
+    now: datetime,
+) -> None:
+    """Repair the selected rounds themselves, including noncanonical source leads."""
+    rounds: list[ClueAssignmentRound] = []
+    for order_id, lead_key, round_id in candidates:
+        lead = locked_leads.get(lead_key)
+        if lead is None or lead.lifecycle_status != "closed_verified":
+            continue
+        row = _latest_closed_formal_round(session, lead, order_id)
+        if (row is not None and row.assignment_round_id == round_id
+                and row.round_status == "closed_order_verified"):
+            rounds.append(row)
+    # Batch orders sharing a preference; each query returns at most one fact
+    # per order, without loading every coupon or its source payload.
+    groups: dict[str | None, list[ClueAssignmentRound]] = defaultdict(list)
+    for row in rounds:
+        groups[row.verified_store_id or row.assigned_store_id].append(row)
+    for store_id, rows in groups.items():
+        facts = _verification_rows(
+            session, {row.order_id for row in rows},
+            preferred_store_by_order={row.order_id: store_id for row in rows},
+        )
+        for row in rows:
+            fact = _select_verification(facts.get(row.order_id, []),
+                                       assigned_store_id=store_id, require_self_store=True)
+            if fact and (not row.verified_store_id or
+                         row.verified_store_id == fact.get("verify_store_id")):
+                row.verified_store_id = row.verified_store_id or fact.get("verify_store_id")
+                row.verified_store_name = row.verified_store_name or fact.get("verify_store_name")
+                row.verified_at = row.verified_at or fact.get("verify_time")
+                row.is_self_store_verified = bool(
+                    row.is_follow_success and row.assigned_store_id
+                    and row.verified_store_id == row.assigned_store_id)
+            row.updated_at = now
+    session.flush()
 
 
 def refresh_clue_center_projection(
@@ -65,9 +154,17 @@ def refresh_clue_center_projection(
     if incremental and not selected_order_ids:
         return {"eligible_orders": 0, "projected_orders": 0}
 
+    terminal_candidates = _terminal_verification_orders(
+        session, selected_order_ids if incremental else None,
+    )
+    terminal_order_ids = {row[0] for row in terminal_candidates}
+
     raw_stmt = (
         select(RawDouyinClue)
-        .where(RawDouyinClue.order_status.in_(CLUE_SOURCE_ACTIVE_ORDER_STATUSES))
+        .where(or_(
+            RawDouyinClue.order_status.in_(CLUE_SOURCE_ACTIVE_ORDER_STATUSES),
+            RawDouyinClue.order_id.in_(terminal_order_ids),
+        ))
         .where(RawDouyinClue.order_id.is_not(None))
         .where(RawDouyinClue.order_id != "")
         .where(RawDouyinClue.order_id != "0")
@@ -103,8 +200,11 @@ def refresh_clue_center_projection(
                 )
                 .where(ClueAssignmentRound.order_id.in_(order_ids))
                 .where(ClueAssignmentRound.execution_mode == BUSINESS_EXECUTION_MODE)
-                .where(ClueAssignmentRound.round_status.in_(ACTIVE_ROUND_STATUSES))
-                .where(ClueAssignmentRound.is_follow_success.is_(True))
+                .where(or_(
+                    ClueAssignmentRound.round_status.in_(ACTIVE_ROUND_STATUSES),
+                    and_(ClueAssignmentRound.order_id.in_(terminal_order_ids),
+                         ClueAssignmentRound.round_status == "closed_order_verified"),
+                ))
                 .where(ClueAssignmentRound.assigned_store_id.is_not(None))
             ).all()
             if order_id and store_id
@@ -116,14 +216,18 @@ def refresh_clue_center_projection(
         )
         existing_center_orders = _existing_center_orders(session, order_ids)
         encrypted_phone_plain_values = _encrypted_phone_plain_values(
-            grouped,
+            {key: value for key, value in grouped.items() if key not in terminal_order_ids},
             existing_center_orders,
             phone_plain_resolver,
         )
         locked_master_leads = _locked_master_leads(
             session,
-            list(master_leads_by_source_clue_row_key.values()),
+            list(master_leads_by_source_clue_row_key.values()) + list(session.scalars(
+                select(ClueMasterLead).where(ClueMasterLead.lead_key.in_(
+                    {row[1] for row in terminal_candidates})))),
         )
+
+    _backfill_terminal_verifications(session, terminal_candidates, locked_master_leads, now)
 
     projected_orders = 0
     for order_id in sorted(grouped):
@@ -146,7 +250,7 @@ def refresh_clue_center_projection(
         # A payment clue is only a projection candidate. Materialization must
         # first confirm waiting-use evidence; the raw label is not permission
         # to create a follow-up task.
-        if canonical.order_status in PAID_ORDER_STATUSES and (
+        if order_id not in terminal_order_ids and canonical.order_status in PAID_ORDER_STATUSES and (
             lead is None
             or lead.lifecycle_status != "active"
             or lead.normalized_order_status != "active"
@@ -174,18 +278,19 @@ def refresh_clue_center_projection(
             session.add(center_order)
             existing_center_orders[order_id] = center_order
 
-        _refresh_center_source_fields(
-            center_order,
-            sorted_clues=sorted_clues,
-            canonical=canonical,
-            product_rule=product_rule,
-            encrypted_phone_plain_values=encrypted_phone_plain_values,
-        )
+        if order_id not in terminal_order_ids:
+            _refresh_center_source_fields(
+                center_order,
+                sorted_clues=sorted_clues,
+                canonical=canonical,
+                product_rule=product_rule,
+                encrypted_phone_plain_values=encrypted_phone_plain_values,
+            )
         if round_row is not None:
             verification = _select_verification(
                 verifications.get(order_id, []),
                 assigned_store_id=round_row.assigned_store_id,
-                require_self_store=round_row.is_follow_success,
+                require_self_store=True,
             )
             round_row.verified_store_id = verification.get("verify_store_id")
             round_row.verified_store_name = verification.get("verify_store_name")
@@ -218,9 +323,13 @@ def refresh_clue_center_projection(
             _project_unassigned_state(center_order, lead, previous_round=previous_round)
             verification = _select_verification(
                 verifications.get(order_id, []),
-                assigned_store_id=None,
-                require_self_store=False,
+                assigned_store_id=previous_round.assigned_store_id if previous_round else None,
+                require_self_store=previous_round is not None,
             )
+            if previous_round is not None and previous_round.verified_store_id:
+                verification = {"verify_store_id": previous_round.verified_store_id,
+                                "verify_store_name": previous_round.verified_store_name,
+                                "verify_time": previous_round.verified_at}
             center_order.verified_store_id = verification.get("verify_store_id")
             center_order.verified_store_name = verification.get("verify_store_name")
             center_order.verified_at = verification.get("verify_time")
@@ -676,6 +785,10 @@ def _verification_rows(
         ranking = func.row_number().over(
             partition_by=SettlementOrderDetail.order_id,
             order_by=(
+                case(
+                    (func.nullif(func.trim(SettlementOrderDetail.verify_store_id), "").is_not(None), 0),
+                    else_=1,
+                ),
                 SettlementOrderDetail.verify_time.asc().nulls_last(),
                 SettlementOrderDetail.coupon_id.asc(),
             ),
@@ -696,11 +809,22 @@ def _verification_rows(
         if store_filter is not None:
             ranked = ranked.where(store_filter)
         ranked_subquery = ranked.subquery()
+        same_store = aliased(SettlementOrderDetail)
+        known_name = (
+            select(same_store.verify_store_name)
+            .where(same_store.order_id == ranked_subquery.c.order_id,
+                   same_store.verify_store_id == ranked_subquery.c.verify_store_id,
+                   same_store.is_verified.is_(True),
+                   func.trim(same_store.verify_store_name) != "")
+            .order_by(same_store.verify_time.asc().nulls_last(), same_store.coupon_id)
+            .limit(1).scalar_subquery()
+        )
         rows = session.execute(
             select(
                 ranked_subquery.c.order_id,
                 ranked_subquery.c.verify_store_id,
-                ranked_subquery.c.verify_store_name,
+                func.coalesce(func.nullif(func.trim(ranked_subquery.c.verify_store_name), ""),
+                              known_name).label("verify_store_name"),
                 ranked_subquery.c.verify_time,
             ).where(ranked_subquery.c.verification_rank == 1)
         ).mappings()

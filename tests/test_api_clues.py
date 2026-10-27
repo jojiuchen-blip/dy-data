@@ -1070,6 +1070,25 @@ def test_clue_date_end_filter_includes_selected_calendar_day(
     assert order_ids == {"order-1", "order-2", "order-3"}
 
 
+def test_self_filter_uses_store_fact_without_follow_success(client: TestClient, db_session: Session) -> None:
+    _seed_clue_center(db_session)
+    row = db_session.get(ClueAssignmentRound, "order-1-1")
+    row.is_self_store_verified = False
+    row.is_follow_success = False
+    db_session.commit()
+    _login(client)
+    url = "/api/v1/clues/assignment-rounds"
+    filters = {"verification_status": "self_store_verified"}
+    rows = client.get(url, params=filters).json()["data"]["rows"]
+    assert [item["order_id"] for item in rows] == ["order-1"]
+    exported = client.get(url + "/export", params=filters)
+    assert [item["order_id"] for item in csv.DictReader(io.StringIO(exported.text.lstrip("\ufeff")))] == ["order-1"]
+    row.verified_store_id = None
+    db_session.commit()
+    assert client.get(url, params=filters).json()["data"]["rows"] == []
+    assert client.get(url, params={"verification_status": "other_store_verified"}).json()["data"]["rows"] == []
+
+
 def test_self_verified_filter_excludes_other_store_and_export_matches(client: TestClient, db_session: Session) -> None:
     _seed_clue_center(db_session)
     other = db_session.get(ClueAssignmentRound, "order-2-1")

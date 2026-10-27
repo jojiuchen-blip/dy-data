@@ -1456,7 +1456,8 @@ export class ClueDemoRepository {
         return false;
       }
       if (filters.verification_status === "self_store_verified" &&
-          (!round.verified_at || !round.is_self_store_verified)) {
+          (!round.verified_at || !round.verified_store_id?.trim() ||
+           round.verified_store_id !== round.assigned_store_id)) {
         return false;
       }
       if (

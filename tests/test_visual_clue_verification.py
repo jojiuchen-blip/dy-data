@@ -55,6 +55,7 @@ def test_verification_store_and_filter(browser, vite_real_api_base_url, tour_bac
         assert store.queries[-1]["page"] == 1
         surface.locator(".clue-detail-trigger").first.click()
         expect(page.locator(".clue-detail-modal")).to_contain_text("自店测试门店")
+        expect(page.locator(".clue-detail-modal")).not_to_contain_text("核销状态")
         page.get_by_role("button", name="关闭线索详情").click()
         page.screenshot(path=str(tmp_path / f"clue-verification-{width}.png"), full_page=True)
         page.get_by_role("button", name="清空筛选", exact=True).click()
