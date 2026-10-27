@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from apps.api.dy_api.db import make_engine
 from apps.worker.missing_fee_repair import (
-    MissingFeeRepairError, apply_missing_fees, digest, preview_missing_fees,
+    MissingFeeRepairError, apply_missing_fees, digest, preview_missing_fees, validate_request,
 )
 
 
@@ -45,9 +45,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--apply", metavar="EXACT_PREVIEW_SHA256")
     args = parser.parse_args(argv)
+    phase = "input"
+    manifest = None
+    apply_started = False
+    apply_returned = False
+
+    def failure(status: str, *, applied: bool | None, detail: str | None = None) -> None:
+        result = {"status": status, "applied": applied, "automatic_retry": False}
+        if detail:
+            result["detail"] = detail
+        if args.apply and isinstance(manifest, dict) and isinstance(manifest.get("request_id"), str):
+            result["audit_id"] = "missing-fee-" + digest(manifest["request_id"])
+            result["next_step"] = "Read the operation audit and actual outputs before retrying this request."
+        print(json.dumps(result, ensure_ascii=False), file=sys.stderr)
+
     try:
         manifest = json.loads(args.manifest.read_text(encoding="utf-8-sig"))
         exclusions = json.loads(args.exclusions.read_text(encoding="utf-8-sig"))
+        validate_request(manifest, exclusions)
+        phase = "output"
         operation = "apply" if args.apply else "preview"
         output = _private_destination(args.output or ROOT / ".tmp" / "missing-fee-repair" /
                                       (digest(manifest.get("request_id"))[:24] + f"-{operation}.json"))
@@ -56,14 +72,20 @@ def main(argv: list[str] | None = None) -> int:
         # existing report/symlink or discover an unwritable path after commit.
         with output.open("x", encoding="utf-8") as report_file:
             os.chmod(output, 0o600)
+            phase = "database"
             engine = make_engine()
             try:
                 with Session(engine, autoflush=False, expire_on_commit=False) as session:
                     if args.apply:
+                        apply_started = True
                         report = apply_missing_fees(session, manifest=manifest, exclusions=exclusions,
                                                     preview_hash=args.apply)
+                        # The service's owning transaction has committed before
+                        # it returns. Later output I/O cannot roll that back.
+                        apply_returned = True
                     else:
                         report = preview_missing_fees(session, manifest=manifest, exclusions=exclusions)
+                phase = "report"
                 json.dump(report, report_file, ensure_ascii=False, indent=2)
                 report_file.write("\n")
             finally:
@@ -72,13 +94,39 @@ def main(argv: list[str] | None = None) -> int:
                           "coupon_count": report["coupon_count"], "preview_hash": report["preview_hash"],
                           "report_path": str(output)}, ensure_ascii=False))
         return 0
-    except (MissingFeeRepairError, OSError, ValueError) as exc:
-        print(f"missing-fee repair rejected: {exc}", file=sys.stderr)
+    except MissingFeeRepairError as exc:
+        failure("business_rejected", applied=False, detail=str(exc))
         return 2
+    except ValueError:
+        if apply_returned:
+            failure("applied_but_report_failed", applied=True)
+            return 4
+        if apply_started:
+            failure("apply_outcome_unknown", applied=None)
+            return 5
+        failure("input_format_error", applied=False)
+        return 2
+    except OSError:
+        if apply_returned:
+            failure("applied_but_report_failed", applied=True)
+            return 4
+        if apply_started and phase == "database":
+            failure("apply_outcome_unknown", applied=None)
+            return 5
+        failure("input_io_error" if phase == "input" else "output_io_error", applied=False)
+        return 3
     except SQLAlchemyError:
         # Driver messages may contain database URLs or raw platform identities.
-        print("missing-fee repair database failure; transaction rolled back", file=sys.stderr)
-        return 3
+        if apply_returned:
+            failure("applied_but_cleanup_failed", applied=True)
+            return 4
+        if apply_started:
+            # In particular, a transport error during COMMIT may lose its
+            # acknowledgement after the database has durably committed.
+            failure("apply_outcome_unknown", applied=None)
+            return 5
+        failure("database_failure_without_apply", applied=False)
+        return 6
 
 
 if __name__ == "__main__":

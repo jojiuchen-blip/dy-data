@@ -269,14 +269,18 @@ def test_cli_defaults_to_preview_and_private_report(db_session, tmp_path, monkey
 def test_cli_existing_report_rejected_before_database_open(tmp_path, monkeypatch):
     from scripts.ops import repair_missing_fees as cli
     manifest_path, exclusions_path, output = (tmp_path / name for name in ("manifest.json", "exclusions.json", "existing.json"))
-    manifest_path.write_text('{"request_id":"synthetic"}', encoding="utf-8")
-    exclusions_path.write_text('{}', encoding="utf-8")
+    manifest_path.write_text(json.dumps({"schema_version": 1, "request_id": "synthetic", "actor": "ops:test",
+        "approval_ref": "synthetic", "coupons": [{"coupon_id": "coupon", "order_id": "order",
+            "raw_coupon_id": 1, "raw_order_id": 1, "business_month": "2026-09", "expected_sale_store_id": "sale",
+            "expected_verify_store_id": "verify", "verify_id": "v", "verify_time": "2026-09-01T01:00:00Z"}]}), encoding="utf-8")
+    exclusions_path.write_text(json.dumps({"schema_version": 1, "groups": {name: {
+        "coupon_ids": [], "count": 0, "sha256": repair.digest([])} for name in repair.EXCLUSION_GROUPS}}), encoding="utf-8")
     output.write_text("preserve existing evidence", encoding="utf-8")
     def forbidden():
         raise AssertionError("database must not open for an existing report")
     monkeypatch.setattr(cli, "make_engine", forbidden)
     assert cli.main(["--manifest", str(manifest_path), "--exclusions", str(exclusions_path),
-                     "--output", str(output)]) == 2
+                     "--output", str(output)]) == 3
     assert output.read_text(encoding="utf-8") == "preserve existing evidence"
 
 
@@ -284,3 +288,70 @@ def test_cli_rejects_tracked_report_path():
     from scripts.ops import repair_missing_fees as cli
     with pytest.raises(repair.MissingFeeRepairError, match="private report"):
         cli._private_destination(cli.ROOT / "apps" / "worker" / "settlement.py")
+
+
+@pytest.mark.parametrize("failure_mode", ["report-write", "report-close", "commit-acknowledgement"])
+def test_cli_never_claims_rollback_after_durable_apply(db_session, tmp_path, monkeypatch, capsys, failure_mode):
+    from pathlib import Path
+    from sqlalchemy.exc import SQLAlchemyError
+    from scripts.ops import repair_missing_fees as cli
+    manifest, exclusions = setup_batch(db_session)
+    manifest_path, exclusions_path, output = (tmp_path / name for name in ("manifest.json", "exclusions.json", "report.json"))
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    exclusions_path.write_text(json.dumps(exclusions), encoding="utf-8")
+    engine = db_session.get_bind()
+    monkeypatch.setattr(cli, "make_engine", lambda: engine)
+    monkeypatch.setattr(engine, "dispose", lambda: None)
+    calls = []
+    def durable_apply(session, **kwargs):
+        # CLI delivery test: commit real synthetic fee rows, then inject either
+        # a missing commit acknowledgement or a later report-storage failure.
+        # Full guarded service atomicity is exercised separately on PostgreSQL.
+        calls.append(kwargs)
+        s.rebuild_dual_fee_results(session, calculation_run_id="cli-durable-test",
+                                  coupon_ids=[manifest["coupons"][0]["coupon_id"]])
+        session.commit()
+        if failure_mode == "commit-acknowledgement":
+            raise SQLAlchemyError("sensitive-driver-detail-must-not-escape")
+        return {"applied": True, "replayed": False, "coupon_count": 1, "preview_hash": "a" * 64}
+    monkeypatch.setattr(cli, "apply_missing_fees", durable_apply)
+    real_open = Path.open
+    class FailedReport:
+        def __init__(self, handle):
+            self.handle = handle
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            self.handle.close()
+            if failure_mode == "report-close":
+                raise OSError("synthetic close failure after commit")
+        def write(self, value):
+            if failure_mode == "report-write":
+                raise OSError("synthetic disk full after commit")
+            return self.handle.write(value)
+    def open_report(path, *args, **kwargs):
+        handle = real_open(path, *args, **kwargs)
+        return FailedReport(handle) if path == output and failure_mode.startswith("report-") else handle
+    monkeypatch.setattr(Path, "open", open_report)
+    code = cli.main(["--manifest", str(manifest_path), "--exclusions", str(exclusions_path),
+                     "--output", str(output), "--apply", "a" * 64])
+    visible = capsys.readouterr()
+    status = json.loads(visible.err)
+    assert code == (4 if failure_mode.startswith("report-") else 5)
+    assert status["status"] == ("applied_but_report_failed" if failure_mode.startswith("report-") else "apply_outcome_unknown")
+    assert status["applied"] is (True if failure_mode.startswith("report-") else None)
+    assert status["automatic_retry"] is False
+    assert status["audit_id"] == "missing-fee-" + repair.digest(manifest["request_id"])
+    assert "rolled back" not in visible.err and "sensitive-driver-detail" not in visible.err
+    assert visible.out == "" and len(calls) == 1
+    assert db_session.scalar(select(func.count()).select_from(m.SettlementFeeResult)) == 2
+
+
+def test_cli_input_io_failure_never_opens_database(tmp_path, monkeypatch, capsys):
+    from scripts.ops import repair_missing_fees as cli
+    def forbidden():
+        raise AssertionError("input failure must not open database")
+    monkeypatch.setattr(cli, "make_engine", forbidden)
+    assert cli.main(["--manifest", str(tmp_path / "absent.json"), "--exclusions", str(tmp_path / "also-absent.json")]) == 3
+    status = json.loads(capsys.readouterr().err)
+    assert status["status"] == "input_io_error" and status["applied"] is False
