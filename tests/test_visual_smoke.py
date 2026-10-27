@@ -22,7 +22,7 @@ import pytest
 from fastapi import HTTPException, Request
 from playwright.sync_api import Browser, Page, expect, sync_playwright
 from openpyxl import Workbook
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 import uvicorn
 
@@ -154,6 +154,7 @@ from apps.api.dy_api.models import (  # noqa: E402
     SettlementStatement,
     SettlementStatementConfirmation,
     SettlementStatementEntry,
+    SettlementStatementLine,
     StoreFinanceProfile,
 )
 
@@ -616,6 +617,65 @@ def vite_live_api_base_url(live_fastapi_base_url: str) -> Generator[str]:
 LIVE_ADMIN_SESSION_FACTORIES: dict[str, sessionmaker] = {}
 
 
+def _seed_live_admin_complete_billing_sources(session) -> None:
+    """Complete synthetic protected bills without changing existing UI amounts.
+
+    The two existing detail orders retain 128641/32000 cents. Their bill
+    headers already included the remaining amounts below; independent source
+    identities make that existing scope explicit without changing those orders.
+    """
+    for store_id, direction, fee in (
+        ("store-1", 1, 12_735_409), ("store-1", 2, 288_000),
+        ("store-2", 1, 7_642_000), ("store-2", 2, 230_000),
+    ):
+        name = "promotion" if direction == 1 else "management"
+        identity = f"uat-bill-remainder-{store_id}-{name}"
+        line_id = f"uat-line-{name}" + ("-store-2" if store_id == "store-2" else "")
+        base = fee * 10
+        session.add(SettlementFeeResult(
+            fee_result_id=identity, coupon_id=identity, order_id=f"order-{identity}",
+            fee_direction=direction, result_version=1, original_business_month="2026-08",
+            rule_match_date=date(2026, 8, 5), sale_store_id=store_id, verify_store_id=store_id,
+            sku_id=f"SKU-{identity}", product_scope="精诚养车", product_type="养车服务",
+            sale_channel_normalized="LIVE", source_amount_cent=base, refunded_amount_cent=0,
+            fee_base_cent=base, fee_rate=Decimal("0.100000"), fee_amount_cent=fee,
+            rule_version="uat-rule-v1", scope_rule_version="uat-scope-v1", result_status=1,
+            calculation_run_id=identity, calculated_at=datetime(2026, 8, 5, 9, tzinfo=timezone.utc),
+        ))
+        session.add(SettlementFeeResultCurrent(coupon_id=identity, fee_direction=direction, fee_result_id=identity))
+        session.add(SettlementStatementEntry(
+            statement_entry_id=f"entry-{identity}", statement_id=f"uat-statement-{store_id}",
+            statement_line_id=line_id, source_type=1, source_record_id=identity, original_fee_result_id=identity,
+            coupon_id=identity, order_id=f"order-{identity}", fee_direction=direction,
+            original_business_month="2026-08", statement_posting_month="2026-08",
+            product_scope="精诚养车", product_type="养车服务", base_amount_cent=base,
+            fee_amount_cent=fee, rule_version="uat-rule-v1", product_name_snapshot="合成账单范围内其他费用",
+            sku_id_snapshot=f"SKU-{identity}", received_amount_cent_snapshot=base,
+            fee_rate_snapshot=Decimal("0.100000"), sale_store_id_snapshot=store_id,
+            verify_store_id_snapshot=store_id, sale_channel_snapshot="live",
+        ))
+    session.flush()
+    for store_id in ("store-1", "store-2"):
+        statement_id = f"uat-statement-{store_id}"
+        bill = session.scalar(select(SettlementStatement).where(SettlementStatement.statement_id == statement_id))
+        for direction, name in ((1, "promotion"), (2, "management")):
+            entries = list(session.scalars(select(SettlementStatementEntry).where(
+                SettlementStatementEntry.statement_id == statement_id,
+                SettlementStatementEntry.fee_direction == direction,
+            )))
+            fee = sum(entry.fee_amount_cent for entry in entries)
+            base = sum(entry.base_amount_cent for entry in entries)
+            assert fee == getattr(bill, f"{name}_original_fee_cent") == getattr(bill, f"{name}_net_fee_cent")
+            assert getattr(bill, f"{name}_adjustment_fee_cent") == 0
+            session.add(SettlementStatementLine(
+                statement_line_id=entries[0].statement_line_id, statement_id=statement_id, fee_direction=direction,
+                product_scope="精诚养车", product_type="养车服务", original_entry_count=len(entries),
+                adjustment_entry_count=0, original_base_cent=base, adjustment_base_cent=0, net_base_cent=base,
+                original_fee_cent=fee, adjustment_fee_cent=0, net_fee_cent=fee,
+            ))
+    session.commit()
+
+
 @pytest.fixture(scope="session")
 def live_admin_fastapi_base_url(tmp_path_factory) -> Generator[str]:
     port = find_free_port()
@@ -899,7 +959,7 @@ def live_admin_fastapi_base_url(tmp_path_factory) -> Generator[str]:
                     statement_id="uat-statement-store-1",
                     statement_line_id="uat-line-promotion",
                     source_type=1,
-                    source_record_id="uat-source-promotion",
+                    source_record_id="uat-fee-promotion",
                     original_fee_result_id="uat-fee-promotion",
                     coupon_id="uat-coupon-promotion",
                     order_id="DY2026071900842",
@@ -931,7 +991,7 @@ def live_admin_fastapi_base_url(tmp_path_factory) -> Generator[str]:
                     statement_id="uat-statement-store-1",
                     statement_line_id="uat-line-management",
                     source_type=1,
-                    source_record_id="uat-source-management",
+                    source_record_id="uat-fee-management",
                     original_fee_result_id="uat-fee-management",
                     coupon_id="uat-coupon-management",
                     order_id="DY20260622001935",
@@ -1134,6 +1194,7 @@ def live_admin_fastapi_base_url(tmp_path_factory) -> Generator[str]:
         ])
         session.commit()
         # Analytical browser reads share one explicit initial background publication.
+        _seed_live_admin_complete_billing_sources(session)
         publish_fixture(session, "finance")
         publish_fixture(session, "settlement")
 
