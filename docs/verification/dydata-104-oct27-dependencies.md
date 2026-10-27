@@ -43,7 +43,7 @@ npm run build
 
 ## 代表性浏览器回归
 
-Browser plugin not available；使用既有 Python Playwright/Chromium，真实独立合成SQLite、FastAPI和本工作树安装的新版Vite，不请求生产。
+使用仓库既有 Python Playwright/Chromium、真实独立合成SQLite、FastAPI和本工作树安装的新版Vite，不请求生产。
 
 ```powershell
 python -m pytest tests/test_dydata105_buttons_browser.py::test_dydata105_store_confirm_invoice_lifecycle_and_replacement_real_readback tests/test_dydata105_buttons_browser.py::test_dydata105_ranking_filters_drill_and_order_fee_direction_downloads tests/test_dydata105_remaining_buttons_browser.py::test_remaining_status_pagination_and_real_terminated_candidate_recovery tests/test_visual_smoke.py::test_finance_import_clears_stale_preview_after_409 -q --tb=short

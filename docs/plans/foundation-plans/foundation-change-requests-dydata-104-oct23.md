@@ -113,13 +113,15 @@
 | 指向代码块 | apps/worker/account_qualification.py；apps/worker/browser_exports/backend_aweme_proof.py；apps/worker/month_close.py；alembic/versions/20261027_0066_account_qualification.py |
 | 目标 foundation 文件:章节 | docs/prd/foundation/foundation-schema-dy-data/settlement-reporting.md 费用来源及资格快照；foundation-api-dy-data/billing-invoice.md 月结预检 |
 | 严重度 | 阻断资格漂移及未知身份误计费 |
-| 状态 | 已回捞（foundation 9ba40d1）；自动启动及共同发布前资格校验增量待补 |
+| 状态 | 已改（foundation 9ba40d1及1eca0ab）；仅合同回捞，不代表真实月末或生产验收完成 |
 
 自2026-10起，同一来源行类型为子机构门店号/区域号且绑定状态认证成功才合格，认证信息自由文本不限制。上海月末最后2小时内启动且截止前完成的最后完整采集可冻结；最新失败、不完整、跨截止或仍运行均暂停月结。保留真实时间，不声称精确午夜状态，不把10月27日资料回填为月末。冻结后只引用该版本，销售门店关联、核销账期及费率日期保持各自合同。
 
 自动永久采集最多8次/月及1条预算失败标记，内容按hash去重，单快照上限8MiB；平时导出继续但不永久增加资格快照。正式空筛选导出任务、同任务完成元数据和实际文件字节/hash共同构成来源证明，禁止mtime拾取旧文件或以另一scope列表总数代替。失败和主事务回滚不留下假成功。迁移0066为加法；已使用的不可变资格来源不允许降级删除。
 
 官方订单查询中transfer_douyin_uid为短抖音号，transfer_uid为加密且非抖音UID的归属人编号。仅collector实际选中的原始短号字段与归一列一致时，才匹配冻结workbook同命名空间。未取得关联、明确不合格、冲突分别记录；昵称和跨命名空间数值相等均不能补桥。其他历史候选关联尚未批准为自动资格证据。验证及当前来源限制见 `docs/verification/dydata-104-oct27-monthend.md`。
+
+自动计算启动与正式出账条件分别记录：完整来源和冻结资格允许派发正常全月计算，不能要求先存在已引用新资格的费用。正式提交及实际月份闭包仍检查所有current费用的资格版本；未知或不合格旧费用不得过滤删除，整批失败回滚。稳定计算摘要不引用费用输出版本，以免重复创建任务或重置失败预算。实现4369a41、合同1eca0ab已集成，根线程67项集成测试零跳过通过；真实月底仍待发生。
 
 ## S4-FCR-008 受保护账单来源与只发布恢复
 
