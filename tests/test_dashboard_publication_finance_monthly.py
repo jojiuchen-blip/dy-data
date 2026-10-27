@@ -229,3 +229,36 @@ def assert_monthly_http_contract(session, monkeypatch):
 
 def test_monthly_http_numeric_and_null_types(db_session, monkeypatch):
     assert_monthly_http_contract(db_session, monkeypatch)
+
+
+@pytest.mark.parametrize("global_access", [True, False])
+def test_monthly_type_filter_survives_switch_to_empty_authorized_store(db_session, monkeypatch, global_access):
+    seed_frozen_monthly(db_session)
+    db_session.execute(insert(finance.ranking).values(publication_id="monthly-frozen",
+        period_type=1, period_key="2026-09", store_id="allowed", store_name="Allowed",
+        product_scope="all", product_type="历史养车服务",
+        **{key: 123 for key in finance.RANK_METRICS}))
+    db_session.commit()
+    monkeypatch.setenv("DY_API_TEST_MODE", "true")
+    app = create_app()
+    identity = [AuthContext(user_id="reader", username="reader", display_name="Reader",
+        role="highest_admin" if global_access else "store",
+        store_scope_mode="all" if global_access else "specified",
+        store_ids=() if global_access else ("allowed", "zero"),
+        auth_type="test", page_keys=("C01", "C02"))]
+    app.dependency_overrides[get_session_dependency] = lambda: db_session
+    app.dependency_overrides[get_current_user] = lambda: identity[0]
+    params = {"month": "2026-09", "publication_id": "monthly-frozen", "productType": "历史养车服务"}
+    with TestClient(app) as client:
+        empty = client.get("/api/v1/stores/zero/monthly-settlement", params=params)
+        assert empty.status_code == 200, empty.text
+        assert empty.json()["data"]["productType"] == "历史养车服务"
+        assert set(empty.json()["data"]["metrics"].values()) == {0}
+        assert empty.json()["data"]["lines"] == []
+        unknown = client.get("/api/v1/stores/zero/monthly-settlement",
+            params=params | {"productType": "不存在的商品类型"})
+        assert unknown.status_code == 422
+        # Removing the only store with this historical type must not expose it.
+        identity[0] = replace(identity[0], role="store", store_scope_mode="specified", store_ids=("zero",))
+        assert client.get("/api/v1/stores/zero/monthly-settlement", params=params).status_code == 422
+        assert client.get("/api/v1/stores/allowed/monthly-settlement", params=params).status_code == 403

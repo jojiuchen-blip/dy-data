@@ -1,3 +1,5 @@
+import { initialStatementMonth } from "../utils/statementMonth";
+import { replaceBusinessFiltersInUrl } from "../utils/businessFilters";
 import { useEffect, useState } from "react";
 import {
   fetchSettlementFilterMeta,
@@ -42,11 +44,8 @@ function rankingSortByForBasis(basis: StoreFinanceRankingBasis): RankingSortBy {
 }
 
 export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
-  const [periodKey, setPeriodKey] = useState(searchParams.get("periodKey") ?? "");
-  const [productScope, setProductScope] = useState(
-    searchParams.get("productScope") ?? "all",
-  );
-  const productType = searchParams.get("productType") ?? "";
+  const [periodKey, setPeriodKey] = useState(() => initialStatementMonth(searchParams));
+  const [productType, setProductType] = useState(searchParams.get("productType") ?? searchParams.get("product_type") ?? "");
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
   const [page, setPage] = useState(1);
   const [rankingBasis, setRankingBasis] = useState<StoreFinanceRankingBasis>(() => {
@@ -80,8 +79,7 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
     (filters, publication_id) => fetchSettlementStoreRanking({
       publication_id,
       periodType: "MONTHLY",
-      periodKey: periodKey || filters.saleMonths[0] || "",
-      productScope,
+      periodKey,
       productType: productType || filters.defaultProductType || "all",
       q: query || undefined,
       sortBy,
@@ -90,12 +88,13 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
       page,
       pageSize: PAGE_SIZE,
     }),
-    [periodKey, productScope, productType, query, rankingBasis, sortBy, page],
+    [periodKey, productType, query, rankingBasis, sortBy, page],
   );
   const metaResource = { ...rankingResource, data: rankingResource.filters };
   const meta = metaResource.data?.data;
-  const activePeriodKey = periodKey || meta?.saleMonths[0] || "";
+  const activePeriodKey = periodKey;
   const activeProductType = productType || meta?.defaultProductType || "all";
+  useEffect(() => replaceBusinessFiltersInUrl({ periodKey, month: undefined, productType: productType || undefined, product_type: undefined }), [periodKey, productType]);
   const ranking = rankingResource.data?.data;
   const metaError = metaResource.rawError ? apiErrorText(metaResource.rawError, "筛选条件暂不可用，请稍后重试。") : metaResource.error;
   const rankingError = rankingResource.rawError ? apiErrorText(rankingResource.rawError, "榜单暂不可用，请稍后重试。", { 403: "当前账号没有查看该榜单的权限。", 422: "榜单筛选条件不合法，请重新选择。" }) : rankingResource.error;
@@ -128,10 +127,10 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
           <h1>全国门店月度榜单</h1>
         </div>
       </section>
-      <ResourceNotice analysis loading={metaResource.loading || rankingResource.loading || rankingResource.refreshing} error={metaError ?? rankingError} />
+      <ResourceNotice analysis loading={metaResource.loading || rankingResource.loading || rankingResource.refreshing} error={rankingError ?? metaError} />
       <FilterBar>
-        <SelectField disabled={!meta} label="账期" value={activePeriodKey} onChange={(value) => { setPeriodKey(value); setPage(1); }} options={(meta?.saleMonths ?? []).map((value) => ({ value, label: value }))} />
-        <SelectField disabled={!meta} label="产品范围" value={productScope} onChange={(value) => { setProductScope(value); setPage(1); }} options={(meta?.productScopes ?? []).map((value) => ({ value, label: value === "all" ? "全部产品" : value }))} />
+        <SelectField disabled={!meta} label="账期" value={activePeriodKey} onChange={(value) => { setPeriodKey(value); setPage(1); }} options={Array.from(new Set([activePeriodKey, ...(meta?.statementMonths ?? [])])).map((value) => ({ value, label: value }))} />
+        <SelectField disabled={!meta} label="商品类型" value={activeProductType} onChange={(value) => { setProductType(value); setPage(1); }} options={Array.from(new Set(["all", ...(meta?.productTypes ?? []), activeProductType])).map((value) => ({ value, label: value === "all" ? "全部商品" : value }))} />
         <FilterField label="搜索门店"><FieldInput disabled={!meta} value={query} placeholder="输入门店名称" onChange={(event) => { setQuery(event.target.value); setPage(1); }} /></FilterField>
         <SelectField label="排行依据" value={rankingBasis} onChange={(value) => {
           setRankingBasis(value as StoreFinanceRankingBasis);
@@ -154,7 +153,7 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
             <div className="section-title">
               <div><h2>门店排名</h2><p>{ranking.scopeMode === "GLOBAL_TOP_20_EXCEPTION" ? "全国前 20 展示例外；明细仍按门店权限控制" : `共 ${ranking.total} 家门店`}</p></div>
             </div>
-            {rows.length ? <DataTable columns={columns} rows={rows} rowHref={ranking.scopeMode === "AUTHORIZED" ? (row) => `/settlement?storeId=${encodeURIComponent(row.storeId)}&month=${activePeriodKey}&productScope=${encodeURIComponent(productScope)}&productType=${encodeURIComponent(activeProductType)}` : undefined} /> : <ResourcePanel>当前筛选下没有门店结果。</ResourcePanel>}
+            {rows.length ? <DataTable columns={columns} rows={rows} rowHref={ranking.scopeMode === "AUTHORIZED" ? (row) => `/settlement?storeId=${encodeURIComponent(row.storeId)}&month=${activePeriodKey}&productType=${encodeURIComponent(activeProductType)}` : undefined} /> : <ResourcePanel>当前筛选下没有门店结果。</ResourcePanel>}
             {ranking.scopeMode === "AUTHORIZED" ? <TablePagination page={ranking.page} pageSize={ranking.pageSize} total={ranking.total} totalPages={Math.max(1, Math.ceil(ranking.total / ranking.pageSize))} rowsOnPage={rows.length} loading={rankingResource.loading} onPageChange={setPage} /> : null}
           </section>
         </>

@@ -97,7 +97,13 @@ def invoice_web(invoice_api, tmp_path):
 
 
 def confirm_and_open(page, web):
-    page.goto(f"{web}/settlement?storeId=oct23-store&month=2026-09")
+    # The confirmation action depends on the live bill, which loads after the
+    # publication metadata. Await that response before checking its UI action.
+    with page.expect_response(lambda response: response.request.method == "GET"
+            and "/store-settlements?" in response.url and "month=2026-09" in response.url) as loaded:
+        page.goto(f"{web}/settlement?storeId=oct23-store&month=2026-09")
+    assert loaded.value.status == 200, loaded.value.text()
+    assert any(row["statementId"] == "oct23-bill" for row in loaded.value.json()["data"]["list"])
     button = page.get_by_role("button", name="确认推广服务费", exact=True)
     expect(button).to_be_enabled()
     button.click()

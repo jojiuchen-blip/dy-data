@@ -1,5 +1,20 @@
 # DYDATA-104 10月23日契约回捞
 
+## S4-FCR-004 普通商品类型、精诚养车转换与上一完整月
+
+| 字段 | 内容 |
+|---|---|
+| 来源 Task | dydata-104-followthrough T3.1；用户2026-10-26明确授权三个功能，数据核查由协作者负责 |
+| 分类 | DRIFT |
+| 改动项 | 普通页面取消 scope 配置/筛选及类型配对；精确 scope 目标统一为精诚养车类型；订单分佣默认上海上一完整月 |
+| 原因 | 最新104正文覆盖旧范围/类型双字段、三列导入模板和元数据首月默认；独立打榜被明确排除 |
+| 指向代码块 | routes/fee_admin.py、routes/_data.py、dashboard_publications/、product_classification.py、convert_jingcheng_product_types.py、订单分佣页面 |
+| 目标 foundation 文件:章节 | foundation-api-dy-data/sku-fee-admin.md 分类与导入；foundation-schema-dy-data/product-rule-source.md 类型/范围；订单分佣默认筛选合同 |
+| 严重度 | 必须保持权限、不可变财务事实及独立打榜语义 |
+| 状态 | 实现与验证中；冻结 foundation 回捞待评审，未宣称生产生效 |
+
+现行增量合同见[商品类型与默认账期](../../api/product-type-classification.md)。新分类仅需有效类型；旧 scope 输入忽略并保留内部字段。精诚养车当前目录按精确存储值归一，转换先预演再锁定摘要应用，持续同步/编辑一致；历史费用、账单行键、确认及发票不改。分析类型在发布时冻结，财务仍使用历史类型；不引入 GET 重算。独立打榜保持全部/精诚养车/比亚迪本品。默认账期按上海上一完整月，显式月份和固定账单上下文优先，不以累计或更早月份代替。
+
 ## S4-FCR-001 发票登记简化与可信金额摘要
 
 | 字段 | 内容 |

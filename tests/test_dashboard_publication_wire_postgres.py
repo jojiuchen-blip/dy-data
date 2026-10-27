@@ -19,6 +19,7 @@ from test_dashboard_publication_finance import _seed_finance, _seed_settlement, 
 from publication_fixture_helpers import ready_periods_fixture
 from apps.api.dy_api.dashboard_publications import finance
 from apps.api.dy_api.dashboard_publications.schema import metadata, runs, heads
+from apps.api.dy_api.dashboard_publications.sources import MODULE_CONTRACT_VERSIONS
 from apps.api.dy_api.access_control import ALL_PAGE_KEYS
 from dy_api.auth import AuthContext, get_current_user
 from dy_api.main import create_app
@@ -26,8 +27,11 @@ from dy_api.routes._data import get_session_dependency
 
 
 def _publish(session, publication_id, module):
+    stats = dict(session.scalar(select(runs.c.stats_json).where(runs.c.id == publication_id)) or {})
+    if module in MODULE_CONTRACT_VERSIONS:
+        stats["contract_version"] = MODULE_CONTRACT_VERSIONS[module]
     session.execute(runs.update().where(runs.c.id == publication_id).values(
-        module=module, status="success", published_at=NOW))
+        module=module, status="success", published_at=NOW, stats_json=stats))
     session.execute(heads.insert().values(module=module, publication_id=publication_id))
     session.commit()
 

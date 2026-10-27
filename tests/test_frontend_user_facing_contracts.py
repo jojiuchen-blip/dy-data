@@ -312,7 +312,8 @@ def test_settlement_pages_use_the_t3_1_camel_case_contract_without_silent_fallba
     assert "managementNetFeeCent" not in ranking
     assert "RankingBasis" in ranking
     assert 'sortOrder: "DESC"' in ranking
-    assert "meta?.saleMonths[0]" in ranking
+    assert "initialStatementMonth(searchParams)" in ranking
+    assert "meta?.saleMonths[0]" not in ranking
     assert 'ranking.scopeMode === "AUTHORIZED" ? (row)' in ranking
     for enum_value in [
         "SALES_AMOUNT",
@@ -331,7 +332,7 @@ def test_settlement_pages_use_the_t3_1_camel_case_contract_without_silent_fallba
     assert "promotionOrderResource" in settlement and "managementOrderResource" in settlement
     assert "feeDirection" in details
     assert "adjustedNetFeeCent" in details
-    assert 'searchParams.get("month") ?? undefined' in details
+    assert "initialStatementMonth(searchParams)" in details
     assert "meta?.stores[0]" not in details
     assert "directionIsFrozen" in details
     api_errors = read_source("utils/apiErrors.ts")
@@ -690,8 +691,8 @@ def test_finance_navigation_and_headings_match_the_v2_clean_contract() -> None:
     assert '<TertiaryNav' in order_details
     assert 'label="订单明细费用方向"' in order_details
     for item in [
-        '`/finance/orders/promotion?month=${encodeURIComponent(draft.month)}`',
-        '`/finance/orders/management?month=${encodeURIComponent(draft.month)}`',
+        '`/finance/orders/promotion?month=${encodeURIComponent(query.month)}`',
+        '`/finance/orders/management?month=${encodeURIComponent(query.month)}`',
     ]:
         assert item in order_details
     assert '<TertiaryNav' in order_details.split('<section className="page-heading', 1)[0]

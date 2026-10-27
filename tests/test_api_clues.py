@@ -69,20 +69,24 @@ def _login_user(client: TestClient, username: str, password: str) -> None:
     assert response.status_code == 200
 
 
-def test_clue_product_partition_includes_unmapped_and_null(client, db_session):
-    from apps.api.dy_api.models import DimSkuProductRule
+def test_clue_product_type_matches_real_names_without_scope_complements(client, db_session):
     _seed_clue_center(db_session)
-    first = db_session.scalar(select(ClueCenterOrder).where(ClueCenterOrder.order_id == "order-1"))
-    first.product_id = "JC-PRODUCT"
-    db_session.add(DimSkuProductRule(sku_id="JC-SKU", product_id="JC-PRODUCT", product_scope="精诚养车"))
+    db_session.get(ClueCenterOrder, "order-1").product_type = "精诚养车"
+    db_session.get(ClueCenterOrder, "order-2").product_type = "比亚迪本品"
     db_session.commit()
     _login(client)
     url = "/api/v1/clues/assignment-rounds"
-    responses = {scope: client.get(url, params={"product_type": scope}).json()["data"]
-                 for scope in ["all", "jingcheng", "byd"]}
-    assert responses["jingcheng"]["pagination"]["total"] > 0
-    assert responses["byd"]["pagination"]["total"] > 0
-    assert responses["all"]["pagination"]["total"] == responses["jingcheng"]["pagination"]["total"] + responses["byd"]["pagination"]["total"]
+    for product_type, order_id in (("精诚养车", "order-1"), ("比亚迪本品", "order-2")):
+        response = client.get(url, params={"product_type": product_type})
+        assert response.status_code == 200, response.text
+        data = response.json()["data"]
+        assert data["pagination"]["total"] == 1
+        assert {row["order_id"] for row in data["rows"]} == {order_id}
+        exported = client.get(url + "/export", params={"product_type": product_type})
+        rows = list(csv.DictReader(io.StringIO(exported.content.decode("utf-8-sig"))))
+        assert [row["order_id"] for row in rows] == [order_id]
+    for legacy_scope in ("jingcheng", "byd"):
+        assert client.get(url, params={"product_type": legacy_scope}).json()["data"]["pagination"]["total"] == 0
 
 
 def test_clue_organization_options_and_filter_use_full_path(client, db_session):
@@ -694,7 +698,7 @@ def test_clue_filters_can_exclude_large_assigned_store_payload(
     data = response.json()["data"]
     assert data["assigned_stores"] == []
     assert data["default_product_type"] == "all"
-    assert data["product_types"] == ["精诚养车", "比亚迪本品"]
+    assert data["product_types"] == ["Car Service"]
 
 
 def test_clue_store_filter_options_are_limited_searchable_and_scope_safe(
@@ -2073,3 +2077,58 @@ def test_worker_phone_recovery_is_visible_without_api_douyin_credentials(
     assert listing.status_code == 200
     assert "138****5678" in listing.text
     assert len(api_client_attempts) == attempts_before
+
+
+def test_live_clue_catalog_type_is_shared_by_filters_rows_details_totals_and_export(client, db_session):
+    from apps.api.dy_api.models import DimSkuProductRule
+    from sqlalchemy import event
+
+    _seed_clue_center(db_session)
+    for number, product in ((1, "精诚养车"), (2, "比亚迪本品")):
+        db_session.get(ClueCenterOrder, f"order-{number}").product_id = f"catalog-sku-{number}"
+        db_session.add(DimSkuProductRule(sku_id=f"catalog-sku-{number}", product_scope=f"scope-{number}", product_type=product))
+    db_session.commit()
+    _login(client)
+    statements = []
+    def capture(connection, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+    event.listen(db_session.get_bind(), "before_cursor_execute", capture)
+    try:
+        for number, product in ((1, "精诚养车"), (2, "比亚迪本品")):
+            params = {"product_type": product, "page_size": 1}
+            listed = client.get("/api/v1/clues/assignment-rounds", params=params)
+            assert listed.status_code == 200, listed.text
+            data = listed.json()["data"]
+            assert data["pagination"]["total"] == 1
+            assert [(row["order_id"], row["product_type"]) for row in data["rows"]] == [(f"order-{number}", product)]
+            exported = client.get("/api/v1/clues/assignment-rounds/export", params=params)
+            assert exported.status_code == 200, exported.text
+            rows = list(csv.DictReader(io.StringIO(exported.content.decode("utf-8-sig"))))
+            assert [(row["order_id"], row["product_type"]) for row in rows] == [(f"order-{number}", product)]
+            detail = client.get(f"/api/v1/clues/orders/order-{number}")
+            assert detail.status_code == 200, detail.text
+            assert detail.json()["data"]["product_type"] == product
+        filters = client.get("/api/v1/clues/filters")
+        assert filters.status_code == 200, filters.text
+        assert set(filters.json()["data"]["product_types"]) == {"精诚养车", "比亚迪本品"}
+    finally:
+        event.remove(db_session.get_bind(), "before_cursor_execute", capture)
+    # Catalog resolution is embedded in the existing batch queries; no row-by-row
+    # catalog fetches or writes are introduced by ordinary GETs.
+    catalog_queries = [sql for sql in statements if "dim_sku_product_rules" in sql]
+    assert catalog_queries
+    assert all("clue_center_orders" in sql for sql in catalog_queries)
+    assert all(sql.lstrip().upper().startswith(("SELECT", "WITH")) for sql in catalog_queries)
+    assert db_session.get(ClueCenterOrder, "order-1").product_type == "Car Service"
+
+    rule = db_session.scalar(select(DimSkuProductRule).where(DimSkuProductRule.sku_id == "catalog-sku-1"))
+    rule.product_type = "Reclassified"
+    db_session.commit()
+    listed = client.get("/api/v1/clues/assignment-rounds", params={"product_type": "Reclassified"})
+    assert listed.json()["data"]["pagination"]["total"] == 1
+    assert listed.json()["data"]["rows"][0]["product_type"] == "Reclassified"
+    assert client.get("/api/v1/clues/assignment-rounds", params={"product_type": "精诚养车"}).json()["data"]["pagination"]["total"] == 0
+    assert set(client.get("/api/v1/clues/filters").json()["data"]["product_types"]) == {"Reclassified", "比亚迪本品"}
+    exported = client.get("/api/v1/clues/assignment-rounds/export", params={"product_type": "Reclassified"})
+    rows = list(csv.DictReader(io.StringIO(exported.content.decode("utf-8-sig"))))
+    assert [(row["order_id"], row["product_type"]) for row in rows] == [("order-1", "Reclassified")]

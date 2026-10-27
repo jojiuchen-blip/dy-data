@@ -872,7 +872,7 @@ def test_admin_sku_preselection_removes_browse_filters_and_keeps_dimensions() ->
     assert "浏览搜索" not in page_source
     assert "1. SKU 查询与批量选择" in page_source
     assert "批量导入设置" in page_source
-    assert 'title: "产品范围"' in page_source
+    assert 'title: "产品范围"' not in page_source
     assert 'title: "商品类型"' in page_source
     assert "商品人工分类" not in page_source
 

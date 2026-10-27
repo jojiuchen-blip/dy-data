@@ -1,5 +1,6 @@
+import { replaceBusinessFiltersInUrl } from "../utils/businessFilters";
 import { usePublishedView } from "../hooks/usePublishedView";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ApiRequestError,
   confirmStoreBillingStatement,
@@ -95,8 +96,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
   const confirmationRequest = useRef(createPendingRequestKey());
   const disputeRequest = useRef(createPendingRequestKey());
 
-  const productScope = searchParams.get("productScope") ?? "all";
-  const requestedProductType = searchParams.get("productType");
+  const [requestedProductType, setProductType] = useState(searchParams.get("productType") ?? searchParams.get("product_type") ?? "");
   const settlementResource = usePublishedView(
     (id) => fetchSettlementFilterMeta("settlement", id),
     (filters, publication_id) => {
@@ -107,16 +107,15 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
       return fetchSettlementMonthly({
         publication_id,
         storeId: selectedStoreId,
-        month: month || filters.statementMonths[0] || "",
-        productScope,
-        productType: requestedProductType ?? filters.defaultProductType ?? "all",
+        month,
+        productType: requestedProductType || filters.defaultProductType || "all",
       });
     },
-    [storeId, month, productScope, requestedProductType],
+    [storeId, month, requestedProductType],
   );
   const metaResource = { ...settlementResource, data: settlementResource.filters };
   const meta = metaResource.data?.data;
-  const activeMonth = month || meta?.statementMonths[0] || "";
+  const activeMonth = month;
   const accountStoreIds = new Set(currentUser.store_ids);
   const storeOptions = (meta?.stores ?? []).filter(
     (store) => currentUser.role !== "store" || accountStoreIds.has(store.storeId),
@@ -124,7 +123,8 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
   const activeStoreId = currentUser.role === "store"
     ? (accountStoreIds.has(storeId) ? storeId : currentUser.store_ids[0] ?? "")
     : storeId || storeOptions[0]?.storeId || "";
-  const activeProductType = requestedProductType ?? meta?.defaultProductType ?? "all";
+  const activeProductType = requestedProductType || meta?.defaultProductType || "all";
+  useEffect(() => replaceBusinessFiltersInUrl({ month, periodKey: undefined, productType: requestedProductType || undefined, product_type: undefined }), [month, requestedProductType]);
   const billingResource = useApiResource(
     () => fetchStoreBillingStatements({
       storeId: activeStoreId,
@@ -134,33 +134,31 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
       pageSize: 1,
     }),
     [activeStoreId, activeMonth],
-    { enabled: Boolean(meta && activeStoreId && activeMonth) },
+    { enabled: Boolean(meta && activeStoreId && activeMonth), clearOnReload: true },
   );
   const promotionOrderResource = useApiResource(
     () => fetchOrderFeeDetails({
       storeId: activeStoreId,
       month: activeMonth,
       feeDirection: "PROMOTION",
-      productScope,
       productType: activeProductType,
       page: 1,
       pageSize: 50,
     }),
-    [activeStoreId, activeMonth, productScope, activeProductType],
-    { enabled: Boolean(meta && activeStoreId && activeMonth) },
+    [activeStoreId, activeMonth, activeProductType],
+    { enabled: Boolean(meta && activeStoreId && activeMonth), clearOnReload: true },
   );
   const managementOrderResource = useApiResource(
     () => fetchOrderFeeDetails({
       storeId: activeStoreId,
       month: activeMonth,
       feeDirection: "MANAGEMENT",
-      productScope,
       productType: activeProductType,
       page: 1,
       pageSize: 50,
     }),
-    [activeStoreId, activeMonth, productScope, activeProductType],
-    { enabled: Boolean(meta && activeStoreId && activeMonth) },
+    [activeStoreId, activeMonth, activeProductType],
+    { enabled: Boolean(meta && activeStoreId && activeMonth), clearOnReload: true },
   );
 
   const view = settlementResource.data?.data;
@@ -318,7 +316,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
       </section>
       <ResourceNotice analysis
         loading={metaResource.loading || settlementResource.loading || settlementResource.refreshing || billingResource.loading}
-        error={metaError ?? settlementError ?? billingError}
+        error={settlementError ?? metaError ?? billingError}
       />
       <FilterBar>
         <SelectField
@@ -327,7 +325,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
           value={activeMonth}
           placeholder={activeMonth || undefined}
           onChange={(value) => { setMonth(value); setInvalidatedStatementKey(null); }}
-          options={(meta?.statementMonths ?? []).map((value) => ({ value, label: value }))}
+          options={Array.from(new Set([activeMonth, ...(meta?.statementMonths ?? [])])).map((value) => ({ value, label: value }))}
         />
         <FilterField label="门店">
           <SearchableStoreSelect
@@ -337,7 +335,9 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
             options={storeOptions.map((store) => ({ value: store.storeId, label: store.storeName }))}
           />
         </FilterField>
+        <SelectField disabled={!meta} label="商品类型" value={activeProductType} onChange={(value) => setProductType(value)} options={Array.from(new Set(["all", ...(meta?.productTypes ?? []), activeProductType])).map((value) => ({ value, label: value === "all" ? "全部商品" : value }))} />
       </FilterBar>
+      <p className="muted-copy">历史账期按费用生成时的商品类型展示；账单确认和开票金额以完整正式账单为准。</p>
       {availability?.monthlyReady && availability.cumulativeReady === false ? <ResourcePanel>本月数据已完整；累计数据{incompleteMonths ? `因 ${incompleteMonths} 尚未完成` : "尚未完成"}，暂不可用。</ResourcePanel> : null}
 
       <section className="metric-grid store-summary-metrics" aria-label="分账指标">
@@ -416,7 +416,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
             </div>
             <div className="store-finance-fee-tabpanel" role="tabpanel">
               <ResourceNotice loading={activeOrderResource.loading} error={activeOrderResource.error} />
-              {activeOrders.length ? <DataTable columns={orderColumns} rows={activeOrders} /> : <ResourcePanel>暂无数据</ResourcePanel>}
+              {activeOrderResource.loading ? <ResourcePanel>正在加载订单明细…</ResourcePanel> : activeOrderResource.error ? <ResourcePanel tone="error">订单明细读取失败，请稍后重试。</ResourcePanel> : activeOrders.length ? <DataTable columns={orderColumns} rows={activeOrders} /> : <ResourcePanel>当前筛选下暂无订单明细。</ResourcePanel>}
             </div>
       </section>
 

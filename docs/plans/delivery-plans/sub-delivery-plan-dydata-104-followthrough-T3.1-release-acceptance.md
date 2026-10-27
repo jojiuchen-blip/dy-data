@@ -2,6 +2,28 @@
 
 # T3.1 静态首版发布与生产业务验收
 
+## 2026-10-26 当前执行：商品类型与默认账期
+
+【用户确认】数据核查由协作者处理，本会话实施 DYDATA-104 已登记的三个功能。用户本轮明确同意开发，沿用 T3.1，不新增业务决策或恢复暂停的账务操作。基线为 `6ac6e44035d659d87343369dc89380417ec83dd7`；上游收集 2026-10-26，slug=dy-data、canProceed=true，大文件按相关章节读取。
+
+| Requirement ID | 核心逻辑 / 完成标准 | Verification Method |
+|---|---|---|
+| 104-TYPE-01 | 后台、全国门店月榜、单店结算、订单明细、核销与线索按真实 product_type 配置和筛选；有效类型单独构成分类完整。列表、汇总、分页、下钻及导出一致，旧 scope 参数不产生隐藏过滤。 | 至少两个真实类型和全部；同类型跨 scope 不漏行、不重复；单条/批量/导入/导出及权限回归。 |
+| 104-TYPE-02 | 原正式 scope 为精诚养车的全部 SKU（包括已有其他类型）转为精诚养车类型，输出精确变更前后清单；持续同步保持分类，内部 scope 不清空。 | 精确代码识别、预演/应用/回读/幂等/冲突与回滚；费率及受保护财务快照不变；未知类型准确报告。 |
+| 104-MONTH-01 | 订单分佣各无显式账期入口默认 Asia/Shanghai 上一完整自然月，显式选择/深链和下钻返回保持；旧本月缓存不得覆盖菜单入口。 | 10→9、1→上年12、时区月界、切月/分页/导出；未发布/处理中/失败/无权限/真实零状态。 |
+
+**保护边界**：独立抖音打榜 `DouyinRankingPage.tsx` / `DouyinRankingExportDialog.tsx` 保留全部/精诚养车/比亚迪本品的 scope 语义与商品集合。分类只改商品档案，不重写历史费用、账单行键、确认及发票，不改费率、实收或账期。GET/筛选/导出只读，分析更新走独立发布 worker，新增依赖同步失效跟踪。
+
+**增量 PRD 双链·读**：本票 2026-10-26 最新正文及更正优先；`docs/prd/foundation/foundation-api-dy-data/sku-fee-admin.md`、`docs/prd/foundation/foundation-schema-dy-data/product-rule-source.md`、`docs/api/dashboard-publications.md`。旧文档 scope/type 配对和下架分类冲突记录 foundation 待改请求，不擅自改历史事实。
+
+**增量核心文件**：`apps/web/src/pages/AdminProductTypeVisibilityPage.tsx`、`AdminSkuRulesPage.tsx`、`StoreRankingPage.tsx`、`StoreSettlementPage.tsx`、`OrderDetailsPage.tsx`、`SalesDashboardPage.tsx`、`ClueCenterPage.tsx`、`apps/api/dy_api/routes/fee_admin.py`、`routes/dashboard.py`、`routes/meta.py`、`dashboard_publications/`、`src/dy_data/` 商品分类服务及对应测试；实际写集由影响调查收窄。
+
+**分工与当前非目标**：Codex 负责功能集成；独立工作树分别承接管理/同步、报表后端、前端。协作者继续数据核查；本轮不补录 22 券、不执行旧账务修复、不重跑历史月结、不登记发票。旧段落保留历史，不构成恢复授权。
+
+**Evidence / Failure Handling**：验证写入 `docs/verification/dydata-104-product-types.md`；按提交区分实现、测试、CI、发布、实际分类转换和业务验收。未验证目标环境不宣称生产完成；转换预演出现范围/并发冲突则停止应用，历史事实异常不得靠重算消除。
+
+**2026-10-26 集成进展**：三个功能已实现，实际PG覆盖59项通过/1项显式规模测试跳过；前端发布浏览器56项、导入归一预览3项及真实API月度9项通过，主整合构建通过。已补受限类型元数据和仅存历史账单行的类型选择；完整扫描/CI正在收口。当前目录与财务快照的时间语义见现行API合同，foundation差异记S4-FCR-004。未生产发布、预演或应用分类转换，不改变整体任务的进行中状态。
+
 ## 2026-10-23 已授权范围增量
 
 用户阅读三组新增需求及实施顺序后明确同意开始。承接 DYDATA-104 正文 2026-10-23 增补，覆盖旧的“八月不处理”边界；确认、开票、锁账、权限及恢复预算保护继续有效。当前 Codex 为唯一集成负责人，基线为合入 PR61 的 `ca61eff`。上游收集于2026-10-23运行，slug=dy-data，canProceed=true；大文件按相关章节读取。

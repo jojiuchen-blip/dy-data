@@ -555,15 +555,16 @@ def test_dydata105_ranking_filters_drill_and_order_fee_direction_downloads(
             ))
         for period_type in (1, 2):
             for product_scope in ("all", "原产品范围"):
-                session.add(AggStoreRanking(
-                    period_type=period_type, period_key="2026-08", month="2026-08",
-                    store_id="store-1", store_name="深圳临港认证服务店",
-                    product_scope=product_scope, product_type="all",
-                    sales_order_count=2, sales_amount_cent=1606405,
-                    verified_order_count=2, verified_amount_cent=1606405,
-                    promotion_net_fee_cent=128641, management_net_fee_cent=32000,
-                    net_settlement_reference_cent=96641,
-                ))
+                for product_type in ("all", "养车服务"):
+                    session.add(AggStoreRanking(
+                        period_type=period_type, period_key="2026-08", month="2026-08",
+                        store_id="store-1", store_name="深圳临港认证服务店",
+                        product_scope=product_scope, product_type=product_type,
+                        sales_order_count=2, sales_amount_cent=1606405,
+                        verified_order_count=2, verified_amount_cent=1606405,
+                        promotion_net_fee_cent=128641, management_net_fee_cent=32000,
+                        net_settlement_reference_cent=96641,
+                    ))
         publish_fixture(session, "settlement")
     context = browser.new_context(viewport={"width": 1440, "height": 900})
     page = context.new_page()
@@ -600,7 +601,8 @@ def test_dydata105_ranking_filters_drill_and_order_fee_direction_downloads(
         page.get_by_label("搜索门店", exact=True).fill("深圳")
         expect(page.get_by_text("深圳临港认证服务店", exact=True).first).to_be_visible()
         expect(page.get_by_label("统计方式", exact=True)).to_have_count(0)
-        for label, option in (("排行依据", "累计推广服务费"), ("产品范围", "原产品范围")):
+        expect(page.get_by_label("产品范围", exact=True)).to_have_count(0)
+        for label, option in (("排行依据", "累计推广服务费"), ("商品类型", "养车服务")):
             page.get_by_label(label, exact=True).click()
             with page.expect_response(lambda response: "/dashboard/store-ranking?" in response.url) as ranked:
                 page.get_by_role("option", name=option, exact=True).click()
@@ -609,10 +611,15 @@ def test_dydata105_ranking_filters_drill_and_order_fee_direction_downloads(
             assert data["periodType"] == "MONTHLY"
             assert data["rankingBasis"] == "PROMOTION_FEE_CUMULATIVE"
             assert data["totals"]["promotionMonthFeeCent"] == 128641
+            if label == "商品类型":
+                assert data["productType"] == "养车服务"
+                assert data["total"] == 1
             expect(page.get_by_text("深圳临港认证服务店", exact=True).first).to_be_visible(timeout=20000)
         assert ranking_requests and all(parse_qs(urlparse(url).query)["periodType"] == ["MONTHLY"] for url in ranking_requests)
+        assert all("productScope" not in parse_qs(urlparse(url).query) for url in ranking_requests)
         page.get_by_role("link").filter(has_text="深圳临港认证服务店").click()
         expect(page).to_have_url(re.compile(r"/settlement\?.*storeId=store-1"))
+        assert parse_qs(urlparse(page.url).query)["productType"] == ["养车服务"]
         page.get_by_label("账期", exact=True).click()
         page.get_by_role("option", name="2026-08", exact=True).click()
         expect(page.get_by_role("combobox", name="门店", exact=True)).to_be_visible()

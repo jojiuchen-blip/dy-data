@@ -116,3 +116,43 @@ def test_current_headquarters_move_revokes_old_publication_immediately(db_sessio
         order_id="o1", lifecycle_status="active", pool_location="headquarters_pool"))
     db_session.flush()
     assert clues.read(db_session, "c1", {"scope_store_ids": ["A"]}, current_headquarters_order_ids=current_headquarters)["total_clues"] == 1
+
+
+def test_clue_freeze_prefers_raw_sku_and_preserves_ambiguous_source_type(db_session):
+    from apps.api.dy_api.models import RawDouyinOrder
+
+    prepare_clues(db_session)
+    db_session.add_all([
+        DimSkuProductRule(sku_id="alternative", product_id="product", product_scope="other", product_type="精诚养车"),
+        DimSkuProductRule(sku_id="unique-a", product_id="unique", product_scope="a", product_type="比亚迪本品"),
+        DimSkuProductRule(sku_id="unique-b", product_id="unique", product_scope="b", product_type="比亚迪本品"),
+        RawDouyinOrder(order_id="o1", sku_id="alternative"),
+    ])
+    db_session.get(ClueCenterOrder, "o2").product_id = "product"
+    db_session.get(ClueCenterOrder, "o2").product_type = "Historical"
+    db_session.get(ClueCenterOrder, "o3").product_id = "unique"
+    db_session.flush()
+    assert clues.build(db_session, "c2", CUTOFF)["row_count"] == 4
+    db_session.commit()
+    assert clues.read_filters(db_session, "c2")["product_types"] == ["Historical", "比亚迪本品", "精诚养车"]
+    for product in ("Historical", "精诚养车", "比亚迪本品"):
+        assert clues.read(db_session, "c2", {"product_type": product})["total_clues"] == 1
+    assert clues.read(db_session, "c2", {"product_type": "jingcheng"})["total_clues"] == 0
+    before = clues.read_filters(db_session, "c2")
+    db_session.execute(update(DimSkuProductRule).values(product_type="Changed"))
+    db_session.commit()
+    assert clues.read_filters(db_session, "c2") == before
+    assert clues.read(db_session, "c2", {"product_type": "精诚养车"})["total_clues"] == 1
+    assert db_session.get(ClueCenterOrder, "o1").product_type == "P"
+
+
+@pytest.mark.parametrize("other_type", ["", "unknown", "all", "keep", "Another type"])
+def test_clue_shared_product_id_requires_all_candidates_to_have_one_type(db_session, other_type):
+    prepare_clues(db_session)
+    db_session.get(ClueCenterOrder, "o1").product_type = "Historical"
+    db_session.add(DimSkuProductRule(sku_id="ambiguous", product_id="product", product_type=other_type))
+    db_session.flush()
+    clues.build(db_session, "c2", CUTOFF)
+    frozen = db_session.scalar(select(clues.rounds.c.product_type).where(
+        clues.rounds.c.publication_id == "c2", clues.rounds.c.assignment_round_id == "r1"))
+    assert frozen == "Historical"

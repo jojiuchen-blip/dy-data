@@ -12,6 +12,8 @@ from typing import Any, Protocol
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
+from src.dy_data.product_classification import synced_product_type
+
 from apps.api.dy_api.db import get_session_factory, session_scope
 from apps.api.dy_api.models import (
     DataQualityIssue,
@@ -917,6 +919,10 @@ def _update_current_snapshots(
             session.add(row)
             inserted_count += 1
         changed = False
+        product_type = synced_product_type(row.product_scope, row.product_type)
+        if row.product_type != product_type:
+            row.product_type = product_type
+            changed = True
         for model_field, item_field in PLATFORM_FIELD_MAP.items():
             incoming = getattr(item, item_field)
             if item.sync_status == "NOT_FOUND" and model_field in {

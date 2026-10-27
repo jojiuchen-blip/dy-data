@@ -439,7 +439,7 @@ def _filters_from_query(
     page_size: int,
 ) -> dict:
     return {
-        "product_scope": product_scope,
+        "product_scope": "all",
         "product_type": product_type,
         "sale_store_id": sale_store_id,
         "exclude_sale_store_id": exclude_sale_store_id,
@@ -492,7 +492,7 @@ def store_ranking(
     filters = {
         "period_type": period_type,
         "period_key": period_key,
-        "product_scope": product_scope,
+        "product_scope": "all",
         "product_type": product_type,
         "q": (q or "").strip() or None,
         "ranking_basis": ranking_basis,
@@ -5944,13 +5944,16 @@ def monthly_settlement(
     from dy_api.routes._data import STATEMENT_STATUS_FROM_DB
     session = _billing_session(store, request)
     with publication_read(session, "settlement", publication_id) as publication:
-        choices = read_filters(session, publication.id, scope_store_ids=(store_id,))
+        # Selector validity follows the caller's authorized stores, so switching
+        # to a store with no rows for a valid type produces an empty result.
+        choices = read_filters(session, publication.id,
+            scope_store_ids=_finance_scope_store_ids(current_user))
         _validate_product_choices(choices.get("product_scope_type_map", {}),
             choices.get("product_types", ["all"]), product_scope, product_type, request)
         data = read_monthly_settlement(session, publication.id, {
             "store_id": store_id,
             "month": month,
-            "product_scope": product_scope,
+            "product_scope": "all",
             "product_type": product_type,
         })
         # Confirmation eligibility and the current statement remain live.
@@ -6004,7 +6007,7 @@ def order_fee_details(
         sale_month=sale_month,
         verify_month=verify_month,
         fee_direction=fee_direction,
-        product_scope=product_scope,
+        product_scope="all",
         product_type=product_type,
         fee_rates=fee_rates,
         rule_versions=rule_versions,
@@ -6049,7 +6052,7 @@ def order_fee_details_export(
         sale_month=sale_month,
         verify_month=verify_month,
         fee_direction=fee_direction,
-        product_scope=product_scope,
+        product_scope="all",
         product_type=product_type,
         fee_rates=fee_rates,
         rule_versions=rule_versions,
@@ -6108,7 +6111,7 @@ def sales_dashboard(
             store_id=scoped_store_id,
             month=month,
             year=year,
-            product_scope=product_scope,
+            product_scope="all",
             product_type=product_type,
             trend_months=trend_months or [],
             visible_product_types=store._visible_product_types(),
@@ -6141,7 +6144,7 @@ def order_details(
     store=Depends(get_data_store),
 ):
     filters = _filters_from_query(
-        product_scope=product_scope,
+        product_scope="all",
         product_type=product_type,
         sale_store_id=sale_store_id,
         exclude_sale_store_id=exclude_sale_store_id,
@@ -6185,7 +6188,7 @@ def order_details_export(
     store=Depends(get_data_store),
 ):
     filters = _filters_from_query(
-        product_scope=product_scope,
+        product_scope="all",
         product_type=product_type,
         sale_store_id=sale_store_id,
         exclude_sale_store_id=exclude_sale_store_id,
@@ -11649,32 +11652,19 @@ def _validate_month(value: str, field: str, request: Request) -> None:
 def _validate_product_selection(
     store, product_scope: str, product_type: str, request: Request
 ) -> None:
-    scope_map = getattr(store, "product_scope_type_map", lambda: {})()
     available_types = set(getattr(store, "list_product_types", lambda: ["all"])())
-    _validate_product_choices(scope_map, available_types, product_scope, product_type, request)
+    _validate_product_choices({}, available_types, "all", product_type, request)
 
 
 def _validate_product_choices(scope_map, available_types, product_scope, product_type, request):
-    available_types = set(available_types)
-    if product_scope != "all" and product_scope not in scope_map:
-        _raise_reporting_error(
-            request,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "VALIDATION_FAILED",
-            "productScope 不在可用产品范围内",
-            field="productScope",
-        )
     if product_type == "all":
         return
-    allowed_types = (
-        available_types if product_scope == "all" else set(scope_map.get(product_scope, []))
-    )
-    if product_type not in allowed_types:
+    if product_type not in set(available_types):
         _raise_reporting_error(
             request,
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "VALIDATION_FAILED",
-            "productType 不属于所选 productScope",
+            "productType 不在可用商品类型内",
             field="productType",
         )
 
@@ -11789,7 +11779,7 @@ def _order_fee_filters(
         "sale_month": sale_month,
         "verify_month": verify_month,
         "fee_direction": fee_direction,
-        "product_scope": product_scope,
+        "product_scope": "all",
         "product_type": product_type,
         "fee_rates": (fee_rates or []) if has_source_context else [],
         "rule_versions": (rule_versions or []) if has_source_context else [],

@@ -1,6 +1,24 @@
 > 2026-10-26 最新：用户授权完成 D1–D7 核查、修复通用缺陷并统一交接 Linear。当前 S4 / T3.1 保持进行中；本轮基于 6ac6e440，集成负责人为当前 Codex。归属诊断、精确职人 UID 与历史区间兜底、月结阻断计数修复已实现，真实来源只读核查及回放成果见 [验证记录](../verification/dydata-104-data-rootcause-oct26.md)。商品类型与上月默认另见 [PR63](https://github.com/jojiuchen-blip/dy-data/pull/63)。生产未部署、未补录暂停券组、未改确认账务；历史日期/编号桥及账单更正仍分别验收。下方旧状态按日期保留。
 
-# 当前执行：DYDATA-104 10月23日新增范围
+# 当前执行：DYDATA-104 商品类型与默认账期（2026-10-26）
+
+| 字段 | 内容 |
+|---|---|
+| 当前阶段 | S4 |
+| 正式计划 | [主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md) / [看板](delivery-plans/task-kanban-dydata-104-followthrough.md) |
+| 当前活跃 Phase / Task | T3.1，进行中 |
+| 当前子开发计划 | [当前增量](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md) |
+| 当前目标 | 真实商品类型配置/筛选、精诚养车分类转换、订单分佣默认上海上一完整自然月 |
+| 进行中任务 | 三项功能已集成；真实PG、接口与浏览器专项通过；完整pytest及最终CI收口 |
+| 下一步任务 | 完整回归、PR及CI证据回填；发布和生产目录转换按运维步骤另记实际结果 |
+| 完成标准摘要 | 两真实类型及全部、跨scope、旧链接缓存、跨年月份、权限与同版导出通过；独立打榜及历史账务事实保持 |
+| 当前阻塞与前置依赖 | [验证证据](../verification/dydata-104-product-types.md)持续回填；尚未生产发布/转换；数据核查由协作者处理，不恢复暂停的账务写入 |
+
+【用户确认】本轮授权已存在于对话及104；不重复征求开工。以下历史入口保留，不作为本次恢复旧操作的授权。
+
+---
+
+# 历史执行：DYDATA-104 10月23日新增范围
 
 - 用户已批准开始；继续S4/T3.1，当前Codex负责集成，基于ca61eff。
 - 当前正式计划：[dydata-104-followthrough](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)；[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。

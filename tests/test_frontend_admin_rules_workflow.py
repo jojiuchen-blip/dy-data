@@ -56,7 +56,6 @@ def test_rules_page_keeps_history_exceptions_and_two_sku_status_lists() -> None:
     for column in [
         "SKU ID",
         "商品名称",
-        "产品范围",
         "商品类型",
         "分账比例",
         "参与分账",

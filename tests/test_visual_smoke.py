@@ -175,7 +175,9 @@ class LiveSettlementStore:
     def commission_rules_summary(self):
         return {"non_commission_owner_accounts": [], "commission_skus": []}
 
-    def list_product_types(self):
+    def list_product_types(self, scope_store_ids=None):
+        if scope_store_ids is not None and not self.list_stores(scope_store_ids):
+            return ["all"]
         return ["all", "basic_service"]
 
     def list_product_scopes(self):
@@ -2191,7 +2193,9 @@ def test_admin_product_types_drawers_open_without_runtime_errors(
         page.get_by_role("button", name="设置", exact=True).click()
         drawer = page.get_by_role("dialog", name="设置商品口径")
         drawer.wait_for(timeout=10000)
-        assert drawer.get_by_text("保持原值", exact=True).count() == 2
+        expect(drawer.get_by_label("商品类型", exact=True)).to_be_visible()
+        expect(drawer.get_by_label("产品范围", exact=True)).to_have_count(0)
+        expect(drawer.get_by_text("保持原值", exact=True)).to_have_count(0)
         page.screenshot(path=tmp_path / "admin-product-types-drawer.png", full_page=True)
         page.get_by_role("button", name="取消", exact=True).click()
         page.get_by_role("button", name="批量导入", exact=True).click()
@@ -2865,7 +2869,7 @@ def test_douyin_board_dates_levels_and_auxiliary_follow(browser, vite_real_api_b
         context.close()
 
 
-def test_ranking_uses_backend_enum_contract_and_latest_sale_month(
+def test_ranking_uses_backend_enum_contract_and_last_complete_business_month(
     browser: Browser,
     vite_real_api_base_url: str,
 ) -> None:
@@ -2873,6 +2877,7 @@ def test_ranking_uses_backend_enum_contract_and_latest_sale_month(
     page = context.new_page()
     ranking_urls: list[str] = []
     try:
+        page.clock.set_fixed_time("2026-10-20T02:00:00Z")
         install_settlement_user_route(page, "admin")
         meta = settlement_filter_meta()
         meta["saleMonths"] = ["2026-07"]
@@ -2895,7 +2900,7 @@ def test_ranking_uses_backend_enum_contract_and_latest_sale_month(
                 body=api_payload(
                     {
                         "periodType": "MONTHLY",
-                        "periodKey": "2026-07",
+                        "periodKey": "2026-09",
                         "productScope": "all",
                         "productType": "all",
                         "scopeMode": "AUTHORIZED",
@@ -2933,7 +2938,8 @@ def test_ranking_uses_backend_enum_contract_and_latest_sale_month(
 
         assert ranking_urls
         request_url = ranking_urls[-1]
-        assert "periodKey=2026-07" in request_url
+        assert "periodKey=2026-09" in request_url
+        assert "productScope=" not in request_url
         assert "sortBy=PROMOTION_FEE" in request_url
         assert "sortOrder=DESC" in request_url
         assert "rankingBasis=PROMOTION_FEE_MONTH" in request_url
@@ -2949,6 +2955,7 @@ def test_order_details_direct_url_loads_authorized_default_scope(
     page = context.new_page()
     order_detail_requests: list[str] = []
     try:
+        page.clock.set_fixed_time("2026-10-20T02:00:00Z")
         install_settlement_user_route(page, "admin")
         page.route(
             "**/api/v1/meta/filters",
@@ -2966,7 +2973,7 @@ def test_order_details_direct_url_loads_authorized_default_scope(
             payload["context"] = {
                 **payload["context"],
                 "storeId": None,
-                "month": None,
+                "month": "2026-09",
             }
             getattr(route, "fulfill")(
                 status=200,
@@ -2980,7 +2987,7 @@ def test_order_details_direct_url_loads_authorized_default_scope(
             wait_until="domcontentloaded",
         )
         page.get_by_text("当前筛选下没有费用记录。", exact=True).wait_for(timeout=10000)
-        assert page.get_by_text("当前账号授权范围", exact=False).first.is_visible()
+        expect(page.get_by_text("2026-09 预览来源", exact=False).first).to_be_visible()
         assert page.get_by_role("button", name="返回单店分账", exact=True).count() == 0
         assert page.get_by_role("button", name="管理服务费", exact=True).is_enabled()
         assert order_detail_requests
@@ -2989,7 +2996,7 @@ def test_order_details_direct_url_loads_authorized_default_scope(
         for request_url in order_detail_requests:
             assert "feeDirection=PROMOTION" in request_url
             assert "storeId=" not in request_url
-            assert "month=" not in request_url
+            assert "month=2026-09" in request_url
             assert "feeRates=" not in request_url
             assert "ruleVersions=" not in request_url
     finally:
@@ -3281,7 +3288,8 @@ def test_settlement_pages_connect_to_live_fastapi_for_roles_and_error_states(
     )
     admin_page = admin_context.new_page()
     try:
-        admin_page.goto(f"{vite_live_api_base_url}/ranking", wait_until="domcontentloaded")
+        # This role/error fixture has August facts; keep its period explicit.
+        admin_page.goto(f"{vite_live_api_base_url}/ranking?periodKey=2026-08", wait_until="domcontentloaded")
         admin_page.get_by_text("上海浦东体验中心", exact=True).first.wait_for(timeout=10000)
         assert "全国门店月度榜单" in admin_page.locator("body").inner_text()
     finally:

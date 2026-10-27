@@ -1019,7 +1019,6 @@ export interface SalesDashboardData {
 }
 
 export interface DetailFilters {
-  product_scope?: string;
   product_type?: string;
   sale_store_id?: string;
   exclude_sale_store_id?: string;
@@ -1057,8 +1056,8 @@ export interface SkuRuleLookupData {
 
 export interface SkuRuleUpdateResult {
   updated_count: number;
-  job_id: string;
-  rebuild_status: "queued" | "running" | "success" | "failed";
+  job_id: string | null;
+  rebuild_status: "queued" | "running" | "success" | "failed" | "not_required";
   settlement_detail_count?: number | null;
   settlement_monthly_count?: number | null;
 }
@@ -1109,7 +1108,6 @@ export interface SkuProductListData extends CamelPagination {
 }
 
 export interface SkuProductManualFieldsUpdate {
-  productScope?: string;
   productType?: string;
   isServiceProduct?: boolean;
 }
@@ -1148,6 +1146,8 @@ export interface SkuProductImportUploadData {
   batch: SkuProductImportBatch;
   errorPreview: SkuProductImportRow[];
   hasMoreErrors: boolean;
+  normalizedTypeCount: number;
+  normalizationNotice: string | null;
 }
 
 export type FeeRuleStatus = "ACTIVE" | "INACTIVE";
