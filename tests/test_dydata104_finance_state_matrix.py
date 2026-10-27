@@ -715,6 +715,33 @@ def test_promotion_new_or_replacement_cannot_reuse_management_number(client, db_
     assert _facts(db_session) == before
 
 
+@pytest.mark.parametrize("invalid_number", ("１２３４５６７８９０１２３４５６７８９０", "١٢٣٤٥٦٧٨٩٠١٢٣٤٥٦٧٨٩٠"), ids=("fullwidth", "arabic-indic"))
+def test_direct_management_correction_rejects_unicode_digits_without_business_or_audit_writes(client, db_session, invalid_number):
+    _login(client)
+    _seed(db_session)
+    batch = _upload(client, "MANAGEMENT_FACTORY_RESULT", CONTENTS["MANAGEMENT_FACTORY_RESULT"]).json()["data"]
+    assert _commit(client, batch, "matrix-ascii-original-commit").status_code == 200
+    before = _facts(db_session)
+    audit_table = Base.metadata.tables["finance_operation_audit"]
+    before_audits = sorted(repr(tuple(row)) for row in db_session.execute(select(audit_table)))
+    response = client.post(
+        "/api/v1/admin/finance/management-invoices/store-1/2026-08/corrections",
+        json=_correction(invalid_number), headers={"Idempotency-Key": f"matrix-unicode-correction-{uuid4().hex}"},
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == "VALIDATION_FAILED"
+    assert response.json()["detail"]["errors"][0]["field"] == "invoiceNumber"
+    assert _facts(db_session) == before
+    assert sorted(repr(tuple(row)) for row in db_session.execute(select(audit_table))) == before_audits
+    valid = client.post(
+        "/api/v1/admin/finance/management-invoices/store-1/2026-08/corrections",
+        json=_correction("42345678901234567890"), headers={"Idempotency-Key": f"matrix-ascii-correction-{uuid4().hex}"},
+    )
+    assert valid.status_code == 200, valid.text
+    current = db_session.scalar(select(InvoiceRecord).where(InvoiceRecord.is_current.is_(True)))
+    assert current.invoice_number == "42345678901234567890" and current.version_no == 2
+
+
 @pytest.mark.parametrize("preferred", ("promotion", "management"))
 @pytest.mark.parametrize("replacement", (False, True))
 def test_postgres_cross_direction_number_lock_has_one_owner_without_deadlock(client, db_session, monkeypatch, preferred, replacement):

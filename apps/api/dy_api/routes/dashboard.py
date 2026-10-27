@@ -4490,12 +4490,12 @@ def correct_management_invoice(
     read_version = payload.get("readVersion")
     invoice_amount = payload.get("invoiceAmountCent")
     deduction_amount = payload.get("deductionAmountCent")
-    if len(invoice_number) != 20 or not invoice_number.isdigit():
+    if len(invoice_number) != 20 or not invoice_number.isascii() or not invoice_number.isdigit():
         _raise_reporting_error(
             request,
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "VALIDATION_FAILED",
-            "发票号码必须为 20 位数字",
+            "发票号码必须为 20 位 ASCII 数字",
             field="invoiceNumber",
         )
     if not change_reason or len(change_reason) > 1000:

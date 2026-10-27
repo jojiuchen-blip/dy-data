@@ -106,3 +106,12 @@
 - 其他模块的榜单/订单费用/异议导出沿用各自契约；本轮新增指纹矩阵覆盖财务四类导出、模板、错误文件和日志，既有财务契约回归包含异议与普通票据登记。
 - 本轮发现 API 契约文档的 SAP 模板字段缺少现行 `finalSapCode`，以及旧“撤销覆盖”描述未反映最新已结算保护；属于 foundation 漂移，交主线程追加待改请求，未改旧基础文档。
 - 无模型或迁移变更。应用回滚保留已写新版本、票据与审计；不得通过删除历史或恢复旧数据库消除期间的正式事实。回滚旧应用会重新暴露本记录修复的写入漏洞，应优先前滚修复并保持保护入口。
+
+## 交叉审查补充：直接管理票据更正的 ASCII 校验
+
+`correct_management_invoice` 原先只有长度和 `isdigit()`，因此20位全角数字及 Arabic-Indic 数字可通过真实更正路由并生成V2。该窄区现与两类导入保持相同的“20位 + ASCII + 数字”判断，错误明确标识 `invoiceNumber`。
+
+新增 `test_direct_management_correction_rejects_unicode_digits_without_business_or_audit_writes` 覆盖两种Unicode数字：返回422/VALIDATION_FAILED，完整业务事实和全部 `finance_operation_audit` 行逐行不变；同一用例紧接着使用合法ASCII票号，仍正常生成2500分管理票V2。本次不调整票号归属锁、金额或其他业务合同。
+
+- SQLite相关号码/归属校验6项通过，5.73秒；既有直接管理票更正版本/幂等/冲突/审计契约1项通过，3.65秒。
+- 隔离PostgreSQL真实路由2项通过，23.36秒；`git diff --check` 通过，exit 0。未操作生产或修改迁移。
