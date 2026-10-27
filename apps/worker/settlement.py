@@ -39,6 +39,7 @@ from apps.api.dy_api.models import (
     DimStore,
     DimStorePoiMapping,
     DouyinRefundEvent,
+    FinanceOperationAudit,
     InvoiceRecord,
     JobImpact,
     JobRun,
@@ -3021,10 +3022,28 @@ def rebuild_dual_fee_results(
             continue
         order_status = _dual_order_status(order)
         if order_status == "closed":
+            manual_directions = []
             for direction in (PROMOTION_FEE, MANAGEMENT_FEE):
                 current = _current_fee_result(session, coupon.coupon_id, direction)
                 if current is not None:
+                    if _has_historical_fee_correction(session, current.fee_result_id) or (
+                        current.reverification_anchor_id is not None
+                        and _has_historical_fee_correction(session, current.reverification_anchor_id)
+                    ):
+                        manual_directions.append(direction)
                     _retire_unqualified_fee_result(session, current)
+            if manual_directions:
+                # An approved manual basis cannot be retired on a raw status
+                # alone, but exact successful events must still reverse it.
+                blocked_count += _materialize_refund_adjustments(
+                    session, coupon=coupon, calculation_run_id=calculation_run_id,
+                    directions=tuple(manual_directions),
+                )
+                for direction in manual_directions:
+                    _materialize_direction_verify_cancellation(
+                        session, coupon=coupon, calculation_run_id=calculation_run_id,
+                        direction=direction,
+                    )
             continue
         if order_status == "unknown":
             blocked_count += _block_dual_fee(
@@ -3059,7 +3078,7 @@ def rebuild_dual_fee_results(
                 )
             )
 
-        _materialize_refund_adjustments(
+        blocked_count += _materialize_refund_adjustments(
             session,
             coupon=coupon,
             calculation_run_id=calculation_run_id,
@@ -3496,6 +3515,9 @@ def _materialize_dual_fee_direction(
             if current is not None
             else "账期已锁定，迟到券不得新增到已冻结账单之外。"
         )
+        if current is not None and _has_historical_fee_correction(session, current.fee_result_id):
+            issue_type = "dual_fee_historical_correction_basis_pinned"
+            message = "历史人工纠错已固定本券费用依据，禁止重算替换原结果。"
         if not adjustment_only:
             _block_dual_fee(
                 session, calculation_run_id, coupon, order, issue_type, message,
@@ -3589,7 +3611,8 @@ def _materialize_refund_adjustments(
     *,
     coupon: RawDouyinOrderCoupon,
     calculation_run_id: str,
-) -> None:
+    directions: tuple[int, ...] = (PROMOTION_FEE, MANAGEMENT_FEE),
+) -> int:
     events = _resolved_refund_events(
         session,
         coupon=coupon,
@@ -3597,8 +3620,9 @@ def _materialize_refund_adjustments(
         record_ambiguous=True,
     )
     if not events:
-        return
-    for direction in (PROMOTION_FEE, MANAGEMENT_FEE):
+        return 0
+    manual_review_count = 0
+    for direction in directions:
         original = _current_fee_result(session, coupon.coupon_id, direction)
         if original is None:
             continue
@@ -3606,6 +3630,7 @@ def _materialize_refund_adjustments(
             # Cancellation already zeroed this direction. A later refund
             # must not append another reduction and make the net amount negative.
             continue
+        manual_basis = _has_historical_fee_correction(session, original.fee_result_id)
         cumulative_refund = original.refunded_amount_cent
         event_refund_total = 0
         applied_base_adjustment = 0
@@ -3626,6 +3651,32 @@ def _materialize_refund_adjustments(
             if snapshot_covers_event:
                 # Timestamp equality is possible on coarse clocks; the amount
                 # snapshot proves whether this event was actually included.
+                continue
+            if manual_basis and event.refund_type != 2:
+                _, effective_fee = _effective_adjustment_totals(
+                    session, original_fee_result_id=original.fee_result_id,
+                )
+                if original.fee_amount_cent + effective_fee == 0 or any(
+                    later.refund_type == 2 and later.occurred_at >= event.occurred_at
+                    for later in events
+                ):
+                    # A known full reversal closes the basis without assigning
+                    # a guessed proportion to this partial refund.
+                    continue
+                _record_issue(
+                    session,
+                    issue_type="dual_fee_manual_correction_partial_refund_review",
+                    message="历史手工定额费用发生部分退款，缺少已批准的比例规则；保留原金额，等待人工核对。",
+                    order_id=original.order_id, coupon_id=original.coupon_id,
+                    source_run_id=calculation_run_id, severity="error",
+                    raw_context={"fee_result_id": original.fee_result_id,
+                                 "fee_direction": direction, "refund_event_id": event.refund_event_id,
+                                 "refund_amount_cent": event.refund_amount_cent,
+                                 "effective_fee_cent": original.fee_amount_cent + effective_fee,
+                                 "resolution": "MANUAL_REVIEW_REQUIRED", "adjustment_created": False},
+                    identity_suffix=f"{event.refund_event_id}:{direction}",
+                )
+                manual_review_count += 1
                 continue
             source_event_key = f"refund:{event.refund_event_id}"
             existing_source = _carryforward_source(
@@ -3704,6 +3755,15 @@ def _materialize_refund_adjustments(
             adjustment_fee = (
                 target_fee - original.fee_amount_cent - applied_fee_adjustment
             )
+            if manual_basis and event.refund_type == 2:
+                # The existing helper counts manual deltas and pending/applied
+                # carryforwards once. Refund-only accumulation omits the fixed
+                # historical correction and would leave a positive remainder.
+                effective_base, effective_fee = _effective_adjustment_totals(
+                    session, original_fee_result_id=original.fee_result_id,
+                )
+                adjustment_base = -original.fee_base_cent - effective_base
+                adjustment_fee = -original.fee_amount_cent - effective_fee
             adjustment_reason = (
                 "全额退款，按原规则版本将费用净额调整为零。"
                 if event.refund_type == 2
@@ -3773,6 +3833,7 @@ def _materialize_refund_adjustments(
             session.flush()
             applied_base_adjustment += adjustment_base
             applied_fee_adjustment += adjustment_fee
+    return manual_review_count
 
 
 def _persist_adjustment_idempotently(
@@ -4366,6 +4427,16 @@ def _next_fee_result_version(
     return int(latest or 0) + 1
 
 
+def _has_historical_fee_correction(session: Session, fee_result_id: str) -> bool:
+    """Pin only the exact approved fee basis, including zero-delta audits."""
+    return session.scalar(select(FinanceOperationAudit.id).where(
+        FinanceOperationAudit.operation_type == "HISTORICAL_ATTACHMENT_CORRECTION",
+        FinanceOperationAudit.target_type == "SETTLEMENT_FEE_RESULT",
+        FinanceOperationAudit.target_id == fee_result_id,
+        FinanceOperationAudit.result_status == 1,
+    ).limit(1)) is not None
+
+
 def _is_fee_result_locked(
     session: Session,
     *,
@@ -4373,6 +4444,8 @@ def _is_fee_result_locked(
     month: str,
     current_fee_result_id: str | None = None,
 ) -> bool:
+    if current_fee_result_id and _has_historical_fee_correction(session, current_fee_result_id):
+        return True
     if _is_settlement_period_immutable(session, store_id=store_id, month=month):
         return True
     # Local import avoids the module initialization cycle. Use the generator's
@@ -5670,7 +5743,7 @@ def _statement_source_snapshots(
         "received_amount_cent": result.source_amount_cent,
         "fee_rate": result.fee_rate,
         "refund_at": (
-            adjustment.occurred_at
+            (None if adjustment.adjustment_type == 4 else adjustment.occurred_at)
             if adjustment is not None
             else (coupon.coupon_refund_time if coupon is not None else None)
         ),
