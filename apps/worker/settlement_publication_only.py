@@ -55,7 +55,7 @@ def _dependency_snapshot(session: Session, bills: Sequence[SettlementStatement])
 
 
 def _preview(session: Session, months: Sequence[str]) -> dict:
-    from apps.worker.settlement_rebuild import _lock_billing_publication_base, SettlementMonthLockedError
+    from apps.worker.settlement_rebuild import _lock_billing_publication_base, _require_publication_qualification, SettlementMonthLockedError
 
     requested = tuple(sorted({_sparse_month(month, label="requested month") for month in months}))
     if not requested or min(requested) < FORMAL_SETTLEMENT_START.strftime("%Y-%m"):
@@ -67,6 +67,7 @@ def _preview(session: Session, months: Sequence[str]) -> dict:
     _lock_billing_publication_base(session, base_id)
     _sparse_base_chain(session, base_id)
     closure = _sparse_expand_affected_months(session, requested)
+    _require_publication_qualification(session, closure)
     locked = session.scalar(select(SettlementStatement.statement_id).where(
         SettlementStatement.statement_month.in_(closure), SettlementStatement.statement_status == 4,
     ).limit(1))
@@ -76,6 +77,7 @@ def _preview(session: Session, months: Sequence[str]) -> dict:
         SettlementStatement.is_current.is_(True), SettlementStatement.statement_month.in_(closure),
     ).order_by(SettlementStatement.store_id, SettlementStatement.statement_month).execution_options(populate_existing=True)))
     sources = collect_billing_sources(session, months=closure, slots=[(bill.store_id, bill.statement_month) for bill in bills])
+    _require_publication_qualification(session, closure)
     if _sparse_expand_affected_months(session, requested) != closure:
         raise BillingSourceDriftError("publication month closure changed during preview")
     # A bill version may have committed while capture waited for its slot.
