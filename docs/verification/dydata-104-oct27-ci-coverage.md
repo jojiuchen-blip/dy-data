@@ -9,6 +9,7 @@
 | `test_dydata104_finance_state_matrix.py` | `DYDATA_FINANCE_TEST_DATABASE_URL`；loopback、DB以`_test`结尾 | 新建 `dydata_delivery_test`，整份矩阵以真实PG运行，含逐行冻结预览、状态保护和HTTP并发 |
 | `test_historical_fee_correction_postgres.py` | `DYDATA_HISTORICAL_FEE_TEST_DATABASE_URL`；loopback、DB必须是`dydata_delivery_test` | 与财务共享专用测试DB，各fixture使用不同UUID schema，覆盖事务回滚/幂等/竞争和隔离级别拒绝 |
 | `test_protected_billing_authority_postgres.py` | 已读取源码：`DYDATA_PROTECTED_TEST_DATABASE_URL`，loopback、DB以`_test`结尾 | 与财务/历史同`dydata_delivery_test`，每case为`protected_authority_<uuid>` schema；整个文件运行，含core7例及publication-only coordinator4例 |
+| `test_month_close_auto_bootstrap_postgres.py` | 复用 `test_protected_billing_authority_postgres.postgres_engine`，实际读取 `DYDATA_PROTECTED_TEST_DATABASE_URL` | 整文件加入同一 `dydata_delivery_test` 门禁；5 个执行场景各用 UUID schema，收据逐名要求成功 |
 | `test_account_qualification_postgres.py` | 复用 `test_dashboard_publication_migration.full_pg_stack`，实际读取`DYDATA_PUBLICATION_TEST_DATABASE_URL` | 沿用先前创建的`dydata_publication_test`，显式运行Alembic、不可变证据、并发冻结和自动准入预算 |
 | `test_product_sync_completeness_postgres.py`、`test_product_sync_sku_lookup_postgres.py` | 复用publication finance PG fixture，同样读取`DYDATA_PUBLICATION_TEST_DATABASE_URL` | 同一显式PG门禁覆盖新增完整性及既有精确SKU查询 |
 
@@ -49,3 +50,28 @@
 即使旧core7例通过，遗漏任一coordinator场景也会失败；同时保留原零skip/failure/error检查。静态测试执行精确内联守卫，分别构造完整收据和缺少每个场景的非空成功收据验证该行为。主线程须同时合入上述coordinator提交，不能用仅core的版本发布。
 
 本次收口验证：`python -m pytest -q tests/test_dydata104_ci_coverage.py tests/test_deploy_publications.py --tb=short` 为 **45 passed，3.99秒，exit 0**；两份YAML解析、58段 `bash -n` 和 `git diff --check` 通过。与`4f0f2a1`逐字段比对，触发、权限、并发及deploy/railway release任务完全一致。未运行全仓或重跑coordinator真实PG；其最终集成PG由主线程独立回收。
+
+
+## 自动建账 PostgreSQL CI 收口
+
+2026-10-27，本增量从集成基线 `1eca0abe321fa594a9fd6c534cfcad7fc6151875` 新建隔离工作树和分支，未复用或重置旧 CI 工作树。写集仅为两份 workflow、本静态测试和本文档；本任务无 foundation 漂移。治理锁、全局文件校验（0 errors / 0 warnings）、S4 路由、T3.1 计划一致性、环境及执行上下文检查均通过。
+
+两条 PostgreSQL 显式门禁保留原 6 个测试文件、非空且零 skip/failure/error 的 JUnit 守卫及 coordinator 的 4 个必需场景，新增整份 `tests/test_month_close_auto_bootstrap_postgres.py`，不添加选择性过滤。该文件直接复用受保护账单的 PostgreSQL fixture，因此沿用已接线的 `DYDATA_PROTECTED_TEST_DATABASE_URL` 和专用 `dydata_delivery_test` 数据库，不创建另一套变量或数据库。
+
+独立的 bootstrap 收据守卫检查模块归属及成功执行，要求以下 5 个场景全部出现：
+
+- `test_postgres_automatic_bootstrap_rebuilds_and_publishes_real_full_month[False]`
+- `test_postgres_automatic_bootstrap_rebuilds_and_publishes_real_full_month[True]`
+- `test_postgres_concurrent_ticks_share_frozen_input_job_without_resetting_attempts`
+- `test_postgres_unqualified_legacy_current_rolls_back_month_economics`
+- `test_postgres_full_without_active_rolls_back_unknown_october_aggregates`
+
+静态测试执行 workflow 的原始内联代码：完整收据通过，分别缺少每个场景、同名但来自其他模块，以及场景含 skipped/failure/error 子节点的收据均拒绝。既有 coordinator 断言继续独立执行，后续新增 PG 文件及其场景合同可按同样方式追加，不修改或代替既有合同。尚在其他工作树开发的 missing-fee PG 服务未加入；待其实际文件、fixture 变量和场景落定后由集成负责人补齐，不预造测试名。
+
+本次独立验证：
+
+- `python -m pytest -q tests/test_dydata104_ci_coverage.py tests/test_deploy_publications.py tests/test_deploy_compose_config.py tests/test_project_governance.py --tb=short`：**100 passed，14.94 秒，exit 0**。
+- `python -m pytest --collect-only -q tests/test_month_close_auto_bootstrap_postgres.py`：**5 tests collected，7.36 秒，exit 0**，名称与上列收据要求一致；此命令只证明收集，不冒充真实 PG 执行。
+- PyYAML 解析两份工作流，Git Bash `bash -n` 验证全部 **58 段** run，exit 0；与基线解析对象逐字段比对，只有指定 PG 步骤的 run 字段改变，触发、权限、并发、verify 其余字段以及全部部署/release 任务保持一致。
+- `git diff --check` 通过。未重跑真实 PG、全仓财务或前端构建；主线程已独立验证 bootstrap PG，本增量不将其结果冒充本工作树执行。最终集成提交的 GitHub CI、PG、镜像、部署与生产验收仍由主线程回收。
+- 技能 usage/audit 按宿主规则写入本机日志；工作流 memory 文件未更新。

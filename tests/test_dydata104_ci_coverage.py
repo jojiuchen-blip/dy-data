@@ -22,6 +22,7 @@ PG_FILES = {
     "tests/test_protected_billing_authority_postgres.py",
     "tests/test_product_sync_completeness_postgres.py",
     "tests/test_product_sync_sku_lookup_postgres.py",
+    "tests/test_month_close_auto_bootstrap_postgres.py",
 }
 BROWSER_FILES = {
     "tests/test_dydata104_finance_preview_browser.py",
@@ -32,6 +33,14 @@ COORDINATOR_CASES = {
     "test_postgres_publication_only_complete_apply[migration]",
     "test_postgres_publication_only_atomic_billing_rollback",
     "test_postgres_publication_only_refuses_existing_heavy_claim_lock",
+}
+
+BOOTSTRAP_CASES = {
+    "test_postgres_automatic_bootstrap_rebuilds_and_publishes_real_full_month[False]",
+    "test_postgres_automatic_bootstrap_rebuilds_and_publishes_real_full_month[True]",
+    "test_postgres_concurrent_ticks_share_frozen_input_job_without_resetting_attempts",
+    "test_postgres_full_without_active_rolls_back_unknown_october_aggregates",
+    "test_postgres_unqualified_legacy_current_rolls_back_month_economics",
 }
 
 
@@ -135,6 +144,8 @@ def test_fixture_environment_inventory_matches_checked_in_sources() -> None:
         assert f'os.getenv("{variable}")' in (ROOT / filename).read_text(encoding="utf-8")
     source = (ROOT / "tests/test_account_qualification_postgres.py").read_text(encoding="utf-8")
     assert "from test_dashboard_publication_migration import full_pg_stack" in source
+    bootstrap = (ROOT / "tests/test_month_close_auto_bootstrap_postgres.py").read_text(encoding="utf-8")
+    assert "from test_protected_billing_authority_postgres import postgres_engine" in bootstrap
 
 
 @pytest.mark.parametrize("name", WORKFLOWS)
@@ -167,3 +178,51 @@ def test_release_workflows_share_the_same_pg_contract() -> None:
     assert gates[0]["env"] == gates[1]["env"]
     assert gates[0]["run"] == gates[1]["run"]
     assert gates[0]["timeout-minutes"] == gates[1]["timeout-minutes"]
+
+
+@pytest.mark.parametrize("name", WORKFLOWS)
+@pytest.mark.parametrize("missing_case", [None, *sorted(BOOTSTRAP_CASES)])
+def test_bootstrap_receipt_requires_every_real_postgres_scenario(
+    name: str, missing_case: str | None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Other passing PG files cannot substitute for the five bootstrap cases."""
+    gate = _step(_workflow(name), PG_NAME)
+    guard = shlex.split(next(line for line in gate["run"].splitlines() if "bootstrap_required = {" in line))[2]
+    document = Element("testsuites")
+    suite = SubElement(document, "testsuite")
+    for case in COORDINATOR_CASES:
+        SubElement(suite, "testcase", classname="tests.test_protected_billing_authority_postgres", name=case)
+    for case in BOOTSTRAP_CASES - {missing_case}:
+        SubElement(suite, "testcase", classname="tests.test_month_close_auto_bootstrap_postgres", name=case)
+    directory = tmp_path / "logs/ci"
+    directory.mkdir(parents=True)
+    ElementTree(document).write(directory / "dydata104-postgres.xml")
+    monkeypatch.chdir(tmp_path)
+    if missing_case is None:
+        exec(compile(guard, "<workflow-bootstrap-guard>", "exec"), {})
+    else:
+        with pytest.raises(AssertionError, match="bootstrap"):
+            exec(compile(guard, "<workflow-bootstrap-guard>", "exec"), {})
+
+
+@pytest.mark.parametrize("name", WORKFLOWS)
+@pytest.mark.parametrize("invalid_case", ("wrong_module", "skipped", "failure", "error"))
+def test_bootstrap_receipt_rejects_cases_without_successful_execution(
+    name: str, invalid_case: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Matching names need the bootstrap module and a successful JUnit result."""
+    gate = _step(_workflow(name), PG_NAME)
+    guard = shlex.split(next(line for line in gate["run"].splitlines() if "bootstrap_required = {" in line))[2]
+    document = Element("testsuites")
+    suite = SubElement(document, "testsuite")
+    for index, case in enumerate(sorted(BOOTSTRAP_CASES)):
+        module = "tests.test_other_postgres" if index == 0 and invalid_case == "wrong_module" else "tests.test_month_close_auto_bootstrap_postgres"
+        element = SubElement(suite, "testcase", classname=module, name=case)
+        if index == 0 and invalid_case != "wrong_module":
+            SubElement(element, invalid_case)
+    directory = tmp_path / "logs/ci"
+    directory.mkdir(parents=True)
+    ElementTree(document).write(directory / "dydata104-postgres.xml")
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(AssertionError, match="bootstrap"):
+        exec(compile(guard, "<workflow-bootstrap-guard>", "exec"), {})
