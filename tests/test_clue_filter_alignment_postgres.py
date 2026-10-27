@@ -5,16 +5,32 @@ import io
 from sqlalchemy.orm import Session
 
 from test_clue_projection_postgres import postgres_engine  # noqa: F401
-from test_api_clues import _seed_clue_center, _dt
+from test_api_clues import _dt
 from test_clue_verification_facts import add_verification
-from apps.api.dy_api.models import ClueAssignmentRound, RawDouyinClue
+from apps.api.dy_api.models import ClueAssignmentRound, ClueCenterOrder, DimStore, RawDouyinClue
 from dy_api.routes._data import DashboardDataStore
 
 
 def test_raw_verification_and_phone_filters_on_postgres(postgres_engine, monkeypatch):
     monkeypatch.setenv("DY_API_TEST_MODE", "true")
     with Session(postgres_engine) as session:
-        _seed_clue_center(session)
+        # Persist parents first. The SQLite API fixture does not enforce the
+        # PostgreSQL master/round foreign key insertion order.
+        session.add_all([DimStore(store_id="store-1", store_name="Store One"),
+                         DimStore(store_id="store-2", store_name="Store Two")])
+        session.flush()
+        for index in (1, 2):
+            session.add(ClueCenterOrder(order_id=f"order-{index}", lead_status="converted",
+                current_assignment_round_id=f"order-{index}-1", current_round_no=1,
+                current_round_status="closed_order_verified", assigned_at=_dt(1),
+                assigned_store_id="store-1", product_type="Car Service"))
+        session.flush()
+        for index in (1, 2):
+            session.add(ClueAssignmentRound(assignment_round_id=f"order-{index}-1",
+                order_id=f"order-{index}", round_no=1, assigned_at=_dt(1),
+                assigned_store_id="store-1", execution_mode="formal",
+                round_status="closed_order_verified", created_at=_dt(1), updated_at=_dt(1)))
+        session.commit()
         row = session.get(ClueAssignmentRound, "order-1-1")
         row.verified_at = row.verified_store_id = None
         row.is_follow_success = row.is_self_store_verified = False
