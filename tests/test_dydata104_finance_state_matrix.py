@@ -3,7 +3,7 @@
 import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
-from threading import Barrier
+from threading import Barrier, Event
 from uuid import uuid4
 
 import pytest
@@ -636,5 +636,135 @@ def test_preview_rows_have_real_pagination_whole_batch_summary_and_legacy_unavai
     denied = _commit(client, ready, "matrix-legacy-preview-commit")
     assert denied.status_code == 409 and denied.json()["detail"]["code"] == "IMPORT_PREVIEW_SNAPSHOT_REQUIRED"
     assert _facts(db_session) == before
+
+
+@pytest.mark.parametrize("import_type,old,new,field", (
+    ("BASIC_INFO", "000012345678901234567890", "X" * 129, "sapCode"),
+    ("SAP_CONFIRMATION", "SAP-OLD", "X" * 129, "financeInitialSap"),
+    ("SAP_CONFIRMATION", "SVC-001", "X" * 129, "serviceStoreCode"),
+    ("PROMOTION_FACTORY_RESULT", "APPROVED_SETTLED,,2026-08-21,1200", "REJECTED_REUPLOAD," + "X" * 1001 + ",,", "rejectionReason"),
+    ("MANAGEMENT_FACTORY_RESULT", ",2500\n", ",9223372036854775808\n", "deductionAmountCent"),
+), ids=("basic-sap-length", "initial-sap-length", "store-code-length", "rejection-reason-length", "amount-int64-overflow"))
+def test_import_storage_limits_are_row_errors_instead_of_commit_database_failures(client, db_session, import_type, old, new, field):
+    _login(client)
+    _seed(db_session)
+    before = _facts(db_session)
+    result = _upload(client, import_type, CONTENTS[import_type].replace(old, new))
+    batch = result.json()["data"]
+    assert batch["scenario"] == "BATCH_VALIDATION_FAILED", result.text
+    assert field in {error["field"] for error in batch["errors"]["list"]}
+    assert _commit(client, batch, f"matrix-storage-limit-{uuid4().hex}").status_code == 409
+    assert _facts(db_session) == before
+
+
+def test_management_invoice_number_cannot_reuse_registered_promotion_direction(client, db_session):
+    _login(client)
+    _seed(db_session)
+    before = _facts(db_session)
+    result = _upload(client, "MANAGEMENT_FACTORY_RESULT", CONTENTS["MANAGEMENT_FACTORY_RESULT"].replace(
+        "22345678901234567890", "12345678901234567890",
+    ))
+    assert result.json()["data"]["scenario"] == "BATCH_VALIDATION_FAILED", result.text
+    assert "invoiceNumber" in {error["field"] for error in result.json()["data"]["errors"]["list"]}
+    assert _facts(db_session) == before
+
+
+def _promotion_registration_payload(client, number, *, replaces=None):
+    result = client.get("/api/v1/store-settlements", params={
+        "storeId": "store-2", "month": "2026-08", "metricScope": "MONTH", "feeDirection": "PROMOTION",
+    })
+    assert result.status_code == 200, result.text
+    row = result.json()["data"]["list"][0]
+    payload = {
+        "storeId": "store-2", "invoiceNumber": number, "fillerPhone": "13800000000",
+        "invoiceDate": dashboard_routes._promotion_invoice_beijing_datetime(dashboard_routes.utcnow()).date().isoformat(),
+        "allocations": [{"statementId": row["statementId"], "statementMonth": "2026-08", "readVersion": row["versionNo"], "promotionInvoiceGroupId": row["promotionInvoiceGroupId"]}],
+    }
+    if replaces:
+        payload["replacesInvoiceId"] = replaces
+    return payload
+
+
+def _terminate_synthetic_promotion(client):
+    registered = client.post(
+        "/api/v1/promotion-invoices", json=_promotion_registration_payload(client, "82345678901234567890"),
+        headers={"Idempotency-Key": f"matrix-cross-original-{uuid4().hex}"},
+    )
+    assert registered.status_code == 200, registered.text
+    invoice = registered.json()["data"]
+    result = client.post(
+        f"/api/v1/promotion-invoices/{invoice['invoiceId']}/lifecycle-events",
+        json={"eventType": "VOIDED", "reason": "Synthetic replacement", "readVersion": invoice["versionNo"]},
+        headers={"Idempotency-Key": f"matrix-cross-terminate-{uuid4().hex}"},
+    )
+    assert result.status_code == 200, result.text
+    return invoice["invoiceId"]
+
+
+@pytest.mark.parametrize("replacement", (False, True))
+def test_promotion_new_or_replacement_cannot_reuse_management_number(client, db_session, replacement):
+    _login(client)
+    _seed(db_session)
+    previous = _terminate_synthetic_promotion(client) if replacement else None
+    batch = _upload(client, "MANAGEMENT_FACTORY_RESULT", CONTENTS["MANAGEMENT_FACTORY_RESULT"]).json()["data"]
+    assert _commit(client, batch, "matrix-cross-management-first").status_code == 200
+    payload = _promotion_registration_payload(client, "22345678901234567890", replaces=previous)
+    before = _facts(db_session)
+    result = client.post("/api/v1/promotion-invoices", json=payload, headers={"Idempotency-Key": f"matrix-cross-stolen-{uuid4().hex}"})
+    assert result.status_code == 409 and result.json()["detail"]["code"] == "INVOICE_NUMBER_ALREADY_USED", result.text
+    assert _facts(db_session) == before
+
+
+@pytest.mark.parametrize("preferred", ("promotion", "management"))
+@pytest.mark.parametrize("replacement", (False, True))
+def test_postgres_cross_direction_number_lock_has_one_owner_without_deadlock(client, db_session, monkeypatch, preferred, replacement):
+    if db_session.get_bind().dialect.name != "postgresql":
+        pytest.skip("requires DYDATA_FINANCE_TEST_DATABASE_URL disposable local PG database")
+    _login(client)
+    _seed(db_session)
+    previous = _terminate_synthetic_promotion(client) if replacement else None
+    shared = "92345678901234567890"
+    promotion_payload = _promotion_registration_payload(client, shared, replaces=previous)
+    content = CONTENTS["MANAGEMENT_FACTORY_RESULT"].replace("22345678901234567890", shared).replace("store-1", "store-2").replace("Store One", "Store Two")
+    batch = _upload(client, "MANAGEMENT_FACTORY_RESULT", content).json()["data"]
+    assert batch["scenario"] == "FIRST_IMPORT_READY", batch
+    posts = {
+        "promotion": ("/api/v1/promotion-invoices", promotion_payload),
+        "management": (f"/api/v1/admin/finance-imports/{batch['batchId']}/commits", {"readVersion": 0, "changeReason": "Synthetic cross-direction race"}),
+    }
+    engine = db_session.get_bind()
+    barrier = Barrier(2)
+    preferred_locked = Event()
+    original = dashboard_routes._lock_finance_invoice_number
+    def ordered_number_lock(session, number):
+        writer = session.info.get("matrix_writer")
+        if writer != preferred:
+            assert preferred_locked.wait(10)
+        original(session, number)
+        if writer == preferred:
+            preferred_locked.set()
+    monkeypatch.setattr(dashboard_routes, "_lock_finance_invoice_number", ordered_number_lock)
+    def execute(writer):
+        with Session(engine, autoflush=False) as session:
+            session.info["matrix_writer"] = writer
+            app = create_app()
+            def override_session():
+                yield session
+            app.dependency_overrides[get_session_dependency] = override_session
+            app.dependency_overrides[get_current_user] = lambda: AuthContext(
+                user_id="matrix-admin", username="matrix-admin", display_name="Synthetic", role="admin", store_ids=(),
+                auth_type="user", store_scope_mode="all", page_keys=("FIN02",),
+            )
+            with TestClient(app) as thread_client:
+                barrier.wait(10)
+                result = thread_client.post(posts[writer][0], json=posts[writer][1], headers={"Idempotency-Key": f"matrix-cross-race-{uuid4().hex}"})
+                return writer, result.status_code, result.text
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(execute, ("promotion", "management")))
+    assert {writer: code for writer, code, _ in results} == {preferred: 200, "management" if preferred == "promotion" else "promotion": 409}, results
+    db_session.expire_all()
+    management = list(db_session.scalars(select(InvoiceRecord).where(InvoiceRecord.invoice_number == shared)))
+    promotion = list(db_session.scalars(select(PromotionInvoiceNumberRegistry).where(PromotionInvoiceNumberRegistry.invoice_number == shared)))
+    assert len(management) + len(promotion) == 1
 
 

@@ -3022,7 +3022,7 @@ def _execute_finance_import_commit(
             FinanceImportRow.batch_id == batch.batch_id,
         ))
         for number in sorted({item["invoiceNumber"] for item in numbers}):
-            _lock_management_invoice_number(session, number)
+            _lock_finance_invoice_number(session, number)
 
     before_snapshot = {
         "batchStatus": batch.batch_status,
@@ -3741,6 +3741,21 @@ def register_promotion_invoice(
     if replay is not None:
         return _promotion_invoice_registration_replay_response(
             session, replay, payload_hash, request, normalized_payload=parsed
+        )
+    # New physical numbers are shared across both financial directions. Take
+    # this lock before statement/physical locks, including replacement invoices.
+    _lock_finance_invoice_number(session, parsed["invoice_number"])
+    replay = session.scalar(select(PromotionInvoice).where(PromotionInvoice.idempotency_key_hash == key_hash))
+    if replay is not None:
+        return _promotion_invoice_registration_replay_response(
+            session, replay, payload_hash, request, normalized_payload=parsed
+        )
+    if session.scalar(select(InvoiceRecord.invoice_id).where(
+        InvoiceRecord.invoice_number == parsed["invoice_number"],
+    ).limit(1)) is not None:
+        _raise_reporting_error(
+            request, status.HTTP_409_CONFLICT, "INVOICE_NUMBER_ALREADY_USED",
+            "发票号码已登记为其他费用方向的票据，不能重复使用", field="invoiceNumber",
         )
     if session.scalar(
         select(PromotionInvoiceNumberRegistry).where(
@@ -4533,7 +4548,7 @@ def correct_management_invoice(
             field="invoiceDate",
         )
 
-    _lock_management_invoice_number(session, invoice_number)
+    _lock_finance_invoice_number(session, invoice_number)
     if _management_invoice_number_conflict(session, invoice_number, store_id, statement_month):
         _raise_reporting_error(
             request, status.HTTP_409_CONFLICT, "INVOICE_NUMBER_ALREADY_USED",
@@ -6982,11 +6997,11 @@ def _validate_final_finance_import_row(
             return None, True
         try:
             value = int(text)
-            if value <= 0:
+            if value <= 0 or value > 9223372036854775807:
                 raise ValueError
             return value, True
         except ValueError:
-            add_error(field, text, "金额必须为正整数分", "填写大于 0 的整数")
+            add_error(field, text, "金额必须为数据库整数范围内的正整数分", "填写大于 0 且不超过 9223372036854775807 的整数")
             return None, False
 
     if import_type == "BASIC_INFO":
@@ -6994,6 +7009,8 @@ def _validate_final_finance_import_row(
         sap_code = _finance_import_cell_text(raw_row.get("sapCode"))
         if not sap_code:
             add_error("sapCode", sap_code, "SAP 编码必填", "填写财务 SAP 编码")
+        elif len(sap_code) > 128:
+            add_error("sapCode", sap_code, "SAP 编码不得超过 128 字符", "填写有效 SAP 编码")
         imported_at = parse_datetime("importedAt")
         normalized_payload.update(
             {
@@ -7033,6 +7050,9 @@ def _validate_final_finance_import_row(
                 "最终有效 SAP 不得超过 128 字符",
                 "填写有效 SAP 编码",
             )
+        for field, value in (("financeInitialSap", initial_sap), ("serviceStoreCode", service_store_code)):
+            if len(value) > 128:
+                add_error(field, value, "编码不得超过 128 字符", "填写有效编码")
         if result not in {"CONFIRMED", "REJECTED"}:
             add_error(
                 "factoryConfirmationResult",
@@ -7079,6 +7099,8 @@ def _validate_final_finance_import_row(
             add_error(
                 "rejectionReason", rejection_reason, "审核不通过原因必填", "填写厂家退回原因"
             )
+        if len(rejection_reason) > 1000:
+            add_error("rejectionReason", rejection_reason, "审核不通过原因不得超过 1000 字符", "缩短厂家退回原因")
         current_invoice = session.scalar(
             select(PromotionInvoice)
             .join(
@@ -8116,7 +8138,7 @@ def _commit_management_factory_result_row(
 ) -> None:
     """Append the combined management invoice and factory-deduction version."""
     payload = row.normalized_payload
-    _lock_management_invoice_number(session, payload["invoiceNumber"])
+    _lock_finance_invoice_number(session, payload["invoiceNumber"])
     statement = session.scalar(
         select(SettlementStatement).where(
             SettlementStatement.store_id == payload["storeId"],
@@ -8212,12 +8234,12 @@ def _revalidate_finance_import_row(
         )
 
 
-def _lock_management_invoice_number(session, invoice_number: str) -> None:
-    """Serialize number ownership in both management import and correction writers."""
+def _lock_finance_invoice_number(session, invoice_number: str) -> None:
+    """Serialize global numbers before any statement/physical invoice target lock."""
     if session.get_bind().dialect.name == "postgresql":
         session.execute(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:slot_key, 0))"),
-            {"slot_key": f"finance-management-invoice:{invoice_number}"},
+            {"slot_key": f"finance-invoice-number:{invoice_number}"},
         )
 
 
@@ -8315,6 +8337,8 @@ def _management_invoice_number_conflict(
         InvoiceRecord.invoice_number == invoice_number,
         or_(InvoiceRecord.store_id != store_id, InvoiceRecord.statement_month != statement_month,
             InvoiceRecord.fee_direction != 2),
+    ).limit(1)) or session.scalar(select(PromotionInvoiceNumberRegistry.first_invoice_id).where(
+        PromotionInvoiceNumberRegistry.invoice_number == invoice_number,
     ).limit(1))
 
 

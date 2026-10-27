@@ -52,6 +52,7 @@
 - 同模板/月的正式版本由 PG 事务锁与现有唯一约束共同保护；BASIC/SAP 还保存内部预览 profile ID，并锁门店/当前资料，防止跨模板、跨月的旧预览覆盖。
 - 提交时重新验证门店名称、精确目标、有效确认、全额、已有票据和当前目标范围；预览不是业务预留。第二行失效/意外异常时，第一行的业务版本与扣款一起回滚。
 - 管理票号由导入与独立更正共享事务锁；多个号码按固定顺序取锁。全部历史版本保留原店/月/方向的票号所有权；同店同月的历史号码可以追加正式更正，不能跨店/月重复计费。
+- 推广新票/换票登记与管理导入/更正共用 `finance-invoice-number:{number}` PG 事务锁，先取号码锁，再取账单/物理票据锁；管理多号码批次按号码排序。推广锁后重查成功幂等与全部管理历史票号，管理也反查推广票号注册，防止跨方向重复票据。普通推广成功登记仍为待厂端审核，不生成管理扣款或已结算事实。
 - 已结算推广或已产生管理扣款的批次返回 `409 IMPORT_SETTLEMENT_PROTECTED`；资料已被账单快照/SAP 确认引用、票据有后续生命周期/换票依赖时返回 `409 IMPORT_DEPENDENCY_PROTECTED`。详情/日志 `canReverse` 与 POST 使用同一保护判断。
 - 未结算 REJECTED_REUPLOAD 可追加恢复版本回到原待审；账单、费用、确认与原分配额不变。旧版本被其他操作覆盖则整批撤销冲突，不部分恢复。
 - 模板空表返回 `422 IMPORT_EMPTY_FILE`，不创建空的可提交版本。全角/阿拉伯数字字符不是有效 ASCII 发票号码。
@@ -73,19 +74,34 @@
 
 样本为可重建的源码常量 `CONTENTS`：推广 1200 分、管理 2500 分；前导零长文本 SAP、跨店、跨月、错方向、零/负数/部分金额、无权限/权限变更、全部错误、空模板、失败回滚、幂等、已确认/锁账、已开票/已结算以及资料消费依赖。CSV UTF-8 BOM 与 XLSX 浏览器预览用例均使用合成样本，不持久保存真实原文件。
 
+单个成功用例的正式事实对照：基准为3张账单（两店、两月）、6笔方向确认、1张推广待审票、1笔有效分配、1个票号注册；账单推广合计3600分、管理合计7500分。BASIC/SAP 分别只新增1笔当前财务资料；推广只追加1个票据版本/1笔对应分配/1个厂家事件，仍仅1张有效物理票及1笔有效1200分分配；管理只新增1笔2500分发票与等额扣款。各类型及重复请求均不改3张账单的金额、6笔确认或另一费用方向；前后逐行指纹由测试断言。
+
+以下为 `CONTENTS` 原始 UTF-8 上传 CSV 的字节数/SHA-256（下载模板/错误 CSV 另带 BOM）：
+
+| 类型 | 字节数 | SHA-256 |
+| --- | --- | --- |
+| BASIC_INFO | 106 | `739c1cc7bfe52aca56e291dabb46b5cd065bfc2c989d1e8616df0acf7bd49270` |
+| SAP_CONFIRMATION | 184 | `f06496d49fffc4fa907171eb2d5ecc1bc141a3c79ec3a6285392d7e0b1ca27c6` |
+| PROMOTION_FACTORY_RESULT | 134 | `d8db1ef822bb740b2ce3545995063e6b2fada96e8393110ca4dead98a46fb871` |
+| MANAGEMENT_FACTORY_RESULT | 167 | `b8a448d35a8f4b0fe96ae80cf6ef1436c8c3d20a2fc323c43005388707edb070` |
+
 ## 验证记录与剩余限制
 
 已执行：
 
 | 验证 | 结果 |
 | --- | --- |
-| SQLite 财务回归：矩阵、`test_api_finance_contract_g5.py`、`test_api_finance_g2.py`、`test_api_finance_imports.py`、`test_dydata105_import_replay.py`、`test_api_store_billing.py` | 票号扩展后、冻结预览前一轮 215 passed / 9 PG-only skipped，99.59秒；冻结预览后最终回归收口中 |
-| 实际 PG：`test_dydata104_finance_state_matrix.py` | 首轮 46 passed，514.95秒；含真实 HTTP 资料三组竞争；扩展到61项含票号混合竞争的最终结果收口中 |
+| SQLite 财务回归：矩阵、`test_api_finance_contract_g5.py`、`test_api_finance_g2.py`、`test_api_finance_imports.py`、`test_dydata105_import_replay.py`、`test_api_store_billing.py` | 存储边界与跨方向管理校验后 226 passed / 9 PG-only skipped，110.54秒 |
+| 推广新登记/换票全局票号锁增量后：`test_api_store_billing.py test_api_finance_g2.py test_dydata104_finance_state_matrix.py` | 189 passed / 13 PG-only skipped，103.50秒；含普通登记、生命周期、换票、既有管理更正、全部新增矩阵；PG-only另列已执行 |
+| 实际 PG：`test_dydata104_finance_state_matrix.py` | 扩展61项全部通过，837.21秒；四类状态、已结算/已消费保护及9组真实HTTP资料/票号竞争；该轮先于冻结预览与后续存储边界增量，增量另列 |
 | 浏览器：`test_dydata105_buttons_browser.py -k 'four_import or xlsx_preview'` | 12 passed / 9 deselected，43.54秒；真实 Vite + FastAPI + Chromium，合成 SQLite；截图保存在 pytest 临时输出，不含生产数据 |
-| 冻结预览后端专项 | 首轮矩阵/import/replay 68 passed / 9 PG-only skipped，37.04秒；包含四类型冻结before、分页/全批scope/白名单、旧批次不可用与提交保护；5项真实PG专项收口中 |
-| `git diff --check` | 通过；最终提交前复验 |
+| 冻结预览后端专项 | 首轮矩阵/import/replay 68 passed / 9 PG-only skipped，37.04秒；包含四类型冻结before、分页/全批scope/白名单、旧批次不可用与提交保护；5项真实PG通过，101.99秒 |
+| 冻结预览合入后重新执行真实 PG 并发：`test_dydata104_finance_state_matrix.py -k test_postgres_` | 9 passed / 57 deselected，157.27秒；3组资料链 + 6组管理票号跨店/月 import/import、correction/correction、mixed；每组仅一个成功/一个冲突/一个有效目标所有权 |
+| 跨方向票号新增覆盖 | SQLite真实路由3项通过：已登记推广→管理拒绝，已有管理票→推广新票/换票拒绝；真实PG 4 passed / 74 deselected，53.65秒，强制推广/管理分别先持有号码锁 × 新票/换票，均1成功+1明确409，跨方向总所有权1，无deadlock/500 |
+| `git diff --check`、相关Python `compileall -q` | 最终提交前通过，exit 0；测试无失败，第三方弃用/并发 schema warning 保留 |
 
 - 代码/SQLite 回归与真实 PG 并发独立记录；CI、合并、生产版本、生产浏览器与实际导出验收由集成负责人承接。
+- PG测试仅连接本机专用 `_test` 数据库，各用例创建并清理 UUID 专属 schema，使用现行 SQLAlchemy metadata；本轮无新迁移，不把它表述为整套生产 Alembic/镜像发布门禁。
 - 新增冻结预览 API 后，前端逐行新旧值展示由独立前端工作树集成验收；本工作树不改产品前端。既有12项浏览器通过不替代该新增UI验收。
 - 其他模块的榜单/订单费用/异议导出沿用各自契约；本轮新增指纹矩阵覆盖财务四类导出、模板、错误文件和日志，既有财务契约回归包含异议与普通票据登记。
 - 本轮发现 API 契约文档的 SAP 模板字段缺少现行 `finalSapCode`，以及旧“撤销覆盖”描述未反映最新已结算保护；属于 foundation 漂移，交主线程追加待改请求，未改旧基础文档。
