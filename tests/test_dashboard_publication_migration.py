@@ -42,7 +42,10 @@ def test_frozen_migration_has_no_runtime_import_and_matches_final_schema():
     assert "from apps." not in source and "import apps." not in source
     frozen = migration().frozen_metadata_0063()
     assert set(frozen.tables) == set(metadata.tables)
-    assert set(migration().SOURCE_TABLES_0063) == set(SOURCE_TABLES) - {"historical_sale_attribution_decisions"}
+    # Later additive migrations own these counters; the 0063 DDL stays frozen.
+    later_sources = {"historical_sale_attribution_decisions", "account_qualification_version"}
+    assert later_sources <= set(SOURCE_TABLES)
+    assert set(migration().SOURCE_TABLES_0063) == set(SOURCE_TABLES) - later_sources
     cycle_sort = frozen.tables["dashboard_publication_sales_coupons"].c.cycle_sort_days
     assert cycle_sort.nullable and cycle_sort.default is None and cycle_sort.server_default is None
     assert (cycle_sort.type.precision, cycle_sort.type.scale) == (24, 2)

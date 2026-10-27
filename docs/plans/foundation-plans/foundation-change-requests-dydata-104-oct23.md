@@ -120,3 +120,20 @@ foundation-glossary 的“至少要求平台状态有效”及 T2.3 沿用的“
 自动永久采集最多8次/月及1条预算失败标记，内容按hash去重，单快照上限8MiB；平时导出继续但不永久增加资格快照。正式空筛选导出任务、同任务完成元数据和实际文件字节/hash共同构成来源证明，禁止mtime拾取旧文件或以另一scope列表总数代替。失败和主事务回滚不留下假成功。迁移0066为加法；已使用的不可变资格来源不允许降级删除。
 
 官方订单查询中transfer_douyin_uid为短抖音号，transfer_uid为加密且非抖音UID的归属人编号。仅collector实际选中的原始短号字段与归一列一致时，才匹配冻结workbook同命名空间。未取得关联、明确不合格、冲突分别记录；昵称和跨命名空间数值相等均不能补桥。其他历史候选关联尚未批准为自动资格证据。验证及当前来源限制见 `docs/verification/dydata-104-oct27-monthend.md`。
+
+## S4-FCR-008 受保护账单来源与只发布恢复
+
+| 字段 | 内容 |
+|---|---|
+| 来源 Task | dydata-104-followthrough T3.1，八月旧确认来源及发布差异修复 |
+| 分类 | GAP |
+| 改动项 | 受保护 current bill 全部不可变条目作为读取与聚合依据；增加不重算费用的预演、摘要校验和只发布恢复入口 |
+| 原因 | 费用 current pointer 被后续重算替换，不能用新金额覆盖原确认账单，也不能因原费用已非 current 而拒绝合法的原确认来源 |
+| 指向代码块 | apps/worker/protected_billing_authority.py；apps/worker/billing_source_capture.py；apps/worker/settlement_publication_only.py；scripts/ops/publish_settlement_authority.py；tests/test_protected_billing_authority_postgres.py |
+| 目标 foundation 文件:章节 | docs/prd/foundation/foundation-schema-dy-data/settlement-reporting.md 不可变来源及投影；foundation-api-dy-data/billing-invoice.md 保护状态与发布恢复 |
+| 严重度 | 阻断错误确认金额及页面、导出不一致 |
+| 状态 | 待评审 |
+
+已确认/锁账、任一方向确认、争议或票据依赖均保护整份 current bill；来源采用全部 immutable entries 及精确原 FeeResult，逐项核验身份、金额、行和头部闭合。展示快照的 NULL 保留，经济实收基数不能用展示快照或当前费用替代。同券同方向的新 primary 在跨店、跨月后也不能覆盖冻结依据；调整只按精确事件 ID 与原 anchor 判断，保留可证明的合法原依据退款/撤销/结转，不按券批量吞掉其他方向或其他 anchor。
+
+恢复工具默认预演，摘要绑定完整来源、现行账单/依赖状态、active base 和请求及闭包月份。正式应用必须正常通过 heavy claim、资源准入和 lease，首末持锁重验摘要，再原子发布和生成未保护账单版本；不会调用费用重算或替换费用指针。恢复任务重启仍分派到只发布流程，不能退回普通重算。当前入口明确拒绝闭包触及 status4 的月份，不扩展锁账修复权限。金额更正及开票另走相应授权流程；本条不批准19方向3.59元等剩余差额。证据见 `docs/verification/dydata-104-oct27-protected-authority.md` 及 `dydata-104-oct27-publication-only.md`，生产是否应用须以独立收据为准。
