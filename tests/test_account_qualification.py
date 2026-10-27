@@ -267,10 +267,14 @@ def test_oversize_snapshot_fails_without_truncating_or_persisting_content(db_ses
     assert db_session.scalar(select(func.count()).select_from(Snapshot)) == 0
 
 
-def test_normal_collection_outside_window_keeps_source_proof_without_permanent_qualification(db_session, monkeypatch, caplog):
+def test_normal_collection_outside_window_keeps_source_proof_without_permanent_qualification(db_session, monkeypatch, caplog, tmp_path):
     from unittest.mock import Mock
     from types import SimpleNamespace
     from datetime import datetime
+    from apps.worker.browser_exports import active_marker
+    marker = tmp_path / "browser-export.active"
+    monkeypatch.setattr(active_marker, "FIXED_BROWSER_EXPORT_ACTIVE_FILE", marker)
+    monkeypatch.setenv("BROWSER_EXPORT_ACTIVE_FILE", str(marker))
     at = datetime.fromisoformat("2026-10-27T13:00:00+08:00")
     monkeypatch.setattr(backend, "datetime", SimpleNamespace(now=lambda _: at))
     rows = q.BindingRecords([binding()], proof={"complete": True, "record_count": 1, "workbook_sha256": "synthetic-hash"})
@@ -278,6 +282,7 @@ def test_normal_collection_outside_window_keeps_source_proof_without_permanent_q
     with caplog.at_level("INFO"):
         result = backend.run_backend_aweme_export(db_session, source_run_id="normal-day")
     assert result.fetched == 1
+    assert not marker.exists()
     assert "synthetic-hash" in caplog.text
     assert db_session.scalar(select(func.count()).select_from(Observation)) == 0
     assert db_session.scalar(select(func.count()).select_from(Snapshot)) == 0
