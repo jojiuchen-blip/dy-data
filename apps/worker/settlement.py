@@ -3637,6 +3637,9 @@ def _materialize_refund_adjustments(
             # must not append another reduction and make the net amount negative.
             continue
         manual_basis = _has_historical_fee_correction(session, original.fee_result_id)
+        manual_amount_override = manual_basis and _has_historical_fee_amount_override(
+            session, original.fee_result_id,
+        )
         cumulative_refund = original.refunded_amount_cent
         event_refund_total = 0
         applied_base_adjustment = 0
@@ -3658,7 +3661,7 @@ def _materialize_refund_adjustments(
                 # Timestamp equality is possible on coarse clocks; the amount
                 # snapshot proves whether this event was actually included.
                 continue
-            if manual_basis and event.refund_type != 2:
+            if manual_amount_override and event.refund_type != 2:
                 _, effective_fee = _effective_adjustment_totals(
                     session, original_fee_result_id=original.fee_result_id,
                 )
@@ -4441,6 +4444,33 @@ def _has_historical_fee_correction(session: Session, fee_result_id: str) -> bool
         FinanceOperationAudit.target_id == fee_result_id,
         FinanceOperationAudit.result_status == 1,
     ).limit(1)) is not None
+
+
+def _has_historical_fee_amount_override(session: Session, fee_result_id: str) -> bool:
+    """Separate a changed fixed amount from a zero-delta source-pin audit."""
+    audits = session.scalars(select(FinanceOperationAudit).where(
+        FinanceOperationAudit.operation_type == "HISTORICAL_ATTACHMENT_CORRECTION",
+        FinanceOperationAudit.target_type == "SETTLEMENT_FEE_RESULT",
+        FinanceOperationAudit.target_id == fee_result_id,
+        FinanceOperationAudit.result_status == 1,
+    ))
+    for audit in audits:
+        snapshot = audit.after_snapshot
+        if not isinstance(snapshot, dict):
+            return True  # Incomplete evidence cannot grant proportional refunds.
+        old = snapshot.get("old_fee_cent")
+        target = snapshot.get("target_fee_cent")
+        if (type(old) is not int or type(target) is not int or old != target
+                or snapshot.get("delta_cent") != 0):
+            return True
+    for model in (SettlementFeeAdjustment, SettlementCarryforwardSource):
+        if session.scalar(select(model.id).where(
+            model.original_fee_result_id == fee_result_id,
+            model.adjustment_type == 4,
+            or_(model.adjustment_fee_cent != 0, model.adjustment_base_cent != 0),
+        ).limit(1)) is not None:
+            return True
+    return False
 
 
 def _is_fee_result_locked(

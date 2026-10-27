@@ -191,6 +191,42 @@ def test_partial_refund_is_manual_review_not_guessed_adjustment_or_success(db_se
     assert_projection(db_session,27380-3360)
 
 
+def test_zero_delta_apply_directions_keep_original_partial_refunds_and_pin(db_session,corrected):
+    # The real service fixture applies all 16 reviewed directions. Its four
+    # zero-delta audits are intact and produced no type4 amount adjustments.
+    for index in (0,2):
+        for fee in target_fees(db_session,index):
+            assert (fee.fee_base_cent,fee.fee_amount_cent,fee.fee_rate) == (16800,1680,Decimal("0.1"))
+            audit = db_session.scalar(select(FinanceOperationAudit).where(FinanceOperationAudit.target_id == fee.fee_result_id))
+            assert audit.after_snapshot["old_fee_cent"] == audit.after_snapshot["target_fee_cent"] == 1680
+            assert audit.after_snapshot["delta_cent"] == 0
+            assert worker._has_historical_fee_correction(db_session,fee.fee_result_id)
+            assert not worker._has_historical_fee_amount_override(db_session,fee.fee_result_id)
+        add_refund(db_session,kind=1,event_id=f"zero-delta-partial-{index}",index=index)
+    add_refund(db_session,kind=1,event_id="nonzero-delta-partial",index=1)
+    for index in (0,2,1):
+        run(db_session,f"mixed-partial-{index}",index=index)
+    refunds = list(db_session.scalars(select(SettlementFeeAdjustment).where(
+        SettlementFeeAdjustment.refund_event_id.in_(["zero-delta-partial-0","zero-delta-partial-2"]))))
+    assert len(refunds) == 4
+    assert all(row.adjustment_type == 1 and row.adjustment_fee_cent == -100 and row.adjustment_base_cent == -1000 for row in refunds)
+    assert [effective_net(db_session,fee) for index in (0,2) for fee in target_fees(db_session,index)] == [1580]*4
+    assert [effective_net(db_session,fee) for fee in target_fees(db_session,1)] == [1680,1680]
+    reviews = list(db_session.scalars(select(DataQualityIssue).where(
+        DataQualityIssue.issue_type == "dual_fee_manual_correction_partial_refund_review")))
+    assert len(reviews) == 2 and {row.coupon_id for row in reviews} == {"coupon-1"}
+    before_count = db_session.scalar(select(func.count()).select_from(SettlementFeeAdjustment))
+    for index in (0,2,1):
+        run(db_session,f"mixed-repeat-{index}",index=index)
+    assert db_session.scalar(select(func.count()).select_from(SettlementFeeAdjustment)) == before_count
+    assert db_session.scalar(select(func.count()).select_from(FinanceOperationAudit).where(
+        FinanceOperationAudit.operation_type == correction.OPERATION)) == 16
+    assert set(db_session.scalars(select(SettlementFeeResultCurrent.fee_result_id).where(
+        SettlementFeeResultCurrent.coupon_id.in_(["coupon-0","coupon-2"])))) == {
+            f"fee-{index}-{direction}" for index in (0,2) for direction in (1,2)}
+    assert_projection(db_session,27380-400)
+
+
 def test_reverification_uses_new_anchor_amount_not_old_manual_fixed_amount(db_session,corrected):
     originals = target_fees(db_session)
     old = db_session.get(RawDouyinVerifyRecord,"verify-1")
