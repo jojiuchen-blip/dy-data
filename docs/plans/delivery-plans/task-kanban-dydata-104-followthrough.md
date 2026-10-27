@@ -1,3 +1,5 @@
+> **2026-10-27 当前状态**：S4 / T3.1 进行中，DYDATA-104 In Progress。以 [当前T3.1执行矩阵](sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md#2026-10-27-当前有效执行矩阵) 为本轮条款及责任入口；主线程负责集成，5个内部交付子集不另立计划。已批准规则不重复确认；受保护金额和后22券不随“持续交付”授权自动入账。以下日期记录及旧验收为历史。
+
 > 2026-10-26 最新：用户授权完成 D1–D7 核查、修复通用缺陷并统一交接 Linear。当前 S4 / T3.1 保持进行中；本轮基于 6ac6e440，集成负责人为当前 Codex。归属诊断、精确职人 UID 与历史区间兜底、月结阻断计数修复已实现，真实来源只读核查及回放成果见 [验证记录](../../verification/dydata-104-data-rootcause-oct26.md)。商品类型与上月默认另见 [PR63](https://github.com/jojiuchen-blip/dy-data/pull/63)。生产未部署、未补录暂停券组、未改确认账务；历史日期/编号桥及账单更正仍分别验收。下方旧状态按日期保留。
 
 # DYDATA-104 任务看板
@@ -14,5 +16,5 @@
 | T0.1 | [账期默认值与现有下载反馈](sub-delivery-plan-dydata-104-followthrough-T0.1-filters-exports.md) | Codex | PR #50 / #51 合入统一 main | 并行实施 | - | DYDATA-104 E |
 | T1.1 | [自然月运行与结算链自动维护](sub-delivery-plan-dydata-104-followthrough-T1.1-monthly-maintenance.md) | Codex | 统一 main；先审阅既有执行器契约 | 待验收 | - | DYDATA-104 D |
 | T2.1 | [九月来源恢复、范围与费用对账](sub-delivery-plan-dydata-104-followthrough-T2.1-september-recovery.md) | 当前 Codex 会话 | 生产资源允许；受控工具与证据审阅通过 | 待验收 | - | 2026-10-21 九月30/30；452张待确认账单；两费各10,032.68元，逐层金额差异0，非九月保护指纹不变；八月不恢复 |
-| T3.1 | [静态首版发布与生产业务验收](sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md) | Codex | T0.1、T0.2、T1.1 代码验证；未完成账期展示保护 | 进行中 | - | DYDATA-104 F；2026-10-21 12:47 f66cdd5d上线，九月月榜及单店被八月误阻断已修复；完整CI4098通过/284跳过、真实PG和生产两页/月份切换验收通过；九月两费与452账单一致，八月累计继续保护；保留整体用户业务验收 |
+| T3.1 | [静态首版发布与生产业务验收](sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md) | 主线程 Codex 集成；隔离 worker 执行；Keith 业务审核 | 最新104有效合同；来源/保护/资源门禁；最终集成CI | 进行中 | - | 2026-10-27：A月末资格、B阜阳8券/票据、C长期SKU、D四类导入/全部导出、E全范围集成生产验收均未结项；本地d206a65含PR63/65/64，各自CI不代替新规则和新集成。 DYDATA-104 F；2026-10-21 12:47 f66cdd5d上线，九月月榜及单店被八月误阻断已修复；完整CI4098通过/284跳过、真实PG和生产两页/月份切换验收通过；九月两费与452账单一致，八月累计继续保护；保留整体用户业务验收 |
 
