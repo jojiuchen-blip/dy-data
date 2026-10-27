@@ -55,9 +55,19 @@ docker build --progress plain --build-arg APT_MIRROR=http://mirrors.tuna.tsinghu
 
 APT 保留版本分别为 `python3-urllib3 1.26.12-1+deb12u4`、`python3-msgpack 1.0.3-2+b1`、`python3-pil 9.4.0-1.1+deb12u1`、`python3-idna 3.3-1+deb12u1`、`python3-jwcrypto 1.1.0-1+deb12u1`；选中的 pip 版本分别是 2.8.0、1.2.1、13.0.0、3.19、1.5.7。`importlib.metadata.distributions()` 可见两套元数据，`version()` 与模块导入实际选中本地覆盖层。
 
-新增审计命中来自 APT 的 `python3-setuptools / python3-pkg-resources 66.1.1-1+deb12u2`、`python3-zipp 1.0.0-6+deb12u1`。上游 Python 版本扫描不能判定 Debian 回补状态，当前也没有充分证据可直接将命中豁免；已将原始审计和供应商版本交给主线程 / 安全复核单元。`linux-image-vendor-source.json` 保存选中的 `setuptools`、`setuptools.package_index`、`pkg_resources`、`zipp` 实际 `/usr/lib/python3/dist-packages` 路径、完整源码及 SHA-256，供核对回补。本次双 pin 修复不自动关闭全环境门禁。
+新增审计命中来自 APT 的 `python3-setuptools / python3-pkg-resources 66.1.1-1+deb12u2`、`python3-zipp 1.0.0-6+deb12u1`。`linux-image-vendor-source.json` 保存选中的 `setuptools`、`setuptools.package_index`、`pkg_resources`、`zipp` 实际 `/usr/lib/python3/dist-packages` 路径、完整源码及 SHA-256。已直接核对 `package_index` 中的参数数组调用和 `_download_url` 临时目录检查，以及 zipp 的 `SanitizedNames`；独立安全复核又重算四份源代码 SHA 并匹配成功。其供应商回补与条件判定如下，完整风险结论以 [安全报告](../security/dydata-104-oct27-release-security.md) 为准：
 
-原始收据的本地 SHA-256 清单见 `evidence-manifest.json`。主线程已决定先核对 Debian 回补，再决定是否增加覆盖层；本提交保持原双 pin 范围。
+| 去重公告 | 选中包 / 条件复核 |
+|---|---|
+| [CVE-2024-6345](https://security-tracker.debian.org/tracker/CVE-2024-6345) | 上游 High；Debian `66.1.1-1+deb12u1` 已修复，实际为 u2，所选源码使用 subprocess 参数数组 |
+| [CVE-2025-47273](https://security-tracker.debian.org/tracker/CVE-2025-47273) | 维护者 Moderate；Debian u2 已修复，实际源码保留下载目录检查 |
+| [CVE-2024-5569](https://security-tracker.debian.org/tracker/CVE-2024-5569) | Moderate；实际 Debian zipp `1.0.0-6+deb12u1` 达到供应商修复版，源码包含名称净化回补 |
+| [GHSA-h35f-9h28-mq5c](https://github.com/pypa/setuptools/security/advisories/GHSA-h35f-9h28-mq5c) | 维护者 Moderate，sdist 的 Unicode 规范化/排除规则及文件系统条件；保留供应链观察，不按原始版本命中直接判定本 Linux 服务 High。审计修复版与维护者当时 patched=None 的口径差异保留在安全报告 |
+| [GHSA-xmj3-9gf7-h52w](https://github.com/pypa/setuptools/security/advisories/GHSA-xmj3-9gf7-h52w) | 维护者 Low，Windows 旧 wheel 安装路径条件；本候选为 Linux，不满足 Windows 条件 |
+
+上游版本扫描丢失 Debian 修订号；上述是供应商证据与运行条件复核，不是将 `pip-audit` 的 exit 1 改为 0，也不是豁免所有告警。99 包审计中无法查询 PyPI 的 `python-novnc`、剩余供应链观察和未做 OS/Chromium 全量扫描均继续保留。
+
+原始收据的本地 SHA-256 清单见 `evidence-manifest.json`。本地构建 Dockerfile 和提交 `a97b19b8fa70cf9ed3c66df185049187f48376aa` 的文件字节相同，SHA-256 为 `cfe594b72ffda6a7656070296b29553bfb6a2d24afd7c6de6e6fe878e23ebf15`。仅通过原有 `APT_MIRROR` 参数修改容器内 APT 源地址；没有改临时 Dockerfile或关闭签名/证书检查。此兼容性候选不冒充最终发布集成镜像。
 
 ## 交付限制
 
