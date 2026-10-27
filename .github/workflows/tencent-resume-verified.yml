@@ -58,11 +58,12 @@ jobs:
           set -euo pipefail
           git archive --format=tar "$TARGET_SHA" | gzip > /tmp/dy-resume-source.tar.gz
           archive_hash="$(sha256sum /tmp/dy-resume-source.tar.gz | cut -d' ' -f1)"
-          archive="/tmp/dy-resume-${TARGET_SHA}-${GITHUB_RUN_ID}.tar.gz"
-          scp -i ~/.ssh/tencent_lighthouse -P "${TENCENT_SSH_PORT:-22}" \
+          archive="/tmp/dy-resume-${TARGET_SHA}-40437536727.tar.gz"
+          remote_hash="$(ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" \
             -o BatchMode=yes -o IdentitiesOnly=yes \
-            -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
-            /tmp/dy-resume-source.tar.gz "$TENCENT_SSH_USER@$TENCENT_HOST:$archive"
+            "$TENCENT_SSH_USER@$TENCENT_HOST" "sha256sum '$archive'" | cut -d' ' -f1)"
+          test "$remote_hash" = "$archive_hash"
+          echo 'Previously uploaded immutable archive checksum verified'
           cat > /tmp/resume.sh <<'REMOTE'
           set -euo pipefail
           target="$1"
@@ -82,7 +83,7 @@ jobs:
           fi
           echo 'Inspecting deployment state (no secrets)'
           if test -f /opt/dy-dashboard/logs/last-deploy.json; then
-            cat /opt/dy-dashboard/logs/last-deploy.json
+            sudo cat /opt/dy-dashboard/logs/last-deploy.json
           fi
           # Stage and preserve the complete existing directory. Never recursively
           # delete a mixed-owner checkout, and do not relax its permissions.
@@ -133,8 +134,8 @@ jobs:
           echo "Resuming verified deployment; server log=$log"
           # Original script repeats backup, lineage, migration and all health gates.
           # Output also stays on server so interruption does not lose evidence.
-          SKIP_GIT_SYNC=true DY_WEB_BASE_URL="$web_url" TENCENT_START_WORKER="$worker" \
-            bash deploy/tencent/deploy.sh "$target" 2>&1 | tee "$log"
+          sudo env SKIP_GIT_SYNC=true DY_WEB_BASE_URL="$web_url" TENCENT_START_WORKER="$worker" \
+            bash deploy/tencent/deploy.sh "$target" 2>&1 | sudo tee "$log"
           REMOTE
           ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" \
             -o BatchMode=yes -o IdentitiesOnly=yes \
