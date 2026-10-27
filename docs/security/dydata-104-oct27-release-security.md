@@ -10,7 +10,7 @@
 
 ## 2. 输入证据
 
-- 本次PASS的精确代码快照集合：主线程集成 `62c427cdd71cd72452cbd7fe25ad781b7186b6b3` 的生产源码/依赖，加CLI单文件覆盖为已审查 `031dde616b118b32fb028c8839a1289242ed7505`。10个变更生产/依赖文件逐字节与对应已审查Git对象一致，收据 `.tmp/security-final/reviewed-snapshot-set.json`；此定义不声称CLI已被主线程cherry-pick，也不代替后续最终HEAD校验。
+- 本次PASS的精确集成代码快照：主线程 `8f6304b`，已包含CLI修复 `031dde6` 的cherry-pick。10个变更生产/依赖文件与对应已审查Git对象逐字节一致，收据 `.tmp/security-final/integrated-source-comparison.json`；此前62c427c加CLI的候选集合收据保留作过程轨迹，不再作为未集成状态。后续仅CI/test/doc变更若未改变这10个生产/依赖blob不扩大本安全快照，不代替最终RELEASE验证。
 - 计划及完成标准：[当前T3.1](../plans/delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)、[总验证台账](../verification/dydata-104-oct27-delivery.md)。功能测试通过不等于安全域全部通过。
 - 最终追加秘密扫描覆盖23份精确Git文本快照、7类位置规则，0候选；只保存路径/行号/类别，不打印匹配值。不是历史/熵全扫描。
 - 稳定基线证据复核：按原 `evidence-manifest.json` 重算全部78个证据文件SHA，0不一致；收据 `.tmp/security-final/baseline-integrity.json`。原始扫描结果为此前执行，本轮只独立核实其完整性。
