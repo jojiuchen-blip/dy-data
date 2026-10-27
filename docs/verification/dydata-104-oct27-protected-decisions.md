@@ -65,7 +65,7 @@ G27按店月/方向拆分：B推广13方向339.00元；A推广11方向99.48元�
 - 核销采集只upsert核销记录；`query_certificates(order_id)`补查用于补POI/核销信息，没有把该响应的所有兄弟券物化进订单券表。因此本地1条不证明上游只有1条，也不能从当前结果推断第二券是未核销、缺采、已退款还是其他状态。
 - `load_order_attributions`及item-share查询只统计本地券，未知兄弟若共用同item会突破独占判断。已有测试覆盖“已知两券共用一个item必须拒绝”、多券精确item/sub_order_id、冲突ID及“单券count2拒绝整单”；count2旧测试没有精确item。尚无证据证明“本地1、平台2、item匹配但上游券集合未证完整”可以安全放行。
 - 先从这4单已保存原订单载荷补白名单：所有顶层`certificate/certificates/certificate_list/coupons/coupon_list`的存在性、类型及完整条数；每券稳定ID、item ID、状态、券级实收；`order_items/items`中全部item ID、实际存在的原始数量字段及其嵌套完整券列表。保留数量字段原名，不猜字段语义。将每item实际券数/数量与`sub_order_amount_infos`及订单count对照，确认所选提取分支和另外结构是否还有券。
-- 原载荷不足时，仓库已有精确按order_id的`DouyinClient.query_certificates`调用`/goodlife/v1/fulfilment/certificate/query/`；回收`data.certificates/certificates_v2/list`中的全部券ID、订单/item归属、状态/实收及上游完整性/分页元数据。这个调用是否返回全量、未核销券及真实分页合同仍需实际响应/来源合同确认，不能保证单次调用完整。订单查询`/goodlife/v1/trade/order/query/`现封装按create/update时间窗口分页，无现成按order_id参数；如需补订单原始信息，限定原单时间窗口并精确过滤，不伪造接口参数或重新广域查询。
+- 原载荷不足时，仓库已有精确按order_id的`DouyinClient.query_certificates`调用`/goodlife/v1/fulfilment/certificate/query/`；回收`data.certificates/certificates_v2/list`中的全部券ID、订单/item归属、状态/实收及上游完整性/分页元数据。这个调用是否返回全量、未核销券及真实分页合同仍需实际响应/来源合同确认，不能保证单次调用完整。宿主订单查询方法当前只暴露时间窗口，但§7本轮官方核查已确认平台支持精确order_id；后续应限定4单补薄只读调用，无需因此广域回查时间窗口。
 
 可接受的后续证据是：券级独立实收；或来源明确完整的券集合/每item数量证明目标item独占。若只证明当前目标item存在而第二券归属未知，继续标“归属完整性待补”，不能盲均摊或释放整单基数。此处是技术/来源核查，未提出新的业务金额决定或执行修复。
 
@@ -88,3 +88,31 @@ G27按店月/方向拆分：B推广13方向339.00元；A推广11方向99.48元�
 当前源码依据：`apps/worker/billing_statements.py::_protected`、`apps/worker/settlement.py::_is_fee_result_locked/_is_settlement_period_immutable/_direction_source_amount`、`apps/worker/receipt_amounts.py::resolve_coupon_receipt_cent`及`apps/api/dy_api/routes/dashboard.py`的异议新版本来源复制/调整逻辑。账单头状态2不等于无确认或可重算；本次4个店月均由现库确认记录证明保护，历史版本和重复费用/调整/票据关系已按限定范围核对；正式执行仍需重新检查版本与新增依赖。
 
 验证：离线原始分组及本次现库比较脚本断言均通过；163方向（128来源＋27首次＋8新解析）完整对齐，结果共享字段经时区规范化无差异，4店月/7确认和限定历史空集核对通过。4项白名单离线解析均复现count2保护节点；`python -m pytest tests/test_receipt_commission_basis.py -q -k 'interface_count or sharing_one_item or sub_order_id_alias or conflicting_item'`为9 passed / 59 deselected。此测试验证已有保护，未证明新放行方案。输入/输出SHA保存在私有清单；本执行单元没有发起生产或外部请求。主线程现库只读已完成，来源完整性、实施方案及业务方式/月份决定仍待完成，本材料不声称已修复。
+
+## 7. 2026-10-27 官方合同补证、真实响应与摘要纠正
+
+本增量只访问公开官方文档HTTP并分析既有私有结果，没有请求生产平台API。两份官方页面HTTP 200及SSR内请求/响应字段schema已保存于忽略目录`official-docs/`，URL、HTTP状态、字节数和SHA可回溯；未依赖第三方说明。
+
+**券查询合同。** 官方请求列出账号、订单ID或加密券码；未列状态筛选或分页参数，响应schema亦未列总量/游标。状态枚举包含未使用、已使用及退款各态，2表示已使用；文档没有明确保证按订单返回全部历史券。故不能称接口只返回可核销券，也不能从无分页字段推定历史券已全量列齐。`certificates_v2`另标适用通兑券，不能一般化地把两列表视作完全等价。[官方券状态批量查询](https://developer.open-douyin.com/docs/resource/zh-CN/local-life/develop/OpenAPI/general-capabilities/life.capacity.fulfilment/certificate.query)
+
+**订单金额/基数合同。** 官方`count`含义是订单券数；`order_item_id`属于券维度订单标识，组品时对应子品单。`sub_order_amount_infos`按子单列金额，不能仅凭数组长度认定一行一券。官方`sub_order_id`说明与`sub_order_type`枚举内部有编号冲突：前者将1关联item、234关联费用，后者将1/2/3列为配送/打包/服务费用、100列为商品费用。不能猜哪段正确；需保留实际类型和组套关系再核对。订单实收公式不能未经合同映射套到券查询中的实付/应付字段。[官方订单查询](https://developer.open-douyin.com/docs/resource/zh-CN/local-life/develop/OpenAPI/general-capabilities/order.query/query)
+
+官方count的券数定义同时纠正现有实收helper注释中泛称购买数量的措辞；本轮未修改源码。官方把item定位到券维度，比普通商品ID匹配更强，但本次未找到每item必须且只能关联一券的显式唯一约束，也未找到组品情况下可直接忽略其他子品单的规则。此处保留证据不足，不把保守条件升级为已批准的新计费合同。
+
+### 7.1 真实4单集合：不是本地提取截断，也不是平台返回0券
+
+2026-10-27 15:07:51数据库只读结果耗时0.076秒、ROLLBACK。4单保存的原payload各有1条`certificate`；其他识别券数组及`order_items/items`均不存在，所有数组和兄弟券查询均未截断。保存的来源观察时间仍在8/9月，每单原记录`count=2`及两条不同ID的子单金额；子单未保留本轮需要的`sub_order_type/combination_id`字段。此证据排除了“当前已识别另一个数组里明明还有券，却被本次投影漏掉”的解释，但不能重建旧来源全部历史版本。
+
+15:10:55精确4单券查询均成功，正常客户端、鉴权、限流与配额记账保留，无业务upsert或采集任务。每单`certificates`和`certificates_v2`各1条、同一券ID及状态，去重后各1个已使用目标券；本次白名单没有item、券实收、数量或完整性元数据。旧订单观察时间与当前券查询不同，不能据两者差异猜测另一券仍存在、已退款、未核销或漏采。
+
+**探针统计纠正。** 本次API券ID是JSON整数。原纯分析helper只接收字符串，误报`visible_coupon_id_count=0/target_coupon_visible=false`；这是工具统计错误，原投影保留的Python整数没有精度丢失。现已离线按整数直接转文本、禁止经float转换，再按同一券ID合并本次重复列表，4单正确结果均为“目标可见、不同券数1”。该去重只针对已核对的这4份响应，不改变业务来源或一般列表合同。原文件保留；纠正后的摘要及输入SHA位于`receipt4-api-normalized-summary-private.json`。
+
+### 7.2 当前不放行；最小后续取证
+
+仍未取得：目标item独占的明确来源依据、实际子单类型及组品关系、第二份原订单券数与当前列表差异的解释。已保存原payload和这次白名单响应没有解决这些项；原完整API响应仅留SHA，不能从现有投影断言嵌套金额字段完全不存在。重复同一白名单查询不会产生新证据，金额仍只可称“精确目标子单行金额”，不是已批准本券计费基数。
+
+最小后续请求限定原4个订单，使用已确认支持精确订单ID的订单查询，并携带官方要求的页参数；保留正常客户端访问管理，不设订单状态过滤。只回收：返回order_id一致性、最新count与源时间、券ID/item ID/组套/履约模式、子单ID/类型/组套/实收，以及真实返回分页元数据。不得输出客户、昵称、电话、地址、加密券码或完整载荷。宿主旧方法缺order_id入口属于封装缺口，不能误写成平台不支持；具体请求草稿保存在`receipt4-minimal-next-request-private.json`。
+
+若新订单响应仍无法解释item与券的归属，提交脱敏字段/类型样例向官方确认上述编号冲突及按订单券列表的包含范围；需要的是来源合同与精确对应，不是要求用户猜第二券状态或补一个均摊金额。在取得充分来源前，继续保持4券实收保护，不执行生产修复或改变其他受保护金额决定。
+
+本增量验证：两个官方页面及SSR schema解析成功，字段存在性/缺失检查通过；4份API整数ID精确匹配数据库目标、重复列表去重及数量断言通过。私有源文件SHA、公开页HTTP SHA及最小请求草稿均保留；没有修改其他计划、业务代码或执行新平台查询。
