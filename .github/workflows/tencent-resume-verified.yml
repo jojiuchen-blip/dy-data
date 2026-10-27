@@ -82,13 +82,45 @@ jobs:
             exit 1
           fi
           cd /opt/dy-dashboard/repo
-          df -B1 /opt/dy-dashboard
-          sudo docker system df
-          sudo docker image ls --no-trunc --format '{{json .}}'
-          sudo docker ps -a --no-trunc --format '{{.ID}} {{.Image}} {{.Status}}'
-          sudo cat /opt/dy-dashboard/logs/backups/images-20261027T025005Z.manifest
-          sudo cat /opt/dy-dashboard/logs/backups/images-20261023T132349Z.manifest
-          exit 0
+          sudo python3 - <<'CLEAN'
+          import json, pathlib, shutil, subprocess, time
+          def command(*args):
+              return subprocess.check_output(['docker', *args], text=True)
+          obsolete = 'sha256:658e9b66da9c97d2ebe7936d47e4e972bfd66ea538f2ceaf9acd8e57df579e3e'
+          tags = {
+              'dy-dashboard-rollback:20261022T134247Z-browser',
+              'dy-dashboard-rollback:20261022T140618Z-browser',
+              'dy-dashboard-browser:candidate-56-e4bdea3b',
+              'dy-dashboard-browser:release-104-7b54b97cac49',
+              'dy-dashboard-browser:release-104-ade0ab1071e9',
+          }
+          ids = command('ps', '-aq').split()
+          protected = {row['Image'] for row in json.loads(command('inspect', *ids))}
+          for stamp in ('20261027T025005Z', '20261023T132349Z'):
+              for line in pathlib.Path('/opt/dy-dashboard/logs/backups/images-' + stamp + '.manifest').read_text().splitlines():
+                  if not line.startswith('#') and len(line.split('|')) == 5:
+                      image = line.split('|')[2]
+                      if image.startswith('sha256:'): protected.add(image)
+          for ref in ('dy-dashboard-api:release-105-ca61eff46773', 'dy-dashboard-worker:release-105-ca61eff46773', 'dy-dashboard-web:release-105-ca61eff46773', 'dy-dashboard-browser:release-105-ca61eff46773-permissions', 'dy-dashboard-ops-agent:release-105-ca61eff46773'):
+              protected.add(json.loads(command('image', 'inspect', ref))[0]['Id'])
+          assert obsolete not in protected
+          for path in [pathlib.Path('/opt/dy-dashboard/env/production.env'), *pathlib.Path('/opt/dy-dashboard/deploy-overrides').glob('*')]:
+              if path.is_file():
+                  content = path.read_text()
+                  assert obsolete not in content and not any(tag in content for tag in tags), 'Image remains configured'
+          metadata = json.loads(command('image', 'inspect', obsolete))[0]
+          assert set(metadata['RepoTags']) == tags, 'Image tags changed since audit'
+          before = shutil.disk_usage('/opt/dy-dashboard').free
+          report = pathlib.Path('/opt/dy-dashboard/logs/image-retention-clue-' + time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()) + '.json')
+          evidence = {'phase': 'planned', 'image': obsolete, 'tags': sorted(tags), 'protected': sorted(protected), 'free_before': before}
+          with report.open('x') as output: json.dump(evidence, output)
+          # No --force: Docker also refuses deletion if a container starts using it.
+          subprocess.run(['docker', 'image', 'rm', *sorted(tags)], check=True)
+          for image in protected: command('image', 'inspect', image)
+          evidence.update(phase='complete', free_after=shutil.disk_usage('/opt/dy-dashboard').free)
+          report.write_text(json.dumps(evidence))
+          print('Exact obsolete image cleanup:', json.dumps(evidence))
+          CLEAN
           cutover="$(sudo python3 - "$archive" <<'PY'
           import hashlib, os, pathlib, shutil, sys, tarfile, tempfile
           root = pathlib.Path('/opt/dy-dashboard/repo')
