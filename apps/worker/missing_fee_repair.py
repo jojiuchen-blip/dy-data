@@ -26,6 +26,36 @@ OPERATION = "EXACT_FIRST_MISSING_FEE_REPAIR"
 BUDGET = {"max_coupons": 500, "lock_timeout_ms": 1000,
           "statement_timeout_ms": 5000, "transaction_wall_seconds": 30}
 EXCLUSION_GROUPS = frozenset({"paused22", "cohort106", "fuyang", "protected"})
+WRITE_PROOF_VERSION = "locked-heap-xact-write-proof-v1"
+PROTECTED_PREFIXES = ("settlement_", "invoice_", "promotion_invoice", "finance_",
+                      "store_finance", "management_", "sap_", "dashboard_", "agg_store_")
+# These are ledger facts, not the large projection/overlay/detail relations.
+# Unknown sidecars remain protected by the same relation/zero-write proof.
+CORE_FINANCIAL_TABLES = frozenset({
+    "settlement_fee_result", "settlement_fee_result_current", "settlement_fee_adjustment",
+    "settlement_carryforward_source", "settlement_carryforward_application",
+    "settlement_statement", "settlement_statement_line", "settlement_statement_entry",
+    "settlement_statement_confirmation", "settlement_dispute", "settlement_dispute_order",
+    "settlement_billing_source_bundle", "settlement_scope_rule",
+    "settlement_statement_snapshot_migration_exception",
+    "settlement_statement_entry_snapshot_migration_exception",
+    "invoice_record", "invoice_status_event", "promotion_invoice", "promotion_invoice_allocation",
+    "promotion_invoice_lifecycle_event", "promotion_invoice_number_registry",
+    "promotion_invoice_replacement_source", "management_carryforward_application",
+    "finance_import_batch", "finance_import_row", "finance_operation_audit",
+    "sap_suggestion", "store_finance_profile",
+})
+FEE_COUNTER_SOURCES = ("settlement_fee_result", "settlement_fee_result_current")
+AUDIT_COUNTER_SOURCE = "finance_operation_audit"
+WRITE_PROOF_CONTRACT = {
+    "version": WRITE_PROOF_VERSION, "relation_kind": "ordinary_non_inherited_heap",
+    "ledger_row_hash_tables": sorted(CORE_FINANCIAL_TABLES),
+    "fee_counter_sources": list(FEE_COUNTER_SOURCES),
+    "fee_counter_increments": {"settlement_fee_result": "4*N", "settlement_fee_result_current": "2*N"},
+    "audit_counter_source": AUDIT_COUNTER_SOURCE, "audit_counter_increment": 1,
+    "counter_rule": "0063_existing_statement_trigger; all_other_rows_unchanged",
+    "dq_rule": "delete_exact_preexisting_target_issue_ids_only",
+}
 
 
 class MissingFeeRepairError(ValueError):
@@ -313,10 +343,13 @@ def _preview(session: Session, request: dict, started: float) -> tuple[dict, tup
     quotes = _assert_eligible(session, request["manifest"], dependencies, started)
     quote_rows = canonical([asdict(quote) for quote in quotes])
     dependency_hash = digest(dependencies)
-    preview_hash = digest({"request": request, "dependencies": dependency_hash, "quotes": quote_rows})
+    preview_hash = digest({"request": request, "dependencies": dependency_hash, "quotes": quote_rows,
+                           "write_proof": WRITE_PROOF_CONTRACT})
     _budget(started)
     return {"operation": OPERATION, "request_hash": digest(request), "preview_hash": preview_hash,
             "dependency_hash": dependency_hash, "budget": dict(BUDGET),
+            "write_proof_version": WRITE_PROOF_VERSION,
+            "write_proof_contract": canonical(WRITE_PROOF_CONTRACT),
             "coupon_count": len(request["manifest"]["coupons"]), "quotes": quote_rows,
             "applied": False, "replayed": False}, quotes
 
@@ -341,11 +374,164 @@ def _fresh(session: Session) -> None:
 
 def _financial_table_names(session: Session) -> tuple[str, ...]:
     """Include sidecar publication relations outside the ORM's metadata too."""
-    prefixes = ("settlement_", "invoice_", "promotion_invoice", "finance_", "store_finance", "management_", "sap_",
-                "dashboard_", "agg_store_")
-    names = session.scalars(text("SELECT tablename FROM pg_tables WHERE schemaname = current_schema() ORDER BY tablename"))
-    return tuple(name for name in names if (name.startswith(prefixes) or name == m.JobRun.__tablename__)
+    # Include unsupported relation kinds so they fail closed instead of silently
+    # disappearing from pg_tables (for example materialized views/foreign tables).
+    names = session.scalars(text("SELECT c.relname FROM pg_catalog.pg_class c "
+        "JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace "
+        "WHERE n.nspname=current_schema() AND c.relkind IN ('r','p','m','f','v') ORDER BY c.relname"))
+    return tuple(name for name in names if (name.startswith(PROTECTED_PREFIXES) or name == m.JobRun.__tablename__)
                  and name != "dashboard_publication_source_counters")
+
+
+def _quoted_relation(schema: str, name: str) -> str:
+    return '"' + schema.replace('"', '""') + '"."' + name.replace('"', '""') + '"'
+
+
+def _protected_names(session: Session) -> tuple[str, ...]:
+    tables = {model.__tablename__ for model in CONFIG_MODELS + HISTORY_MODELS + SLOT_MODELS}
+    tables.update(_financial_table_names(session))
+    tables.update(model.__tablename__ for model in (
+        m.RawDouyinOrder, m.RawDouyinOrderCoupon, m.RawDouyinVerifyRecord,
+        m.RawDouyinRefundRecord, m.DouyinRefundEvent, m.HistoricalSaleAttributionDecision,
+        m.SettlementCarryforwardApplication, m.JobRun, m.FinanceOperationAudit, m.DataQualityIssue))
+    tables.add("dashboard_publication_source_counters")
+    return tuple(sorted(tables))
+
+
+def _relation_state(session: Session, schema: str, names: tuple[str, ...]) -> dict:
+    """Read only catalog-sized evidence and this backend's live xact counters."""
+    if session.scalar(text("SELECT current_setting('track_counts')")) != "on":
+        raise MissingFeeRepairError("transaction write proof requires track_counts=on")
+    rows = session.execute(text("""
+SELECT c.relname,c.oid,n.oid AS namespace_oid,c.relkind,c.relpersistence,a.amname,
+ pg_catalog.pg_relation_filenode(c.oid) AS filenode,c.reltablespace,
+ pg_catalog.to_regclass(pg_catalog.quote_ident(c.relname))::oid AS resolved_oid,
+ EXISTS(SELECT 1 FROM pg_catalog.pg_inherits i WHERE i.inhrelid=c.oid OR i.inhparent=c.oid) AS inherited,
+ x.n_tup_ins,x.n_tup_upd,x.n_tup_del,
+ jsonb_build_object('owner',c.relowner,'acl',c.relacl,'options',c.reloptions,
+ 'rls',c.relrowsecurity,'force_rls',c.relforcerowsecurity,'replica_identity',c.relreplident,
+ 'columns',(SELECT jsonb_agg(jsonb_build_array(t.attnum,t.attname,t.atttypid,t.atttypmod,
+    t.attnotnull,t.attisdropped,t.attcollation,t.attidentity,t.attgenerated,
+    pg_catalog.pg_get_expr(d.adbin,d.adrelid)) ORDER BY t.attnum)
+    FROM pg_catalog.pg_attribute t LEFT JOIN pg_catalog.pg_attrdef d
+      ON d.adrelid=t.attrelid AND d.adnum=t.attnum WHERE t.attrelid=c.oid AND t.attnum>0),
+ 'constraints',(SELECT jsonb_agg(jsonb_build_array(k.oid,k.conname,k.convalidated,
+    pg_catalog.pg_get_constraintdef(k.oid)) ORDER BY k.oid) FROM pg_catalog.pg_constraint k WHERE k.conrelid=c.oid),
+ 'triggers',(SELECT jsonb_agg(jsonb_build_array(t.oid,t.tgenabled,pg_catalog.pg_get_triggerdef(t.oid),
+    pg_catalog.pg_get_functiondef(t.tgfoid)) ORDER BY t.oid)
+    FROM pg_catalog.pg_trigger t WHERE t.tgrelid=c.oid),
+ 'indexes',(SELECT jsonb_agg(jsonb_build_array(i.indexrelid,i.indisvalid,i.indisready,i.indislive,
+    pg_catalog.pg_relation_filenode(i.indexrelid),pg_catalog.pg_get_indexdef(i.indexrelid)) ORDER BY i.indexrelid)
+    FROM pg_catalog.pg_index i WHERE i.indrelid=c.oid),
+ 'rules',(SELECT jsonb_agg(jsonb_build_array(r.oid,pg_catalog.pg_get_ruledef(r.oid)) ORDER BY r.oid)
+    FROM pg_catalog.pg_rewrite r WHERE r.ev_class=c.oid)) AS structure
+FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+LEFT JOIN pg_catalog.pg_am a ON a.oid=c.relam
+LEFT JOIN pg_catalog.pg_stat_xact_all_tables x ON x.relid=c.oid
+WHERE n.nspname=:schema AND c.relname=ANY(:names) ORDER BY c.relname
+"""), {"schema": schema, "names": list(names)}).mappings()
+    state = {}
+    for row in rows:
+        value = dict(row)
+        name = value.pop("relname")
+        if (value["relkind"] != "r" or value["amname"] != "heap" or value["inherited"]
+                or value["relpersistence"] not in {"p", "u"} or not value["filenode"]
+                or value["oid"] != value["resolved_oid"]):
+            raise MissingFeeRepairError("write proof supports resolved ordinary non-inherited heap tables only: " + name)
+        counts = tuple(value.pop(field) for field in ("n_tup_ins", "n_tup_upd", "n_tup_del"))
+        if any(count is None for count in counts):
+            raise MissingFeeRepairError("transaction statistics missing for protected relation: " + name)
+        state[name] = {"identity": canonical(value), "counts": counts}
+    if set(state) != set(names):
+        raise MissingFeeRepairError("protected relation/OID missing")
+    return state
+
+
+def _target_dq_rows(session: Session, schema: str, coupon_ids: list[str]) -> dict:
+    rows = session.execute(text("SELECT issue_id,to_jsonb(t) AS row FROM "
+        + _quoted_relation(schema, m.DataQualityIssue.__tablename__) + " t WHERE coupon_id=ANY(:ids)"),
+        {"ids": coupon_ids}).mappings()
+    return {row["issue_id"]: canonical(row["row"]) for row in rows}
+
+
+def _allowed_counter_rows(session: Session, schema: str) -> dict:
+    rows = session.execute(text("SELECT source_name,to_jsonb(t) AS row FROM "
+        + _quoted_relation(schema, "dashboard_publication_source_counters")
+        + " t WHERE source_name=ANY(:names)"),
+        {"names": [*FEE_COUNTER_SOURCES, AUDIT_COUNTER_SOURCE]}).mappings()
+    result = {row["source_name"]: canonical(row["row"]) for row in rows}
+    # The real 0063 trigger raises if its source row is absent. Reject before
+    # financial writes instead of inventing or restoring tracking state.
+    if set(result) != {*FEE_COUNTER_SOURCES, AUDIT_COUNTER_SOURCE}:
+        raise MissingFeeRepairError("required fee/audit source counter row missing")
+    return result
+
+
+def _assert_counter_changes(before: dict, after: dict, count: int,
+                            earliest: datetime, latest: datetime) -> None:
+    for name, original in before.items():
+        current = after[name]
+        # The ordinary writer issues one old-result UPDATE (even when it affects
+        # zero rows) then one INSERT per direction. 0063 counts statements.
+        increment = (4 if name == "settlement_fee_result" else 2) * count if name in FEE_COUNTER_SOURCES else 1
+        if (current["generation"] != original["generation"] + increment
+                or {key: value for key, value in current.items() if key not in {"generation", "changed_at"}}
+                != {key: value for key, value in original.items() if key not in {"generation", "changed_at"}}
+                or not earliest <= _instant(current["changed_at"]) <= latest):
+            raise MissingFeeRepairError("exact fee/audit source counter identity/increment/time changed: " + name)
+
+
+def _assert_write_proof(session: Session, *, schema: str, names: tuple[str, ...], baseline: dict,
+                        coupon_ids: list[str], dq_before: dict, counters_before: dict,
+                        counter_started_at: datetime) -> str:
+    if _protected_names(session) != names or session.scalar(text("SELECT current_schema()")) != schema:
+        raise MissingFeeRepairError("protected relation set/schema changed")
+    after = _relation_state(session, schema, names)
+    allowed = {m.SettlementFeeResult.__tablename__, m.SettlementFeeResultCurrent.__tablename__,
+               m.FinanceOperationAudit.__tablename__, m.DataQualityIssue.__tablename__,
+               "dashboard_publication_source_counters"}
+    dq_after = _target_dq_rows(session, schema, coupon_ids)
+    counters_after = _allowed_counter_rows(session, schema)
+    latest = session.scalar(text("SELECT clock_timestamp()"))
+    _assert_counter_changes(counters_before, counters_after, len(coupon_ids), counter_started_at, latest)
+    if any(key not in dq_before or value != dq_before[key] for key, value in dq_after.items()):
+        raise MissingFeeRepairError("target DQ may only delete exact pre-existing target issues")
+    expected = {m.SettlementFeeResult.__tablename__: (2 * len(coupon_ids), 0, 0),
+                m.SettlementFeeResultCurrent.__tablename__: (2 * len(coupon_ids), 0, 0),
+                m.FinanceOperationAudit.__tablename__: (1, 0, 0),
+                m.DataQualityIssue.__tablename__: (0, 0, len(dq_before) - len(dq_after))}
+    for name in names:
+        if after[name]["identity"] != baseline[name]["identity"]:
+            raise MissingFeeRepairError("protected relation physical/structural identity changed: " + name)
+        delta = tuple(end - start for start, end in zip(baseline[name]["counts"], after[name]["counts"]))
+        if name == "dashboard_publication_source_counters":
+            # Only updates are admissible; the financial hash independently
+            # binds every source row outside the three exact allowed source names.
+            valid = delta == (0, 6 * len(coupon_ids) + 1, 0)
+        else:
+            valid = delta == expected.get(name, (0, 0, 0))
+        if not valid:
+            raise MissingFeeRepairError("unexpected transaction writes to " + ("allowed row range: " if name in allowed else "protected relation: ") + name)
+    return digest({name: after[name]["identity"] for name in names})
+
+
+@contextmanager
+def _postcheck_seal(session: Session):
+    """Keep the final read proof last, including the ORM's commit-time flush."""
+    connection = None
+    def reject_sql(*_):
+        raise MissingFeeRepairError("SQL after final transaction write proof")
+    def seal():
+        nonlocal connection
+        if session.new or session.dirty or session.deleted:
+            raise MissingFeeRepairError("pending ORM flush after final transaction proof")
+        connection = session.connection()
+        event.listen(connection, "before_cursor_execute", reject_sql)
+    try:
+        yield seal
+    finally:
+        if connection is not None:
+            event.remove(connection, "before_cursor_execute", reject_sql)
 
 
 @contextmanager
@@ -354,6 +540,12 @@ def _transaction_deadline(session: Session, started: float):
     connection = session.connection()
     def before_execute(_conn, cursor, statement, _parameters, _context, _executemany):
         _budget(started)
+        # This only prevents accidental direct opaque/DDL commands. Database
+        # trigger effects still require the independent final catalog/xact proof.
+        if re.match(r"\s*(?:ALTER|CREATE|DROP|TRUNCATE|CLUSTER|REINDEX|REFRESH|VACUUM|GRANT|REVOKE|DO|CALL)\b", statement, re.I):
+            raise MissingFeeRepairError("DDL/TRUNCATE/opaque commands are forbidden during exact repair")
+        if re.match(r"\s*SET(?:\s+LOCAL|\s+SESSION)?\s+(?:track_counts|session_replication_role)\b", statement, re.I):
+            raise MissingFeeRepairError("write proof configuration cannot change during exact repair")
         # Isolation must be set before any other transaction SQL. Every later
         # SQL statement receives the smaller of 5 seconds and time remaining.
         if statement.upper().startswith("SET TRANSACTION ISOLATION"):
@@ -371,7 +563,7 @@ def _transaction_deadline(session: Session, started: float):
         event.remove(connection, "before_cursor_execute", before_execute)
 
 
-def _fence(session: Session, started: float) -> None:
+def _fence(session: Session, started: float) -> tuple[str, tuple[str, ...], dict]:
     session.execute(text("SET TRANSACTION ISOLATION LEVEL READ COMMITTED"))
     session.execute(text("SET LOCAL lock_timeout = '1s'"))
     session.execute(text("SET LOCAL statement_timeout = '5s'"))
@@ -380,15 +572,15 @@ def _fence(session: Session, started: float) -> None:
     # SHARE ROW EXCLUSIVE conflicts with all DML and self-serializes repairs.
     # Ordered relation fences prevent insert/changed-match phantoms in config,
     # raw evidence, protection facts, and the outside-financial fingerprint.
-    tables = {model.__tablename__ for model in CONFIG_MODELS + HISTORY_MODELS + SLOT_MODELS}
-    tables.update(_financial_table_names(session))
-    tables.update(model.__tablename__ for model in (
-        m.RawDouyinOrder, m.RawDouyinOrderCoupon, m.RawDouyinVerifyRecord,
-        m.RawDouyinRefundRecord, m.DouyinRefundEvent, m.HistoricalSaleAttributionDecision,
-        m.SettlementCarryforwardApplication, m.JobRun, m.FinanceOperationAudit))
-    tables.add("dashboard_publication_source_counters")
-    session.execute(text("LOCK TABLE " + ", ".join('"' + name.replace('"', '""') + '"' for name in sorted(tables))
+    schema = session.scalar(text("SELECT current_schema()"))
+    names = _protected_names(session)
+    discovered = _relation_state(session, schema, names)
+    session.execute(text("LOCK TABLE " + ", ".join(_quoted_relation(schema, name) for name in names)
                          + " IN SHARE ROW EXCLUSIVE MODE"))
+    baseline = _relation_state(session, schema, names)
+    if (any(discovered[name] != baseline[name] for name in names)
+            or _protected_names(session) != names):
+        raise MissingFeeRepairError("protected relation identity/transaction changed while acquiring fences")
     busy = session.scalar(select(m.JobRun.job_id).where(
         m.JobRun.status.in_(("running", "retry_wait")),
         or_(m.JobRun.execution_slot == "heavy_sync",
@@ -400,40 +592,49 @@ def _fence(session: Session, started: float) -> None:
     if busy:
         raise MissingFeeRepairError("source writer running or awaiting retry")
     _budget(started)
+    return schema, names, baseline
 
 
-def _outside_financial_fingerprint(session: Session, coupon_ids: list[str]) -> str:
-    """Server-side row digests keep raw financial tables out of process memory."""
+def _outside_financial_fingerprint(session: Session, coupon_ids: list[str], *,
+                                   schema: str | None = None, audit_id: str | None = None) -> str:
+    """Keep ledger row digests; other locked relations use zero-write evidence."""
+    schema = schema or session.scalar(text("SELECT current_schema()"))
     hashes = {}
-    for table_name in _financial_table_names(session):
+    for table_name in sorted(CORE_FINANCIAL_TABLES.intersection(_financial_table_names(session))):
         where = ""
         params = {}
         if table_name in {m.SettlementFeeResult.__tablename__, m.SettlementFeeResultCurrent.__tablename__}:
             where = " WHERE NOT (t.coupon_id = ANY(:coupon_ids))"
             params["coupon_ids"] = coupon_ids
+        elif table_name == m.FinanceOperationAudit.__tablename__ and audit_id is not None:
+            where = " WHERE t.audit_id IS DISTINCT FROM :audit_id"
+            params["audit_id"] = audit_id
         # Names originate exclusively in catalog evidence, never manifests.
         statement = "SELECT encode(sha256(convert_to(COALESCE(string_agg(row_hash,'' ORDER BY row_hash),''),'UTF8')),'hex') FROM ("
-        statement += "SELECT encode(sha256(convert_to(to_jsonb(t)::text,'UTF8')),'hex') AS row_hash FROM \""
-        statement += table_name.replace('"', '""') + '" t' + where + ') rows'
+        statement += "SELECT encode(sha256(convert_to(to_jsonb(t)::text,'UTF8')),'hex') AS row_hash FROM "
+        statement += _quoted_relation(schema, table_name) + ' t' + where + ') rows'
         hashes[table_name] = session.scalar(text(statement), params)
     hashes["unrelated_source_counters"] = session.scalar(text(
         "SELECT encode(sha256(convert_to(COALESCE(string_agg(encode(sha256(convert_to(to_jsonb(t)::text,'UTF8')),'hex'),"
         "'' ORDER BY source_name),''),'UTF8')),'hex') "
-        "FROM dashboard_publication_source_counters t "
-        "WHERE source_name NOT IN ('settlement_fee_result','settlement_fee_result_current')"))
+        "FROM " + _quoted_relation(schema, "dashboard_publication_source_counters") + " t "
+        "WHERE source_name NOT IN ('settlement_fee_result','settlement_fee_result_current','finance_operation_audit')"))
     return digest(hashes)
 
 
 def _actual_outputs(session: Session, coupon_ids: list[str], *, calculation_run_id: str) -> list[dict]:
+    if session.new or session.dirty or session.deleted:
+        raise MissingFeeRepairError("actual output validation requires no pending ORM writes")
     rows = list(session.scalars(select(m.SettlementFeeResult).where(
         m.SettlementFeeResult.coupon_id.in_(coupon_ids)).order_by(
-            m.SettlementFeeResult.coupon_id, m.SettlementFeeResult.fee_direction)))
+            m.SettlementFeeResult.coupon_id, m.SettlementFeeResult.fee_direction)
+        .execution_options(populate_existing=True)))
     if len(rows) != 2 * len(coupon_ids):
         raise MissingFeeRepairError("output count/history mismatch")
     for row in rows:
         pointer = session.scalar(select(m.SettlementFeeResultCurrent).where(
             m.SettlementFeeResultCurrent.coupon_id == row.coupon_id,
-            m.SettlementFeeResultCurrent.fee_direction == row.fee_direction))
+            m.SettlementFeeResultCurrent.fee_direction == row.fee_direction).execution_options(populate_existing=True))
         if (row.calculation_run_id != calculation_run_id or row.result_version != 1
                 or pointer is None or pointer.fee_result_id != row.fee_result_id):
             raise MissingFeeRepairError("actual output/current-pointer identity mismatch")
@@ -453,9 +654,10 @@ def apply_missing_fees(session: Session, *, manifest: dict, exclusions: dict, pr
     audit_id = "missing-fee-" + digest(manifest["request_id"])
     calculation_run_id = audit_id
     coupon_ids = sorted(entry["coupon_id"] for entry in manifest["coupons"])
-    with session.begin(), session.no_autoflush, _transaction_deadline(session, started):
-        _fence(session, started)
-        replay = session.scalar(select(m.FinanceOperationAudit).where(m.FinanceOperationAudit.audit_id == audit_id))
+    with _postcheck_seal(session) as seal, session.begin(), session.no_autoflush, _transaction_deadline(session, started):
+        schema, relation_names, relation_baseline = _fence(session, started)
+        replay = session.scalar(select(m.FinanceOperationAudit).where(
+            m.FinanceOperationAudit.audit_id == audit_id).execution_options(populate_existing=True))
         if replay is not None:
             stored = replay.after_snapshot or {}
             if (replay.operation_type != OPERATION or replay.request_payload_sha256 != digest(request)
@@ -465,6 +667,7 @@ def apply_missing_fees(session: Session, *, manifest: dict, exclusions: dict, pr
             if actual != stored.get("quotes"):
                 raise MissingFeeRepairError("idempotency actual outputs changed")
             _budget(started)
+            seal()
             return {**stored, "replayed": True}
         # Sorted coupon locks precede all sorted slot locks, then every source
         # is read afresh under the relation fences and READ COMMITTED snapshot.
@@ -477,7 +680,10 @@ def apply_missing_fees(session: Session, *, manifest: dict, exclusions: dict, pr
         report, _ = _preview(session, request, started)
         if report["preview_hash"] != preview_hash:
             raise MissingFeeRepairError("preview dependency/quote hash changed; whole batch rejected")
-        before = _outside_financial_fingerprint(session, coupon_ids)
+        dq_before = _target_dq_rows(session, schema, coupon_ids)
+        counters_before = _allowed_counter_rows(session, schema)
+        counter_started_at = session.scalar(text("SELECT clock_timestamp()"))
+        before = _outside_financial_fingerprint(session, coupon_ids, schema=schema, audit_id=audit_id)
         _budget(started)
         stats = s.rebuild_dual_fee_results(session, calculation_run_id=calculation_run_id,
                                           coupon_ids=coupon_ids, force_recalculate=False,
@@ -487,19 +693,41 @@ def apply_missing_fees(session: Session, *, manifest: dict, exclusions: dict, pr
         actual = _actual_outputs(session, coupon_ids, calculation_run_id=calculation_run_id)
         if actual != report["quotes"]:
             raise MissingFeeRepairError("created business fields/input fingerprint differ from quote")
-        after = _outside_financial_fingerprint(session, coupon_ids)
-        if before != after:
-            raise MissingFeeRepairError("outside financial state changed; whole batch rolled back")
-        report.update(applied=True, financial_before=before, financial_after=after,
+        # The expected after digest is provisional until the final read proves
+        # it, after the audit and all deferred effects. A failed proof rolls back
+        # the provisional audit together with every new fee.
+        report.update(applied=True, financial_before=before, financial_after=before,
                       calculation_run_id=calculation_run_id)
-        session.add(m.FinanceOperationAudit(
+        audit = m.FinanceOperationAudit(
             audit_id=audit_id, operation_type=OPERATION, target_type="EXACT_COUPON_BATCH",
             target_id=digest(coupon_ids), operator_id=manifest["actor"], operator_role=1,
             before_snapshot={"financial_fingerprint": before, "coupon_count": len(coupon_ids)},
             after_snapshot=report, result_status=1, request_id=manifest["request_id"],
             idempotency_key_hash=digest({"operation": OPERATION, "request_id": manifest["request_id"]}),
             request_payload_sha256=digest(request),
-        ))
+        )
+        session.add(audit)
         session.flush()
+        expected_audit = canonical({attribute.key: getattr(audit, attribute.key)
+                                    for attribute in m.FinanceOperationAudit.__mapper__.column_attrs})
+        session.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+        if session.new or session.dirty or session.deleted:
+            raise MissingFeeRepairError("pending flush after audit/deferred effects")
+        session.expire_all()
+        actual = _actual_outputs(session, coupon_ids, calculation_run_id=calculation_run_id)
+        if actual != report["quotes"]:
+            raise MissingFeeRepairError("final outputs changed by audit/deferred effects")
+        session.refresh(audit)
+        actual_audit = canonical({attribute.key: getattr(audit, attribute.key)
+                                  for attribute in m.FinanceOperationAudit.__mapper__.column_attrs})
+        if actual_audit != expected_audit:
+            raise MissingFeeRepairError("exact audit changed by database effects")
+        after = _outside_financial_fingerprint(session, coupon_ids, schema=schema, audit_id=audit_id)
+        if before != after:
+            raise MissingFeeRepairError("outside financial state changed; whole batch rolled back")
+        _assert_write_proof(session, schema=schema, names=relation_names, baseline=relation_baseline,
+                            coupon_ids=coupon_ids, dq_before=dq_before, counters_before=counters_before,
+                            counter_started_at=counter_started_at)
         _budget(started)
+        seal()
         return report

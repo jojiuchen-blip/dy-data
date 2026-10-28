@@ -45,6 +45,7 @@ DOUYIN_ONLINE_STATUS_MAP = {
 DOUYIN_PRODUCT_STATUS_SEQUENCE = (1, 2, 3)
 DOUYIN_PRODUCT_CURSOR_PREFIX = "dy-product-v1:"
 PRODUCT_LOOKUP_ATTEMPTS = 3
+PRODUCT_DIAGNOSTIC_BATCH_LIMIT = 10
 logger = logging.getLogger(__name__)
 PRODUCT_RAW_PAYLOAD_FIELDS = (
     "skuId",
@@ -197,6 +198,7 @@ class DouyinProductSyncAdapter:
         self._products_with_empty_skus: set[str] = set()
         self._fallback_product_ids: list[str] | None = None
         self._seen_list_cursors: set[tuple[int, str | None]] = set()
+        self.lookup_diagnostics: dict[str, Any] | None = None
         self.lookup_stats = {
             "attempt_limit_per_batch": PRODUCT_LOOKUP_ATTEMPTS,
             "product_id_requests": 0,
@@ -241,6 +243,9 @@ class DouyinProductSyncAdapter:
 
     def fetch_page(self, *, mode: str, cursor: str | None) -> ProductSyncPage:
         _ = mode
+        # Evidence belongs only to the current page, including when an adapter
+        # is reused. Never attach an old batch to a later list/cursor failure.
+        self.lookup_diagnostics = None
         state = _decode_douyin_product_cursor(cursor)
         if state["stage"] == "ids":
             return self._fetch_id_page(int(state.get("offset") or 0))
@@ -412,13 +417,32 @@ class DouyinProductSyncAdapter:
             logger.warning("Incomplete SKU lookup: attempt=%s missing_count=%s", attempt, len(pending))
         raise ProductSyncIncompleteError("SKU lookup incomplete after bounded retries; missing_count=" + str(len(pending)))
 
-    def _fetch_product_batch(self, batch: list[str]) -> list[Any]:
+    def _fetch_product_batch(
+        self, batch: list[str], *, batch_offset: int = 0,
+        frozen_product_count: int | None = None,
+    ) -> list[Any]:
         rows = []
         response_skus: dict[str, dict[str, Any]] = {}
         pending = list(batch)
+        unvisited = max(0, (frozen_product_count or len(batch)) - batch_offset - len(batch))
+        self.lookup_diagnostics = {
+            "version": 1, "kind": "product_id",
+            "frozenProductCount": frozen_product_count if frozen_product_count is not None else len(batch),
+            "batchOffset": batch_offset, "batchProductIds": list(batch),
+            "pendingProductIds": list(pending), "batchMissingCount": len(pending),
+            "unvisitedProductCount": unvisited,
+            "remainingProductLookupCount": len(pending) + unvisited, "attempts": [],
+        }
         for attempt in range(1, PRODUCT_LOOKUP_ATTEMPTS + 1):
             self.lookup_stats["product_id_requests"] += 1
+            attempt_summary = {
+                "attempt": attempt, "requestedProductIds": list(pending),
+                "responseReceived": False, "returnedProductCount": 0,
+                "productsShapeValid": False, "products": [], "errorCodes": {},
+            }
+            self.lookup_diagnostics["attempts"].append(attempt_summary)
             payload = self._client.query_online_products_by_id(pending)
+            attempt_summary.update(_product_lookup_response_summary(payload, pending))
             data = _product_response_data(payload, "Product ID")
             returned = data.get("product_onlines")
             if not isinstance(returned, list):
@@ -441,7 +465,12 @@ class DouyinProductSyncAdapter:
                 response_skus[sku_id] = row
             rows.extend(record for record in returned if _optional_text(record["product"].get("product_id")) in found)
             pending = [product_id for product_id in pending if product_id not in found]
+            self.lookup_diagnostics.update(
+                pendingProductIds=list(pending), batchMissingCount=len(pending),
+                remainingProductLookupCount=len(pending) + unvisited,
+            )
             if not pending:
+                self.lookup_diagnostics = None
                 return rows
             self.lookup_stats["partial_responses"] += 1
             logger.warning("Incomplete product ID lookup: attempt=%s missing_count=%s", attempt, len(pending))
@@ -455,7 +484,9 @@ class DouyinProductSyncAdapter:
             return parse_normalized_product_page(
                 {"items": [], "hasMore": False, "nextCursor": None}
             )
-        rows = self._fetch_product_batch(batch)
+        rows = self._fetch_product_batch(
+            batch, batch_offset=offset, frozen_product_count=len(self._fallback_product_ids)
+        )
         normalized_rows, skipped_count = _normalize_douyin_online_rows(
             self._supplement_known_skus(rows)
         )
@@ -481,6 +512,101 @@ class DouyinProductSyncAdapter:
                 "nextCursor": next_cursor,
             }
         )
+
+
+def _product_lookup_response_summary(payload: Any, requested_ids: list[str]) -> dict[str, Any]:
+    """Summarize identity/count evidence before response validation can fail."""
+    payload = payload if isinstance(payload, Mapping) else {}
+    data = payload.get("data")
+    data = data if isinstance(data, Mapping) else {}
+    rows = data.get("product_onlines")
+    products = []
+    if isinstance(rows, list):
+        for record in rows[:PRODUCT_DIAGNOSTIC_BATCH_LIMIT]:
+            if not isinstance(record, Mapping) or not isinstance(record.get("product"), Mapping):
+                continue
+            product_id = _optional_text(record["product"].get("product_id"))
+            # Unexpected identifiers can contain arbitrary source text. Retain
+            # the returned row count, but expose only IDs actually requested.
+            if product_id not in requested_ids:
+                continue
+            single = record.get("sku")
+            multiple = record.get("skus")
+            sku_count = int(isinstance(single, Mapping) and bool(_optional_text(single.get("sku_id"))))
+            if isinstance(multiple, list):
+                sku_count += len(multiple)
+            products.append({"productId": product_id, "skuCount": sku_count})
+    codes = {}
+    for name, container, field in (
+        ("response", payload, "error_code"), ("data", data, "error_code"),
+        ("extra", payload.get("extra"), "error_code"),
+        ("base", payload.get("BaseResp"), "StatusCode"),
+    ):
+        value = container.get(field) if isinstance(container, Mapping) else None
+        digits = value[1:] if isinstance(value, str) and value.startswith("-") else value
+        if type(value) is int or (
+            isinstance(digits, str) and digits.isascii() and digits.isdigit() and len(value) <= 16
+        ):
+            codes[name] = int(value)
+    return {
+        "responseReceived": True, "returnedProductCount": len(rows) if isinstance(rows, list) else 0,
+        "productsShapeValid": isinstance(rows, list), "products": products, "errorCodes": codes,
+    }
+
+
+def sanitize_product_lookup_diagnostics(value: Any) -> dict[str, Any] | None:
+    """Project only the bounded Product ID failure evidence shared with admins.
+
+    Counts describe Product ID lookup progress, not complete SKU coverage or
+    amounts. No headers, upstream messages, owners or raw payloads are allowed.
+    """
+    if (not isinstance(value, Mapping) or type(value.get("version")) is not int
+        or value.get("version") != 1 or value.get("kind") != "product_id"):
+        return None
+
+    def count(item: Mapping[str, Any], key: str) -> int:
+        number = item.get(key)
+        return max(0, number) if type(number) is int else 0
+
+    def identities(item: Mapping[str, Any], key: str) -> list[str]:
+        values = item.get(key)
+        if not isinstance(values, list):
+            return []
+        return [entry for entry in values[:PRODUCT_DIAGNOSTIC_BATCH_LIMIT] if isinstance(entry, str)]
+
+    batch_ids = identities(value, "batchProductIds")
+    result = {
+        "version": 1, "kind": "product_id", "batchProductIds": batch_ids,
+        "pendingProductIds": [entry for entry in identities(value, "pendingProductIds") if entry in batch_ids],
+        **{key: count(value, key) for key in (
+            "frozenProductCount", "batchOffset", "batchMissingCount",
+            "unvisitedProductCount", "remainingProductLookupCount",
+        )},
+        "attempts": [],
+    }
+    attempts = value.get("attempts")
+    for attempt in (attempts[:PRODUCT_LOOKUP_ATTEMPTS] if isinstance(attempts, list) else []):
+        if not isinstance(attempt, Mapping):
+            continue
+        requested = [entry for entry in identities(attempt, "requestedProductIds") if entry in batch_ids]
+        products = attempt.get("products")
+        codes = attempt.get("errorCodes")
+        result["attempts"].append({
+            "attempt": count(attempt, "attempt"), "requestedProductIds": requested,
+            "responseReceived": attempt.get("responseReceived") is True,
+            "returnedProductCount": count(attempt, "returnedProductCount"),
+            "productsShapeValid": attempt.get("productsShapeValid") is True,
+            "products": [
+                {"productId": row["productId"], "skuCount": count(row, "skuCount")}
+                for row in (products[:PRODUCT_DIAGNOSTIC_BATCH_LIMIT] if isinstance(products, list) else [])
+                if isinstance(row, Mapping) and row.get("productId") in requested
+            ],
+            "errorCodes": {
+                key: codes[key] for key in ("response", "data", "extra", "base")
+                if isinstance(codes, Mapping) and type(codes.get(key)) is int
+            },
+        })
+    return result
 
 
 def parse_normalized_product_page(payload: Mapping[str, Any]) -> ProductSyncPage:
@@ -620,12 +746,14 @@ def execute_product_sync(
             page = adapter.fetch_page(mode=mode, cursor=current_cursor)
         except ProductSyncPayloadError as exc:
             incomplete = isinstance(exc, ProductSyncIncompleteError)
+            diagnostics = sanitize_product_lookup_diagnostics(getattr(adapter, "lookup_diagnostics", None))
             _record_quality_issue(
                 session,
                 job_id=job_id,
                 issue_type="product_sync_incomplete_response" if incomplete else "product_sync_invalid_response",
                 message=str(exc),
                 sequence=page_count + 1,
+                lookup_diagnostics=diagnostics,
             )
             return _finish_without_current_update(
                 session,
@@ -639,8 +767,16 @@ def execute_product_sync(
                 retryable=incomplete,
                 next_cursor=current_cursor,
                 page_count=page_count,
+                lookup_diagnostics=diagnostics,
             )
         except Exception as exc:  # noqa: BLE001 - external adapter boundary.
+            diagnostics = sanitize_product_lookup_diagnostics(getattr(adapter, "lookup_diagnostics", None))
+            if diagnostics is not None:
+                _record_quality_issue(
+                    session, job_id=job_id, issue_type="product_sync_lookup_upstream_error",
+                    message="Product ID lookup failed before a complete response",
+                    sequence=page_count + 1, lookup_diagnostics=diagnostics,
+                )
             return _finish_without_current_update(
                 session,
                 job,
@@ -653,6 +789,7 @@ def execute_product_sync(
                 retryable=True,
                 next_cursor=current_cursor,
                 page_count=page_count,
+                lookup_diagnostics=diagnostics,
             )
         finally:
             if hasattr(adapter, "lookup_stats"):
@@ -1051,6 +1188,7 @@ def _finish_without_current_update(
     next_cursor: str | None = None,
     page_count: int = 0,
     snapshot_count: int = 0,
+    lookup_diagnostics: Mapping[str, Any] | None = None,
 ) -> ProductSyncResult:
     metadata = dict(job.metadata_json or {})
     metadata.update(
@@ -1072,6 +1210,9 @@ def _finish_without_current_update(
             },
         }
     )
+    diagnostics = sanitize_product_lookup_diagnostics(lookup_diagnostics)
+    if diagnostics is not None:
+        metadata["lookup_diagnostics"] = diagnostics
     job.metadata_json = metadata
     job.status = status.lower()
     job.success_count = snapshot_count
@@ -1096,19 +1237,24 @@ def _record_quality_issue(
     issue_type: str,
     message: str,
     sequence: int,
+    lookup_diagnostics: Mapping[str, Any] | None = None,
 ) -> None:
     issue_id = "dqi_" + sha256(
         f"{job_id}\x1f{issue_type}\x1f{sequence}".encode("utf-8")
     ).hexdigest()[:48]
     if session.get(DataQualityIssue, issue_id) is not None:
         return
+    context: dict[str, Any] = {"source": "product_sync"}
+    diagnostics = sanitize_product_lookup_diagnostics(lookup_diagnostics)
+    if diagnostics is not None:
+        context["lookup_diagnostics"] = diagnostics
     session.add(
         DataQualityIssue(
             issue_id=issue_id,
             issue_type=issue_type,
             severity="warning",
             message=_sanitize_error_message(message),
-            raw_context_json={"source": "product_sync"},
+            raw_context_json=context,
             source_run_id=job_id,
         )
     )

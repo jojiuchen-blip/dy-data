@@ -14,6 +14,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -183,11 +184,37 @@ def convert_product_types(
         return report
 
 
+def _require_report_outside_git(path: Path) -> None:
+    """Without Git, reject any physical repository boundary or unknown metadata."""
+    error = "Git unavailable: cannot verify report is outside Git"
+    if any(name in os.environ for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR")):
+        raise ConversionError(error)
+
+    def present(marker: Path) -> bool:
+        try:
+            marker.lstat()  # A .git file or dangling link is also a repository hint.
+        except FileNotFoundError:
+            return False
+        except OSError as exc:
+            raise ConversionError(error) from exc
+        return True
+
+    for directory in path.parents:
+        if present(directory / ".git") or all(
+            present(directory / name) for name in ("HEAD", "objects", "refs")
+        ):
+            raise ConversionError(error)
+
+
 def _private_report_path(path: Path) -> Path:
     path = path.resolve(strict=False)
     probe = path.parent
-    result = subprocess.run(["git", "-C", str(probe), "rev-parse", "--show-toplevel"],
-                            capture_output=True, text=True, encoding="utf-8")
+    try:
+        result = subprocess.run(["git", "-C", str(probe), "rev-parse", "--show-toplevel"],
+                                capture_output=True, text=True, encoding="utf-8")
+    except FileNotFoundError:
+        _require_report_outside_git(path)
+        return path
     if result.returncode == 0:
         repository = Path(result.stdout.strip())
         relative = path.relative_to(repository)

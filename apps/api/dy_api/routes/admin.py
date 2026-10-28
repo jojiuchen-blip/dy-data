@@ -100,7 +100,11 @@ from apps.worker.clue_rule_versions import (
     retire_rule_version,
     update_rule_version,
 )
-from apps.worker.product_sync import PRODUCT_SYNC_JOB_NAME, run_product_sync_job
+from apps.worker.product_sync import (
+    PRODUCT_SYNC_JOB_NAME,
+    run_product_sync_job,
+    sanitize_product_lookup_diagnostics,
+)
 from apps.worker.douyin_ranking import import_store_org_assignments
 from apps.worker.projection_lineage import (
     MAX_LINEAGE_DEPTH,
@@ -3394,6 +3398,7 @@ def get_product_sync_run(
             "affectedSkuSample": affected_skus,
             "dataQualityIssueCount": issue_count,
             "retryable": bool(metadata.get("retryable", False)),
+            "lookupDiagnostics": sanitize_product_lookup_diagnostics(metadata.get("lookup_diagnostics")),
         },
     )
 

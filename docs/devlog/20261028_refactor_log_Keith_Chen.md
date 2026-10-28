@@ -11,6 +11,7 @@
 | # | 任务 | 关联 | 状态 |
 |---|------|------|------|
 | 1 | DYDATA-104 首次榜单加载验收时序修正 | S4 | ✅ |
+| 2 | DYDATA-104 漏费保护性能与商品失败取证 | S4 | ✅ |
 
 **本日关键结论**：仅测试时序及状态记录变更；生产旧应用与批准数据尚未切换或写入
 
@@ -22,7 +23,9 @@
 - **目标**：保留月度榜单分页搜索下钻验收并解除最终CI阻断
 - **操作**：核对40574792757完整失败日志；首次导航改为等待真实榜单响应，明确200及24条，保留后续业务断言；补齐本地前端依赖后复测整组
 - **结果**：本地9项通过；首次本地运行因缺Vite出现6个setup错误，证据保留；原CI5267通过1失败434跳过，数据库172与Chromium28通过但镜像未运行
-- **涉及文件**：tests/test_frontend_monthly_availability.py、docs/plans/execution-plan.md
+- **同主题补充**：
+  - 08:44 DYDATA-104 续作与失败证据修复：回查生产344；完成精诚分类和阜阳8券；373修复超时后独立确认全量回滚及发布进程恢复；集成商品失败取证及CLI无git修复；结果：分类1改9不变，阜阳12差额合计25.80元和7账单版本；373仍未补，性能修复开发中；商品诊断worker180项真实PG组合通过，Root集成验证运行中；Linear已列6类补证
+- **涉及文件**：tests/test_frontend_monthly_availability.py、docs/plans/execution-plan.md、apps/worker/product_sync.py、apps/api/dy_api/routes/admin.py、scripts/convert_jingcheng_product_types.py、docs/api-contract.md、.github/workflows/ci-cd.yml
 
 <!-- 复杂决策型任务可展开分析：
 ### 任务 N：标题（决策类）
@@ -84,3 +87,12 @@
 ## 六、待跟进事项
 
 - [ ] 推送本次修正，核验最终CI后完成部署、数据修复及真实页面下载验收
+---
+
+## 补充更新 1（09:35 · 窗口 1）
+
+### 任务 2：DYDATA-104 漏费保护性能与商品失败取证
+- **目标**：在不放宽保护和预算的前提下解除373券补费阻断
+- **操作**：集成锁内事务写入证明与真实账务摘要、最终回读防缓存、商品失败白名单诊断和无git报告路径修复；同步两发布流程PG检查
+- **结果**：Root定向240项0跳过和Web构建通过；最终50券50万派生行apply5.906秒；生产373尚未应用，备份容量仍未达门槛；真实7次只读下载完成，正式金额验收保留
+- **涉及文件**：apps/worker/missing_fee_repair.py、apps/worker/product_sync.py、apps/api/dy_api/routes/admin.py、scripts/convert_jingcheng_product_types.py、tests/test_missing_fee_write_proof_postgres.py、tests/test_dydata104_ci_coverage.py、.github/workflows/ci-cd.yml、.github/workflows/tencent-lighthouse-deploy.yml、docs/verification/dydata-104-missing-fee-write-proof.md

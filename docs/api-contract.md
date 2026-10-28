@@ -4,6 +4,32 @@
 
 ## 1. 基础约定
 
+### 商品同步失败取证（DYDATA-104）
+
+现有 `GET /api/v1/admin/product-sync-runs/{sync_run_id}` 在 `data` 中增加
+`lookupDiagnostics`。沿用现有管理员鉴权；没有诊断的旧任务、成功任务或非
+Product ID查询失败返回 `null`，不增加新面板，也不回传整个metadata或原始响应。
+新字段仅记录对应run的失败证据，不能用后续run恢复或代替旧run未保存的身份。
+
+- `version=1`、`kind=product_id`；`batchProductIds`是首个失败批次的精确请求ID，
+  `pendingProductIds`是本批最终未通过Product ID响应校验的ID，两者最多10项。
+- `frozenProductCount`是全状态列表结束后冻结的缺口集合大小，`batchOffset`是
+  本批在其排序集合中的零基偏移；`batchMissingCount`仅是本批未解析数量。
+  `unvisitedProductCount`表示本批之后尚未查询的产品数量；
+  `remainingProductLookupCount = batchMissingCount + unvisitedProductCount`，
+  不代表只有本批缺口，也不证明SKU覆盖、状态、归属或结算金额已完整。
+- `attempts`最多3项，保留实际已有尝试：`attempt`、当次
+  `requestedProductIds`、`responseReceived`、`returnedProductCount`、
+  `productsShapeValid`，以及最多10个已请求产品的`products[{productId,skuCount}]`。
+  SKU数量是响应行数摘要，不替代合法性校验；未知返回ID不作为自由文本输出。
+  `errorCodes`只允许`response/data/extra/base`位置的整数错误码，缺失不冒充0。
+  客户端未向适配器返回响应时`responseReceived=false`（包括传输、额度或客户端
+  校验失败），这不证明平台未收到请求；不伪造平台响应、错误码或额外尝试。
+- 同一白名单诊断保存在任务metadata的`lookup_diagnostics`及对应DQI的
+  `raw_context_json.lookup_diagnostics`，不保存token、header、owner、价格、商品名、
+  上游自由文本或完整payload。失败继续保留旧目录及历史；不放宽完整性、配额、
+  重试或批大小。`affectedSkuSample`仍只来自已保存的SKU历史，不能当作失败请求ID。
+
 ### 管理员能力、范围与导出元数据（DYDATA-105，候选实现）
 
 - 对外角色统一为 `admin` / `store`，旧 `highest_admin` 兼容读取并迁移为 `admin`。管理员固定拥有全部页面；数据范围继续由 `store_scope_mode`、门店集合和组织范围决定，角色合并不扩大数据范围。
