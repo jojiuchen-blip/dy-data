@@ -10,6 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import DimAwemeAccount, DimStore, DimStorePoiMapping
+from apps.api.dy_api.clue_phone_filters import validate_phone_filter
+from fastapi import HTTPException
 
 MAX_STORE_SELECTION = 1000
 MAX_IDENTIFIER_LENGTH = 128
@@ -42,6 +44,17 @@ class ClueQueryFilters(BaseModel):
     city: str | None = Field(default=None, max_length=128)
     verification_status: str | None = Field(default=None, max_length=64)
     q: str | None = Field(default=None, max_length=256)
+    phone: str | None = None
+
+    @field_validator("phone", mode="before")
+    @classmethod
+    def exact_phone(cls, value):
+        try:
+            return validate_phone_filter(value)
+        except ValueError as exc:
+            # Pydantic's standard errors include the rejected value; this
+            # sensitive input must not be reflected in responses or logs.
+            raise HTTPException(status_code=422, detail={"code": "CLUE_PHONE_FILTER_INVALID", "message": str(exc)}) from None
 
     @field_validator("assigned_store_ids")
     @classmethod

@@ -30,7 +30,9 @@ def make_engine(database_url: str | None = None, *, echo: bool = False) -> Engin
     url = database_url or get_database_url(required=True)
     assert url is not None
     url = normalize_database_url(url)
-    return create_engine(url, echo=echo, future=True)
+    # Filters can bind customer contact information. SQL errors and optional
+    # query logging must never serialize those values into application logs.
+    return create_engine(url, echo=echo, future=True, hide_parameters=True)
 
 
 def make_session_factory(engine: Engine) -> sessionmaker[Session]:

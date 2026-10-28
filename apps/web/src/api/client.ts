@@ -1759,7 +1759,7 @@ export function fetchClueAssignmentRounds(
   }
   return withMockFallback(
     () =>
-      query.filters.assigned_store_ids != null
+      query.filters.assigned_store_ids != null || Boolean(query.filters.phone)
         ? sendJson<ClueAssignmentRoundData>("/clues/assignment-rounds", { body: { filters: query.filters, page: query.page, page_size: query.pageSize } })
         : requestJson<ClueAssignmentRoundData>("/clues/assignment-rounds", {
         ...query.filters,
@@ -1807,7 +1807,7 @@ export function exportClueAssignmentRounds(
     URL.revokeObjectURL(objectUrl);
     return Promise.resolve();
   }
-  return filters.assigned_store_ids != null
+  return filters.assigned_store_ids != null || Boolean(filters.phone)
     ? requestDownload("/clues/assignment-rounds/export", undefined, { filters })
     : requestDownload("/clues/assignment-rounds/export", { ...filters });
 }

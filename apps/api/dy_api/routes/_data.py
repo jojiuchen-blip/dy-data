@@ -52,6 +52,8 @@ from src.dy_data.clue_access import can_access_clue_store
 from src.dy_data.product_classification import synced_product_type
 from src.dy_data.phones import normalize_phone, mask_phone, is_online_cipher, phone_source_fingerprint
 from ..clue_phone_cache import get_phone, put_phone
+from ..clue_phone_filters import matching_phone_order_ids
+from ..clue_verification_facts import enrich_verification_facts, verification_exists_sql
 from ..export_metadata import export_filter_header
 from apps.worker.order_status import ACTIVE_ORDER_STATUSES, PAID_ORDER_STATUSES
 from apps.worker.projection_lineage import (
@@ -4886,6 +4888,7 @@ class DashboardDataStore:
             """,
             {**params, "limit": page_size, "offset": offset},
         )
+        enrich_verification_facts(self.session, rows, datetime.now(timezone.utc))
         phones = self._clue_order_phones([_to_str(row.get("order_id")) for row in rows])
         cleaned_rows = []
         for row in rows:
@@ -4990,6 +4993,7 @@ class DashboardDataStore:
         buffer.write("\ufeff")
         writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
+        enrich_verification_facts(self.session, rows, datetime.now(timezone.utc))
         phones = self._clue_order_phones([_to_str(row.get("order_id")) for row in rows])
         for row in rows:
             cleaned = self._clean_clue_round_row(row)
@@ -5123,6 +5127,7 @@ class DashboardDataStore:
         )
         order = orders[0]
         phone_masked = self._clue_order_masked_phone(order_id)
+        enrich_verification_facts(self.session, rows, datetime.now(timezone.utc))
         cleaned_rounds = []
         for row in rows:
             cleaned = self._clean_clue_round_row(row, actor=actor)
@@ -5837,7 +5842,18 @@ class DashboardDataStore:
             params["round_status"] = round_status
 
         verification_status = _to_str(filters.get("verification_status")).strip()
-        if verification_status and verification_status != "all":
+        if verification_store_fact and include_round and verification_status in {
+            "unverified", "self_store_verified", "other_store_verified",
+        }:
+            params["clue_verification_cutoff"] = self._clue_query_datetime(datetime.now(timezone.utc))
+            if verification_status == "self_store_verified":
+                clauses.append(verification_exists_sql(self_store=True))
+            elif verification_status == "other_store_verified":
+                clauses.append(verification_exists_sql(self_store=False))
+                clauses.append("NOT " + verification_exists_sql(self_store=True))
+            else:
+                clauses.append("NOT " + verification_exists_sql())
+        elif verification_status and verification_status != "all":
             verified_at_column = "r.verified_at" if include_round else "c.verified_at"
             verification_prefix = "r" if include_round else "c"
             verified_store_column = f"{verification_prefix}.verified_store_id"
@@ -5887,6 +5903,13 @@ class DashboardDataStore:
             )
             params["q"] = f"%{query}%"
 
+        phone = filters.get("phone")
+        if phone:
+            matched_orders = matching_phone_order_ids(self.session, phone)
+            placeholders, phone_params = _in_clause_params("phone_match", matched_orders)
+            clauses.append(f"c.order_id IN ({placeholders})" if placeholders else "1 = 0")
+            params.update(phone_params)
+
         selected_store_ids = filters.get("assigned_store_ids")
         if selected_store_ids is not None:
             placeholders, selected_params = _in_clause_params("clue_selected_store", selected_store_ids)
@@ -5928,6 +5951,20 @@ class DashboardDataStore:
 
         if not clauses:
             return "", params
+        if verification_store_fact and include_round and verification_status == "self_store_verified":
+            # Ranking counts order/store responsibilities, not repeated rounds.
+            # Keep the first matching round *inside the selected date/scope*.
+            matching = " AND ".join(f"({clause})" for clause in clauses)
+            matching = re.sub(r"\br\.", "responsibility_round.", matching)
+            clauses.append(f"""NOT EXISTS (
+                SELECT 1 FROM clue_assignment_rounds responsibility_round
+                WHERE responsibility_round.order_id = r.order_id
+                  AND responsibility_round.assigned_store_id = r.assigned_store_id
+                  AND ({matching})
+                  AND (responsibility_round.assigned_at < r.assigned_at
+                    OR (responsibility_round.assigned_at = r.assigned_at
+                      AND responsibility_round.assignment_round_id < r.assignment_round_id))
+            )""")
         return "WHERE " + " AND ".join(f"({clause})" for clause in clauses), params
 
     def _clean_clue_round_row(
