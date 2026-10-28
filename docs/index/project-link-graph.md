@@ -4,9 +4,9 @@
 
 ## 1. 摘要
 
-- 文件节点：1272
-- 文件关系：1508
-- 诊断问题：33
+- 文件节点：1401
+- 文件关系：1681
+- 诊断问题：40
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
 
@@ -100,6 +100,7 @@
 | 来源 | 关系 | 目标 | 证据 |
 |---|---|---|---|
 | AGENTS.md | links_to | AGENTS.md | AGENTS.md:80 |
+| AGENTS.md | links_to | CHANGELOG.md | AGENTS.md:142 |
 | AGENTS.md | links_to | docs/api/dashboard-publications.md | AGENTS.md:135 |
 | AGENTS.md | links_to | docs/api/ranking-lifecycle.md | AGENTS.md:133 |
 | AGENTS.md | links_to | docs/governance/authority-map.md | AGENTS.md:92 |
@@ -107,7 +108,26 @@
 | AGENTS.md | links_to | docs/rules/storage-management.md | AGENTS.md:124 |
 | AGENTS.md | links_to | project-profile.md | AGENTS.md:85 |
 | AGENTS.md | links_to | project-rules.md | AGENTS.md:83 |
+| AGENTS.md | links_to | RELEASING.md | AGENTS.md:141 |
 | apps/web/README.md | links_to | docs/design-system/README.md | apps/web/README.md:53 |
+| CHANGELOG.md | links_to | docs/devlog/2026-09-10-priority-daily.md | CHANGELOG.md:135 |
+| CHANGELOG.md | links_to | docs/devlog/20260723_refactor_log_Keith_Chen.md | CHANGELOG.md:151 |
+| CHANGELOG.md | links_to | docs/devlog/20260827_dydata-46-production-promotion.md | CHANGELOG.md:151 |
+| CHANGELOG.md | links_to | docs/devlog/20260910_refactor_log_Keith_Chen.md | CHANGELOG.md:135 |
+| CHANGELOG.md | links_to | docs/devlog/20260911_ranking_dashboard_production.md | CHANGELOG.md:119 |
+| CHANGELOG.md | links_to | docs/devlog/20260915_account_org_scope.md | CHANGELOG.md:120 |
+| CHANGELOG.md | links_to | docs/devlog/20260917_account_current_org.md | CHANGELOG.md:120 |
+| CHANGELOG.md | links_to | docs/devlog/20260928_refactor_log_Your_Name.md | CHANGELOG.md:102 |
+| CHANGELOG.md | links_to | docs/devlog/20260929_activation_guide_reminder.md | CHANGELOG.md:103 |
+| CHANGELOG.md | links_to | docs/devlog/20261009_disk_ranking_retention.md | CHANGELOG.md:85 |
+| CHANGELOG.md | links_to | docs/devlog/20261020_dydata-104-followthrough.md | CHANGELOG.md:68 |
+| CHANGELOG.md | links_to | docs/devlog/20261028_refactor_log_Keith_Chen.md | CHANGELOG.md:35 |
+| CHANGELOG.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-46-production-promotion-T2.1-release-uat.md | CHANGELOG.md:151 |
+| CHANGELOG.md | links_to | docs/verification/dydata-104-oct23.md | CHANGELOG.md:51 |
+| CHANGELOG.md | links_to | docs/verification/dydata-104-oct27-delivery.md | CHANGELOG.md:51 |
+| CHANGELOG.md | links_to | docs/verification/dydata-104-oct28-verify-impact.md | CHANGELOG.md:34 |
+| CHANGELOG.md | links_to | README.md | CHANGELOG.md:3 |
+| CHANGELOG.md | links_to | RELEASING.md | CHANGELOG.md:3 |
 | design-system/dy-data/MASTER.md | links_to | docs/design-system/README.md | design-system/dy-data/MASTER.md:15 |
 | docs/技术架构与部署规划.md | links_to | docs/architecture.md | docs/技术架构与部署规划.md:3 |
 | docs/技术架构与部署规划.md | links_to | docs/runbook.md | docs/技术架构与部署规划.md:3 |
@@ -118,16 +138,19 @@
 | docs/项目产品介绍书.md | links_to | docs/governance/authority-map.md | docs/项目产品介绍书.md:89 |
 | docs/项目产品介绍书.md | links_to | docs/runbook.md | docs/项目产品介绍书.md:87 |
 | docs/项目产品介绍书.md | links_to | project-profile.md | docs/项目产品介绍书.md:89 |
-| docs/api-contract.md | links_to | docs/api/dashboard-publications.md | docs/api-contract.md:9 |
-| docs/api-contract.md | links_to | docs/api/pdca-event-snapshot.md | docs/api-contract.md:17 |
-| docs/api-contract.md | links_to | docs/api/settlement-scope-rules.md | docs/api-contract.md:184 |
-| docs/api-contract.md | links_to | docs/devlog/20260914_ranking_export.md | docs/api-contract.md:160 |
+| docs/api-contract.md | links_to | docs/api/dashboard-publications.md | docs/api-contract.md:18 |
+| docs/api-contract.md | links_to | docs/api/pdca-event-snapshot.md | docs/api-contract.md:26 |
+| docs/api-contract.md | links_to | docs/api/product-type-classification.md | docs/api-contract.md:197 |
+| docs/api-contract.md | links_to | docs/api/settlement-scope-rules.md | docs/api-contract.md:204 |
+| docs/api-contract.md | links_to | docs/devlog/20260914_ranking_export.md | docs/api-contract.md:180 |
 | docs/api-contract.md | links_to | docs/prd/foundation/foundation-api-dy-data.md | docs/api-contract.md:3 |
+| docs/api/dashboard-publications.md | links_to | docs/api/product-type-classification.md | docs/api/dashboard-publications.md:93 |
 | docs/api/pdca-event-snapshot.md | links_to | docs/api/pdca-event-manifest.schema.json | docs/api/pdca-event-snapshot.md:83 |
 | docs/api/pdca-event-snapshot.md | links_to | docs/api/pdca-event-page.schema.json | docs/api/pdca-event-snapshot.md:84 |
 | docs/api/pdca-event-snapshot.md | links_to | docs/api/pdca-event-synthetic-example.json | docs/api/pdca-event-snapshot.md:85 |
 | docs/api/pdca-event-snapshot.md | links_to | docs/devlog/20260928_refactor_log_Your_Name.md | docs/api/pdca-event-snapshot.md:87 |
 | docs/api/pdca-source-evidence.md | links_to | docs/api/pdca-api-release-checklist.md | docs/api/pdca-source-evidence.md:7 |
+| docs/api/product-type-classification.md | links_to | docs/ops/product-type-conversion.md | docs/api/product-type-classification.md:23 |
 | docs/api/ranking-lifecycle.md | links_to | docs/rules/storage-management.md | docs/api/ranking-lifecycle.md:34 |
 | docs/api/refund-evidence-recovery.md | links_to | docs/api/dashboard-publications.md | docs/api/refund-evidence-recovery.md:31 |
 | docs/api/refund-evidence-recovery.md | links_to | docs/devlog/20261019_unified_dashboard_publications.md | docs/api/refund-evidence-recovery.md:3 |
@@ -196,29 +219,6 @@
 | docs/devlog/20260820_refactor_log_jojiuchen-blip.md | links_to | project-profile.md | docs/devlog/20260820_refactor_log_jojiuchen-blip.md:61 |
 | docs/devlog/20260821_refactor_log_jojiuchen-blip.md | links_to | docs/plans/2026-08-21-dydata-19-t5-controller-spec.md | docs/devlog/20260821_refactor_log_jojiuchen-blip.md:194 |
 | docs/devlog/20260821_refactor_log_jojiuchen-blip.md | links_to | docs/plans/dydata-19-task-g1a-brief.md | docs/devlog/20260821_refactor_log_jojiuchen-blip.md:194 |
-| docs/devlog/20260821_refactor_log_jojiuchen-blip.md | links_to | docs/plans/dydata-19-task-g1b-brief.md | docs/devlog/20260821_refactor_log_jojiuchen-blip.md:194 |
-| docs/devlog/20260821_refactor_log_jojiuchen-blip.md | links_to | docs/plans/dydata-19-task-g1c-brief.md | docs/devlog/20260821_refactor_log_jojiuchen-blip.md:194 |
-| docs/devlog/20260821_refactor_log_jojiuchen-blip.md | links_to | docs/plans/dydata-19-task-g2-brief.md | docs/devlog/20260821_refactor_log_jojiuchen-blip.md:194 |
-| docs/devlog/20260821_refactor_log_jojiuchen-blip.md | links_to | docs/plans/dydata-19-task-g3-brief.md | docs/devlog/20260821_refactor_log_jojiuchen-blip.md:194 |
-| docs/devlog/20260821_refactor_log_jojiuchen-blip.md | links_to | docs/plans/execution-plan.md | docs/devlog/20260821_refactor_log_jojiuchen-blip.md:194 |
-| docs/devlog/20260821_refactor_log_jojiuchen-blip.md | links_to | docs/uat/dydata-19-uat-checklist.md | docs/devlog/20260821_refactor_log_jojiuchen-blip.md:176 |
-| docs/devlog/20260821_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260821_refactor_log_jojiuchen-blip.md:75 |
-| docs/devlog/20260824_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260824_refactor_log_jojiuchen-blip.md:69 |
-| docs/devlog/20260828_dydata-81-store-finance.md | links_to | design-qa.md | docs/devlog/20260828_dydata-81-store-finance.md:34 |
-| docs/devlog/20260828_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260828_refactor_log_jojiuchen-blip.md:69 |
-| docs/devlog/20260830_dydata-81-finance-contract-g5.md | links_to | docs/plans/2026-08-30-dydata-81-finance-contract-controller-spec.md | docs/devlog/20260830_dydata-81-finance-contract-g5.md:10 |
-| docs/devlog/20260830_dydata-81-readonly-uat-preview.md | links_to | docs/prd/foundation/foundation-api-dy-data/billing-invoice.md | docs/devlog/20260830_dydata-81-readonly-uat-preview.md:40 |
-| docs/devlog/20260830_dydata-81-readonly-uat-preview.md | links_to | docs/prd/subprd/08-subprd-finance-disputes.md | docs/devlog/20260830_dydata-81-readonly-uat-preview.md:41 |
-| docs/devlog/20260830_dydata-81-readonly-uat-preview.md | links_to | docs/superpowers/specs/2026-08-20-dydata-19-settlement-finance-design.md | docs/devlog/20260830_dydata-81-readonly-uat-preview.md:39 |
-| docs/devlog/20260830_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260830_refactor_log_Keith_Chen.md:96 |
-| docs/devlog/20260907_dydata-88-clue-fixes.md | links_to | docs/api-contract.md | docs/devlog/20260907_dydata-88-clue-fixes.md:7 |
-| docs/devlog/20260907_dydata-88-clue-fixes.md | links_to | docs/plans/2026-09-07-dydata-88-clue-fixes-controller-spec.md | docs/devlog/20260907_dydata-88-clue-fixes.md:6 |
-| docs/devlog/20260907_dydata-88-clue-fixes.md | links_to | docs/plans/foundation-plans/foundation-change-requests-dydata-88-clue-fixes.md | docs/devlog/20260907_dydata-88-clue-fixes.md:47 |
-| docs/devlog/20260907_refactor_log_Keith_Chen.md | links_to | apps/web/README.md | docs/devlog/20260907_refactor_log_Keith_Chen.md:53 |
-| docs/devlog/20260907_refactor_log_Keith_Chen.md | links_to | docs/plans/execution-plan.md | docs/devlog/20260907_refactor_log_Keith_Chen.md:53 |
-| docs/devlog/20260908_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260908_refactor_log_jojiuchen-blip.md:70 |
-| docs/devlog/20260909_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260909_refactor_log_jojiuchen-blip.md:84 |
-| docs/devlog/20260910_refactor_log_jojiuchen-blip.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-93-admin-rules-T0.1-permissions.md | docs/devlog/20260910_refactor_log_jojiuchen-blip.md:5 |
 
 ## 4. 诊断问题
 
@@ -257,3 +257,10 @@
 | error | broken_link | docs/prd/prd-feature-list-clue-center.md | docs/prd/prd-feature-list-clue-center.md references missing file docs/prd/subprd/10-subprd-trial-and-controlled-rebuild.md |
 | error | broken_link | docs/prd/prd-feature-list-clue-center.md | docs/prd/prd-feature-list-clue-center.md references missing file docs/prd/subprd/11-subprd-allocation-records-and-audit.md |
 | error | broken_link | docs/prd/prd-feature-list-clue-center.md | docs/prd/prd-feature-list-clue-center.md references missing file docs/prd/subprd/12-subprd-headquarters-pool.md |
+| error | broken_link | docs/verification/dydata-104-oct28-control-origin.md | docs/verification/dydata-104-oct28-control-origin.md references missing file apps/api/Dockerfile |
+| error | broken_link | docs/verification/dydata-104-oct28-control-origin.md | docs/verification/dydata-104-oct28-control-origin.md references missing file deploy/nginx.conf |
+| error | broken_link | docs/verification/dydata-105-verification.md | docs/verification/dydata-105-verification.md references missing file pwScreenShot/dydata105/admin-rule-published.png |
+| error | broken_link | docs/verification/dydata-105-verification.md | docs/verification/dydata-105-verification.md references missing file pwScreenShot/dydata105/admin-scoped-permissions.png |
+| error | broken_link | docs/verification/dydata-105-verification.md | docs/verification/dydata-105-verification.md references missing file pwScreenShot/dydata105/clue-bulk-1440.png |
+| error | broken_link | docs/verification/dydata-105-verification.md | docs/verification/dydata-105-verification.md references missing file pwScreenShot/dydata105/clue-bulk-390.png |
+| error | broken_link | RELEASING.md | RELEASING.md references missing file deploy/tencent/deploy.sh |
