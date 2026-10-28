@@ -1296,12 +1296,36 @@ export interface ProductSyncRunListData extends CamelPagination {
   list: ProductSyncRunItem[];
 }
 
+export interface ProductSyncLookupAttempt {
+  attempt: number;
+  requestedProductIds: string[];
+  responseReceived: boolean;
+  returnedProductCount: number;
+  productsShapeValid: boolean;
+  products: Array<{ productId: string; skuCount: number }>;
+  errorCodes: Partial<Record<"response" | "data" | "extra" | "base", number>>;
+}
+
+export interface ProductSyncLookupDiagnostics {
+  version: 1;
+  kind: "product_id";
+  frozenProductCount: number;
+  batchOffset: number;
+  batchProductIds: string[];
+  pendingProductIds: string[];
+  batchMissingCount: number;
+  unvisitedProductCount: number;
+  remainingProductLookupCount: number;
+  attempts: ProductSyncLookupAttempt[];
+}
+
 export interface ProductSyncRunDetailData {
   run: ProductSyncRunItem;
   phaseCounts: Record<string, number>;
   affectedSkuSample: string[];
   dataQualityIssueCount: number;
   retryable: boolean;
+  lookupDiagnostics?: ProductSyncLookupDiagnostics | null;
 }
 
 export interface ProductSyncTriggerData {

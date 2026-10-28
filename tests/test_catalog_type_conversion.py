@@ -197,10 +197,19 @@ def test_non_target_change_does_not_expand_or_invalidate_target_set(db_session, 
     assert other.product_type == "another-manual-type" and other.product_scope == "其他"
 
 
-def test_cli_defaults_to_private_preview_and_refuses_non_postgres_apply(db_session, conversion_context, tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("git_available", [True, False])
+def test_cli_defaults_to_private_preview_and_refuses_non_postgres_apply(db_session, conversion_context, tmp_path, monkeypatch, capsys, git_available):
     import json
     from scripts import convert_jingcheng_product_types as command
 
+    if not git_available:
+        for variable in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR"):
+            monkeypatch.delenv(variable, raising=False)
+
+        def unavailable(*args, **kwargs):
+            raise FileNotFoundError("git executable unavailable")
+
+        monkeypatch.setattr(command.subprocess, "run", unavailable)
     monkeypatch.setattr(command, "make_engine", lambda: db_session.get_bind())
     report = tmp_path / "preview.json"
     arguments = ["convert-jingcheng", "--report", str(report), "--actor", conversion_context["actor"],

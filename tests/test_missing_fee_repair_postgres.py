@@ -22,6 +22,23 @@ from apps.worker.repositories import HEAVY_SYNC_CLAIM_LOCK_KEY
 from test_missing_fee_repair import setup_batch, preview, test_preview_emits_select_only_and_quote_is_frozen as _assert_select_only
 
 
+def _install_fixture_tracking(engine):
+    """Use the formal 0063 trigger semantics for the three allowed sources."""
+    with engine.begin() as connection:
+        connection.execute(text("INSERT INTO dashboard_publication_source_counters "
+            "(source_name,generation,changed_at) VALUES "
+            "('settlement_fee_result',0,clock_timestamp()),"
+            "('settlement_fee_result_current',0,clock_timestamp()),"
+            "('finance_operation_audit',0,clock_timestamp())"))
+        connection.execute(text("CREATE OR REPLACE FUNCTION missing_fee_fixture_track_change() RETURNS trigger "
+            "LANGUAGE plpgsql AS $$ BEGIN UPDATE dashboard_publication_source_counters "
+            "SET generation=generation+1,changed_at=clock_timestamp() WHERE source_name=TG_TABLE_NAME; "
+            "IF NOT FOUND THEN RAISE EXCEPTION 'dashboard publication source counter missing'; END IF; RETURN NULL; END $$"))
+        for table_name in (*repair.FEE_COUNTER_SOURCES, repair.AUDIT_COUNTER_SOURCE):
+            connection.execute(text(f'CREATE TRIGGER missing_fee_fixture_change AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE '
+                f'ON "{table_name}" FOR EACH STATEMENT EXECUTE FUNCTION missing_fee_fixture_track_change()'))
+
+
 @pytest.fixture()
 def pg_engine(request, monkeypatch):
     url = os.getenv("DYDATA_MISSING_FEE_TEST_DATABASE_URL")
@@ -48,6 +65,9 @@ def pg_engine(request, monkeypatch):
             m.Base.metadata.create_all(engine)
             from apps.api.dy_api.dashboard_publications.schema import metadata
             metadata.create_all(engine)
+            # Model-only fixtures need the same exact source tracking exercised
+            # by the real migration. This is not a mock of the repair guard.
+            _install_fixture_tracking(engine)
         yield engine
     finally:
         engine.dispose()

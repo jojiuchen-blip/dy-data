@@ -714,7 +714,42 @@ def test_admin_product_sync_list_and_detail_hide_cursor_and_raw_payload(
     assert detail_data["affectedSkuSample"] == ["sku-1"]
     assert detail_data["dataQualityIssueCount"] == 1
     assert detail_data["retryable"] is True
+    assert detail_data["lookupDiagnostics"] is None
     assert "must-not-leak" not in str(detail.json())
+
+
+def test_product_sync_failure_detail_returns_only_safe_lookup_diagnostics(client, db_session):
+    job = queue_job_run(db_session, "product-sync-diagnostic", "product_sync", metadata_json={
+        "mode": "FULL", "lookup_diagnostics": {
+            "version": 1, "kind": "product_id", "batchOffset": 0,
+            "frozenProductCount": 23, "batchProductIds": ["product-exact"],
+            "pendingProductIds": ["product-exact"], "batchMissingCount": 1,
+            "unvisitedProductCount": 22, "remainingProductLookupCount": 23,
+            "access_token": "DO-NOT-SAVE", "raw_payload": {"secret": "DO-NOT-SAVE"},
+            "attempts": [{
+                "attempt": 1, "requestedProductIds": ["product-exact"],
+                "responseReceived": True, "returnedProductCount": 1,
+                "productsShapeValid": True,
+                "products": [{"productId": "product-exact", "skuCount": 0, "owner": "DO-NOT-SAVE"}],
+                "errorCodes": {"data": 0, "secret": "DO-NOT-SAVE"},
+                "headers": {"access-token": "DO-NOT-SAVE"},
+            }],
+        },
+    })
+    job.status = "failed"
+    db_session.commit()
+    url = f"/api/v1/admin/product-sync-runs/{job.job_id}"
+    assert client.get(url).status_code == 401
+    _login(client)
+    response = client.get(url)
+    assert response.status_code == 200
+    diagnostic = response.json()["data"]["lookupDiagnostics"]
+    assert diagnostic["batchProductIds"] == ["product-exact"]
+    assert diagnostic["batchMissingCount"] == 1
+    assert diagnostic["remainingProductLookupCount"] == 23
+    assert diagnostic["attempts"][0]["products"] == [{"productId": "product-exact", "skuCount": 0}]
+    assert diagnostic["attempts"][0]["errorCodes"] == {"data": 0}
+    assert "DO-NOT-SAVE" not in response.text
 
 
 def test_admin_can_page_sku_product_sync_history_without_raw_payload(

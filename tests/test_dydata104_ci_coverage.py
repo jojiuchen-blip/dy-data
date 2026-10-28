@@ -23,8 +23,10 @@ PG_FILES = {
     "tests/test_protected_billing_authority_postgres.py",
     "tests/test_product_sync_completeness_postgres.py",
     "tests/test_product_sync_sku_lookup_postgres.py",
+    "tests/test_product_sync_failure_diagnostics.py",
     "tests/test_month_close_auto_bootstrap_postgres.py",
     "tests/test_missing_fee_repair_postgres.py",
+    "tests/test_missing_fee_write_proof_postgres.py",
     "tests/test_settlement_verify_impact_selection.py",
 }
 BROWSER_FILES = {
@@ -90,6 +92,20 @@ IMAGE_CASES = {
     "test_browser_pillow_rgb_image_round_trip[PNG]",
     "test_browser_pillow_rgb_image_round_trip[TIFF]",
     "test_browser_requests_urllib3_pool_handles_regular_and_chunked_responses",
+}
+WRITE_PROOF_CASES = {
+    "test_representative_50_coupon_large_derived_tables_receipt",
+    "test_actual_disabled_track_counts_connection_rejects",
+    "test_missing_transaction_stat_result_fails_closed",
+    "test_xact_counters_are_live_and_stable_across_idle_reads",
+    "test_target_dq_delete_is_exact_and_allowed",
+    "test_legacy_successful_audit_replays_without_rewriting_it",
+    "test_replay_readback_ignores_stale_unexpired_identity_map[fee]", "test_replay_readback_ignores_stale_unexpired_identity_map[audit]",
+    "test_postcheck_seal_rejects_commit_hook_sql",
+    "test_database_internal_and_final_deferred_effects_reject[deferred_fee]",
+    "test_database_internal_and_final_deferred_effects_reject[audit_sidecar]",
+    "test_database_internal_and_final_deferred_effects_reject[nested_index]",
+    "test_database_internal_and_final_deferred_effects_reject[nested_trigger_function]",
 }
 
 
@@ -198,6 +214,7 @@ def test_fixture_environment_inventory_matches_checked_in_sources() -> None:
         "tests/test_dashboard_publication_finance_postgres.py": "DYDATA_PUBLICATION_TEST_DATABASE_URL",
         "tests/test_protected_billing_authority_postgres.py": "DYDATA_PROTECTED_TEST_DATABASE_URL",
         "tests/test_missing_fee_repair_postgres.py": "DYDATA_MISSING_FEE_TEST_DATABASE_URL",
+        "tests/test_missing_fee_write_proof_postgres.py": "DYDATA_MISSING_FEE_TEST_DATABASE_URL",
     }
     for filename, variable in sources.items():
         assert f'os.getenv("{variable}")' in (ROOT / filename).read_text(encoding="utf-8")
@@ -241,17 +258,22 @@ def test_release_workflows_share_the_same_pg_contract() -> None:
 
 @pytest.mark.parametrize("name", WORKFLOWS)
 @pytest.mark.parametrize("invalid_case", (None, "missing", "wrong_module", "skipped", "failure", "error"))
+@pytest.mark.parametrize("module_name, guard_label", (
+    ("test_settlement_verify_impact_selection", "verify impact"),
+    ("test_product_sync_failure_diagnostics", "product failure diagnostics"),
+))
 def test_verify_impact_receipt_requires_eleven_successful_postgres_cases(
-    name: str, invalid_case: str | None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    name: str, invalid_case: str | None, module_name: str, guard_label: str,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     gate = _step(_workflow(name), PG_NAME)
-    guard = shlex.split(next(line for line in gate["run"].splitlines() if "all eleven verify impact" in line))[2]
+    guard = shlex.split(next(line for line in gate["run"].splitlines() if f"all eleven {guard_label}" in line))[2]
     document = Element("testsuites")
     suite = SubElement(document, "testsuite")
     for index in range(11):
         if index == 0 and invalid_case == "missing":
             continue
-        module = "tests.test_other" if index == 0 and invalid_case == "wrong_module" else "tests.test_settlement_verify_impact_selection"
+        module = "tests.test_other" if index == 0 and invalid_case == "wrong_module" else f"tests.{module_name}"
         case = SubElement(suite, "testcase", classname=module, name=f"verify_case_{index}[postgres]")
         if index == 0 and invalid_case in {"skipped", "failure", "error"}:
             SubElement(case, invalid_case)
@@ -262,7 +284,7 @@ def test_verify_impact_receipt_requires_eleven_successful_postgres_cases(
     if invalid_case is None:
         exec(compile(guard, "<workflow-verify-impact-guard>", "exec"), {})
     else:
-        with pytest.raises(AssertionError, match="verify impact"):
+        with pytest.raises(AssertionError, match=guard_label):
             exec(compile(guard, "<workflow-verify-impact-guard>", "exec"), {})
 
 
@@ -389,6 +411,7 @@ def test_missing_fee_receipt_requires_real_apply_replay_rollback_drift_and_concu
 @pytest.mark.parametrize("name", WORKFLOWS)
 @pytest.mark.parametrize("gate_name,marker,report,module,cases", (
     (PG_NAME, "missing_fee_required = {", "dydata104-postgres.xml", "tests.test_missing_fee_repair_postgres", MISSING_FEE_CASES),
+    (PG_NAME, "write_proof_required = {", "dydata104-postgres.xml", "tests.test_missing_fee_write_proof_postgres", WRITE_PROOF_CASES),
     (IMAGE_NAME, "image_required = {", "dydata104-browser-image.xml", "test_browser_image_dependency_compat", IMAGE_CASES),
 ))
 @pytest.mark.parametrize("invalid_case", ("wrong_module", "skipped", "failure", "error"))
@@ -449,3 +472,20 @@ def test_release_workflows_share_the_same_browser_image_contract() -> None:
     """Both release paths enforce identical installed-package and receipt contracts."""
     gates = [_step(_workflow(name), IMAGE_NAME) for name in WORKFLOWS]
     assert gates[0] == gates[1]
+
+
+@pytest.mark.parametrize("name", WORKFLOWS)
+@pytest.mark.parametrize("missing_case", [None, *sorted(WRITE_PROOF_CASES)])
+def test_write_proof_receipt_requires_scale_and_database_effect_cases(
+    name: str, missing_case: str | None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gate = _step(_workflow(name), PG_NAME)
+    guard = shlex.split(next(line for line in gate["run"].splitlines() if "write_proof_required = {" in line))[2]
+    _write_case_receipt(tmp_path / "logs/ci", "dydata104-postgres.xml",
+                        "tests.test_missing_fee_write_proof_postgres", WRITE_PROOF_CASES - {missing_case})
+    monkeypatch.chdir(tmp_path)
+    if missing_case is None:
+        exec(compile(guard, "<workflow-write-proof-guard>", "exec"), {})
+    else:
+        with pytest.raises(AssertionError, match="write-proof"):
+            exec(compile(guard, "<workflow-write-proof-guard>", "exec"), {})
