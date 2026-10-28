@@ -547,7 +547,6 @@ export function detailFiltersFromSearch(
 ): DetailFilters {
   const filters: DetailFilters = {};
   [
-    "product_scope",
     "product_type",
     "sale_store_id",
     "exclude_sale_store_id",

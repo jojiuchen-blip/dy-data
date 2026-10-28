@@ -14,6 +14,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session
 
 from .schema import heads, runs
+from .sources import MODULE_CONTRACT_VERSIONS
 
 REFRESH_INTERVAL = timedelta(minutes=5)
 MIN_DELETE_AGE = timedelta(0)
@@ -86,6 +87,17 @@ def resolve_publication(
         if publication_id is not None:
             raise PublicationError("PUBLICATION_EXPIRED", "指定分析版本已过期，请刷新后重试", 410)
         raise PublicationError("PUBLICATION_NOT_READY", "首次分析版本尚未发布", 503)
+    expected_contract = MODULE_CONTRACT_VERSIONS.get(module)
+    actual_contract = (row["stats_json"] or {}).get("contract_version")
+    # Financial history retains its original type snapshots and complete
+    # all-scope partitions. Those legacy rows remain safely readable. Sales
+    # and clues changed classification at build time, so their old rows must
+    # not be presented as a publication of the new interpretation.
+    legacy_financial = module == "settlement" and actual_contract is None
+    if expected_contract and actual_contract != expected_contract and not legacy_financial:
+        if publication_id is not None:
+            raise PublicationError("PUBLICATION_EXPIRED", "指定分析版本使用旧商品分类，请刷新后重试", 410)
+        raise PublicationError("PUBLICATION_NOT_READY", "新版商品分类分析尚未发布", 503)
     publication = _publication(row)
     # A historical successful version remains readable even after a failed
     # replacement. Status describes freshness, never changes its identity.
@@ -193,6 +205,8 @@ def publish_module(
             latest_status = session.scalar(select(runs.c.status).where(runs.c.module == module)
                                            .order_by(runs.c.created_at.desc(), runs.c.id.desc()).limit(1))
             if (not force and current and fingerprint and current["source_fingerprint"] == token
+                    and (module not in MODULE_CONTRACT_VERSIONS or
+                         (current["stats_json"] or {}).get("contract_version") == MODULE_CONTRACT_VERSIONS[module])
                     and latest_status == "success"):
                 due = utc(current["next_refresh_at"]) is None or cutoff >= utc(current["next_refresh_at"])
                 if not refresh_on_interval or not due:
@@ -243,6 +257,8 @@ def publish_module(
                 if observed is not None and observed > cutoff:
                     raise ValueError("source coverage must not exceed the observation cutoff")
                 published_at = datetime.now(UTC)
+                if module in MODULE_CONTRACT_VERSIONS:
+                    statistics = {**statistics, "contract_version": MODULE_CONTRACT_VERSIONS[module]}
                 session.execute(update(runs).where(runs.c.id == publication_id).values(
                     status="success", published_at=published_at, data_as_of=observed,
                     next_refresh_at=published_at + REFRESH_INTERVAL,

@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import (Boolean, Column, DateTime, ForeignKey, Index, Integer,
                         String, Table, Text, and_, case, exists, false, func, insert,
-                        literal, or_, select)
+                        literal, literal_column, or_, select)
 from sqlalchemy.orm import Session
 
 from .schema import metadata
@@ -50,24 +50,39 @@ def _bind_time(session, value):
     return value.astimezone(timezone.utc).replace(tzinfo=None) if session.get_bind().dialect.name == "sqlite" else value
 
 
+def current_product_type_sql() -> str:
+    """One indexed read expression shared by frozen builds and live queues.
+
+    The caller aliases clue_center_orders as c. All SQL identifiers and literals
+    are fixed here; user filters remain separately bound parameters.
+    """
+    raw_sku = "(SELECT type_order.sku_id FROM raw_douyin_orders type_order WHERE type_order.order_id = c.order_id)"
+    valid_type = "LOWER(TRIM(type_rule.product_type)) NOT IN ('', 'all', 'unknown', 'keep')"
+    raw_type = f"(SELECT type_rule.product_type FROM dim_sku_product_rules type_rule WHERE type_rule.sku_id = {raw_sku} AND {valid_type})"
+    exact_type = f"(SELECT type_rule.product_type FROM dim_sku_product_rules type_rule WHERE type_rule.sku_id = c.product_id AND {valid_type})"
+    product_type = f"""(SELECT CASE
+        WHEN COUNT(DISTINCT type_rule.product_type) = 1
+         AND COUNT(*) = SUM(CASE WHEN {valid_type} THEN 1 ELSE 0 END)
+        THEN MIN(type_rule.product_type) END
+        FROM dim_sku_product_rules type_rule
+        WHERE type_rule.product_id = NULLIF(c.product_id, ''))"""
+    return f"""COALESCE(CASE WHEN NULLIF({raw_sku}, '') IS NOT NULL THEN {raw_type}
+        WHEN EXISTS (SELECT 1 FROM dim_sku_product_rules type_rule WHERE type_rule.sku_id = c.product_id)
+        THEN {exact_type} ELSE {product_type} END, c.product_type)"""
+
+
 def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, Any]:
     """Freeze formal rounds and business interpretation without phones or JSON."""
     from ..models import (ClueAssignmentRound, ClueCenterOrder, ClueMasterLead,
-                          DimSkuProductRule, DimStore, DimStoreOrgAssignment, RawDouyinClue, RawDouyinOrder)
+                          DimStore, DimStoreOrgAssignment)
     from ..ranking_schema_v1 import org_history
     from .sources import effective_organization_version
 
     source = ClueAssignmentRound.__table__
-    center = ClueCenterOrder.__table__
+    center = ClueCenterOrder.__table__.alias("c")
     lead = ClueMasterLead.__table__
-    rule = DimSkuProductRule.__table__
-    raw_order = RawDouyinOrder.__table__
-    raw_clue = RawDouyinClue.__table__
-    membership = exists(select(1).select_from(rule).where(rule.c.product_scope == "精诚养车", or_(
-        center.c.product_id == rule.c.sku_id, center.c.product_id == func.nullif(rule.c.product_id, ""),
-        exists(select(1).select_from(raw_order).where(raw_order.c.order_id == center.c.order_id, raw_order.c.sku_id == rule.c.sku_id)).correlate(center, rule),
-        exists(select(1).select_from(raw_clue).where(raw_clue.c.order_id == center.c.order_id, or_(raw_clue.c.product_id == rule.c.sku_id, raw_clue.c.product_id == func.nullif(rule.c.product_id, "")))).correlate(center, rule),
-    ))).correlate(center)
+    frozen_type = literal_column(current_product_type_sql())
+    membership = frozen_type == "精诚养车"
     headquarters = exists(select(1).select_from(lead).where(lead.c.order_id == center.c.order_id,
         lead.c.lifecycle_status == "active", lead.c.pool_location == "headquarters_pool")).correlate(center)
     current = source.c.assignment_round_id == center.c.current_assignment_round_id
@@ -81,7 +96,7 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
         (and_(center.c.lead_status == "active", source.c.round_status == "active_unfollowed"), "待跟进"), else_="不可跟进")
     query = select(literal(publication_id), source.c.assignment_round_id, center.c.order_id,
         source.c.assigned_at, source.c.assigned_store_id, source.c.assigned_store_name, center.c.assigned_store_name,
-        center.c.assigned_province, center.c.assigned_city, center.c.product_type, membership, headquarters,
+        center.c.assigned_province, center.c.assigned_city, frozen_type, func.coalesce(membership, False), headquarters,
         center.c.lead_status, source.c.round_status, display, source.c.verified_at, source.c.is_self_store_verified,
         flag(and_(current, source.c.round_status.in_(["active_unfollowed", "active_followed"]))),
         flag(source.c.is_followed.is_(True)), flag(source.c.is_follow_success.is_(True)),
@@ -130,10 +145,7 @@ def _where(session, publication_id, filters, visible_product_types, current_head
         if value and value != "all":
             clauses.append(column == value)
     product = str(filters.get("product_type") or "").strip()
-    product = {"精诚养车": "jingcheng", "比亚迪本品": "byd", "全部商品": "all"}.get(product, product)
-    if product in ("jingcheng", "byd"):
-        clauses.append(col.is_jingcheng.is_(product == "jingcheng"))
-    elif product and product != "all":
+    if product and product != "all":
         clauses.append(col.product_type == product)
     if visible_product_types is not None:
         clauses.append(col.product_type.in_(visible_product_types))
@@ -197,7 +209,7 @@ def read_filters(session: Session, publication_id: str, scope_store_ids: Sequenc
         .where(*clauses, rounds.c.assigned_store_id.is_not(None), rounds.c.assigned_store_id != "")
         .group_by(rounds.c.assigned_store_id).order_by("store_name", rounds.c.assigned_store_id)).mappings()] if include_assigned_stores else []
     return {"assigned_stores": assigned_stores, "assigned_provinces": values(rounds.c.assigned_province),
-        "assigned_cities": values(rounds.c.assigned_city), "product_types": ["精诚养车", "比亚迪本品"],
+        "assigned_cities": values(rounds.c.assigned_city), "product_types": values(rounds.c.product_type),
         "default_product_type": "all", "lead_statuses": values(rounds.c.lead_status),
         "round_statuses": values(rounds.c.round_status),
         "verification_statuses": ["unverified", "self_store_verified", "other_store_verified"]}

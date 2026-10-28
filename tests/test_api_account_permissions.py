@@ -28,6 +28,7 @@ from apps.api.dy_api.models import (  # noqa: E402
     UserStoreScope,
 )
 from publication_fixture_helpers import publish_fixture
+from apps.worker.protected_billing_authority import is_protected_statement
 from dy_api.auth import hash_password_pbkdf2  # noqa: E402
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import DashboardDataStore, get_session_dependency  # noqa: E402
@@ -352,6 +353,7 @@ def _seed(session: Session) -> None:
                 base_amount_cent=1000,
                 fee_amount_cent=100,
                 rule_version="rule-v1",
+                fee_rate_snapshot=Decimal("0.100000"),
             ),
             SettlementFeeAdjustment(
                 adjustment_id="adjustment-after-lock",
@@ -704,10 +706,15 @@ def test_unlocked_monthly_statement_reads_current_preview_not_frozen_lines(
         statement_line_id="line-own"
     ).one_or_none()
     assert statement is not None and line is not None
-    statement.statement_status = 3
+    # A confirmed or formerly locked bill remains authoritative. The preview
+    # case needs an actually unprotected pending bill, including its lock fields.
+    statement.statement_status = 2
+    statement.locked_at = None
+    statement.lock_version = None
     line.original_fee_cent = 999
     line.net_fee_cent = 999
     db_session.commit()
+    assert not is_protected_statement(db_session, statement)
     _login_viewer(client)
     publish_fixture(db_session, "settlement")
 
@@ -717,7 +724,7 @@ def test_unlocked_monthly_statement_reads_current_preview_not_frozen_lines(
 
     assert response.status_code == 200
     payload = response.json()["data"]
-    assert payload["statement"]["statementStatus"] == "CONFIRMED"
+    assert payload["statement"]["statementStatus"] == "PENDING_CONFIRMATION"
     assert payload["lines"][0]["statementLineId"] is None
     assert payload["lines"][0]["netFeeCent"] == 100
 
@@ -861,7 +868,9 @@ def test_preview_rate_context_ignores_superseded_fee_results(
     statement = db_session.query(SettlementStatement).filter_by(
         statement_id="statement-own"
     ).one()
-    statement.statement_status = 3
+    statement.statement_status = 2
+    statement.locked_at = None
+    statement.lock_version = None
     current_result = db_session.query(SettlementFeeResult).filter_by(
         fee_result_id="fee-own"
     ).one()
@@ -895,6 +904,7 @@ def test_preview_rate_context_ignores_superseded_fee_results(
         )
     )
     db_session.commit()
+    assert not is_protected_statement(db_session, statement)
     _login_viewer(client)
     publish_fixture(db_session, "settlement")
 

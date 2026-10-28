@@ -97,6 +97,29 @@ def test_business_page_login_query_is_not_a_login_page():
     )
 
 
+@pytest.mark.parametrize("page_text", [
+    "商家号管理 个人号管理 待升级 抖音号 使用场景 状态 认证主体 登录人 导出数据",
+    "登录人 张某 账号管理 查看登录记录 修改登录密码 导出数据",
+    '<script>const hiddenText="请登录后继续";</script><table><th>登录人</th></table>',
+])
+def test_authenticated_new_management_page_is_not_login_required(page_text):
+    assert not backend_aweme.is_login_required("https://life.douyin.com/p/liteapp/bc_manage", page_text)
+
+
+@pytest.mark.parametrize("page_text", [
+    "登录状态已过期，请重新登录", "扫码登录", "Please sign in to continue",
+    '<form><input name="username"><input type="password"><button>登录</button></form>',
+])
+def test_explicit_login_prompt_or_login_form_is_still_detected(page_text):
+    assert backend_aweme.is_login_required("https://life.douyin.com/p/liteapp/bc_manage", page_text)
+
+
+def test_rendered_business_body_takes_priority_over_hidden_html_login_template(browser_page):
+    browser_page.content.return_value = '<div hidden>请登录后继续</div><table>登录人</table>'
+    browser_page.locator.return_value.inner_text.return_value = "商家号管理 登录人 导出数据"
+    backend_aweme.raise_if_login_required(browser_page)
+
+
 def test_content_read_redirect_race_reports_login(browser_page):
     def content():
         browser_page.url = "https://life.douyin.com/p/login"

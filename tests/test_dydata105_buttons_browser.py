@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import re
 from datetime import datetime, timezone
+from decimal import Decimal
 from io import BytesIO, StringIO
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -24,6 +25,7 @@ from dy_api.models import (
     DimStore, SettlementStatement, SettlementStatementConfirmation,
     PromotionInvoiceAllocation, PromotionInvoiceLifecycleEvent,
     SettlementDispute, AggStoreRanking, SapSuggestion,
+    SettlementFeeResult, SettlementFeeResultCurrent, SettlementStatementEntry, SettlementStatementLine,
 )
 from publication_fixture_helpers import publish_fixture
 
@@ -106,6 +108,22 @@ def test_dydata105_four_import_buttons_commit_readback_replay_and_reverse(
         expect(page.get_by_role("button", name="确认提交", exact=True)).to_be_disabled()
         page.goto(vite_live_admin_api_base_url + f"/finance/imports?month=2026-08&importType={import_type}")
         page.get_by_role("button", name=batch["batchId"], exact=True).click()
+        if import_type in {"PROMOTION_FACTORY_RESULT", "MANAGEMENT_FACTORY_RESULT"}:
+            detail = context.request.get(live_admin_fastapi_base_url + f"/api/v1/admin/finance-imports/{batch['batchId']}").json()["data"]
+            assert detail["canReverse"] is False
+            assert detail["reverseNotAllowedCode"] == "IMPORT_SETTLEMENT_PROTECTED"
+            expect(page.get_by_role("button", name="撤销批次", exact=True)).to_have_count(0)
+            refused = context.request.post(
+                live_admin_fastapi_base_url + f"/api/v1/admin/finance-imports/{batch['batchId']}/reversals",
+                data={"readVersion": detail["currentVersion"], "changeReason": "已结算事实不得撤销"},
+                headers={"Idempotency-Key": f"dy104-protected-{import_type}"},
+            )
+            assert refused.status == 409, refused.text()
+            with factory() as session:
+                fact = session.scalar(select(model).where(id_field == target_id))
+                assert fact is not None and fact.is_current and not fact.is_tombstone
+            page.screenshot(path=tmp_path / f"{import_type}-protected.png", full_page=True)
+            return
         page.get_by_placeholder("说明为何需要生成更正覆盖版本", exact=True).fill("撤销合成验收结果")
         with page.expect_response(lambda response: response.request.method == "POST" and response.url.endswith("/reversals")) as reverse_pending:
             page.get_by_role("button", name="撤销批次", exact=True).click()
@@ -156,13 +174,19 @@ def test_dydata105_four_import_error_files_are_complete_without_business_writes(
         page.get_by_role("link", name="查看导入记录", exact=True).click()
         page.get_by_role("button", name=batch["batchId"], exact=True).click()
         detail_panel = page.locator(".finance-import-detail")
-        pagination = detail_panel.get_by_role("navigation", name="表格分页")
+        # The frozen row preview owns its own nested pagination. Exercise the
+        # detail's direct error pagination, preserving complete error download.
+        pagination = detail_panel.locator(':scope > nav[aria-label="表格分页"]')
+        expect(pagination).to_have_count(1)
+        preview_pagination = detail_panel.get_by_role("region", name="逐行字段预览", exact=True).get_by_role("navigation", name="表格分页")
+        expect(preview_pagination).to_contain_text("共 61 条")
         expect(pagination).to_contain_text(f"共 {detail['errors']['total']} 条")
         pagination.get_by_role("button", name="末页", exact=True).click()
         expect(pagination).not_to_contain_text("第 1 /")
         pagination.get_by_role("button", name="上一页", exact=True).click()
         pagination.get_by_role("button", name="首页", exact=True).click()
         expect(pagination).to_contain_text("第 1 /")
+        expect(preview_pagination).to_contain_text("第 1 / 2 页")
         detail_panel.get_by_role("button", name="关闭", exact=True).click()
         expect(detail_panel).to_have_count(0)
         assert business_counts() == before
@@ -230,6 +254,39 @@ def test_dydata105_store_confirm_invoice_lifecycle_and_replacement_real_readback
             sap_code_snapshot="SAP105FLOW", store_snapshot_status="LIVE_CAPTURED",
             created_at=datetime(2026, 9, 30, tzinfo=timezone.utc),
         ))
+        # UI confirmation protects this bill for subsequent module tests. Its
+        # immutable lines/entries must already explain the unchanged header.
+        for direction, amount in ((1, 12345), (2, 6789)):
+            source_id = f"{key}-fee-{direction}"
+            line_id = f"{key}-line-{direction}"
+            base = amount * 10
+            session.add(SettlementFeeResult(
+                fee_result_id=source_id, coupon_id=source_id, order_id=source_id,
+                fee_direction=direction, result_version=1, original_business_month="2026-09",
+                rule_match_date=datetime(2026, 9, 30).date(), sale_store_id=key, verify_store_id=key,
+                sku_id=source_id, product_scope="精诚养车", product_type="养车服务", sale_channel_normalized="LIVE",
+                source_amount_cent=base, refunded_amount_cent=0, fee_base_cent=base,
+                fee_rate=Decimal("0.1"), fee_amount_cent=amount, rule_version="flow-fixture-v1",
+                scope_rule_version="flow-scope-v1", result_status=1, calculation_run_id=source_id,
+                calculated_at=datetime(2026, 9, 30, tzinfo=timezone.utc),
+            ))
+            session.add(SettlementFeeResultCurrent(coupon_id=source_id, fee_direction=direction, fee_result_id=source_id))
+            session.add(SettlementStatementLine(
+                statement_line_id=line_id, statement_id=key, fee_direction=direction,
+                product_scope="精诚养车", product_type="养车服务", original_entry_count=1,
+                adjustment_entry_count=0, original_base_cent=base, adjustment_base_cent=0,
+                net_base_cent=base, original_fee_cent=amount, adjustment_fee_cent=0, net_fee_cent=amount,
+            ))
+            session.add(SettlementStatementEntry(
+                statement_entry_id=f"{key}-entry-{direction}", statement_id=key, statement_line_id=line_id,
+                source_type=1, source_record_id=source_id, original_fee_result_id=source_id,
+                coupon_id=source_id, order_id=source_id, fee_direction=direction,
+                original_business_month="2026-09", statement_posting_month="2026-09",
+                product_scope="精诚养车", product_type="养车服务", base_amount_cent=base,
+                fee_amount_cent=amount, rule_version="flow-fixture-v1",
+                received_amount_cent_snapshot=base, fee_rate_snapshot=Decimal("0.1"),
+                sale_store_id_snapshot=key, verify_store_id_snapshot=key,
+            ))
         session.commit()
         publish_fixture(session, "settlement")
     context = browser.new_context(viewport={"width": 1440, "height": 900}, permissions=["clipboard-read", "clipboard-write"])
@@ -555,15 +612,16 @@ def test_dydata105_ranking_filters_drill_and_order_fee_direction_downloads(
             ))
         for period_type in (1, 2):
             for product_scope in ("all", "原产品范围"):
-                session.add(AggStoreRanking(
-                    period_type=period_type, period_key="2026-08", month="2026-08",
-                    store_id="store-1", store_name="深圳临港认证服务店",
-                    product_scope=product_scope, product_type="all",
-                    sales_order_count=2, sales_amount_cent=1606405,
-                    verified_order_count=2, verified_amount_cent=1606405,
-                    promotion_net_fee_cent=128641, management_net_fee_cent=32000,
-                    net_settlement_reference_cent=96641,
-                ))
+                for product_type in ("all", "养车服务"):
+                    session.add(AggStoreRanking(
+                        period_type=period_type, period_key="2026-08", month="2026-08",
+                        store_id="store-1", store_name="深圳临港认证服务店",
+                        product_scope=product_scope, product_type=product_type,
+                        sales_order_count=2, sales_amount_cent=1606405,
+                        verified_order_count=2, verified_amount_cent=1606405,
+                        promotion_net_fee_cent=128641, management_net_fee_cent=32000,
+                        net_settlement_reference_cent=96641,
+                    ))
         publish_fixture(session, "settlement")
     context = browser.new_context(viewport={"width": 1440, "height": 900})
     page = context.new_page()
@@ -600,7 +658,8 @@ def test_dydata105_ranking_filters_drill_and_order_fee_direction_downloads(
         page.get_by_label("搜索门店", exact=True).fill("深圳")
         expect(page.get_by_text("深圳临港认证服务店", exact=True).first).to_be_visible()
         expect(page.get_by_label("统计方式", exact=True)).to_have_count(0)
-        for label, option in (("排行依据", "累计推广服务费"), ("产品范围", "原产品范围")):
+        expect(page.get_by_label("产品范围", exact=True)).to_have_count(0)
+        for label, option in (("排行依据", "累计推广服务费"), ("商品类型", "养车服务")):
             page.get_by_label(label, exact=True).click()
             with page.expect_response(lambda response: "/dashboard/store-ranking?" in response.url) as ranked:
                 page.get_by_role("option", name=option, exact=True).click()
@@ -609,10 +668,15 @@ def test_dydata105_ranking_filters_drill_and_order_fee_direction_downloads(
             assert data["periodType"] == "MONTHLY"
             assert data["rankingBasis"] == "PROMOTION_FEE_CUMULATIVE"
             assert data["totals"]["promotionMonthFeeCent"] == 128641
+            if label == "商品类型":
+                assert data["productType"] == "养车服务"
+                assert data["total"] == 1
             expect(page.get_by_text("深圳临港认证服务店", exact=True).first).to_be_visible(timeout=20000)
         assert ranking_requests and all(parse_qs(urlparse(url).query)["periodType"] == ["MONTHLY"] for url in ranking_requests)
+        assert all("productScope" not in parse_qs(urlparse(url).query) for url in ranking_requests)
         page.get_by_role("link").filter(has_text="深圳临港认证服务店").click()
         expect(page).to_have_url(re.compile(r"/settlement\?.*storeId=store-1"))
+        assert parse_qs(urlparse(page.url).query)["productType"] == ["养车服务"]
         page.get_by_label("账期", exact=True).click()
         page.get_by_role("option", name="2026-08", exact=True).click()
         expect(page.get_by_role("combobox", name="门店", exact=True)).to_be_visible()

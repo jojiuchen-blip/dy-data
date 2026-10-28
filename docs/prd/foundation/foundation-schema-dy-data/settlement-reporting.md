@@ -34,11 +34,14 @@
 | scope_rule_version | varchar(64) | NO | | — | 使用的范围规则版本 |
 | result_status | tinyint unsigned | NO | IDX | `1` | 1=有效，2=被新版本替代，3=数据质量阻断 |
 | calculation_run_id | varchar(128) | NO | IDX | — | 计算运行 ID |
+| input_fingerprint | varchar(64) | YES | | NULL | 实际计算输入摘要；新月末资格消费固定所用版本/来源 |
 | qualifying_verify_id | text | YES | | NULL | 使本不可变结果获得计费资格的核销业务 ID（0051） |
 | qualifying_verify_time | timestamptz | YES | | NULL | 该次核销时间快照；与核销 ID 一起识别血缘 |
 | qualifying_verify_store_id | varchar(128) | YES | | NULL | 该次核销门店 ID 快照，不随后续 POI 映射变动 |
 | qualifying_verify_store_name | text | YES | | NULL | 该次核销门店名称快照 |
 | reverification_anchor_id | varchar(128) | YES | IDX | NULL | 仅通过调整入账的非当前重核销依据指向原冻结费用结果 ID；不是核销 ID |
+| sale_attribution_decision_id | varchar(128) | YES | FK | NULL | 0065 精确历史归属决定，RESTRICT；旧行不回填 |
+| account_qualification_version_id | varchar(128) | YES | FK | NULL | 0066 对应有效核销月冻结资格版，RESTRICT；旧行不回填 |
 | calculated_at | datetime | NO | | — | 计算时间 |
 | gmt_create | datetime | NO | | CURRENT_TIMESTAMP | 创建时间 |
 | gmt_modified | datetime | NO | | CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP | 更新时间 |
@@ -62,6 +65,8 @@
 - 无公开写接口；仅结算计算 worker 新增不可变结果版本。
 
 **DYDATA-87 增量约束（2026-09-09 用户确认）**：两费均须有效核销；推广仍归销售门店，管理仍归核销门店，不改变各自配置费率。取消核销影响两方向；未锁账结果通过新版本/当前指针退出，已冻结结果通过独立调整追溯，不改写原结果、历史账单或发票事实。销售时间仍是独立事实字段，不再作为推广计费日期依据。
+
+**DYDATA-104 来源约束**：两可空 FK 的精确结构见 [历史归属](historical-sale-attribution.md) 和 [月末资格](account-qualification.md)；当月资格、销售时归属、核销业务月和费率匹配日分别证明。受保护整账以不可变 entry 及原费用结果为权威，不能借 current 指针替换原锚点；经济来源与可空展示快照分离，详见 [仅发布合同](../foundation-api-dy-data/settlement-authority.md)。
 
 ### 2 `settlement_fee_result_current` — 当前结果指针
 

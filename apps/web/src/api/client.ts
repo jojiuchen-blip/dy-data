@@ -87,6 +87,7 @@ import type {
   FinanceImportBatchDetailData,
   FinanceImportBatchListData,
   FinanceImportBatchRow,
+  FinanceImportPreviewData,
   FinanceInvoiceListData,
   FinanceInvoiceRow,
   FinanceOrderDetailListData,
@@ -235,7 +236,6 @@ interface DetailQuery {
 interface SalesDashboardQuery {
   store: { store_id: string; store_name: string };
   month: string;
-  productScope: string;
   productType: string;
   trendMonths?: string[];
   year?: number;
@@ -561,7 +561,7 @@ async function withMockFallback<T>(
   try {
     return { ...(await request()), usingMock: false };
   } catch (error) {
-    if (isAuthError(error) || options.fallbackOnError === false) {
+    if (isAuthError(error) || options.fallbackOnError !== true) {
       throw error;
     }
     return {
@@ -578,17 +578,14 @@ function optionValues(options: SelectOption[]): string[] {
 
 function mockMetaResponse(): ApiResponse<FilterMetaData> {
   const productTypes = optionValues(getProductOptions());
-  const scopedProductTypes = productTypes.filter((value) => value !== ALL_MONTHS);
   return {
     data: {
       stores: getStoreOptions().map((option) => ({
         store_id: option.value,
         store_name: option.label,
       })),
-      product_scopes: ["all", "精诚养车"],
-      product_scope_type_map: {
-        精诚养车: scopedProductTypes,
-      },
+      product_scopes: [],
+      product_scope_type_map: {},
       product_types: productTypes,
       default_product_type: "all",
       sale_months: optionValues(getSaleMonthOptions()),
@@ -622,22 +619,17 @@ function mockCommissionRulesSummaryResponse(): ApiResponse<CommissionRulesSummar
 
 function mockStoreRankingResponse(
   month: string,
-  productScope: string,
   productType: string,
   limit: number,
 ): ApiResponse<StoreRankingData> {
-  const allowedProductTypes =
-    productScope && productScope !== "all"
-      ? (mockMetaResponse().data.product_scope_type_map?.[productScope] ?? [])
-      : undefined;
-  const rows = getRankingRows(month, productType, allowedProductTypes).slice(0, limit);
+  const rows = getRankingRows(month, productType).slice(0, limit);
   return {
     data: {
       month,
-      product_scope: productScope,
+      product_scope: "all",
       product_type: productType,
       limit,
-      totals: getRankingTotals(month, productType, allowedProductTypes),
+      totals: getRankingTotals(month, productType),
       rows,
     },
     definitions: page1Definitions,
@@ -651,19 +643,12 @@ function mockStoreRankingResponse(
 function mockSettlementResponse(
   storeId: string,
   month: string,
-  productScope: string,
   productType: string,
 ): ApiResponse<SettlementViewData> {
-  const allowedProductTypes =
-    productScope && productScope !== "all"
-      ? (mockMetaResponse().data.product_scope_type_map?.[productScope] ?? [])
-      : undefined;
   const view = getSettlementView(
     storeId,
     month,
     productType,
-    productScope,
-    allowedProductTypes,
   );
   return {
     data: view,
@@ -726,24 +711,16 @@ function salesTrendMonths(month: string, trendMonths: string[] = []): string[] {
 function mockSalesDashboardResponse({
   store,
   month,
-  productScope,
   productType,
   trendMonths = [],
   year,
   publication_id,
 }: SalesDashboardQuery): ApiResponse<SalesDashboardData> {
-  const scopeProductTypes =
-    mockMetaResponse().data.product_scope_type_map?.[productScope] ?? [];
-  const scopedRows =
-    productScope && productScope !== "all" && scopeProductTypes.length > 0
-      ? orderDetails.filter((row) => scopeProductTypes.includes(row.product_type))
-      : orderDetails;
   return {
     data: buildSalesDashboardView({
-      rows: scopedRows,
+      rows: orderDetails,
       store,
       month,
-      productScope,
       productType,
       trendMonths: salesTrendMonths(month, trendMonths),
     }),
@@ -760,12 +737,7 @@ function mockOrderDetailsResponse({
   page,
   pageSize,
 }: DetailQuery): ApiResponse<OrderDetailsData> {
-  const productScope = filters.product_scope ?? "all";
-  const allowedProductTypes =
-    productScope && productScope !== "all"
-      ? (mockMetaResponse().data.product_scope_type_map?.[productScope] ?? [])
-      : undefined;
-  const filteredRows = filterOrderDetails(orderDetails, filters, allowedProductTypes);
+  const filteredRows = filterOrderDetails(orderDetails, filters);
   const safePageSize =
     Number.isFinite(pageSize) && pageSize > 0
       ? Math.min(Math.floor(pageSize), 500)
@@ -797,7 +769,6 @@ function mockOrderDetailsResponse({
 async function requestSalesDashboard({
   store,
   month,
-  productScope,
   productType,
   trendMonths = [],
   year,
@@ -806,7 +777,6 @@ async function requestSalesDashboard({
   return requestJson<SalesDashboardData>("/dashboard/sales", {
     store_id: store.store_id,
     month,
-    product_scope: productScope,
     product_type: productType,
     trend_months: salesTrendMonths(month, trendMonths),
     year,
@@ -1295,7 +1265,6 @@ export function fetchSettlementFilterMeta(module?: PublicationModule, publicatio
 export function fetchSettlementStoreRanking({
   periodType,
   periodKey,
-  productScope,
   productType,
   q,
   rankingBasis,
@@ -1308,7 +1277,6 @@ export function fetchSettlementStoreRanking({
   publication_id?: string;
   periodType: PeriodType;
   periodKey: string;
-  productScope: string;
   productType: string;
   q?: string;
   rankingBasis?: StoreFinanceRankingBasis;
@@ -1323,7 +1291,6 @@ export function fetchSettlementStoreRanking({
         publication_id,
         periodType,
         periodKey,
-        productScope,
         productType,
         q,
         rankingBasis,
@@ -1337,7 +1304,7 @@ export function fetchSettlementStoreRanking({
         periodType,
         periodKey,
         rankingBasis,
-        productScope,
+        productScope: "all",
         productType,
         scopeMode: "AUTHORIZED",
         totals: {
@@ -1472,27 +1439,25 @@ export function fetchDouyinRanking({
 export function fetchSettlementMonthly({
   storeId,
   month,
-  productScope,
   productType,
   publication_id,
 }: {
   publication_id?: string;
   storeId: string;
   month: string;
-  productScope: string;
   productType: string;
 }): Promise<ApiLoadResult<SettlementMonthlyData>> {
   return withMockFallback(
     () =>
       requestJson<SettlementMonthlyData>(
         `/stores/${encodeURIComponent(storeId)}/monthly-settlement`,
-        { month, productScope, productType, publication_id },
+        { month, productType, publication_id },
       ),
     () => ({
       data: {
         store: { storeId, storeName: "上海浦东体验中心" },
         month,
-        productScope,
+        productScope: "all",
         productType,
         isFormalPeriod: month >= "2026-08",
         statement: null,
@@ -1512,8 +1477,8 @@ export function fetchSettlementMonthly({
           netSettlementReferenceCent: 15360,
         },
         lines: [
-          { statementLineId: null, feeDirection: "PROMOTION", productScope, productType, originalEntryCount: 28, adjustmentEntryCount: 1, originalBaseCent: 368000, adjustmentBaseCent: -10000, netBaseCent: 358000, originalFeeCent: 28640, adjustmentFeeCent: -800, netFeeCent: 27840, minFeeRate: "0.080000", maxFeeRate: "0.080000", ruleVersionCount: 1, feeRates: ["0.080000"], ruleVersions: ["V2026.08.1"] },
-          { statementLineId: null, feeDirection: "MANAGEMENT", productScope, productType, originalEntryCount: 24, adjustmentEntryCount: 0, originalBaseCent: 312000, adjustmentBaseCent: 0, netBaseCent: 312000, originalFeeCent: 12480, adjustmentFeeCent: 0, netFeeCent: 12480, minFeeRate: "0.040000", maxFeeRate: "0.040000", ruleVersionCount: 1, feeRates: ["0.040000"], ruleVersions: ["V2026.08.1"] },
+          { statementLineId: null, feeDirection: "PROMOTION", productScope: "all", productType, originalEntryCount: 28, adjustmentEntryCount: 1, originalBaseCent: 368000, adjustmentBaseCent: -10000, netBaseCent: 358000, originalFeeCent: 28640, adjustmentFeeCent: -800, netFeeCent: 27840, minFeeRate: "0.080000", maxFeeRate: "0.080000", ruleVersionCount: 1, feeRates: ["0.080000"], ruleVersions: ["V2026.08.1"] },
+          { statementLineId: null, feeDirection: "MANAGEMENT", productScope: "all", productType, originalEntryCount: 24, adjustmentEntryCount: 0, originalBaseCent: 312000, adjustmentBaseCent: 0, netBaseCent: 312000, originalFeeCent: 12480, adjustmentFeeCent: 0, netFeeCent: 12480, minFeeRate: "0.040000", maxFeeRate: "0.040000", ruleVersionCount: 1, feeRates: ["0.040000"], ruleVersions: ["V2026.08.1"] },
         ],
       },
       meta: { generated_at: generatedAt(), source: "mock" },
@@ -1530,7 +1495,6 @@ export interface OrderFeeDetailsQuery {
   saleMonth?: string;
   verifyMonth?: string;
   feeDirection: FeeDirection;
-  productScope?: string;
   productType?: string;
   feeRates?: string[];
   ruleVersions?: string[];
@@ -1549,7 +1513,7 @@ export function fetchOrderFeeDetails(
       data: {
         context: {
           ...query,
-          productScope: query.productScope ?? "all",
+          productScope: "all",
           productType: query.productType ?? "all",
           feeRates: query.feeRates ?? [],
           ruleVersions: query.ruleVersions ?? [],
@@ -1570,7 +1534,7 @@ export function fetchOrderFeeDetails(
           verifyStoreName: "上海虹桥服务中心",
           skuId: "SKU-DEMO-001",
           productName: "精诚养车基础保养服务",
-          productScope: query.productScope ?? "all",
+          productScope: "all",
           productType: query.productType ?? "all",
           saleChannel: "LIVE",
           sourceAmountCent: 12800,
@@ -1604,12 +1568,10 @@ export function exportOrderFeeDetails(query: OrderFeeDetailsQuery): Promise<void
 
 export function fetchStoreRanking({
   month,
-  productScope,
   productType,
   limit = 20,
 }: {
   month: string;
-  productScope: string;
   productType: string;
   limit?: number;
 }): Promise<ApiLoadResult<StoreRankingData>> {
@@ -1617,23 +1579,20 @@ export function fetchStoreRanking({
     () =>
       requestJson<StoreRankingData>("/dashboard/store-ranking", {
         month,
-        product_scope: productScope,
         product_type: productType,
         limit,
       }),
-    () => mockStoreRankingResponse(month, productScope, productType, limit),
+    () => mockStoreRankingResponse(month, productType, limit),
   );
 }
 
 export function fetchMonthlySettlement({
   storeId,
   month,
-  productScope,
   productType,
 }: {
   storeId: string;
   month: string;
-  productScope: string;
   productType: string;
 }): Promise<ApiLoadResult<MonthlySettlementData>> {
   return withMockFallback(
@@ -1642,11 +1601,10 @@ export function fetchMonthlySettlement({
         `/stores/${encodeURIComponent(storeId)}/monthly-settlement`,
         {
           month,
-          product_scope: productScope,
           product_type: productType,
         },
       ),
-    () => mockSettlementResponse(storeId, month, productScope, productType),
+    () => mockSettlementResponse(storeId, month, productType),
   );
 }
 
@@ -2152,7 +2110,6 @@ export async function fetchSkuProducts(params: {
   page?: number;
   pageSize?: number;
   q?: string;
-  productScope?: string;
   productType?: string;
   productStatus?: string;
   configurationStatus?: "PENDING" | "CONFIGURED";
@@ -2463,19 +2420,19 @@ export async function fetchSkuSyncHistory(
 export async function fetchSkuRules({
   page,
   pageSize,
-  productScope,
+  productType,
   q,
 }: {
   page: number;
   pageSize: number;
-  productScope?: string;
+  productType?: string;
   q?: string;
 }): Promise<ApiLoadResult<SkuRuleListData>> {
   return {
     ...(await requestJson<SkuRuleListData>("/admin/sku-rules", {
       page,
       page_size: pageSize,
-      product_scope: productScope,
+      product_type: productType,
       q,
     })),
     usingMock: false,
@@ -2499,7 +2456,7 @@ export async function saveSkuRules(
 ): Promise<ApiLoadResult<SkuRuleUpdateResult>> {
   return {
     ...(await sendJson<SkuRuleUpdateResult>("/admin/sku-rules", {
-      body: { rules },
+      body: { rules: rules.map(({ product_scope: _scope, ...rule }) => rule) },
       method: "PUT",
     })),
     usingMock: false,
@@ -3386,6 +3343,15 @@ export function fetchFinanceImportDetail(
   return requestJson<FinanceImportBatchDetailData>(
     `/admin/finance-imports/${encodeURIComponent(batchId)}`,
     query,
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function fetchFinanceImportPreview(
+  batchId: string,
+  query: { page: number; pageSize: number },
+): Promise<ApiLoadResult<FinanceImportPreviewData>> {
+  return requestJson<FinanceImportPreviewData>(
+    `/admin/finance-imports/${encodeURIComponent(batchId)}/rows`, query,
   ).then((response) => ({ ...response, usingMock: false }));
 }
 

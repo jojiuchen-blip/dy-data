@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { downloadFinanceOrderDetails, fetchFinanceOrderDetails } from "../api/client";
 import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
@@ -23,7 +23,7 @@ import {
   displayFinanceSaleChannel,
   displayFinanceSettlementStatus,
 } from "../utils/userFacingLabels";
-import { initialStatementMonth } from "../utils/statementMonth";
+import { initialStatementMonth, replaceStatementMonthInUrl } from "../utils/statementMonth";
 
 interface FinanceOrderDetailsPageProps {
   feeDirection: FeeDirection;
@@ -173,7 +173,8 @@ export function FinanceOrderDetailsPage({ feeDirection, searchParams }: FinanceO
   const [exportState, setExportState] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [exportMessage, setExportMessage] = useState("");
   const queryKey = JSON.stringify(query);
-  const resource = useApiResource(() => fetchFinanceOrderDetails(query), [queryKey]);
+  const resource = useApiResource(() => fetchFinanceOrderDetails(query), [queryKey], { clearOnReload: true });
+  useEffect(() => replaceStatementMonthInUrl(query.month), [query.month]);
   const resourceBusy = resource.loading || resource.refreshing;
   const rows = resource.data?.data.list ?? [];
   const total = resource.data?.data.total ?? 0;
@@ -267,8 +268,8 @@ export function FinanceOrderDetailsPage({ feeDirection, searchParams }: FinanceO
       <TertiaryNav
         label="订单明细费用方向"
         items={[
-          { href: `/finance/orders/promotion?month=${encodeURIComponent(draft.month)}`, label: "推广服务费明细", current: feeDirection === "PROMOTION" },
-          { href: `/finance/orders/management?month=${encodeURIComponent(draft.month)}`, label: "管理服务费明细", current: feeDirection === "MANAGEMENT" },
+          { href: `/finance/orders/promotion?month=${encodeURIComponent(query.month)}`, label: "推广服务费明细", current: feeDirection === "PROMOTION" },
+          { href: `/finance/orders/management?month=${encodeURIComponent(query.month)}`, label: "管理服务费明细", current: feeDirection === "MANAGEMENT" },
         ]}
       />
       <section className="page-heading finance-heading">
@@ -277,7 +278,7 @@ export function FinanceOrderDetailsPage({ feeDirection, searchParams }: FinanceO
           <h1>{feeDirection === "PROMOTION" ? "推广服务费订单明细" : "管理服务费订单明细"}</h1>
           <p>原费用与退款或取消调整分别成行；列表、总数和导出统一使用正式冻结事实。</p>
         </div>
-        <Button loading={exportState === "loading"} onClick={handleExport} variant="primary">{exportState === "loading" ? "导出中" : "导出全部命中结果"}</Button>
+        <Button disabled={!resource.data || resourceBusy || Boolean(resource.error)} loading={exportState === "loading"} onClick={handleExport} variant="primary">{exportState === "loading" ? "导出中" : "导出全部命中结果"}</Button>
       </section>
 
       <div className="finance-guidance" role="note">
@@ -313,9 +314,9 @@ export function FinanceOrderDetailsPage({ feeDirection, searchParams }: FinanceO
       {exportMessage ? <p role={exportState === "error" ? "alert" : "status"}>{exportMessage}</p> : null}
 
       <section className="content-section">
-        <div className="section-title"><div><h2>订单费用明细</h2><p>共 {total} 条，第 {page} / {pageCount} 页；双击任意行可查看完整冻结字段。</p></div></div>
+        <div className="section-title"><div><h2>订单费用明细</h2><p>{resource.data ? `共 ${total} 条，第 ${page} / ${pageCount} 页；双击任意行可查看完整冻结字段。` : resource.error ? "当前筛选结果读取失败。" : "正在读取订单费用明细…"}</p></div></div>
         <DataTable columns={columns} emptyText="当前筛选下暂无订单明细" onRowAction={setSelectedRow} onRowDoubleClick={setSelectedRow} rowActionLabel={() => "查看完整字段"} rows={rows} state={resourceBusy ? "loading" : resource.error ? "error" : "ready"} stickyHeader="container" tableClassName="finance-order-table" />
-        <TablePagination loading={resourceBusy} onPageChange={changePage} onPageSizeChange={onPageSizeChange} page={page} pageSize={pageSize} pageSizeOptions={[20, 50, 100, 200, 500]} rowsOnPage={rows.length} total={total} totalPages={pageCount} />
+        {resource.data ? <TablePagination loading={resourceBusy} onPageChange={changePage} onPageSizeChange={onPageSizeChange} page={page} pageSize={pageSize} pageSizeOptions={[20, 50, 100, 200, 500]} rowsOnPage={rows.length} total={total} totalPages={pageCount} /> : null}
       </section>
 
       {selectedRow ? (

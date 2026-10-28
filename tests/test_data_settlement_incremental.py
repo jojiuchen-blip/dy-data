@@ -1022,6 +1022,7 @@ def test_settle_impacted_coupons_no_impact_is_deterministic_and_fenced(db_sessio
 
     assert first == second == {
         "impact_count": 0,
+        "unresolved_verify_impact_count": 0,
         "coupon_count": 0,
         "detail_count": 0,
         "result_count": 0,
@@ -2458,7 +2459,7 @@ def test_typed_settlement_selectors_are_entity_scoped_and_refund_side_aware() ->
     )
     assert verify.direct_coupon_ids == ("coupon-new", "coupon-old")
     assert verify.verify_ids == ("verify-direct", "verify-new", "verify-old")
-    assert verify.poi_ids == ("poi-new", "poi-old")
+    assert verify.poi_ids == ()
     assert verify.order_ids == verify.store_ids == ()
 
 

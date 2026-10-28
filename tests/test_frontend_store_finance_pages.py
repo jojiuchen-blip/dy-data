@@ -336,9 +336,10 @@ def test_store_finance_defaults_use_account_store_and_api_latest_period() -> Non
     assert "<StoreInvoiceStatusPage currentUser={user} searchParams={searchParams} />" in app
     for page in [settlement, status]:
         assert "currentUser.store_ids[0]" in page
-        assert "meta?.statementMonths[0]" in page
         # The settlement period never comes from the browser clock.
         assert "new Date()" not in page
+    assert "initialStatementMonth(searchParams)" in settlement
+    assert "meta?.statementMonths[0]" in status
     assert "defaultStatementMonth" not in invoice
     assert "new Date()" not in invoice
     assert "filterMeta?.statementMonths[0]" in invoice
@@ -410,10 +411,10 @@ def test_order_fee_details_export_reuses_the_same_month_as_the_list_query() -> N
     assert "month: context.statementId ? undefined : context.month ?? undefined" in export_body
     assert "storeId: context.statementId ? undefined : context.storeId ?? undefined" in export_body
     assert "feeDirection: context.feeDirection" in export_body
-    assert "productScope: context.productScope" in export_body
+    assert "productScope" not in export_body
     assert "productType: context.productType" in export_body
     # The list query builds its month the same way, so both ask for one month.
-    assert "month: hasPreviewSource && !hasStatementSource ? month : undefined" in page
+    assert "month: !hasStatementSource ? month : undefined" in page
 
 
 def test_store_finance_pages_do_not_publish_developer_issue_copy() -> None:

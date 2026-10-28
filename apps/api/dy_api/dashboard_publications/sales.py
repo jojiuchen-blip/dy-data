@@ -42,12 +42,23 @@ product_scopes = Table(
 )
 
 
+def _current_sku_type(sku_id, source):
+    """Resolve one valid catalog type without joining or multiplying facts."""
+    from ..models import DimSkuProductRule
+
+    rule = DimSkuProductRule.__table__.alias()
+    return select(rule.c.product_type).where(
+        rule.c.sku_id == sku_id, func.lower(func.trim(rule.c.product_type)).not_in(["", "all", "unknown", "keep"])
+    ).correlate(source).scalar_subquery()
+
+
 def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, Any]:
     """Freeze narrow facts with server-side inserts in the caller's transaction."""
     # Models are imported here to avoid coupling metadata registration to the ORM.
-    from ..models import DimStore, SettlementOrderDetail, DimSkuProductRule
+    from ..models import DimStore, SettlementOrderDetail
 
     source = SettlementOrderDetail.__table__
+    product_type = _current_sku_type(source.c.sku_id, source)
     pg = session.get_bind().dialect.name == "postgresql"
     def month(column):
         return func.to_char(func.timezone("Asia/Shanghai", column), "YYYY-MM") if pg else func.strftime("%Y-%m", column)
@@ -57,7 +68,7 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
     query = select(
         literal(publication_id), source.c.coupon_id,
         func.coalesce(func.nullif(source.c.order_id, ""), source.c.coupon_id),
-        func.coalesce(source.c.product_type, ""), source.c.sale_store_id,
+        func.coalesce(product_type, source.c.product_type, ""), source.c.sale_store_id,
         source.c.sale_time, month(source.c.sale_time),
         func.coalesce(source.c.is_verified, False), source.c.verify_store_id,
         source.c.verify_time, month(source.c.verify_time),
@@ -66,11 +77,6 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
     session.execute(insert(coupons).from_select(list(coupons.c.keys()), query))
     store = DimStore.__table__
     session.execute(insert(stores).from_select(list(stores.c.keys()), select(literal(publication_id), store.c.store_id, store.c.store_name)))
-    rule = DimSkuProductRule.__table__
-    session.execute(insert(product_scopes).from_select(list(product_scopes.c.keys()), select(
-        literal(publication_id), rule.c.product_scope, rule.c.product_type
-    ).where(rule.c.product_scope.is_not(None), rule.c.product_scope != "", rule.c.product_type.is_not(None),
-            rule.c.product_type.not_in(["", "all"])).distinct()))
     return {"row_count": session.scalar(select(func.count()).select_from(coupons).where(coupons.c.publication_id == publication_id)), "data_as_of": None}
 
 
@@ -88,9 +94,6 @@ def _base(publication_id, *, store_id=None, product_type="all", product_scope="a
         clauses.append(col.product_type.in_(visible_product_types))
     if scope_product_types is not None:
         clauses.append(col.product_type.in_(scope_product_types))
-    if product_scope != "all":
-        clauses.append(col.product_type.in_(select(product_scopes.c.product_type).where(
-            product_scopes.c.publication_id == publication_id, product_scopes.c.product_scope == product_scope)))
     return clauses
 
 
@@ -257,7 +260,7 @@ def read(session: Session, publication_id: str, *, store_id: str | None = None,
     year = year or datetime.now(SHANGHAI).year
     store_id = (store_id or "").strip() or None
     product_type = " ".join((product_type or "all").split()) or "all"
-    product_scope = " ".join((product_scope or "all").split()) or "all"
+    product_scope = "all"
     clauses = _base(publication_id, store_id=store_id, product_type=product_type, product_scope=product_scope,
                     visible_product_types=visible_product_types, scope_store_ids=scope_store_ids, scope_product_types=scope_product_types)
     sale, verified, self_verified = _conditions(store_id, month, year, scope_store_ids)
@@ -302,12 +305,8 @@ def read_filters(session: Session, publication_id: str, *, visible_product_types
     if scope_store_ids is not None:
         store_query = store_query.where(stores.c.store_id.in_(scope_store_ids))
     types = list(session.scalars(select(coupons.c.product_type).where(*clauses).distinct().order_by(coupons.c.product_type)))
-    scope_map: dict[str, list[str]] = {}
-    for scope, product in session.execute(select(product_scopes.c.product_scope, product_scopes.c.product_type).where(
-            product_scopes.c.publication_id == publication_id, product_scopes.c.product_type.in_(types)).order_by(product_scopes.c.product_scope, product_scopes.c.product_type)):
-        scope_map.setdefault(scope, []).append(product)
     return {"years": sorted({int(value[:4]) for value in months}, reverse=True), "months": months,
-            "product_types": ["all", *types], "product_scopes": ["all", *scope_map], "product_scope_type_map": scope_map,
+            "product_types": ["all", *types], "product_scopes": ["all"], "product_scope_type_map": {},
             "stores": [dict(row) for row in session.execute(store_query.order_by(stores.c.store_name, stores.c.store_id)).mappings()],
             "sale_months": sale_months, "verify_months": verify_months, "statement_months": [],
             "default_product_type": "all", "period_types": ["MONTHLY", "CUMULATIVE"],

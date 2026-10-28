@@ -37,6 +37,8 @@
 | 40 | POST | `/api/v1/admin/finance-imports/{batchId}/commits` | 确认差异并原子提交 | 导入、发票、事件、审计 |
 | 41 | POST | `/api/v1/admin/finance-imports/{batchId}/corrections` | 以更正版本覆盖当前结果 | 同上 |
 | 42 | GET | `/api/v1/admin/finance-imports/{batchId}/error-file` | 下载全部错误行 | 导入行 |
+| 43 | GET | `/api/v1/admin/finance-imports/{batchId}/rows` | 冻结逐行字段预览 | 导入行 __preview |
+| 44 | POST | `/api/v1/admin/finance-imports/{batchId}/reversals` | 原子追加撤销批次 | 导入/目标/事件/审计 |
 
 ## 2 门店账单与确认
 
@@ -93,9 +95,11 @@
 
 ### 4.2 `POST /api/v1/promotion-invoices`
 
-请求：`storeId/invoiceNumber/invoiceDate/invoiceAmountCent/allocations[]`；每个 `allocations[]` 元素为 `statementId/statementMonth/allocatedAmountCent/readVersion`。校验 20 位数电专票号码、日期、金额和每个账期推广费当前有效确认金额。发票可覆盖同一门店的多个完整账期；每个账期分配金额必须等于该账期有效确认金额，全部分配金额必须严格等于发票总额。同一门店同一账期只允许一条当前有效分配，不允许把账期拆到多张发票，也不允许跨门店合票。
+请求：`storeId/invoiceNumber/invoiceDate/fillerPhone/allocations[]`，可选 `replacesInvoiceId`；每个分配为 `statementId/statementMonth/readVersion/promotionInvoiceGroupId`。组 ID 必须匹配服务器当前投影；锁定并校验每个账单版本、确认及开票日期，一次包含当前全部可开票组的全部正负账期，不拆分或跨门店合票。组漂移返回 `409 PROMOTION_INVOICE_GROUP_CHANGED`，缺组成员返回 `422 PROMOTION_INVOICE_GROUP_INCOMPLETE`。日期不得早于对应确认/锁账日期，20 位 ASCII 数字保留前导零，不做外部验真。
 
-成功状态为 `SUBMITTED_PENDING_FACTORY_REVIEW`，登记时间取服务器校验通过时间。重新上传生成新版本覆盖；不要求原发票 ID，不接收附件和备注，不调用外部验真或企业微信发送。
+购方、6% 税率、发票总额、净额、税额和分配金额取服务端可信已确认来源；旧 buyerName/taxRatePercent/invoiceAmountCent/netAmountCent/taxAmountCent 及 allocatedAmountCent 接受但忽略，不进入新请求幂等 hash。合票总额一次计算 `net=(gross*100+53)//106`、`tax=gross-net`，不逐行舍入；无可开票组的购方/金额汇总为 null。旧成功请求按已保存事实重放，不修改旧行。结构见 [发票来源](../foundation-schema-dy-data/invoice-source.md)。
+
+成功状态为 `SUBMITTED_PENDING_FACTORY_REVIEW`，登记时间取服务器校验通过时间。替换沿已有实体票/原发票来源合同，需原票时校验 `replacesInvoiceId`；不接收附件和备注，不调用外部验真或企业微信发送。所有方向号码锁内校验归属，不允许复用另一实体票/门店占用的号码。
 
 ### 4.3 管理员财务查询 #31—#34
 
@@ -114,11 +118,11 @@ multipart 请求：`importType`、`statementMonth`、`file`，并要求 `Idempot
 | `BASIC_INFO` | `storeId/storeName/sapCode/importedAt` | `storeId` | `store_finance_profile` 基础信息新版本 |
 | `PROMOTION_FACTORY_RESULT` | `invoiceNumber/reviewResult/rejectionReason/settlementDate/settlementAmountCent` | `invoiceNumber` | `promotion_invoice` 新版本及 `invoice_status_event` |
 | `MANAGEMENT_FACTORY_RESULT` | `storeId/statementMonth/storeName/invoiceNumber/invoiceDate/deductionDate/deductionAmountCent` | `storeId + statementMonth` | `invoice_record` 管理费厂家结果新版本 |
-| `SAP_CONFIRMATION` | `storeId/storeName/financeInitialSap/serviceStoreCode/factoryConfirmationResult/confirmedAt` | `storeId` | `store_finance_profile` SAP 确认新版本 |
+| `SAP_CONFIRMATION` | `storeId/storeName/financeInitialSap/serviceStoreCode/factoryConfirmationResult/confirmedAt/finalSapCode` | `storeId` | `store_finance_profile` 正式 type=1 链新版本，finalSapCode 写 sap_code |
 
 处理顺序：流式解析 → 全行格式校验 → 业务唯一键精确匹配 → 门店 ID 与门店名称二次一致性校验（适用模板）→ 当前版本差异比较。推广服务费厂家结果只按 20 位发票号码精确匹配当前发票及批次账期；禁止 SAP 编码、名称、金额或月份模糊匹配；禁止部分写入、自动截断和人工待匹配池。
 
-同一上传幂等键与相同“模板 + 账期 + 文件摘要”重放原批次；同键不同请求返回 `409 IDEMPOTENCY_KEY_REUSED`。相同标准化业务内容但使用新幂等键时返回 `NO_CHANGE`，不生成业务版本。
+同一上传幂等键与相同“模板 + 账期 + 文件摘要”重放原批次；同键不同请求返回 `409 IDEMPOTENCY_KEY_REUSED`。新键同文件必须与当前目标比较；真正无变化才返回 `NO_CHANGE`，不能仅凭历史摘要跳过已变化/已撤销目标。
 
 返回五种场景：`FIRST_IMPORT_READY`、`NO_CHANGE`、`DIFF_CONFIRMATION_REQUIRED`、`BATCH_VALIDATION_FAILED`、`VERSION_CONFLICT`。失败时返回错误总数和分页首批错误；完整错误由 #42 下载。
 
@@ -132,9 +136,19 @@ multipart 请求：`importType`、`statementMonth`、`file`，并要求 `Idempot
 
 管理服务费厂家结果在当期导入上一账期，并在同一行登记发票号码、开票日期、厂家扣款日期和全额扣款金额；不再提供独立“管理费发票明细”和“厂家扣款结果”模板。系统导入时间为审核通过/已结算记录时间，厂家扣款不允许部分扣款，金额必须严格等于账期有效确认金额。推广费模板登记系统外厂家结果，不创建系统内审核任务。
 
+### 5.4 冻结逐行预览与撤销
+
+`GET .../{batchId}/rows?page=1&pageSize=50`：page>=1，pageSize 为1..50。校验管理员、对应页面与整批门店范围。data 返回 `list[{rowNumber,businessKey,rowStatus,preview}]/total/page/pageSize/previewSummary`；summary 为整批的 `frozenAvailable/blockedRowCount/totalRows`，不是当前页统计。
+
+`preview.available=true` 时含 `schemaVersion/capturedAt/targetType/targetRecordId/targetVersion/targetTombstone/before/after/stateTransition/allowedChanges/blockedReasons`；targetType 为 STORE_FINANCE_PROFILE/PROMOTION_INVOICE/MANAGEMENT_INVOICE，transition 为 fromState/toState/allowed，before 可 null，after 为模板白名单字段对象。字段值支持 string/number/boolean/null，未提供、NULL、空文本分别显示。数据只读上传时 `normalized_payload.__preview`，不查询当前目标重构旧预览；缺快照返回 available=false、reasonCode=PREVIEW_SNAPSHOT_UNAVAILABLE 并要求重传。旧待提交批次不得据此直接提交，已提交幂等回放保留。
+
+上传不写业务目标；commit/correction 必须锁后重验当前目标/权限/版本/状态和号码，资料预览过期返回 `409 IMPORT_PREVIEW_STALE`。已结算推广费不能回退、金额/分配不能借状态导入改变，管理费已扣款和已消费资料不能逆转依赖。
+
+`POST .../{batchId}/reversals`：`Idempotency-Key` 必填，JSON `readVersion` 正整数、`changeReason` 非空且<=1000字。锁定原批次及当前版本槽，重查原行目标、依赖与撤销资格，逐行追加恢复值或 tombstone、事件和审计，整批原子。成功返回共享批次对象，含 `batchId/scenario/readVersion/currentVersion/reversesBatchId/reversedByBatchId/reversalChain/canReverse/reverseNotAllowedCode/reverseNotAllowedReason` 及类型、账期、计数、操作者/时间；撤销批次 scenario=REVERSED。原批次/历史不删除；同键同请求重放，版本冲突为 REVERSAL_VERSION_CONFLICT，已撤销为 IMPORT_ALREADY_REVERSED。基础/SAP资料被账单或后续SAP消费、推广已结算或管理已扣款等依赖拒绝撤销，不扩大为真实票据作废。
+
 ## 6 明确不提供
 
 - 不提供开票申请单、真实开票、发票附件上传、外部验真、企业微信发送接口。
 - 不提供系统内“财务审核任务”接口；推广费厂端审核已在系统外完成，管理员只导入结果。
-- 不提供发票 DELETE、红冲原因、作废原因或原发票 ID 链接；错误通过新版本或更正导入覆盖。
+- 不提供发票 DELETE；已有系统外生命周期事实与替换来源链按现有模型/路由处理（见 Schema 发票来源），本轮不扩展其状态机。财务批次撤销不是删除或执行真实红冲/作废。
 - 不提供按 SAP 编码、名称、金额、月份的模糊匹配或跨门店合并开票。

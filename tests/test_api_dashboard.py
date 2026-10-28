@@ -550,8 +550,8 @@ def test_filter_metadata_contract(client: TestClient):
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["stores"] == [{"storeId": "store_001", "storeName": "Store One"}]
-    assert data["productScopes"] == ["all", "精诚养车"]
-    assert data["productScopeTypeMap"] == {"精诚养车": ["basic_service"]}
+    assert data["productScopes"] == ["all"]
+    assert data["productScopeTypeMap"] == {}
     assert data["productTypes"] == ["all", "basic_service"]
     assert "latest_job" not in data
 
@@ -1135,7 +1135,7 @@ def test_store_finance_ranking_uses_one_combined_server_set_before_pagination(
     assert monthly["list"][0]["promotion_cumulative_fee_cent"] == 500
 
 
-def test_product_scope_filters_ranking_settlement_and_details(db_session: Session):
+def test_legacy_scope_is_ignored_for_explicit_type_in_ranking_settlement_and_details(db_session: Session):
     timestamp = datetime(2026, 5, 1, 8, tzinfo=timezone.utc)
     verify_time = datetime(2026, 5, 4, 8, tzinfo=timezone.utc)
     db_session.add_all(
@@ -1233,24 +1233,24 @@ def test_product_scope_filters_ranking_settlement_and_details(db_session: Sessio
     ranking_rows = store.store_ranking(
         month="2026-05",
         product_scope="精诚养车",
-        product_type="all",
+        product_type="268保养",
         limit=10,
     )
     ranking_totals = store.store_ranking_totals(
         month="2026-05",
         product_scope="精诚养车",
-        product_type="all",
+        product_type="268保养",
     )
     settlement = store.monthly_settlement(
         store_id="store_scope",
         month="2026-05",
         product_scope="精诚养车",
-        product_type="all",
+        product_type="268保养",
     )
     details = store.order_details(
         {
             "product_scope": "精诚养车",
-            "product_type": "all",
+            "product_type": "268保养",
             "page": 1,
             "page_size": 50,
         }
@@ -1259,7 +1259,7 @@ def test_product_scope_filters_ranking_settlement_and_details(db_session: Sessio
     assert [row["store_id"] for row in ranking_rows] == ["store_scope"]
     assert ranking_rows[0]["sales_order_count"] == 3
     assert ranking_totals["sales_order_count"] == 3
-    assert settlement["product_scope"] == "精诚养车"
+    assert settlement["product_scope"] == "all"
     assert settlement["metrics"]["commissionable_total_cent"] == 3000
     assert [
         row["product_type"]
@@ -1347,7 +1347,7 @@ def test_sales_dashboard_trend_counts_actual_verify_store_orders(db_session: Ses
     ]
 
 
-def test_sales_dashboard_product_scope_filters_mapped_product_types(
+def test_sales_dashboard_ignores_scope_and_matches_explicit_type(
     db_session: Session,
 ):
     sale_time = datetime(2026, 5, 1, 8, tzinfo=timezone.utc)
@@ -1409,10 +1409,10 @@ def test_sales_dashboard_product_scope_filters_mapped_product_types(
         trend_months=["2026-05"],
     )
 
-    assert scoped_dashboard["product_scope"] == "精诚养车"
-    assert scoped_dashboard["metrics"]["total_sales_order_count"] == 1
+    assert scoped_dashboard["product_scope"] == "all"
+    assert scoped_dashboard["metrics"]["total_sales_order_count"] == 2
     assert [row["product_type"] for row in scoped_dashboard["product_rows"]] == [
-        "268保养"
+        "268保养", "Other Service"
     ]
 
     mismatched_dashboard = store.sales_dashboard(
@@ -1423,8 +1423,8 @@ def test_sales_dashboard_product_scope_filters_mapped_product_types(
         trend_months=["2026-05"],
     )
 
-    assert mismatched_dashboard["metrics"]["total_sales_order_count"] == 0
-    assert mismatched_dashboard["product_rows"] == []
+    assert mismatched_dashboard["metrics"]["total_sales_order_count"] == 1
+    assert [row["product_type"] for row in mismatched_dashboard["product_rows"]] == ["Other Service"]
 
 
 def test_error_message_sanitizer_redacts_sensitive_values_and_paths():

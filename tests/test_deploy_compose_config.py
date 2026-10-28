@@ -122,7 +122,7 @@ def test_browser_image_overlays_audited_packages_after_shared_requirements():
     overlay = (
         "RUN python3 -m pip install --break-system-packages --no-cache-dir "
         "--ignore-installed --no-deps "
-        "'urllib3==2.7.0' 'msgpack==1.2.1' 'Pillow==12.3.0' "
+        "'urllib3==2.8.0' 'msgpack==1.2.1' 'Pillow==13.0.0' "
         "'idna==3.19' 'jwcrypto==1.5.7'"
     )
     assert overlay in dockerfile, "browser must overlay exactly the five audited pins without changing dependencies"
@@ -132,7 +132,7 @@ def test_browser_image_overlays_audited_packages_after_shared_requirements():
     check = following.splitlines()[0].removeprefix('RUN python3 -c "').removesuffix('"')
     compile(check, "browser-package-verification", "exec")
     assert "from importlib.metadata import version" in check
-    for name, pinned in {"urllib3": "2.7.0", "msgpack": "1.2.1", "Pillow": "12.3.0", "idna": "3.19", "jwcrypto": "1.5.7"}.items():
+    for name, pinned in {"urllib3": "2.8.0", "msgpack": "1.2.1", "Pillow": "13.0.0", "idna": "3.19", "jwcrypto": "1.5.7"}.items():
         assert f"'{name}': '{pinned}'" in check
     assert "assert {name: version(name) for name in expected} == expected" in check
     assert "import urllib3, msgpack, PIL, idna" in check
@@ -268,7 +268,7 @@ def test_release_workflow_gates_target_database_and_keeps_migration_explicit():
 
 
 def test_postgres_release_gates_track_the_current_alembic_head():
-    expected_head = 'EXPECTED_HEAD = "20261023_0065"'
+    expected_head = 'EXPECTED_HEAD = "20261027_0066"'
     for relative_path in (
         "scripts/verify_postgres_release_gate.py",
         "scripts/verify_postgres_populated_release_gate.py",

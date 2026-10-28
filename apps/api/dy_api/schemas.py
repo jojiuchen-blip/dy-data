@@ -402,6 +402,14 @@ class SkuRuleInput(BaseModel):
     commission_rate: float = Field(ge=0, le=1)
     is_service_product: bool = True
 
+    @field_validator("product_type")
+    @classmethod
+    def require_real_product_type(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if not value or len(value) > 128 or value.casefold() in {"all", "unknown", "keep"}:
+            raise ValueError("请填写有效商品类型，不能使用 all、unknown 或 KEEP")
+        return value
+
 
 class SkuRuleBulkUpdateRequest(BaseModel):
     rules: list[SkuRuleInput]
@@ -409,8 +417,8 @@ class SkuRuleBulkUpdateRequest(BaseModel):
 
 class SkuRuleBulkUpdateResult(BaseModel):
     updated_count: int
-    job_id: str
-    rebuild_status: Literal["queued", "running", "success", "failed"] = "queued"
+    job_id: str | None = None
+    rebuild_status: Literal["not_required", "queued", "running", "success", "failed"] = "queued"
     settlement_detail_count: int | None = None
     settlement_monthly_count: int | None = None
 
@@ -680,19 +688,19 @@ class ProductSyncRunRequest(BaseModel):
 class SkuProductManualFieldsRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    product_scope: str | None = Field(
-        default=None, alias="productScope", min_length=1, max_length=128
-    )
+    # Compatibility input only. Ordinary classification never changes the
+    # internal scope used by the independent Douyin ranking.
+    product_scope: str | None = Field(default=None, alias="productScope")
     product_type: str | None = Field(
         default=None, alias="productType", min_length=1, max_length=128
     )
     is_service_product: bool | None = Field(default=None, alias="isServiceProduct")
 
-    @field_validator("product_scope", "product_type")
+    @field_validator("product_type")
     @classmethod
     def normalize_product_dimension(cls, value: str | None) -> str | None:
         if value is None:
-            return None
+            raise ValueError("product type cannot be null")
         normalized = " ".join(value.strip().split())
         if not normalized:
             raise ValueError("value is required")
@@ -702,9 +710,9 @@ class SkuProductManualFieldsRequest(BaseModel):
 
     @model_validator(mode="after")
     def require_manual_field(self):
-        manual_fields = {"product_scope", "product_type", "is_service_product"}
+        manual_fields = {"product_type", "is_service_product"}
         if not self.model_fields_set.intersection(manual_fields):
-            raise ValueError("at least one manual field is required")
+            raise ValueError("至少需要商品类型或服务类标记；产品范围仅兼容接收，不再支持修改")
         return self
 
 

@@ -15,8 +15,8 @@
 | product_id | varchar(128) | YES | IDX | NULL | 抖音商品 ID |
 | product_name | varchar(512) | YES | | NULL | 商品名称 |
 | spu_id | varchar(128) | YES | IDX | NULL | SPU 标识 |
-| product_scope | varchar(128) | NO | IDX | `''` | 人工维护的产品范围 |
-| product_type | varchar(128) | NO | IDX | `''` | 人工维护的商品类型 |
+| product_scope | varchar(128) | NO | IDX | `''` | 内部兼容范围；普通入口不再编辑，独立打榜保留 |
+| product_type | varchar(128) | NO | IDX | `''` | 普通业务实际分类；精确内部范围规则归一 |
 | is_service_product | tinyint unsigned | NO | | `0` | 是否服务类商品 |
 | creator_account_id | varchar(128) | YES | | NULL | 商品创建者稳定 ID |
 | creator_account_name | varchar(255) | YES | | NULL | 商品创建者名称快照 |
@@ -41,14 +41,14 @@
 - `idx_dim_sku_product_rules_owner_status` (owner_account_id, product_status_normalized)
 - `idx_dim_sku_product_rules_sync_run` (sync_run_id)
 
-**写入边界**：商品同步只更新平台同步字段；`product_scope / product_type / is_service_product` 只允许管理员写入，不能被同步覆盖。
+**写入边界（DYDATA-104）**：普通编辑/批量/分类导入只维护实际类型及允许的服务标记，旧 scope 参数接受但忽略。内部 `product_scope == 精诚养车` 的当前目录在同步及所有分类写入路径强制 `product_type=精诚养车`；其他范围保留人工类型，不从名称猜类型，不改费率与历史快照。分类转换默认预演并按 hash 应用及审计，不触发历史费用重算。
 
 **使用接口**：
-- `GET /api/v1/meta/filters` — 提供产品范围与商品类型联动选项。
+- `GET /api/v1/meta/filters` — 普通业务提供授权范围实际类型；兼容 scope/map 字段不再参与分类完整性和配对校验。
 - `GET /api/v1/admin/sku-products` — 查询 SKU 当前平台快照和人工分类。
 - `PUT /api/v1/admin/sku-products/{skuId}` — 只更新人工维护字段。
 - `POST /api/v1/admin/sku-fee-rules` — 发布费率时读取名称和产品维度快照。
-- `POST /api/v1/admin/product-sync-runs` — 触发 worker 更新平台字段，不覆盖人工字段。
+- `POST /api/v1/admin/product-sync-runs` — worker 更新平台字段并遵守上述精确类型归一规则，不改费率。
 
 ### 2 `sku_product_sync_history` — 商品同步历史
 
@@ -247,8 +247,9 @@
 | order_paid_amount_cent | bigint | NO | | `0` | 订单实付金额 |
 | sale_channel_raw | varchar(128) | YES | | NULL | 平台原始渠道 |
 | sale_channel_normalized | varchar(32) | YES | IDX | NULL | `live/short_video/other/unknown` |
-| owner_account_id | varchar(128) | YES | IDX | NULL | 商品归属账号 ID |
-| owner_account_name | varchar(255) | YES | | NULL | 归属账号名称快照 |
+| owner_account_id | text | YES | IDX | NULL | 订单归属来源标识；可来自加密 transfer_uid，不等同商品归属/后台账户 ID |
+| owner_douyin_uid | text | YES | | NULL | 历史字段名；原来源 transfer_douyin_uid 经证明时表示短抖音号，非通用 UID |
+| owner_account_name | varchar(255) | YES | | NULL | 订单归属名称快照，不作身份桥 |
 | source_run_id | varchar(128) | YES | IDX | NULL | 采集运行 ID |
 | gmt_create | datetime | NO | | CURRENT_TIMESTAMP | 创建时间 |
 | gmt_modified | datetime | NO | | CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP | 更新时间 |

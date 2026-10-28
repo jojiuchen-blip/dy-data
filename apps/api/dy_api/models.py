@@ -180,6 +180,50 @@ class RawAwemeBinding(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class AccountQualificationSnapshot(Base):
+    """Content-addressed, immutable complete backend binding evidence."""
+
+    __tablename__ = "account_qualification_snapshot"
+    content_sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    records_json: Mapped[list] = mapped_column(JSON_TYPE, nullable=False)
+    record_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class AccountQualificationObservation(Base):
+    """Durable attempt; only running -> success/failed may change once."""
+
+    __tablename__ = "account_qualification_observation"
+    __table_args__ = (
+        CheckConstraint("state IN ('running', 'success', 'failed')", name="ck_aqo_state"),
+        Index("ix_aqo_started", "started_at", "observation_id"),
+    )
+    observation_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    source_run_id: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    source_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    complete: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    content_sha256: Mapped[str | None] = mapped_column(String(64), ForeignKey("account_qualification_snapshot.content_sha256", ondelete="RESTRICT"))
+    proof_json: Mapped[dict] = mapped_column(JSON_TYPE, nullable=False, default=dict)
+    error_code: Mapped[str | None] = mapped_column(String(128))
+
+
+class AccountQualificationVersion(Base):
+    """One frozen engineering month-end observation, never today's state."""
+
+    __tablename__ = "account_qualification_version"
+    __table_args__ = (UniqueConstraint("business_month", name="uq_aqv_month"),)
+    version_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    business_month: Mapped[str] = mapped_column(String(7), nullable=False)
+    cutoff_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    observation_id: Mapped[str] = mapped_column(String(128), ForeignKey("account_qualification_observation.observation_id", ondelete="RESTRICT"), nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), ForeignKey("account_qualification_snapshot.content_sha256", ondelete="RESTRICT"), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    frozen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class RawDouyinClue(Base):
     __tablename__ = "raw_douyin_clues"
     __table_args__ = (
@@ -1450,6 +1494,7 @@ class SettlementFeeResult(Base):
     result_status: Mapped[int] = mapped_column(Integer, default=1)
     calculation_run_id: Mapped[str] = mapped_column(String(128))
     input_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    account_qualification_version_id: Mapped[str | None] = mapped_column(String(128), ForeignKey("account_qualification_version.version_id", ondelete="RESTRICT"))
     sale_attribution_decision_id: Mapped[str | None] = mapped_column(
         String(128), ForeignKey("historical_sale_attribution_decisions.decision_id", name="fk_fee_result_historical_sale_attribution", ondelete="RESTRICT")
     )

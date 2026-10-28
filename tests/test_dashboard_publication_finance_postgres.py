@@ -7,6 +7,7 @@ import re
 import json
 from time import perf_counter
 from datetime import UTC, datetime
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -30,7 +31,7 @@ from dy_api.db import normalize_database_url
 from dy_api.models import (
     AggStoreMonthlySettlement, AggStoreRanking, Base, DimStore, PromotionInvoice,
     SettlementProjectionActive, SettlementProjectionGeneration, SettlementStatement,
-    SettlementStatementLine,
+    SettlementFeeResult, SettlementStatementEntry, SettlementStatementLine,
 )
 
 
@@ -168,7 +169,7 @@ def test_postgres_200_stores_12_months_build_budget(postgres_session):
         generation_kind="legacy_root", input_fingerprint="scale-root"))
     session.flush()
     session.add(SettlementProjectionActive(projection_name="settlement", generation_id="scale-root"))
-    aggregates, ranks, formal, lines = [], [], [], []
+    aggregates, ranks, formal, lines, fee_results, entries = [], [], [], [], [], []
     for month in months:
         for index in range(200):
             values = dict(month=month, store_id=f"scale-{index:03d}",
@@ -186,15 +187,51 @@ def test_postgres_200_stores_12_months_build_budget(postgres_session):
                     statement_month=month, statement_status=4, promotion_original_fee_cent=17001,
                     promotion_net_fee_cent=17001, management_original_fee_cent=7003,
                     management_net_fee_cent=7003))
+                # Locked bills need the same complete immutable authority as production.
+                occurred_at = datetime.fromisoformat(month + "-01T02:00:00+00:00")
+                coupon_id, order_id = f"coupon-{statement_id}", f"order-{statement_id}"
+                base_cent = 1000000
                 for direction, amount in ((1, 17001), (2, 7003)):
-                    lines.append(dict(statement_line_id=f"line-{statement_id}-{direction}",
+                    line_id = f"line-{statement_id}-{direction}"
+                    fee_result_id = f"fee-{statement_id}-{direction}"
+                    fee_rate = Decimal(amount) / base_cent
+                    fee_results.append(dict(fee_result_id=fee_result_id, coupon_id=coupon_id,
+                        order_id=order_id, fee_direction=direction, result_version=1,
+                        original_business_month=month, rule_match_date=occurred_at.date(),
+                        sale_store_id=values["store_id"], verify_store_id=values["store_id"],
+                        sku_id="scale-sku", product_scope="all", product_type="all",
+                        sale_channel_normalized="store", source_amount_cent=base_cent,
+                        fee_base_cent=base_cent, fee_rate=fee_rate, fee_amount_cent=amount,
+                        rule_version="scale-rule", scope_rule_version="scale-scope", result_status=2,
+                        calculation_run_id="scale-frozen", qualifying_verify_id=f"verify-{coupon_id}",
+                        qualifying_verify_time=occurred_at, calculated_at=occurred_at))
+                    lines.append(dict(statement_line_id=line_id,
                         statement_id=statement_id, fee_direction=direction,
-                        product_scope="all", product_type="all", original_fee_cent=amount, net_fee_cent=amount))
+                        product_scope="all", product_type="all", original_entry_count=1,
+                        original_base_cent=base_cent, net_base_cent=base_cent,
+                        original_fee_cent=amount, net_fee_cent=amount))
+                    entries.append(dict(statement_entry_id=f"entry-{statement_id}-{direction}",
+                        statement_id=statement_id, statement_line_id=line_id, source_type=1,
+                        source_record_id=fee_result_id, original_fee_result_id=fee_result_id,
+                        coupon_id=coupon_id, order_id=order_id, fee_direction=direction,
+                        original_business_month=month, statement_posting_month=month,
+                        product_scope="all", product_type="all", base_amount_cent=base_cent,
+                        fee_amount_cent=amount, rule_version="scale-rule", sku_id_snapshot="scale-sku",
+                        sale_store_id_snapshot=values["store_id"], sale_store_snapshot=f"Scale {index:03d}",
+                        verify_store_id_snapshot=values["store_id"], verify_store_snapshot=f"Scale {index:03d}",
+                        verify_time_snapshot=occurred_at, received_amount_cent_snapshot=base_cent,
+                        fee_rate_snapshot=fee_rate))
     session.execute(insert(AggStoreMonthlySettlement), aggregates)
     session.execute(insert(AggStoreRanking), ranks)
     session.execute(insert(SettlementStatement), formal)
     session.execute(insert(SettlementStatementLine), lines)
+    session.execute(insert(SettlementFeeResult), fee_results)
+    session.execute(insert(SettlementStatementEntry), entries)
     session.commit()
+    assert session.scalar(select(func.count()).select_from(SettlementStatement).where(
+        SettlementStatement.statement_status == 4)) == 96
+    for model in (SettlementStatementLine, SettlementFeeResult, SettlementStatementEntry):
+        assert session.scalar(select(func.count()).select_from(model)) == 192
     _run(session, "scale-publication", "settlement")
     count = 0
 
@@ -238,6 +275,7 @@ def test_postgres_200_stores_12_months_build_budget(postgres_session):
     peak_mib = _peak_memory_mib()
     evidence = dict(stores=200, months=12, aggregate_rows=2400,
         locked_statements=len(formal), locked_lines=len(lines),
+        frozen_fee_results=len(fee_results), frozen_entries=len(entries),
         build_seconds=round(build_seconds, 3), build_sql=build_sql,
         read_seconds=round(read_seconds, 3), read_sql=read_sql,
         peak_process_mib=round(peak_mib, 1), publication_rows=stats["row_count"],

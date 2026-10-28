@@ -62,6 +62,6 @@ export function initialStatementMonth(
   searchParams: URLSearchParams,
   now = new Date(),
 ): string {
-  const requested = searchParams.get("month");
+  const requested = [searchParams.get("month"), searchParams.get("periodKey")].find(isStatementMonth);
   return isStatementMonth(requested) ? requested : previousShanghaiStatementMonth(now);
 }

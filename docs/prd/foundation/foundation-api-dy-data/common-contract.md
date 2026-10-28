@@ -147,9 +147,9 @@
 | `stores` | array | 必返 | 当前用户可选择的门店 | 用户门店授权关系过滤 `dim_stores` |
 | `stores[].storeId` | string | 必返 | 门店业务 ID | `dim_stores.store_id` |
 | `stores[].storeName` | string | 必返 | 门店名称 | `dim_stores.store_name` |
-| `productScopes` | string[] | 必返 | 产品范围，包含 `all` | `dim_sku_product_rules.product_scope` |
-| `productScopeTypeMap` | object | 必返 | 产品范围到商品类型的合法映射 | `dim_sku_product_rules.product_scope/product_type` |
-| `productTypes` | string[] | 必返 | 当前可用商品类型，包含 `all` | `dim_sku_product_rules.product_type` |
+| `productScopes` | string[] | 必返 | 普通查询仅 all 或空兼容集合 | 非普通分类条件，独立打榜例外 |
+| `productScopeTypeMap` | object | 必返 | 普通查询为空配对映射 | 不再用 scope/type 配对校验 |
+| `productTypes` | string[] | 必返 | 当前授权数据实际类型，含 all | 分析读同版发布类型；后台目录按权限读取 |
 | `saleMonths` | string[] | 必返 | 可用销售月份 | `agg_store_ranking.period_key`、`raw_douyin_orders.sale_time` |
 | `verifyMonths` | string[] | 必返 | 可用核销月份 | `raw_douyin_verify_records.verify_time` |
 | `statementMonths` | string[] | 必返 | 可用结算账期 | `agg_store_monthly_settlement.month` |
@@ -160,6 +160,10 @@
 
 **约束**：
 
-- 商品类型必须按当前产品范围收敛；无匹配值返回 `[]`，不得保留上一次选择。
+- 普通业务类型精确匹配，旧 scope 参数忽略；类型选项须来自当前用户有权限的同版数据，分类不是隐藏数据白名单。无授权门店时仅 all，不能借全局目录扩权。单店切换按用户全部授权门店同版类型选项校验，目标店无数据正常空结果。
 - 月份按降序返回；`2026-07` 可作为测试数据筛选值存在，但不得进入正式累计或开票准备范围。
 - 管理端对商品分类的更新和商品同步成功后，应使元数据缓存失效。
+
+**DYDATA-104 默认账期**：全国门店月榜、单店分账和订单明细在无显式账期/固定账单上下文时，默认 Asia/Shanghai 上一完整自然月；显式月份和下钻优先，查询/分页/导出沿用实际月。不回退更早月或累计，未发布/失败/无权限与正常零数据分别呈现。
+
+**发布合同**：sales/clue-overview/settlement 来源指纹含 `product-type-v2`，finance/douyin-ranking 不因此改变；旧分析版本默认请求 PUBLICATION_NOT_READY、指定旧版 PUBLICATION_EXPIRED，GET 不构建。冻结财务旧类型继续兼容读取，不能因目录归一静默改名或重复累加兼容 scope 汇总。独立 DouyinRankingPage/ExportDialog 的 all/jingcheng/byd、排序/下钻/导出保持原合同。

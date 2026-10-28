@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import { initialStatementMonth } from "../utils/statementMonth";
+import { replaceBusinessFiltersInUrl } from "../utils/businessFilters";
+import { useEffect, useMemo, useState } from "react";
 import {
   exportOrderFeeDetails,
   fetchOrderFeeDetails,
@@ -86,25 +88,25 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
   const statementId = searchParams.get("statementId") ?? undefined;
   const statementLineId = searchParams.get("statementLineId") ?? undefined;
   const storeId = searchParams.get("storeId") ?? searchParams.get("store_id") ?? undefined;
-  const month = searchParams.get("month") ?? undefined;
+  const [month, setMonth] = useState(() => initialStatementMonth(searchParams));
   const feeRates = searchParams.getAll("feeRates");
   const ruleVersions = searchParams.getAll("ruleVersions");
-  const productScope = searchParams.get("productScope") ?? searchParams.get("product_scope") ?? "all";
-  const productType = searchParams.get("productType") ?? searchParams.get("product_type") ?? meta?.defaultProductType ?? "all";
+  const [requestedProductType, setProductType] = useState(searchParams.get("productType") ?? searchParams.get("product_type") ?? "");
+  const productType = requestedProductType || meta?.defaultProductType || "all";
   const hasStatementSource = Boolean(statementId && statementLineId);
   const hasPreviewSource = Boolean(storeId && month);
   const hasSourceContext = hasStatementSource || hasPreviewSource;
   const directionIsFrozen = hasSourceContext && Boolean(statementLineId || feeRates.length || ruleVersions.length);
+  useEffect(() => replaceBusinessFiltersInUrl({ month: hasStatementSource ? undefined : month, periodKey: undefined, productType: requestedProductType || undefined, product_type: undefined }), [hasStatementSource, month, requestedProductType]);
 
   const requestQuery = useMemo<OrderFeeDetailsQuery>(() => ({
     statementId: hasStatementSource ? statementId : undefined,
     statementLineId: hasStatementSource ? statementLineId : undefined,
     storeId: hasPreviewSource && !hasStatementSource ? storeId : undefined,
-    month: hasPreviewSource && !hasStatementSource ? month : undefined,
+    month: !hasStatementSource ? month : undefined,
     saleMonth: saleMonth || undefined,
     verifyMonth: verifyMonth || undefined,
     feeDirection,
-    productScope,
     productType,
     feeRates: hasSourceContext ? feeRates : [],
     ruleVersions: hasSourceContext ? ruleVersions : [],
@@ -112,10 +114,11 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
     q: queryText || undefined,
     page,
     pageSize: PAGE_SIZE,
-  }), [hasStatementSource, hasPreviewSource, statementId, statementLineId, storeId, month, saleMonth, verifyMonth, feeDirection, productScope, productType, feeRates.join("|"), ruleVersions.join("|"), dataStatus, queryText, page]);
+  }), [hasStatementSource, hasPreviewSource, statementId, statementLineId, storeId, month, saleMonth, verifyMonth, feeDirection, productType, feeRates.join("|"), ruleVersions.join("|"), dataStatus, queryText, page]);
   const detailsResource = useApiResource(
     () => fetchOrderFeeDetails(requestQuery),
     [requestQuery],
+    { enabled: Boolean(meta), clearOnReload: true },
   );
   const details = detailsResource.data?.data;
   const rows = details?.list ?? [];
@@ -128,7 +131,6 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
   const returnSearch = new URLSearchParams();
   if (returnStoreId) returnSearch.set("storeId", returnStoreId);
   if (returnMonth) returnSearch.set("month", returnMonth);
-  if (normalizedContext?.productScope ?? productScope) returnSearch.set("productScope", normalizedContext?.productScope ?? productScope);
   if (normalizedContext?.productType ?? productType) returnSearch.set("productType", normalizedContext?.productType ?? productType);
   const returnHref = `/settlement${returnSearch.size ? `?${returnSearch.toString()}` : ""}`;
 
@@ -149,7 +151,6 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
         storeId: context.statementId ? undefined : context.storeId ?? undefined,
         month: context.statementId ? undefined : context.month ?? undefined,
         feeDirection: context.feeDirection,
-        productScope: context.productScope,
         productType: context.productType,
         feeRates: exportHasSourceContext ? context.feeRates : [],
         ruleVersions: exportHasSourceContext ? context.ruleVersions : [],
@@ -175,7 +176,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
       title: "商品 / 渠道",
       align: "left",
       minWidth: 220,
-      render: (row) => <span className="identifier-stack"><strong>{row.productName || row.skuName || "未匹配商品"}</strong><small>{row.skuId}</small><small>{row.productScope} / {row.productType} · {row.saleChannel || "-"}</small></span>,
+      render: (row) => <span className="identifier-stack"><strong>{row.productName || row.skuName || "未匹配商品"}</strong><small>{row.skuId}</small><small>{row.productType} · {row.saleChannel || "-"}</small></span>,
     },
     {
       key: "stores",
@@ -219,6 +220,8 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
       </div>
       {directionIsFrozen ? <p className="muted-copy">当前明细绑定了具体费用行、费率和规则版本；如需查看另一费用类型，请返回单店分账选择对应汇总行。</p> : null}
       <FilterBar className="filter-bar--compact detail-filter-bar detail-filter-bar--single-line">
+        <SelectField disabled={hasStatementSource || directionIsFrozen} label="账期" value={normalizedContext?.month ?? month} onChange={(value) => { setMonth(value); setPage(1); }} options={Array.from(new Set([normalizedContext?.month ?? month, ...(meta?.statementMonths ?? [])])).map((value) => ({ value, label: value }))} />
+        <SelectField disabled={hasStatementSource || directionIsFrozen || !meta} label="商品类型" value={productType} onChange={(value) => { setProductType(value); setPage(1); }} options={Array.from(new Set(["all", ...(meta?.productTypes ?? []), productType])).map((value) => ({ value, label: value === "all" ? "全部商品" : value }))} />
         <SelectField label="销售月份" value={saleMonth} onChange={(value) => { setSaleMonth(value); setPage(1); }} options={[{ value: "", label: "全部" }, ...(meta?.saleMonths ?? []).map((value) => ({ value, label: value }))]} />
         <SelectField label="核销月份" value={verifyMonth} onChange={(value) => { setVerifyMonth(value); setPage(1); }} options={[{ value: "", label: "全部" }, ...(meta?.verifyMonths ?? []).map((value) => ({ value, label: value }))]} />
         <SelectField label="数据状态" value={dataStatus} onChange={(value) => { setDataStatus(value); setPage(1); }} options={[{ value: "", label: "全部" }, { value: "VALID", label: "有效" }, { value: "ADJUSTED", label: "有调整" }, { value: "BLOCKED", label: "数据阻断" }, { value: "LOCKED", label: "已锁账" }]} />
@@ -227,7 +230,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
       <section className="content-section content-section--data-workspace">
         <div className="section-title"><div><h2>明细记录</h2><p>{details ? `${details.total} 条 · ${details.context.feeRates.length} 种费率 · ${details.context.ruleVersions.length} 个版本` : hasSourceContext ? "正在读取来源上下文" : "正在读取当前授权范围"}</p></div><div className="section-title-actions"><Button type="button" icon="fileDownload" size="sm" loading={exporting} disabled={exporting || !details?.total} onClick={handleExportOrders}>{exporting ? "导出中" : "导出"}</Button></div></div>
         {exportError ? <p className="export-error" role="status">{exportError}</p> : null}
-        {!details && detailsResource.loading ? <ResourcePanel>正在加载订单费用明细…</ResourcePanel> : !details ? <ResourcePanel tone="error">{errorText(detailsError, hasSourceContext)}{hasSourceContext ? <><br /><Button type="button" variant="text" onClick={() => navigate(returnHref)}>返回单店分账</Button></> : null}</ResourcePanel> : rows.length ? <><DataTable columns={columns} rows={rows} stickyHeader="container" tableClassName="data-table--details" /><TablePagination page={details.page} pageSize={details.pageSize} total={details.total} totalPages={Math.max(1, Math.ceil(details.total / details.pageSize))} rowsOnPage={rows.length} loading={detailsResource.loading} onPageChange={setPage} /></> : <ResourcePanel>当前筛选下没有费用记录。</ResourcePanel>}
+        {!details && (metaResource.loading || detailsResource.loading) ? <ResourcePanel>正在加载订单费用明细…</ResourcePanel> : !details ? <ResourcePanel tone="error">{errorText(detailsError, hasSourceContext)}{hasSourceContext ? <><br /><Button type="button" variant="text" onClick={() => navigate(returnHref)}>返回单店分账</Button></> : null}</ResourcePanel> : rows.length ? <><DataTable columns={columns} rows={rows} stickyHeader="container" tableClassName="data-table--details" /><TablePagination page={details.page} pageSize={details.pageSize} total={details.total} totalPages={Math.max(1, Math.ceil(details.total / details.pageSize))} rowsOnPage={rows.length} loading={detailsResource.loading} onPageChange={setPage} /></> : <ResourcePanel>当前筛选下没有费用记录。</ResourcePanel>}
       </section>
     </div>
   );

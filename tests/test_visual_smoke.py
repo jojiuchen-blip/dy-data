@@ -22,7 +22,7 @@ import pytest
 from fastapi import HTTPException, Request
 from playwright.sync_api import Browser, Page, expect, sync_playwright
 from openpyxl import Workbook
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 import uvicorn
 
@@ -154,6 +154,7 @@ from apps.api.dy_api.models import (  # noqa: E402
     SettlementStatement,
     SettlementStatementConfirmation,
     SettlementStatementEntry,
+    SettlementStatementLine,
     StoreFinanceProfile,
 )
 
@@ -175,7 +176,9 @@ class LiveSettlementStore:
     def commission_rules_summary(self):
         return {"non_commission_owner_accounts": [], "commission_skus": []}
 
-    def list_product_types(self):
+    def list_product_types(self, scope_store_ids=None):
+        if scope_store_ids is not None and not self.list_stores(scope_store_ids):
+            return ["all"]
         return ["all", "basic_service"]
 
     def list_product_scopes(self):
@@ -614,6 +617,65 @@ def vite_live_api_base_url(live_fastapi_base_url: str) -> Generator[str]:
 LIVE_ADMIN_SESSION_FACTORIES: dict[str, sessionmaker] = {}
 
 
+def _seed_live_admin_complete_billing_sources(session) -> None:
+    """Complete synthetic protected bills without changing existing UI amounts.
+
+    The two existing detail orders retain 128641/32000 cents. Their bill
+    headers already included the remaining amounts below; independent source
+    identities make that existing scope explicit without changing those orders.
+    """
+    for store_id, direction, fee in (
+        ("store-1", 1, 12_735_409), ("store-1", 2, 288_000),
+        ("store-2", 1, 7_642_000), ("store-2", 2, 230_000),
+    ):
+        name = "promotion" if direction == 1 else "management"
+        identity = f"uat-bill-remainder-{store_id}-{name}"
+        line_id = f"uat-line-{name}" + ("-store-2" if store_id == "store-2" else "")
+        base = fee * 10
+        session.add(SettlementFeeResult(
+            fee_result_id=identity, coupon_id=identity, order_id=f"order-{identity}",
+            fee_direction=direction, result_version=1, original_business_month="2026-08",
+            rule_match_date=date(2026, 8, 5), sale_store_id=store_id, verify_store_id=store_id,
+            sku_id=f"SKU-{identity}", product_scope="精诚养车", product_type="养车服务",
+            sale_channel_normalized="LIVE", source_amount_cent=base, refunded_amount_cent=0,
+            fee_base_cent=base, fee_rate=Decimal("0.100000"), fee_amount_cent=fee,
+            rule_version="uat-rule-v1", scope_rule_version="uat-scope-v1", result_status=1,
+            calculation_run_id=identity, calculated_at=datetime(2026, 8, 5, 9, tzinfo=timezone.utc),
+        ))
+        session.add(SettlementFeeResultCurrent(coupon_id=identity, fee_direction=direction, fee_result_id=identity))
+        session.add(SettlementStatementEntry(
+            statement_entry_id=f"entry-{identity}", statement_id=f"uat-statement-{store_id}",
+            statement_line_id=line_id, source_type=1, source_record_id=identity, original_fee_result_id=identity,
+            coupon_id=identity, order_id=f"order-{identity}", fee_direction=direction,
+            original_business_month="2026-08", statement_posting_month="2026-08",
+            product_scope="精诚养车", product_type="养车服务", base_amount_cent=base,
+            fee_amount_cent=fee, rule_version="uat-rule-v1", product_name_snapshot="合成账单范围内其他费用",
+            sku_id_snapshot=f"SKU-{identity}", received_amount_cent_snapshot=base,
+            fee_rate_snapshot=Decimal("0.100000"), sale_store_id_snapshot=store_id,
+            verify_store_id_snapshot=store_id, sale_channel_snapshot="live",
+        ))
+    session.flush()
+    for store_id in ("store-1", "store-2"):
+        statement_id = f"uat-statement-{store_id}"
+        bill = session.scalar(select(SettlementStatement).where(SettlementStatement.statement_id == statement_id))
+        for direction, name in ((1, "promotion"), (2, "management")):
+            entries = list(session.scalars(select(SettlementStatementEntry).where(
+                SettlementStatementEntry.statement_id == statement_id,
+                SettlementStatementEntry.fee_direction == direction,
+            )))
+            fee = sum(entry.fee_amount_cent for entry in entries)
+            base = sum(entry.base_amount_cent for entry in entries)
+            assert fee == getattr(bill, f"{name}_original_fee_cent") == getattr(bill, f"{name}_net_fee_cent")
+            assert getattr(bill, f"{name}_adjustment_fee_cent") == 0
+            session.add(SettlementStatementLine(
+                statement_line_id=entries[0].statement_line_id, statement_id=statement_id, fee_direction=direction,
+                product_scope="精诚养车", product_type="养车服务", original_entry_count=len(entries),
+                adjustment_entry_count=0, original_base_cent=base, adjustment_base_cent=0, net_base_cent=base,
+                original_fee_cent=fee, adjustment_fee_cent=0, net_fee_cent=fee,
+            ))
+    session.commit()
+
+
 @pytest.fixture(scope="session")
 def live_admin_fastapi_base_url(tmp_path_factory) -> Generator[str]:
     port = find_free_port()
@@ -897,7 +959,7 @@ def live_admin_fastapi_base_url(tmp_path_factory) -> Generator[str]:
                     statement_id="uat-statement-store-1",
                     statement_line_id="uat-line-promotion",
                     source_type=1,
-                    source_record_id="uat-source-promotion",
+                    source_record_id="uat-fee-promotion",
                     original_fee_result_id="uat-fee-promotion",
                     coupon_id="uat-coupon-promotion",
                     order_id="DY2026071900842",
@@ -929,7 +991,7 @@ def live_admin_fastapi_base_url(tmp_path_factory) -> Generator[str]:
                     statement_id="uat-statement-store-1",
                     statement_line_id="uat-line-management",
                     source_type=1,
-                    source_record_id="uat-source-management",
+                    source_record_id="uat-fee-management",
                     original_fee_result_id="uat-fee-management",
                     coupon_id="uat-coupon-management",
                     order_id="DY20260622001935",
@@ -1132,6 +1194,7 @@ def live_admin_fastapi_base_url(tmp_path_factory) -> Generator[str]:
         ])
         session.commit()
         # Analytical browser reads share one explicit initial background publication.
+        _seed_live_admin_complete_billing_sources(session)
         publish_fixture(session, "finance")
         publish_fixture(session, "settlement")
 
@@ -2191,7 +2254,9 @@ def test_admin_product_types_drawers_open_without_runtime_errors(
         page.get_by_role("button", name="设置", exact=True).click()
         drawer = page.get_by_role("dialog", name="设置商品口径")
         drawer.wait_for(timeout=10000)
-        assert drawer.get_by_text("保持原值", exact=True).count() == 2
+        expect(drawer.get_by_label("商品类型", exact=True)).to_be_visible()
+        expect(drawer.get_by_label("产品范围", exact=True)).to_have_count(0)
+        expect(drawer.get_by_text("保持原值", exact=True)).to_have_count(0)
         page.screenshot(path=tmp_path / "admin-product-types-drawer.png", full_page=True)
         page.get_by_role("button", name="取消", exact=True).click()
         page.get_by_role("button", name="批量导入", exact=True).click()
@@ -2865,7 +2930,7 @@ def test_douyin_board_dates_levels_and_auxiliary_follow(browser, vite_real_api_b
         context.close()
 
 
-def test_ranking_uses_backend_enum_contract_and_latest_sale_month(
+def test_ranking_uses_backend_enum_contract_and_last_complete_business_month(
     browser: Browser,
     vite_real_api_base_url: str,
 ) -> None:
@@ -2873,6 +2938,7 @@ def test_ranking_uses_backend_enum_contract_and_latest_sale_month(
     page = context.new_page()
     ranking_urls: list[str] = []
     try:
+        page.clock.set_fixed_time("2026-10-20T02:00:00Z")
         install_settlement_user_route(page, "admin")
         meta = settlement_filter_meta()
         meta["saleMonths"] = ["2026-07"]
@@ -2895,7 +2961,7 @@ def test_ranking_uses_backend_enum_contract_and_latest_sale_month(
                 body=api_payload(
                     {
                         "periodType": "MONTHLY",
-                        "periodKey": "2026-07",
+                        "periodKey": "2026-09",
                         "productScope": "all",
                         "productType": "all",
                         "scopeMode": "AUTHORIZED",
@@ -2933,7 +2999,8 @@ def test_ranking_uses_backend_enum_contract_and_latest_sale_month(
 
         assert ranking_urls
         request_url = ranking_urls[-1]
-        assert "periodKey=2026-07" in request_url
+        assert "periodKey=2026-09" in request_url
+        assert "productScope=" not in request_url
         assert "sortBy=PROMOTION_FEE" in request_url
         assert "sortOrder=DESC" in request_url
         assert "rankingBasis=PROMOTION_FEE_MONTH" in request_url
@@ -2949,6 +3016,7 @@ def test_order_details_direct_url_loads_authorized_default_scope(
     page = context.new_page()
     order_detail_requests: list[str] = []
     try:
+        page.clock.set_fixed_time("2026-10-20T02:00:00Z")
         install_settlement_user_route(page, "admin")
         page.route(
             "**/api/v1/meta/filters",
@@ -2966,7 +3034,7 @@ def test_order_details_direct_url_loads_authorized_default_scope(
             payload["context"] = {
                 **payload["context"],
                 "storeId": None,
-                "month": None,
+                "month": "2026-09",
             }
             getattr(route, "fulfill")(
                 status=200,
@@ -2980,7 +3048,7 @@ def test_order_details_direct_url_loads_authorized_default_scope(
             wait_until="domcontentloaded",
         )
         page.get_by_text("当前筛选下没有费用记录。", exact=True).wait_for(timeout=10000)
-        assert page.get_by_text("当前账号授权范围", exact=False).first.is_visible()
+        expect(page.get_by_text("2026-09 预览来源", exact=False).first).to_be_visible()
         assert page.get_by_role("button", name="返回单店分账", exact=True).count() == 0
         assert page.get_by_role("button", name="管理服务费", exact=True).is_enabled()
         assert order_detail_requests
@@ -2989,7 +3057,7 @@ def test_order_details_direct_url_loads_authorized_default_scope(
         for request_url in order_detail_requests:
             assert "feeDirection=PROMOTION" in request_url
             assert "storeId=" not in request_url
-            assert "month=" not in request_url
+            assert "month=2026-09" in request_url
             assert "feeRates=" not in request_url
             assert "ruleVersions=" not in request_url
     finally:
@@ -3281,7 +3349,8 @@ def test_settlement_pages_connect_to_live_fastapi_for_roles_and_error_states(
     )
     admin_page = admin_context.new_page()
     try:
-        admin_page.goto(f"{vite_live_api_base_url}/ranking", wait_until="domcontentloaded")
+        # This role/error fixture has August facts; keep its period explicit.
+        admin_page.goto(f"{vite_live_api_base_url}/ranking?periodKey=2026-08", wait_until="domcontentloaded")
         admin_page.get_by_text("上海浦东体验中心", exact=True).first.wait_for(timeout=10000)
         assert "全国门店月度榜单" in admin_page.locator("body").inner_text()
     finally:
@@ -6201,6 +6270,22 @@ def test_finance_import_clears_stale_preview_after_409(
     try:
         install_api_routes(page)
         page.route("**/api/v1/admin/finance-imports", upload_preview)
+        page.route("**/api/v1/admin/finance-imports/FIN-PREVIEW-001/rows?*", lambda route: route.fulfill(
+            status=200, content_type="application/json", body=api_payload({
+                "list": [{"rowNumber": 2, "businessKey": "12345678901234567890", "rowStatus": 1,
+                    "preview": {"available": True, "schemaVersion": 1,
+                        "capturedAt": "2026-08-08T10:00:00+08:00", "targetType": "PROMOTION_INVOICE",
+                        "targetRecordId": "INV-PREVIEW-001", "targetVersion": 1,
+                        "before": {"invoiceNumber": "12345678901234567890", "reviewResult": "SUBMITTED_PENDING_FACTORY_REVIEW",
+                            "rejectionReason": None, "settlementDate": None, "settlementAmountCent": None},
+                        "after": {"invoiceNumber": "12345678901234567890", "reviewResult": "APPROVED_SETTLED",
+                            "rejectionReason": None, "settlementDate": "2026-08-08", "settlementAmountCent": 38000},
+                        "stateTransition": {"fromState": "SUBMITTED_PENDING_FACTORY_REVIEW", "toState": "APPROVED_SETTLED", "allowed": True},
+                        "allowedChanges": ["更新厂家审核及结算结果"], "blockedReasons": []}}],
+                "total": 1, "page": 1, "pageSize": 50,
+                "previewSummary": {"frozenAvailable": True, "blockedRowCount": 0, "totalRows": 1},
+            }),
+        ))
         page.route("**/api/v1/admin/finance-imports/FIN-PREVIEW-001/commits", commit_preview)
         page.goto(
             f"{vite_base_url}/finance/promotion?month=2026-08",
@@ -6214,7 +6299,7 @@ def test_finance_import_clears_stale_preview_after_409(
         file_input.set_input_files({
             "name": "promotion-review.csv",
             "mimeType": "text/csv",
-            "buffer": b"invoiceNumber,reviewResult,rejectionReason,settlementDate,settlementAmountCent\n12345678901234567890,APPROVED,,2026-08-08,38000\n",
+            "buffer": b"invoiceNumber,reviewResult,rejectionReason,settlementDate,settlementAmountCent\n12345678901234567890,APPROVED_SETTLED,,2026-08-08,38000\n",
         })
         upload_button = page.get_by_role("button", name="上传并预览")
         expect(upload_button).to_be_enabled(timeout=10000)
@@ -6224,5 +6309,16 @@ def test_finance_import_clears_stale_preview_after_409(
         page.get_by_text("数据已发生变化，请刷新后重新操作。", exact=True).wait_for(timeout=10000)
         assert page.get_by_text("首次导入，待确认", exact=True).count() == 0
         assert commit_attempts == 1
+        expect(page.get_by_role("region", name="逐行字段预览", exact=True)).to_have_count(0)
+        expect(upload_button).to_be_disabled()
+        page.get_by_label("文件").set_input_files({
+            "name": "promotion-review-retry.csv", "mimeType": "text/csv",
+            "buffer": b"invoiceNumber,reviewResult,rejectionReason,settlementDate,settlementAmountCent\n12345678901234567890,APPROVED_SETTLED,,2026-08-08,38000\n",
+        })
+        upload_button.click()
+        expect(page.get_by_role("region", name="逐行字段预览", exact=True)).to_contain_text("380.00")
+        page.get_by_role("button", name="确认提交").click()
+        page.get_by_text("导入结果已生效；导入时间作为审核通过或结算完成时间。", exact=True).wait_for(timeout=10000)
+        assert commit_attempts == 2
     finally:
         context.close()

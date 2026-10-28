@@ -15,6 +15,10 @@ from sqlalchemy.orm import Session
 from apps.api.dy_api.models import (
     JobEvent, SettlementBillingSourceBundle, SettlementFeeAdjustment,
     SettlementFeeResult, utcnow,
+    SettlementStatementEntry,
+)
+from apps.worker.protected_billing_authority import (
+    adjustment_source_from_entry, statement_source_from_entry, validate_protected_authority, lock_current_bills,
 )
 from apps.worker.settlement import (
     StatementSource, _adjustment_statement_source, _lock_settlement_slot,
@@ -35,6 +39,7 @@ def collect_billing_sources(
     relation = _sparse_authority_relation(tuple(months))
     query = select(
         relation.c.source_kind, relation.c.source_id, relation.c.store_id, relation.c.month,
+        relation.c.frozen_entry_id, relation.c.basis_entry_id,
     ).distinct().order_by(relation.c.store_id, relation.c.month, relation.c.source_kind, relation.c.source_id)
     references = session.execute(query).all()
     locked_slots = {(store, month) for store, month in slots} | {(row.store_id, row.month) for row in references}
@@ -42,13 +47,23 @@ def collect_billing_sources(
         if not store_id:
             raise ValueError("billing source has no responsible store")
         _lock_settlement_slot(session, store_id, month)
+    lock_current_bills(session, locked_slots)
     # A writer may have committed while we waited for a slot. Never freeze its
     # superseded references. New slots require a fresh transaction/lock order.
     references = session.execute(query).all()
     if any((row.store_id, row.month) not in locked_slots for row in references):
         raise ValueError("billing source slots changed during capture; retry in a new transaction")
+    validate_protected_authority(session, tuple(months))
     sources = []
     for reference in references:
+        if getattr(reference, "frozen_entry_id", None):
+            entry = session.scalar(select(SettlementStatementEntry).where(
+                SettlementStatementEntry.statement_entry_id == reference.frozen_entry_id,
+            ))
+            if entry is None:
+                raise ValueError("protected billing entry disappeared during capture")
+            sources.append(statement_source_from_entry(session, entry, reference.store_id))
+            continue
         if reference.source_kind == "result":
             result = session.scalar(select(SettlementFeeResult).where(
                 SettlementFeeResult.fee_result_id == reference.source_id,
@@ -67,7 +82,13 @@ def collect_billing_sources(
             ))
             if result is None:
                 raise ValueError("billing adjustment original is missing")
-            sources.append(_adjustment_statement_source(session, adjustment, result))
+            if getattr(reference, "basis_entry_id", None):
+                entry = session.scalar(select(SettlementStatementEntry).where(
+                    SettlementStatementEntry.statement_entry_id == reference.basis_entry_id,
+                ))
+                sources.append(adjustment_source_from_entry(session, adjustment, entry, reference.store_id))
+            else:
+                sources.append(_adjustment_statement_source(session, adjustment, result))
     return sources
 
 

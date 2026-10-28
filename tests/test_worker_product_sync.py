@@ -122,6 +122,43 @@ def test_product_sync_success_writes_history_and_preserves_manual_fields(db_sess
     assert fixture.calls == [("FULL", None), ("FULL", "opaque-cursor-1")]
 
 
+def test_sync_maintains_exact_scope_conversion_without_inferring_membership(db_session: Session) -> None:
+    from decimal import Decimal
+
+    for sku_id, scope, product_type in (
+        ("target", "精诚养车", "268保养"),
+        ("other", "其他", "人工类型"),
+        ("code", "jingcheng", "人工类型"),
+        ("type-only", "", "精诚养车"),
+    ):
+        db_session.add(DimSkuProductRule(
+            sku_id=sku_id, product_scope=scope, product_type=product_type,
+            commission_rate=Decimal(".1234"), manual_modified_by="original-admin",
+        ))
+    db_session.flush()
+    for index in range(2):
+        job_id = f"classification-sync-{index}"
+        _queue(db_session, job_id=job_id)
+        result = execute_product_sync(
+            db_session, job_id=job_id,
+            adapter=NormalizedProductSyncAdapter(FixturePages([{
+                "items": [_item(sku_id=sku_id, sku_name="精诚养车名称不参与分类")
+                          for sku_id in ("target", "other", "code", "type-only", "new")],
+                "hasMore": False, "nextCursor": None,
+            }])),
+        )
+        assert result.status == "SUCCESS"
+        db_session.flush()
+    rows = {row.sku_id: row for row in db_session.scalars(select(DimSkuProductRule))}
+    assert (rows["target"].product_scope, rows["target"].product_type) == ("精诚养车", "精诚养车")
+    assert (rows["other"].product_scope, rows["other"].product_type) == ("其他", "人工类型")
+    assert (rows["code"].product_scope, rows["code"].product_type) == ("jingcheng", "人工类型")
+    assert (rows["type-only"].product_scope, rows["type-only"].product_type) == ("", "精诚养车")
+    assert (rows["new"].product_scope, rows["new"].product_type) == ("", "")
+    assert rows["target"].commission_rate == Decimal(".1234")
+    assert rows["target"].manual_modified_by == "original-admin"
+
+
 def test_empty_terminal_page_completes_without_creating_rows(db_session: Session) -> None:
     _queue(db_session)
 
@@ -381,7 +418,6 @@ def test_real_adapter_maps_all_statuses_and_uses_id_fallback():
         known_products={
             "product-visible": {"sku-visible"},
             "product-hidden": {"sku-hidden"},
-            "product-missing": {"sku-missing"},
         },
     )
     cursor = None
@@ -395,7 +431,7 @@ def test_real_adapter_maps_all_statuses_and_uses_id_fallback():
 
     by_sku = {item.sku_id: item for item in items}
     assert [call["status"] for call in client.list_calls] == [1, 2, 3]
-    assert client.id_calls == [["product-hidden", "product-missing"]]
+    assert client.id_calls == [["product-hidden"]]
     assert by_sku["sku-visible"].product_status_normalized == "ACTIVE"
     assert by_sku["sku-visible"].owner_account_id == "2001"
     assert by_sku["sku-visible"].owner_account_name == "Owner account"
@@ -404,8 +440,7 @@ def test_real_adapter_maps_all_statuses_and_uses_id_fallback():
     )
     assert by_sku["sku-hidden"].product_status_normalized == "BANNED"
     assert by_sku["sku-hidden-2"].product_status_normalized == "BANNED"
-    assert by_sku["sku-missing"].sync_status == "NOT_FOUND"
-    assert by_sku["sku-missing"].product_status_normalized == "UNKNOWN"
+    assert "sku-missing" not in by_sku
 
 
 class MissingSkuDouyinProductClient:
@@ -441,7 +476,7 @@ class MissingSkuDouyinProductClient:
         return {"data": {"product_onlines": []}}
 
 
-def test_real_adapter_skips_product_rows_without_sku_without_blocking_current_table(
+def test_real_adapter_empty_unknown_product_blocks_current_table_until_reconciled(
     db_session: Session,
 ):
     _queue(db_session)
@@ -450,11 +485,12 @@ def test_real_adapter_skips_product_rows_without_sku_without_blocking_current_ta
     result = execute_product_sync(db_session, job_id="product-sync-1", adapter=adapter)
 
     current = list(db_session.scalars(select(DimSkuProductRule)))
-    assert result.status == "SUCCESS"
+    assert result.status == "FAILED"
+    assert result.error_code == "INCOMPLETE_RESPONSE"
     assert result.observed_count == 2
     assert result.skipped_count == 1
-    assert result.failed_count == 0
-    assert [row.sku_id for row in current] == ["sku-valid"]
+    assert result.failed_count == 1
+    assert current == []
     job = db_session.get(JobRun, "product-sync-1")
     assert job is not None
     assert job.metadata_json["skipped_count"] == 1
@@ -539,7 +575,7 @@ def test_extract_known_order_products_uses_products_array_and_deduplicates(db_se
     }
 
 
-def test_not_found_sync_attempt_preserves_last_good_platform_fields(db_session: Session):
+def test_missing_product_exhausts_retries_and_preserves_last_good_platform_fields(db_session: Session):
     existing = DimSkuProductRule(
         sku_id="sku-missing",
         sku_name="Trusted SKU",
@@ -570,14 +606,15 @@ def test_not_found_sync_attempt_preserves_last_good_platform_fields(db_session: 
     row = db_session.scalar(
         select(DimSkuProductRule).where(DimSkuProductRule.sku_id == "sku-missing")
     )
-    assert result.status == "SUCCESS"
+    assert result.status == "FAILED"
+    assert result.error_code == "INCOMPLETE_RESPONSE"
     assert row is not None
     assert row.sku_name == "Trusted SKU"
     assert row.owner_account_id == "owner-trusted"
     assert row.product_status_normalized == "ACTIVE"
     assert row.is_active_product is True
-    assert row.sync_status == "NOT_FOUND"
-    assert row.sync_error == "product_not_returned"
+    assert row.sync_status == "SUCCESS"
+    assert row.sync_error is None
     assert row.product_scope == "Manual scope"
     assert row.product_type == "Manual type"
 
@@ -754,15 +791,13 @@ def test_missing_detail_does_not_mark_already_listed_sku_not_found(
             client, known_products={"product-1": {"sku-a", "sku-b"}}
         ),
     )
-    assert result.status == "SUCCESS"
-    assert client.id_calls == [["product-1"]]
+    assert result.status == "FAILED"
+    assert result.error_code == "INCOMPLETE_RESPONSE"
+    assert client.id_calls == [["product-1"]] * 3
     current = {
         row.sku_id: row for row in db_session.scalars(select(DimSkuProductRule))
     }
-    assert current["sku-a"].sync_status == "SUCCESS"
-    assert current["sku-b"].sync_status == "NOT_FOUND"
-    assert current["sku-b"].owner_account_id is None
-    assert current["sku-b"].is_active_product is False
+    assert current == {}
 
 
 def test_twenty_three_product_partial_sku_reply_preserves_all_current_catalog(db_session: Session):
@@ -785,4 +820,4 @@ def test_twenty_three_product_partial_sku_reply_preserves_all_current_catalog(db
     assert len(current) == 23
     assert all(row.sku_name == "Trusted before scan" and row.sync_status == "SUCCESS" and row.is_active_product for row in current)
     assert client.id_calls == [product_ids[:10]]
-    assert client.sku_calls == [(product_ids[0], [f"{product_ids[0]}-missing"])]
+    assert client.sku_calls == [(product_ids[0], [f"{product_ids[0]}-missing"])] * 3

@@ -354,7 +354,9 @@ def test_store_finance_pages_render_the_formal_flow_at_supported_widths(
             }
         if name == "store-ranking":
             assert page.get_by_label("排行依据").count() == 1
-            assert page.get_by_text("商品类型", exact=True).count() == 0
+            expect(page.get_by_label("商品类型", exact=True)).to_be_visible()
+            expect(page.get_by_label("产品范围", exact=True)).to_have_count(0)
+            expect(page.get_by_label("账期", exact=True)).to_have_text("2026-08")
         if name == "store-invoice":
             assert page.locator(".store-finance-invoice-workspace").count() == 1
             assert page.get_by_role("heading", name="购买方开票信息", exact=True).count() == 1

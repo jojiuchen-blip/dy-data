@@ -31,6 +31,8 @@ from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from src.dy_data.product_classification import synced_product_type
+
 from apps.api.dy_api.models import (
     DimSkuProductRule,
     JobRun,
@@ -63,7 +65,8 @@ IMPORT_HEADERS = (
     "promotionServiceFeeRate",
     "managementServiceFeeRate",
 )
-PRODUCT_IMPORT_HEADERS = ("skuId", "productScope", "productType")
+PRODUCT_IMPORT_HEADERS = ("skuId", "productType")
+LEGACY_PRODUCT_IMPORT_HEADERS = ("skuId", "productScope", "productType")
 MAX_IMPORT_BYTES = 10 * 1024 * 1024
 MAX_IMPORT_ROWS = 5000
 FORMAL_EFFECTIVE_START_DATE = date(2026, 8, 1)
@@ -116,8 +119,8 @@ def list_sku_products(
                 DimSkuProductRule.product_name.ilike(pattern),
             )
         )
-    if product_scope is not None:
-        conditions.append(DimSkuProductRule.product_scope == product_scope.strip())
+    # Old clients may still send productScope. It is not a classification
+    # filter and must not silently hide SKUs with the same real type.
     if product_type is not None:
         conditions.append(DimSkuProductRule.product_type == product_type.strip())
     if product_status:
@@ -212,7 +215,7 @@ def bulk_update_sku_products(
         store.session.scalars(
             select(DimSkuProductRule).where(
                 DimSkuProductRule.sku_id.in_(parsed.sku_ids)
-            )
+            ).with_for_update()
         )
     )
     rows_by_sku = {row.sku_id: row for row in rows}
@@ -224,7 +227,6 @@ def bulk_update_sku_products(
             "RESOURCE_NOT_FOUND",
             f"SKU 不存在：{', '.join(missing_sku_ids[:10])}",
         )
-    _validate_sku_product_update_combinations(store.session, rows, parsed, request)
     modified_at = utcnow()
     for sku_id in parsed.sku_ids:
         _apply_sku_product_manual_update(
@@ -255,16 +257,13 @@ def update_sku_product(
     )
     if row is None:
         raise _error(request, 404, "RESOURCE_NOT_FOUND", "SKU 不存在")
-    _validate_sku_product_update_combinations(store.session, [row], parsed, request)
     modified_at = utcnow()
     values: dict[str, Any] = {
         "manual_modified_by": username,
         "manual_modified_at": modified_at,
     }
-    if "product_scope" in parsed.model_fields_set:
-        values["product_scope"] = parsed.product_scope or ""
     if "product_type" in parsed.model_fields_set:
-        values["product_type"] = parsed.product_type or ""
+        values["product_type"] = synced_product_type(row.product_scope, parsed.product_type or "")
     if "is_service_product" in parsed.model_fields_set:
         values["is_service_product"] = bool(parsed.is_service_product)
     expected_modified_at = _as_utc(parsed.expected_manual_modified_at)
@@ -324,7 +323,10 @@ async def upload_sku_product_import(
     if extension not in {".csv", ".xlsx"}:
         raise _error(request, 422, "VALIDATION_FAILED", "仅支持 .xlsx 或 UTF-8 .csv")
     try:
-        source_rows = _read_tabular_rows(content, extension, PRODUCT_IMPORT_HEADERS)
+        source_rows = _read_tabular_rows(
+            content, extension, PRODUCT_IMPORT_HEADERS,
+            compatible_headers=(LEGACY_PRODUCT_IMPORT_HEADERS,),
+        )
     except ValueError as exc:
         source_rows = []
         template_error = str(exc)
@@ -346,26 +348,15 @@ async def upload_sku_product_import(
     duplicate_skus = {
         sku_id for sku_id, count in Counter(sku_ids).items() if sku_id and count > 1
     }
-    existing = set(
-        store.session.scalars(
-            select(DimSkuProductRule.sku_id).where(DimSkuProductRule.sku_id.in_(sku_ids))
-        )
-    ) if sku_ids else set()
     skus = {
         row.sku_id: row
         for row in store.session.scalars(
             select(DimSkuProductRule).where(DimSkuProductRule.sku_id.in_(sku_ids))
         )
     } if sku_ids else {}
-    valid_pairs = set(
-        store.session.execute(
-            select(DimSkuProductRule.product_scope, DimSkuProductRule.product_type).where(
-                _configured_product_dimension(DimSkuProductRule.product_scope),
-                _configured_product_dimension(DimSkuProductRule.product_type),
-            )
-        ).all()
-    )
+    existing = set(skus)
     rows: list[SkuProductImportRow] = []
+    normalized_type_count = 0
     if template_error:
         rows.append(
             SkuProductImportRow(
@@ -377,9 +368,7 @@ async def upload_sku_product_import(
         )
     for row_number, source in enumerate(source_rows, start=2):
         sku_id = _clean_text(source.get("skuId"))
-        scope_text = _clean_text(source.get("productScope"))
-        type_text = _clean_text(source.get("productType"))
-        scope_keep = scope_text.upper() == "KEEP"
+        type_text = " ".join(_clean_text(source.get("productType")).split())
         type_keep = type_text.upper() == "KEEP"
         errors = []
         if not sku_id:
@@ -388,45 +377,26 @@ async def upload_sku_product_import(
             errors.append(_row_error("skuId", "SKU_NOT_FOUND", "SKU 编码不存在"))
         if sku_id in duplicate_skus:
             errors.append(_row_error("skuId", "DUPLICATE_SKU", "同一批次 SKU 编码重复"))
-        if not scope_text:
-            errors.append(_row_error("productScope", "REQUIRED", "产品范围不能为空，请填写值或 KEEP"))
         if not type_text:
-            errors.append(_row_error("productType", "REQUIRED", "商品类型不能为空，请填写值或 KEEP"))
-        if scope_text and not scope_keep and scope_text.casefold() in {"all", "unknown"}:
-            errors.append(_row_error("productScope", "RESERVED_VALUE", "产品范围不能使用保留值 all 或 unknown"))
+            errors.append(_row_error("productType", "REQUIRED", "商品类型不能为空"))
         if type_text and not type_keep and type_text.casefold() in {"all", "unknown"}:
             errors.append(_row_error("productType", "RESERVED_VALUE", "商品类型不能使用保留值 all 或 unknown"))
-        if len(scope_text) > 128:
-            errors.append(_row_error("productScope", "VALUE_TOO_LONG", "产品范围不能超过 128 个字符"))
         if len(type_text) > 128:
             errors.append(_row_error("productType", "VALUE_TOO_LONG", "商品类型不能超过 128 个字符"))
-        if scope_keep and type_keep:
-            errors.append(_row_error("productScope", "NO_CHANGES", "产品范围和商品类型不能同时 KEEP"))
-        sku = skus.get(sku_id)
-        next_scope = sku.product_scope if sku is not None and scope_keep else scope_text
-        next_type = sku.product_type if sku is not None and type_keep else type_text
-        if (
-            _is_configured_product_dimension(next_scope)
-            and _is_configured_product_dimension(next_type)
-            and valid_pairs
-            and (scope_keep or type_keep)
-            and (next_scope, next_type) not in valid_pairs
-        ):
-            errors.append(
-                _row_error(
-                    "productType",
-                    "PRODUCT_DIMENSION_MISMATCH",
-                    "商品类型不属于所选产品范围",
-                )
-            )
+        if type_keep:
+            errors.append(_row_error("productType", "NO_CHANGES", "商品类型不能为 KEEP"))
+        if not errors and sku_id in skus:
+            normalized_type = synced_product_type(skus[sku_id].product_scope, type_text)
+            normalized_type_count += normalized_type != type_text
+            type_text = normalized_type
         rows.append(
             SkuProductImportRow(
                 batch_id=batch_id,
                 row_number=row_number,
                 sku_id=sku_id or None,
-                product_scope=None if scope_keep else scope_text or None,
+                product_scope=None,
                 product_type=None if type_keep else type_text or None,
-                keep_product_scope=scope_keep,
+                keep_product_scope=True,
                 keep_product_type=type_keep,
                 validation_status=3 if errors else 2,
                 validation_errors_json=errors,
@@ -445,6 +415,11 @@ async def upload_sku_product_import(
             "batch": _product_import_batch_item(batch),
             "errorPreview": [_product_import_row_item(row) for row in invalid_rows[:100]],
             "hasMoreErrors": len(invalid_rows) > 100,
+            "normalizedTypeCount": normalized_type_count,
+            "normalizationNotice": (
+                f"{normalized_type_count} 个内部精诚养车范围 SKU 的商品类型已归一为精诚养车；原内部范围保持。"
+                if normalized_type_count else None
+            ),
         },
     )
 
@@ -470,45 +445,31 @@ def commit_sku_product_import(
     store=Depends(get_data_store),
 ):
     store = _require_store(store, request)
-    batch = _get_product_import_batch(store.session, batch_id, request)
+    batch = _get_product_import_batch(store.session, batch_id, request, for_update=True)
     if batch.batch_status == 5:
         return _success(request, {"batch": _product_import_batch_item(batch)})
     if batch.batch_status != 3:
         raise _error(request, 409, "IMPORT_BATCH_STATE_CONFLICT", "仅待确认批次可以提交")
     rows = list(store.session.scalars(select(SkuProductImportRow).where(SkuProductImportRow.batch_id == batch_id).order_by(SkuProductImportRow.row_number)))
     sku_ids = [row.sku_id for row in rows if row.sku_id]
-    skus = {row.sku_id: row for row in store.session.scalars(select(DimSkuProductRule).where(DimSkuProductRule.sku_id.in_(sku_ids)))}
+    skus = {row.sku_id: row for row in store.session.scalars(select(DimSkuProductRule).where(DimSkuProductRule.sku_id.in_(sku_ids)).order_by(DimSkuProductRule.sku_id).with_for_update())}
     if len(skus) != len(set(sku_ids)):
         batch.batch_status = 6
         batch.success_count = 0
         store.session.commit()
         raise _error(request, 409, "IMPORT_DATA_CHANGED", "SKU 事实源在提交前发生变化，整批未写入")
-    valid_pairs = set(
-        store.session.execute(
-            select(
-                DimSkuProductRule.product_scope,
-                DimSkuProductRule.product_type,
-            ).where(
-                _configured_product_dimension(DimSkuProductRule.product_scope),
-                _configured_product_dimension(DimSkuProductRule.product_type),
-            )
-        ).all()
+    import_data_changed = (
+        not rows or len(rows) != batch.total_count or len(sku_ids) != len(set(sku_ids))
+        or any(row.validation_status != 2 for row in rows)
     )
-    import_data_changed = any(row.validation_status != 2 for row in rows)
     for import_row in rows:
         if import_row.sku_id is None:
             import_data_changed = True
             continue
-        sku = skus[import_row.sku_id]
-        next_scope = sku.product_scope if import_row.keep_product_scope else import_row.product_scope
-        next_type = sku.product_type if import_row.keep_product_type else import_row.product_type
-        if (
-            _is_configured_product_dimension(next_scope)
-            and _is_configured_product_dimension(next_type)
-            and valid_pairs
-            and (import_row.keep_product_scope or import_row.keep_product_type)
-            and (next_scope, next_type) not in valid_pairs
-        ):
+        # Stored legacy productScope values are historical input only. Even
+        # pre-existing pending batches may only change the real product type.
+        next_type = skus[import_row.sku_id].product_type if import_row.keep_product_type else import_row.product_type
+        if not _is_configured_product_dimension(next_type) or len(next_type or "") > 128:
             import_data_changed = True
     if import_data_changed:
         batch.batch_status = 6
@@ -519,10 +480,10 @@ def commit_sku_product_import(
     for import_row in rows:
         assert import_row.sku_id is not None
         sku = skus[import_row.sku_id]
-        if not import_row.keep_product_scope:
-            sku.product_scope = import_row.product_scope or ""
         if not import_row.keep_product_type:
-            sku.product_type = import_row.product_type or ""
+            sku.product_type = synced_product_type(sku.product_scope, import_row.product_type or "")
+        else:
+            sku.product_type = synced_product_type(sku.product_scope, sku.product_type)
         sku.manual_modified_by = username
         sku.manual_modified_at = modified_at
         import_row.validation_status = 4
@@ -562,8 +523,8 @@ def list_sku_fee_rules(
         )
     if sku_id:
         conditions.append(SkuFeeRule.sku_id == sku_id.strip())
-    if product_scope is not None:
-        conditions.append(SkuFeeRule.product_scope_snapshot == product_scope.strip())
+    # Retain productScope as an ignored compatibility parameter on ordinary
+    # administration pages. Immutable fee rule snapshots remain unchanged.
     if product_type is not None:
         conditions.append(SkuFeeRule.product_type_snapshot == product_type.strip())
     if rule_status:
@@ -1696,35 +1657,27 @@ def _sku_product_item(row: DimSkuProductRule) -> dict[str, Any]:
 
 
 def _configured_product_dimension(column):
-    normalized = func.lower(func.trim(column))
-    return and_(func.length(func.trim(column)) > 0, normalized.notin_(("all", "unknown")))
+    normalized = func.lower(func.trim(func.coalesce(column, "")))
+    return and_(func.length(normalized) > 0, normalized.notin_(("all", "unknown", "keep")))
 
 
 def _sku_configuration_status_expressions() -> dict[str, Any]:
-    scope_configured = _configured_product_dimension(DimSkuProductRule.product_scope)
     type_configured = _configured_product_dimension(DimSkuProductRule.product_type)
     return {
-        "UNCONFIGURED": and_(~scope_configured, ~type_configured),
-        "PARTIAL": or_(
-            and_(scope_configured, ~type_configured),
-            and_(~scope_configured, type_configured),
-        ),
-        "CONFIGURED": and_(scope_configured, type_configured),
+        "UNCONFIGURED": ~type_configured,
+        # Keep the response/query enum for older clients; one type dimension
+        # has no partial state.
+        "PARTIAL": DimSkuProductRule.id.is_(None),
+        "CONFIGURED": type_configured,
     }
 
 
 def _is_configured_product_dimension(value: str | None) -> bool:
-    return bool(value and value.strip() and value.strip().lower() not in {"all", "unknown"})
+    return bool(value and value.strip() and value.strip().lower() not in {"all", "unknown", "keep"})
 
 
 def _sku_configuration_status(row: DimSkuProductRule) -> str:
-    configured_count = sum(
-        (
-            _is_configured_product_dimension(row.product_scope),
-            _is_configured_product_dimension(row.product_type),
-        )
-    )
-    return ("UNCONFIGURED", "PARTIAL", "CONFIGURED")[configured_count]
+    return "CONFIGURED" if _is_configured_product_dimension(row.product_type) else "UNCONFIGURED"
 
 
 def _apply_sku_product_manual_update(
@@ -1734,51 +1687,12 @@ def _apply_sku_product_manual_update(
     username: str,
     modified_at: datetime,
 ) -> None:
-    if "product_scope" in payload.model_fields_set:
-        row.product_scope = payload.product_scope or ""
     if "product_type" in payload.model_fields_set:
-        row.product_type = payload.product_type or ""
+        row.product_type = synced_product_type(row.product_scope, payload.product_type or "")
     if "is_service_product" in payload.model_fields_set:
         row.is_service_product = bool(payload.is_service_product)
     row.manual_modified_by = username
     row.manual_modified_at = modified_at
-
-
-def _validate_sku_product_update_combinations(
-    session,
-    rows: list[DimSkuProductRule],
-    payload: SkuProductManualUpdateRequest,
-    request: Request,
-) -> None:
-    if not {"product_scope", "product_type"}.intersection(payload.model_fields_set):
-        return
-    explicitly_sets_pair = {"product_scope", "product_type"}.issubset(
-        payload.model_fields_set
-    )
-    valid_pairs = set(
-        session.execute(
-            select(
-                DimSkuProductRule.product_scope,
-                DimSkuProductRule.product_type,
-            ).where(
-                _configured_product_dimension(DimSkuProductRule.product_scope),
-                _configured_product_dimension(DimSkuProductRule.product_type),
-            )
-        ).all()
-    )
-    invalid_sku_ids = []
-    for row in rows:
-        next_scope = payload.product_scope if "product_scope" in payload.model_fields_set else row.product_scope
-        next_type = payload.product_type if "product_type" in payload.model_fields_set else row.product_type
-        if _is_configured_product_dimension(next_scope) and _is_configured_product_dimension(next_type) and valid_pairs and not explicitly_sets_pair and (next_scope, next_type) not in valid_pairs:
-            invalid_sku_ids.append(row.sku_id)
-    if invalid_sku_ids:
-        raise _error(
-            request,
-            422,
-            "PRODUCT_DIMENSION_MISMATCH",
-            f"产品范围与商品类型不匹配：{', '.join(invalid_sku_ids[:10])}",
-        )
 
 
 def _sku_fee_rule_item(
@@ -1943,6 +1857,8 @@ def _read_tabular_rows(
     content: bytes,
     extension: str,
     headers: tuple[str, ...],
+    *,
+    compatible_headers: tuple[tuple[str, ...], ...] = (),
 ) -> list[dict[str, Any]]:
     if extension == ".csv":
         try:
@@ -1950,7 +1866,7 @@ def _read_tabular_rows(
         except UnicodeDecodeError as exc:
             raise ValueError("CSV 必须使用 UTF-8 编码") from exc
         reader = csv.DictReader(StringIO(text))
-        if tuple(reader.fieldnames or ()) != headers:
+        if tuple(reader.fieldnames or ()) not in (headers, *compatible_headers):
             raise ValueError("导入模板列不正确")
         rows = [dict(row) for row in reader]
     else:
@@ -1960,9 +1876,10 @@ def _read_tabular_rows(
             raise ValueError("XLSX 文件无法解析") from exc
         iterator = workbook.active.iter_rows(values_only=True)
         header_row = next(iterator, None)
-        if tuple(_clean_text(value) for value in (header_row or ())) != headers:
+        source_headers = tuple(_clean_text(value) for value in (header_row or ()))
+        if source_headers not in (headers, *compatible_headers):
             raise ValueError("导入模板列不正确")
-        rows = [dict(zip(headers, row)) for row in iterator]
+        rows = [dict(zip(source_headers, row)) for row in iterator]
     if not rows:
         raise ValueError("导入文件至少包含一条数据行")
     return rows
@@ -2099,10 +2016,13 @@ def _product_import_row_item(row: SkuProductImportRow) -> dict[str, Any]:
     }
 
 
-def _get_product_import_batch(session, batch_id: str, request: Request) -> SkuProductImportBatch:
-    batch = session.scalar(
-        select(SkuProductImportBatch).where(SkuProductImportBatch.batch_id == batch_id)
-    )
+def _get_product_import_batch(
+    session, batch_id: str, request: Request, *, for_update: bool = False,
+) -> SkuProductImportBatch:
+    query = select(SkuProductImportBatch).where(SkuProductImportBatch.batch_id == batch_id)
+    if for_update:
+        query = query.with_for_update().execution_options(populate_existing=True)
+    batch = session.scalar(query)
     if batch is None:
         raise _error(request, 404, "RESOURCE_NOT_FOUND", "商品口径导入批次不存在")
     return batch

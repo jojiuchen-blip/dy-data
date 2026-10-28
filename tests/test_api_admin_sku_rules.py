@@ -238,7 +238,7 @@ def test_admin_sku_rules_include_product_scope_from_rule_table(
     assert row["product_type"] == "268保养"
 
 
-def test_admin_sku_rules_can_filter_by_product_scope(
+def test_admin_sku_rules_ignore_legacy_scope_and_filter_exact_product_type(
     client: TestClient, db_session: Session
 ) -> None:
     _load_unconfigured_cross_store_sku(db_session)
@@ -258,6 +258,11 @@ def test_admin_sku_rules_can_filter_by_product_scope(
     response = client.get("/api/v1/admin/sku-rules?product_scope=精诚")
 
     assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["pagination"]["total"] == 2
+    response = client.get(
+        "/api/v1/admin/sku-rules", params={"product_scope": "其他", "product_type": "268保养"}
+    )
     payload = response.json()["data"]
     assert payload["pagination"]["total"] == 1
     assert payload["rows"][0]["sku_id"] == "1834808062911500"
@@ -504,7 +509,7 @@ def test_admin_bulk_save_rules_queues_settlement_rebuild(
         select(DimSkuProductRule).where(DimSkuProductRule.sku_id == "sku-admin")
     )
     assert rule is not None
-    assert rule.product_scope == "精诚养车"
+    assert rule.product_scope == ""
     assert rule.product_type == "养车服务"
 
     job = db_session.get(JobRun, payload["job_id"])
@@ -564,13 +569,56 @@ def test_admin_bulk_save_updates_existing_sku_rule_without_duplicates(
         select(DimSkuProductRule).where(DimSkuProductRule.sku_id == "stable-sku")
     )
     assert rule is not None
-    assert rule.product_scope == "updated-scope"
+    assert rule.product_scope == ""
     assert rule.product_type == "updated-type"
     assert db_session.scalar(
         select(func.count())
         .select_from(DimSkuProductRule)
         .where(DimSkuProductRule.sku_id == "stable-sku")
     ) == 1
+
+
+@pytest.mark.parametrize("scope,new_type,expected", [
+    ("精诚养车", "其他类型", "精诚养车"),
+    ("其他范围", "新类型", "新类型"),
+])
+def test_legacy_classification_update_preserves_scope_rate_and_does_not_rebuild(
+    client: TestClient, db_session: Session, scope: str, new_type: str, expected: str
+) -> None:
+    db_session.add(DimSkuProductRule(
+        sku_id="classification-only", product_scope=scope, product_type="旧类型",
+        commission_rate=Decimal("0.1000"), is_service_product=True,
+    ))
+    db_session.commit()
+    _login(client)
+    response = client.put("/api/v1/admin/sku-rules", json={"rules": [{
+        "sku_id": "classification-only", "product_scope": "不能覆盖的旧客户端值",
+        "product_type": new_type, "commission_rate": 0.1, "is_service_product": True,
+    }]})
+    assert response.status_code == 200
+    assert response.json()["data"]["job_id"] is None
+    assert response.json()["data"]["rebuild_status"] == "not_required"
+    db_session.expire_all()
+    product = db_session.scalar(select(DimSkuProductRule).where(
+        DimSkuProductRule.sku_id == "classification-only"
+    ))
+    assert product.product_scope == scope
+    assert product.product_type == expected
+    assert product.commission_rate == Decimal("0.1000")
+    assert product.manual_modified_by == "system-admin"
+    assert product.manual_modified_at is not None
+    assert db_session.scalar(select(func.count()).select_from(JobRun)) == 0
+
+
+@pytest.mark.parametrize("product_type", ["", "unknown", "all", "KEEP"])
+def test_legacy_sku_type_rejects_placeholder_without_writes(client, db_session, product_type):
+    _login(client)
+    response = client.put("/api/v1/admin/sku-rules", json={"rules": [{
+        "sku_id": "invalid-type", "product_type": product_type, "commission_rate": 0.1,
+    }]})
+    assert response.status_code == 422
+    assert db_session.scalar(select(func.count()).select_from(DimSkuProductRule)) == 0
+    assert db_session.scalar(select(func.count()).select_from(JobRun)) == 0
 
 
 def test_admin_can_replace_non_commission_owner_accounts_and_queue_rebuild(

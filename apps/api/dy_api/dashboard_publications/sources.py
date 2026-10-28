@@ -16,6 +16,7 @@ from .schema import source_counters
 
 _FINANCE_SHARED = (
     "historical_sale_attribution_decisions",
+    "account_qualification_version",
     "dim_stores", "dim_sku_product_rules", "clue_center_orders", "raw_douyin_orders",
     "raw_douyin_verify_records", "settlement_order_details", "agg_store_ranking",
     "agg_store_monthly_settlement", "settlement_ranking_overlay", "settlement_monthly_overlay",
@@ -47,6 +48,14 @@ MODULE_SOURCE_TABLES: dict[str, tuple[str, ...]] = {
     ),
 }
 SOURCE_TABLES = tuple(sorted({name for names in MODULE_SOURCE_TABLES.values() for name in names}))
+
+# Only changed analytical contracts participate. Independent ranking keeps its
+# original fingerprint payload and finance keeps its immutable amount contract.
+MODULE_CONTRACT_VERSIONS = {
+    "sales": "product-type-v2",
+    "clue-overview": "product-type-v2",
+    "settlement": "product-type-v2",
+}
 
 
 def effective_organization_version(session: Session, cutoff: datetime) -> tuple[str, str | None]:
@@ -91,6 +100,8 @@ def source_fingerprint(session: Session, module: str | None = None, *, now: date
         from . import period_readiness
         time_token["financial_periods"] = period_readiness.fingerprint(period_readiness.capture(session, cutoff))
     payload = {"sources": [tuple(row) for row in rows], "time": time_token}
+    if module in MODULE_CONTRACT_VERSIONS:
+        payload["contract_version"] = MODULE_CONTRACT_VERSIONS[module]
     return hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode()).hexdigest()
 
 

@@ -16,7 +16,9 @@ import pytest
 from sqlalchemy import select
 
 from apps.api.dy_api.models import (
+    DataQualityIssue,
     JobRun,
+    RawDouyinOrder,
     SettlementFeeResult,
     SettlementFeeResultCurrent,
     SettlementStatement,
@@ -26,6 +28,7 @@ from apps.worker.settlement_rebuild import (
     SettlementMonthLockedError,
     run_settlement_month_rebuild_job,
 )
+from test_data_settlement import _load_dual_fee_fixture
 from test_settlement_generation_api import (
     _r87_rebuild_job,
     _seed_r87_publication_source,
@@ -133,6 +136,45 @@ def test_scoped_close_generates_pending_statement_for_target_month_only(db_sessi
     ) == [TARGET_MONTH]
 
     # The other month's fee results and statements are byte-for-byte unchanged.
+    assert _other_month_fingerprint(db_session) == before
+
+
+def test_scoped_close_reports_blocked_fee_directions_in_job_result(db_session):
+    """A successful partial close must retain its actual attribution issues."""
+    factory = _seed_r87_publication_source(db_session)
+    _add_target_month_result(db_session)
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    order.owner_account_id = "unmapped-sale-account"
+    order.owner_account_name = "Unmapped sale account"
+    db_session.commit()
+    _r87_rebuild_job(db_session, "scoped-with-attribution-issues")
+    before = _other_month_fingerprint(db_session)
+
+    assert run_settlement_month_rebuild_job(
+        job_id="scoped-with-attribution-issues",
+        factory=factory,
+        business_month=TARGET_MONTH,
+        claim_id="scoped-with-attribution-issues",
+    ) is True
+
+    db_session.expire_all()
+    job = db_session.get(JobRun, "scoped-with-attribution-issues")
+    issues = list(db_session.scalars(select(DataQualityIssue).where(
+        DataQualityIssue.source_run_id == "scoped-with-attribution-issues",
+        DataQualityIssue.issue_type == "dual_fee_missing_sale_store",
+    )))
+    assert len(issues) == 2
+    assert {issue.raw_context_json["fee_direction"] for issue in issues} == {1, 2}
+    assert job.status == "success"
+    assert job.metadata_json["result"]["issueCount"] == len(issues)
+    statement = db_session.scalar(select(SettlementStatement).where(
+        SettlementStatement.statement_month == TARGET_MONTH,
+        SettlementStatement.is_current.is_(True),
+    ))
+    assert statement.statement_status == 2
+    assert statement.promotion_net_fee_cent == 80
+    assert statement.confirmed_at is None and statement.locked_at is None
     assert _other_month_fingerprint(db_session) == before
 
 

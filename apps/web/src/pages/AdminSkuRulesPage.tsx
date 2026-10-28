@@ -64,7 +64,6 @@ type SkuRow = Required<
     SkuProductCommissionRule,
     | "sku_id"
     | "product_name"
-    | "product_scope"
     | "product_type"
     | "commission_rate"
     | "is_service_product"
@@ -77,7 +76,6 @@ function normalizeRule(row: SkuProductCommissionRule): SkuRow {
   return {
     sku_id: row.sku_id,
     product_name: row.product_name ?? "",
-    product_scope: row.product_scope ?? "",
     product_type: row.product_type ?? "",
     commission_rate: row.commission_rate ?? 0,
     is_service_product: row.is_service_product ?? true,
@@ -485,7 +483,6 @@ export function AdminSkuRulesPage() {
     { key: "select", title: <FieldInput aria-label="选择当前页全部 SKU" checked={allVisibleChecked} onChange={() => setCheckedIds(allVisibleChecked ? new Set() : new Set(visibleSkuRows.map((row) => row.sku_id)))} type="checkbox" />, render: (row) => <FieldInput aria-label={`选择 SKU ${row.sku_id}`} checked={checkedIds.has(row.sku_id)} onChange={() => setCheckedIds((current) => { const next = new Set(current); next.has(row.sku_id) ? next.delete(row.sku_id) : next.add(row.sku_id); return next; })} type="checkbox" /> },
     { key: "sku", title: "SKU ID", align: "left", render: (row) => <span className="mono-cell">{row.sku_id}</span> },
     { key: "name", title: "商品名称", align: "left", render: (row) => row.product_name || "-" },
-    { key: "scope", title: "产品范围", render: (row) => row.product_scope || "-" },
     { key: "type", title: "商品类型", render: (row) => row.product_type && row.product_type.toLowerCase() !== "unknown" ? row.product_type : <a className="commission-product-type-link" href="/admin/product-types">请前往商品口径页面配置产品类型</a> },
     { key: "rate", title: "分账比例", render: (row) => { const rule = effectiveRuleMap.get(row.sku_id); return rule ? `推广 ${formatRate(rule.promotionServiceFeeRate)} / 管理 ${formatRate(rule.managementServiceFeeRate)}` : "-"; } },
     { key: "commission", title: "参与分账", render: (row) => enabledSkuIds.has(row.sku_id) ? "是" : "否" },
