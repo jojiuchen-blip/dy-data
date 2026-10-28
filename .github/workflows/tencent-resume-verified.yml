@@ -36,7 +36,11 @@ jobs:
           df -B1 /opt/dy-dashboard /var/lib/docker
           du -x -B1 --max-depth=1 /opt/dy-dashboard /var/lib/docker /tmp | sort -n
           docker system df
-          docker buildx du
+          du -x -B1 --max-depth=2 /opt/dy-dashboard/logs | sort -n
+          docker image ls --no-trunc
+          docker ps -a --format '{{.Names}} {{.Image}} {{.Status}}'
+          docker ps -aq | xargs -r docker inspect --format '{{.Name}} {{.Image}}'
+          find /opt/dy-dashboard/logs/backups -maxdepth 1 -type f -name 'images-*.manifest' -printf '%f %s\n' | sort
           find /opt/dy-dashboard/logs/backups -maxdepth 1 -type f -name 'pre-migrate-*.dump' -printf '%f %s\n' | sort
           if test -f /opt/dy-dashboard/logs/last-deploy.json; then cat /opt/dy-dashboard/logs/last-deploy.json; fi
           docker ps --format '{{.Names}} {{.Image}} {{.Status}}'
@@ -45,4 +49,5 @@ jobs:
             -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=20 \
             -o ServerAliveInterval=30 -o ServerAliveCountMax=6 \
             "$TENCENT_SSH_USER@$TENCENT_HOST" 'sudo -n bash -s' < /tmp/inspect.sh
+
 
