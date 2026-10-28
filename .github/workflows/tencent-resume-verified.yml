@@ -36,7 +36,9 @@ jobs:
           df -B1 /opt/dy-dashboard /var/lib/docker
           du -x -B1 --max-depth=1 /opt/dy-dashboard /var/lib/docker /tmp | sort -n
           du -x -B1 --max-depth=1 / /var /var/lib /var/log /home /root | sort -n
-          python3 /opt/dy-dashboard/repo/scripts/backup_retention.py --backup-dir /opt/dy-dashboard/logs/backups --validator-command 'docker exec -i dy-dashboard-postgres-1 pg_restore --list'
+          test "$(sha256sum /opt/dy-dashboard/repo/scripts/backup_retention.py | cut -d' ' -f1)" = "37ba64e65c5ccd92814588317e2a5def77fb5f52fdcc910bd3af153112c0ac6c"
+          # Default dry-run; --apply is deliberately absent and the script hash is pinned.
+          python3 /opt/dy-dashboard/repo/scripts/backup_retention.py --backup-dir /opt/dy-dashboard/logs/backups --validator-command 'docker exec -i dy-dashboard-postgres-1 pg_restore'
           docker system df
           du -x -B1 --max-depth=2 /opt/dy-dashboard/logs | sort -n
           docker image ls --no-trunc
@@ -51,6 +53,7 @@ jobs:
             -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=20 \
             -o ServerAliveInterval=30 -o ServerAliveCountMax=6 \
             "$TENCENT_SSH_USER@$TENCENT_HOST" 'sudo -n bash -s' < /tmp/inspect.sh
+
 
 
 
