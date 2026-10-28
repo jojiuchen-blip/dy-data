@@ -43,17 +43,21 @@ def test_invalid_session_rejected(db_session, token):
     assert caught.value.status_code == 401
 
 
-@pytest.mark.parametrize('role,status,initialized,version,expected', [
-    ('highest_admin', 'active', True, 1, 200),
-    ('admin', 'active', True, 1, 403),
-    ('store', 'active', True, 1, 403),
-    ('highest_admin', 'disabled', True, 1, 401),
-    ('highest_admin', 'active', False, 1, 401),
-    ('highest_admin', 'active', True, 2, 401),
+@pytest.mark.parametrize('role,scope,status,initialized,version,expected', [
+    ('highest_admin', 'all', 'active', True, 1, 200),
+    ('admin', 'all', 'active', True, 1, 200),
+    ('admin', 'specified', 'active', True, 1, 403),
+    ('admin', 'organization', 'active', True, 1, 403),
+    ('highest_admin', 'specified', 'active', True, 1, 403),
+    ('store', 'all', 'active', True, 1, 403),
+    ('admin', 'all', 'disabled', True, 1, 401),
+    ('admin', 'all', 'active', False, 1, 401),
+    ('admin', 'all', 'active', True, 2, 401),
 ])
-def test_database_identity_checks_current_role_and_version(db_session, role, status, initialized, version, expected):
+def test_database_identity_checks_current_role_and_version(db_session, role, scope, status, initialized, version, expected):
     db_session.add(User(user_id='pdca-user', username='pdca-user', display_name='Test',
-                        role=role, status=status, is_initialized=initialized, auth_version=version))
+                        role=role, store_scope_mode=scope, status=status,
+                        is_initialized=initialized, auth_version=version))
     db_session.commit()
     # A signed role claim must not override the current persisted role.
     token = create_session_token('pdca-user', user_id='pdca-user', role='highest_admin', auth_type='user', auth_version=1)

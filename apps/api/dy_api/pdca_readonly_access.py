@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import User
 from dy_api.auth import (
+    AuthContext,
     _admin_credentials_configured,
     get_admin_settings,
     get_cookie_config,
@@ -90,6 +91,17 @@ def require_pdca_super_admin(
     if (user is None or user.status != 'active' or not user.is_initialized
             or type(version) is not int or version != user.auth_version):
         raise HTTPException(status_code=401, detail='Session is no longer valid')
-    if user.role != 'highest_admin':
+    role = "admin" if user.role in {"highest_admin", "viewer"} else user.role
+    auth = AuthContext(
+        user_id=user.user_id,
+        username=user.username,
+        display_name=user.display_name,
+        role=role,
+        store_ids=(),
+        auth_type="user",
+        store_scope_mode=user.store_scope_mode,
+        auth_version=user.auth_version,
+    )
+    if not auth.can_manage_global_settings:
         raise HTTPException(status_code=403, detail='Highest administrator access required')
     return user.username
