@@ -17,7 +17,9 @@
   <a href="./docs/项目产品介绍书.md">产品介绍</a> ·
   <a href="./docs/architecture.md">系统架构</a> ·
   <a href="./docs/runbook.md">运行手册</a> ·
-  <a href="./docs/cli-agent-guide.md">Agent 调用指南</a>
+  <a href="./docs/cli-agent-guide.md">Agent 调用指南</a> ·
+  <a href="./CHANGELOG.md">更新日志</a> ·
+  <a href="./RELEASING.md">版本与发布</a>
 </p>
 
 ## 从数据到行动
@@ -156,6 +158,8 @@ tests/                        后端、数据、CLI、治理和回归测试
 | 颜色、组件和页面视觉规范 | [V0.2 视觉系统](./docs/design-system/README.md) |
 | 项目身份、当前阶段和治理状态 | [项目画像](./project-profile.md) |
 | 文档 authority、evidence 与 legacy 映射 | [文档权威映射](./docs/governance/authority-map.md) |
+
+版本与交付：[更新日志](./CHANGELOG.md)记录版本范围和证据，[版本号与发布机制](./RELEASING.md)规定升级、候选验证、发布与回退流程。
 
 ## 安全与协作边界
 

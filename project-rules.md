@@ -5,6 +5,8 @@
 ## 1. 规则入口与引用约定
 
 - 平台与仓库硬规则：`AGENTS.md`。
+- 产品版本编号与发布流程：[RELEASING.md](RELEASING.md)。
+- 产品变更历史与代码映射：[CHANGELOG.md](CHANGELOG.md)。
 - 需求、优先级、负责人、验收和 issue 状态：Linear。
 - 项目长期边界与权威索引：本文件。
 - 当前执行摘要：`docs/plans/execution-plan.md`；S3 正式计划形成后，任务拆解与依赖以 `docs/plans/delivery-plans/` 当前计划组为准，需求范围与状态仍以 Linear 为准。

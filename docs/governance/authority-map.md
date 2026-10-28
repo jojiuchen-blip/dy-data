@@ -15,6 +15,8 @@
 | 文件或目录 | 职责 | 状态 | 权威处理 |
 |---|---|---|---|
 | `AGENTS.md` | 平台与仓库硬规则 | `authority` | 保持唯一 turn gate、套包门禁和 Linear-first 入口。 |
+| [RELEASING.md](../../RELEASING.md) | 产品版本编号与发布流程 | `authority` | 统一升级、候选验证、发布记录与回退规则；已实现与待开发能力分开，运行操作仍引用 runbook。 |
+| [CHANGELOG.md](../../CHANGELOG.md) | 产品变更历史与源码映射 | `authority` | 统一版本摘要；历史补录与实际部署分别标记，不替代目标环境运行证据。 |
 | Linear `DYDATA-*` | 需求、范围、优先级、负责人、验收和 issue 状态 | `authority` | 不复制 Backlog；执行驾驶舱只保留当前 issue。 |
 | `project-rules.md` | 长期项目边界与权威索引 | `authority` | 不写临时 issue 状态，不复制专项规则正文。 |
 | `project-profile.md` | 项目身份、业务范围、阶段和 baseline 缺口快照 | `authority` | 用户确认与系统推断保持来源标记。 |

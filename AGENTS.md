@@ -135,6 +135,17 @@ URLs, local personal paths, or credentials.
 - 新的经营榜单、看板和分析汇总统一遵守 [`docs/api/dashboard-publications.md`](docs/api/dashboard-publications.md)：按模块发布窄分析数据，GET、筛选及导出不得触发来源计算或为每个筛选组合复制事实。同页使用同一版本，权限按当前账号重新检查；确认、跟进、发票操作资格保持实时。
 - 分析发布必须由独立限额 worker 执行，部署替换 API 前先验证所有模块已有完整版本。更新失败保留上一版本；来源完整截止时间未知时明确显示未知，不能使用 HTTP 请求时间或构建时间代替。
 
+## 3.2 产品版本与发布记录
+
+涉及版本号、发版、升级、热修复、回退或历史版本补录时，先阅读根目录
+[`RELEASING.md`](RELEASING.md)。产品版本与变更历史统一维护在
+[`CHANGELOG.md`](CHANGELOG.md)，操作命令仍以运行手册和实际部署脚本为准。
+
+- 用户可见的功能、修复及兼容性变化，随交付更新 CHANGELOG 的 Unreleased；正式发布时按 RELEASING 归入对应版本。
+- 代码合入、构建通过、标签创建、应用部署、数据库迁移和业务验收分别记录，不把其中一项当作另一项的完成证据。
+- 发布记录关联完整源码 SHA、实际产物、目标环境、迁移与验收；历史补录不得伪造原始发布日期或移动已有 tag。
+- CLI、API 契约、数据库迁移与业务规则版本分别声明兼容关系；文档规则不代表尚未开发的发布自动化已实现。
+
 ## 4. Linear-First Requirement Lifecycle
 
 For this project, Linear is the unified requirement pool and execution view.
