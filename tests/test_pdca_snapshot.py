@@ -10,6 +10,8 @@ from apps.api.dy_api.models import (
     RawDouyinOrderCoupon, RawDouyinRefundRecord, RawDouyinVerifyRecord,
 )
 from test_pdca_source_evidence import client, PARAMS
+from apps.api.dy_api.models import User
+from dy_api.auth import create_session_token
 
 BASE = '/api/v1/admin/pdca-source-snapshots'
 QUERY = {key: value for key, value in PARAMS.items() if key != 'dataset'}
@@ -30,6 +32,25 @@ def snapshot(client, **params):
 def page(client, manifest, dataset, **params):
     return client.get(BASE + '/' + manifest['meta']['snapshot_id'],
                       params={'dataset': dataset, **params})
+
+
+def test_admin_all_can_read_evidence_snapshot_and_page_but_scope_change_revokes_access(client, db_session):
+    user = User(user_id='pdca-admin', username='pdca-admin', display_name='PDCA admin',
+                role='admin', store_scope_mode='all', status='active',
+                is_initialized=True, auth_version=1)
+    db_session.add(user)
+    db_session.commit()
+    client.cookies.set('dy_session', create_session_token(
+        'pdca-admin', user_id='pdca-admin', role='highest_admin',
+        auth_type='user', auth_version=1))
+    assert client.get('/api/v1/admin/pdca-source-evidence', params=PARAMS).status_code == 200
+    manifest = snapshot(client)
+    assert page(client, manifest, 'orders').status_code == 200
+    user.store_scope_mode = 'specified'
+    db_session.commit()
+    assert client.get('/api/v1/admin/pdca-source-evidence', params=PARAMS).status_code == 403
+    assert client.get(BASE, params=QUERY).status_code == 403
+    assert page(client, manifest, 'orders').status_code == 403
 
 
 @pytest.mark.parametrize('sku', ['SKU', 'EMPTY-SKU'])
