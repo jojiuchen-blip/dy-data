@@ -4100,7 +4100,7 @@ def test_audited_internal_values_are_presented_as_user_facing_chinese(
     try:
         install_api_routes(page)
         page.goto(f"{vite_base_url}/admin/sync", wait_until="domcontentloaded")
-        page.get_by_text("数据同步管理", exact=False).first.wait_for(timeout=10000)
+        page.get_by_text("订单数据同步", exact=True).first.wait_for(timeout=10000)
         sync_text = page.locator("body").inner_text()
         assert "订单数据同步" in sync_text
         assert "订单数据：拉取" in sync_text
