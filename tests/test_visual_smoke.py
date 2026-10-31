@@ -3019,7 +3019,7 @@ def test_order_details_direct_url_loads_authorized_default_scope(
         page.clock.set_fixed_time("2026-10-20T02:00:00Z")
         install_settlement_user_route(page, "admin")
         page.route(
-            "**/api/v1/meta/filters",
+            "**/api/v1/dashboard/publications/settlement/filters*",
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
@@ -3074,7 +3074,7 @@ def test_order_details_direct_export_omits_source_rate_context(
     try:
         install_settlement_user_route(page, "admin")
         page.route(
-            "**/api/v1/meta/filters",
+            "**/api/v1/dashboard/publications/settlement/filters*",
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
@@ -3131,7 +3131,7 @@ def test_order_fee_details_displays_structured_request_id(
     try:
         install_settlement_user_route(page, "admin")
         page.route(
-            "**/api/v1/meta/filters",
+            "**/api/v1/dashboard/publications/settlement/filters*",
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
@@ -3183,7 +3183,7 @@ def test_order_fee_details_exposes_real_api_error_states(
     try:
         install_api_routes(page)
         page.route(
-            "**/api/v1/meta/filters",
+            "**/api/v1/dashboard/publications/settlement/filters*",
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
@@ -3222,7 +3222,7 @@ def test_order_fee_details_real_api_success_and_export_by_role(
     try:
         install_settlement_user_route(page, role)
         page.route(
-            "**/api/v1/meta/filters",
+            "**/api/v1/dashboard/publications/settlement/filters*",
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
@@ -3268,7 +3268,7 @@ def test_order_fee_details_real_api_empty_state(
     try:
         install_settlement_user_route(page, "store")
         page.route(
-            "**/api/v1/meta/filters",
+            "**/api/v1/dashboard/publications/settlement/filters*",
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
@@ -3303,7 +3303,7 @@ def test_order_fee_details_export_surfaces_conflict(
     try:
         install_settlement_user_route(page, "admin")
         page.route(
-            "**/api/v1/meta/filters",
+            "**/api/v1/dashboard/publications/settlement/filters*",
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
