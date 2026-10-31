@@ -239,3 +239,9 @@ DYDATA-104 的账号、渠道生效月延续及显式停用接口见 [结算范�
 自店指本轮获分配门店，不以当前登录账号名称或可见门店集合推断。
 列表分页和 CSV 导出使用相同筛选与既有权限范围，取消或清空恢复原范围。
 本次不改变指标看板计算、分析发布机制或数据库结构。
+
+### DYDATA-104 十月三十日候选合同
+
+财务模板默认中文XLSX，数据、虚构示例与说明隔离；中文/旧英文解析及整批原子提交、正式回读契约见[财务API](prd/foundation/foundation-api-dy-data/billing-invoice.md#2026-10-30-中文模板导入完整更新与逾期确认)。基础资料同SAP/空白保留及人工更正确认来源按准确版本链继承，不以资料更新时间冒充确认。
+
+分佣展示productType与原财务snapshotProductType分离，新结算分析commission-product-type-v3须真实预热，旧版本不能只换标签；定义见[SKU API](prd/foundation/foundation-api-dy-data/sku-fee-admin.md#2026-10-30-分佣展示类型增量)。自动确认默认关闭，使用受控预演及正式服务，不新增公开写入口；部署、数据应用和业务验收分别记录，见[本轮证据](verification/dydata-104-oct30-delivery.md)。

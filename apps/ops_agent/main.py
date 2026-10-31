@@ -2,22 +2,29 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
 import signal
+import subprocess
+import sys
 import time
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
-from sqlalchemy import case, exists, select, update
+from sqlalchemy import case, event, exists, select, text, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, aliased, sessionmaker
 
 from apps.api.dy_api.db import make_engine, make_session_factory
 from apps.api.dy_api.models import ComponentHeartbeat, JobRun, OpsCommand
 from apps.ops_agent.docker_api import (
     ALLOWED_TARGETS,
+    BROWSER_HEALTH_MAX_AGE_SECONDS,
+    BROWSER_OBSERVATION_TIMEOUT_SECONDS,
+    BrowserObservation,
     DEFAULT_DOCKER_REQUEST_TIMEOUT_SECONDS,
     DockerAPI,
     DockerAPIError,
@@ -28,11 +35,15 @@ from apps.ops_agent.docker_api import (
 
 
 _STOP = False
+LOGGER = logging.getLogger(__name__)
 _ALLOWED_ACTIONS = frozenset({"restart"})
 DEFAULT_COMMAND_TTL_SECONDS = 120
 MIN_COMMAND_TTL_SECONDS = 1
 MAX_COMMAND_TTL_SECONDS = 3600
 DEFAULT_COOLDOWN_SECONDS = 300
+_BROWSER_OBSERVER_ARGUMENT = "--observe-browser-once"
+_BROWSER_OBSERVER_OUTPUT_LIMIT = 4096
+_BROWSER_IDLE_OBSERVATION_INTERVAL_SECONDS = 30
 _RESTART_GRACE_SECONDS = {"worker": 300, "browser": 30}
 _TERMINAL_COMMAND_STATUSES = (
     "success",
@@ -109,6 +120,7 @@ class OpsAgent:
         browser_active_file: Path | str | None = None,
         command_ttl_seconds: int = DEFAULT_COMMAND_TTL_SECONDS,
         cooldown_seconds: int = DEFAULT_COOLDOWN_SECONDS,
+        browser_observer: Callable[[float], BrowserObservation | None] | None = None,
     ) -> None:
         if not instance_id.strip():
             raise ValueError("ops agent instance_id is required")
@@ -132,10 +144,19 @@ class OpsAgent:
         self.browser_active_file = Path(browser_active_file) if browser_active_file else None
         self.command_ttl_seconds = command_ttl_seconds
         self.cooldown_seconds = cooldown_seconds
+        self._last_observation_warning_at: float | None = None
+        self._browser_observer = browser_observer or self._observe_browser_subprocess
+        self._last_idle_observation_at: float | None = None
 
     def run_once(self) -> CommandExecutionResult | None:
         claimed = self._claim_next()
-        if isinstance(claimed, CommandExecutionResult) or claimed is None:
+        if claimed is None:
+            if (self._last_idle_observation_at is None or
+                    self.monotonic()-self._last_idle_observation_at >= _BROWSER_IDLE_OBSERVATION_INTERVAL_SECONDS):
+                self._browser_observer(BROWSER_OBSERVATION_TIMEOUT_SECONDS)
+                self._last_idle_observation_at = self.monotonic()
+            return None
+        if isinstance(claimed, CommandExecutionResult):
             return claimed
         command = claimed
         if command.command_type not in _ALLOWED_ACTIONS or command.target_component not in ALLOWED_TARGETS:
@@ -169,6 +190,8 @@ class OpsAgent:
             return self._finish(command, "failed", "restart_request_failed")
         if len(restart_matches) != 1:
             return self._finish(command, "rejected", "restart_guardrail_rejected")
+        if command.target_component == "browser" and self._browser_export_active():
+            return self._finish(command, "rejected", "browser_export_active")
         try:
             command = self._renew_claim(
                 command,
@@ -203,6 +226,7 @@ class OpsAgent:
                 + RESTART_RESPONSE_PADDING_SECONDS
                 + self.heartbeat_timeout_seconds
                 + self.heartbeat_poll_seconds
+                + (BROWSER_OBSERVATION_TIMEOUT_SECONDS if target_component == "browser" else 0)
                 + 1
             )
         )
@@ -216,6 +240,7 @@ class OpsAgent:
                 + RESTART_RESPONSE_PADDING_SECONDS
                 + self.heartbeat_timeout_seconds
                 + self.heartbeat_poll_seconds
+                + (BROWSER_OBSERVATION_TIMEOUT_SECONDS if target_component == "browser" else 0)
                 + 1
             )
         )
@@ -445,21 +470,170 @@ class OpsAgent:
                     )
                     .limit(1)
                 )
-            if active_job is not None:
-                return True
+                if active_job is not None:
+                    return True
+                # An observer's newer health row cannot hide an older producer's
+                # activity. Retain all declared activity conservatively; no TTL
+                # or restart observation implicitly clears a real export fact.
+                signals = session.execute(select(
+                    ComponentHeartbeat.current_job_id, ComponentHeartbeat.activity_json,
+                ).where(ComponentHeartbeat.component_type == "browser").execution_options(yield_per=100))
+                for current_job_id, payload in signals:
+                    activity = payload if isinstance(payload, dict) else {}
+                    if (current_job_id or activity.get("export_active") is True
+                            or activity.get("state") in {"active", "running", "exporting"}):
+                        return True
         except Exception:
             # If the dedicated role cannot read the activity signal, fail
             # closed rather than restarting a possibly active export.
             return True
-        row = self._latest_heartbeat("browser")
-        if row is None:
-            return False
-        activity = row.activity_json if isinstance(row.activity_json, dict) else {}
-        return bool(
-            row.current_job_id
-            or activity.get("export_active") is True
-            or activity.get("state") in {"active", "running", "exporting"}
-        )
+        return False
+
+    def _observe_browser_once(self, *, timeout_seconds: float) -> BrowserObservation | None:
+        """Child-only DB/Docker work; the parent process owns its hard deadline."""
+        deadline = self.monotonic() + timeout_seconds
+        try:
+            observation = self.docker.observe_browser(timeout_seconds=timeout_seconds)
+            now = _as_utc(self.clock())
+            if (now is None or observation.observed_at > now
+                    or (now-observation.observed_at).total_seconds() > timeout_seconds):
+                raise DockerAPIError("browser observation did not complete freshly")
+            self._persist_browser_observation(observation, deadline=deadline)
+            return observation
+        except (DockerAPIError, GuardrailViolation, SQLAlchemyError) as exc:
+            # Never log an inspect envelope, Docker health output or DB exception
+            # detail. The missing fresh heartbeat remains visible as stale, and
+            # restart confirmation still times out rather than inventing success.
+            self._warn_browser_observation(type(exc).__name__)
+            return None
+
+    def _warn_browser_observation(self, error_type: str) -> None:
+        now = self.monotonic()
+        if self._last_observation_warning_at is None or now-self._last_observation_warning_at >= 60:
+            LOGGER.warning("browser_observation_unavailable error_type=%s", error_type)
+            self._last_observation_warning_at = now
+
+    def _observe_browser_subprocess(self, timeout_seconds: float) -> BrowserObservation | None:
+        """Bound connection setup, slow headers/body and commit by process lifetime."""
+        if (not math.isfinite(timeout_seconds) or timeout_seconds <= 0
+                or timeout_seconds > BROWSER_OBSERVATION_TIMEOUT_SECONDS):
+            return None
+        deadline = time.monotonic()+timeout_seconds
+        try:
+            child = subprocess.Popen(
+                [sys.executable, "-m", "apps.ops_agent.main", _BROWSER_OBSERVER_ARGUMENT, repr(deadline)],
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                close_fds=True, bufsize=0,
+            )
+        except OSError as exc:
+            self._warn_browser_observation(type(exc).__name__)
+            return None
+        try:
+            assert child.stdout is not None
+            os.set_blocking(child.stdout.fileno(), False)
+            output = bytearray()
+            while True:
+                if time.monotonic() >= deadline:
+                    raise DockerAPIError("browser observation child timed out")
+                try:
+                    chunk = os.read(child.stdout.fileno(), _BROWSER_OBSERVER_OUTPUT_LIMIT+1-len(output))
+                except BlockingIOError:
+                    chunk = None
+                if chunk:
+                    output.extend(chunk)
+                    if len(output) > _BROWSER_OBSERVER_OUTPUT_LIMIT:
+                        raise DockerAPIError("browser observation child output exceeds limit")
+                elif child.poll() is not None and chunk == b"":
+                    break
+                time.sleep(min(.01, max(0, deadline-time.monotonic())))
+            if child.returncode != 0:
+                raise DockerAPIError("browser observation child did not succeed")
+            observation = _decode_browser_observation(bytes(output))
+            if time.monotonic() >= deadline:
+                raise DockerAPIError("browser observation child reply is late")
+            return observation
+        except (DockerAPIError, ValueError, UnicodeDecodeError, OSError) as exc:
+            # The controlled child never prints an inspect envelope/DB exception.
+            # Nonzero, malformed, oversized or late replies cannot confirm restart.
+            self._warn_browser_observation(type(exc).__name__)
+            return None
+        finally:
+            if child.poll() is None:
+                child.kill()
+            # Reaping is mandatory: no timed-out worker is left to persist later.
+            # Failure to reap is fatal, rather than silently continuing the agent.
+            child.wait(timeout=1)
+            if child.stdout is not None:
+                child.stdout.close()
+
+    def _observation_remaining_ms(self, deadline: float) -> int:
+        remaining = int((deadline-self.monotonic())*1000)
+        if remaining < 1:
+            raise DockerAPIError("browser observation budget exhausted")
+        return remaining
+
+    def _persist_browser_observation(self, observation: BrowserObservation, *, deadline: float) -> None:
+        self._observation_remaining_ms(deadline)
+        with self.factory() as session:
+            connection = session.connection()
+            self._observation_remaining_ms(deadline)
+            postgres = connection.dialect.name == "postgresql"
+            limits = {"statement_timeout": 3000, "lock_timeout": 1000}
+            if postgres:
+                previous = dict(connection.exec_driver_sql(
+                    "SELECT name, setting FROM pg_settings WHERE name IN ('statement_timeout','lock_timeout')"
+                ).all())
+                for name in limits:
+                    original = int(previous[name])
+                    if original > 0:
+                        limits[name] = min(original, limits[name])
+            sealed = False
+
+            def before_sql(_conn, cursor, _statement, _parameters, _context, _many):
+                if sealed:
+                    raise DockerAPIError("browser observation SQL is sealed before commit")
+                remaining = self._observation_remaining_ms(deadline)
+                if postgres:
+                    for name, cap in limits.items():
+                        cursor.execute(f"SET LOCAL {name} = '{min(cap, remaining)}ms'")
+                    self._observation_remaining_ms(deadline)
+
+            def before_flush(_session, _context, _objects):
+                if sealed:
+                    raise DockerAPIError("browser observation flush is sealed before commit")
+                self._observation_remaining_ms(deadline)
+
+            event.listen(connection, "before_cursor_execute", before_sql)
+            event.listen(session, "before_flush", before_flush)
+            try:
+                row = session.get(ComponentHeartbeat, observation.instance_id)
+                if row is None:
+                    row = ComponentHeartbeat(component_instance_id=observation.instance_id,
+                        component_type="browser", created_at=observation.observed_at)
+                    session.add(row)
+                row.status = observation.status
+                row.started_at = observation.started_at
+                row.last_heartbeat_at = observation.observed_at
+                row.updated_at = observation.observed_at
+                row.current_job_id = row.current_attempt_id = None
+                row.rss_bytes = row.rss_peak_bytes = row.memory_limit_bytes = None
+                row.cpu_percent = row.queue_depth = None
+                row.activity_json = {"observer": "ops_agent", "source": "docker_inspect",
+                    "health_checked_at": observation.health_checked_at.isoformat()
+                        if observation.health_checked_at is not None else None}
+                row.queue_summary_json = {}
+                session.flush()
+                if postgres:
+                    session.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+                self._observation_remaining_ms(deadline)
+                if session.new or session.dirty or session.deleted:
+                    raise DockerAPIError("browser observation has pending commit writes")
+                sealed = True
+                session.commit()
+                self._observation_remaining_ms(deadline)
+            finally:
+                event.remove(connection, "before_cursor_execute", before_sql)
+                event.remove(session, "before_flush", before_flush)
 
     def _replacement_heartbeat_seen(
         self,
@@ -468,6 +642,21 @@ class OpsAgent:
         restart_sent_at: datetime,
     ) -> bool:
         deadline = self.monotonic() + self.heartbeat_timeout_seconds
+        if command.target_component == "browser":
+            while self.monotonic() < deadline:
+                observation = self._browser_observer(min(
+                    BROWSER_OBSERVATION_TIMEOUT_SECONDS, deadline-self.monotonic()))
+                if (self.monotonic() <= deadline and observation is not None
+                        and observation.status == "healthy"
+                        and observation.observed_at > restart_sent_at
+                        and observation.started_at > restart_sent_at
+                        and observation.health_checked_at is not None
+                        and observation.health_checked_at >= observation.started_at):
+                    return True
+                remaining = deadline-self.monotonic()
+                if remaining > 0:
+                    self.sleep(min(self.heartbeat_poll_seconds, remaining))
+            return False
         while True:
             current = self._latest_heartbeat(command.target_component)
             if current is not None:
@@ -577,6 +766,62 @@ def _poll_seconds_from_env() -> float:
     return max(0.5, min(30, value))
 
 
+def _decode_browser_observation(output: bytes) -> BrowserObservation:
+    payload = json.loads(output)
+    fields = {"container_id", "started_at", "observed_at", "health_checked_at", "status", "started_at_raw"}
+    if not isinstance(payload, dict) or set(payload) != fields:
+        raise DockerAPIError("browser observation reply schema is invalid")
+    identity = payload["container_id"]
+    if not isinstance(identity, str) or len(identity) != 64 or any(c not in "0123456789abcdef" for c in identity):
+        raise DockerAPIError("browser observation reply identity is invalid")
+    def stamp(value):
+        if not isinstance(value, str) or len(value) > 48:
+            raise DockerAPIError("browser observation reply timestamp is invalid")
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.year <= 1 or parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+            raise DockerAPIError("browser observation reply timestamp is invalid")
+        return parsed.astimezone(UTC)
+    started, observed = stamp(payload["started_at"]), stamp(payload["observed_at"])
+    checked = stamp(payload["health_checked_at"]) if payload["health_checked_at"] is not None else None
+    status = payload["status"]
+    if (not isinstance(status, str) or status not in {"healthy", "starting", "unhealthy", "stopped"}
+            or started > observed or observed > datetime.now(UTC)
+            or (datetime.now(UTC)-observed).total_seconds() > BROWSER_OBSERVATION_TIMEOUT_SECONDS
+            or stamp(payload["started_at_raw"]) != started
+            or (checked is not None and (checked < started or checked > observed or
+                (observed-checked).total_seconds() > BROWSER_HEALTH_MAX_AGE_SECONDS))
+            or (status in {"healthy", "unhealthy"} and checked is None)):
+        raise DockerAPIError("browser observation reply contains invalid facts")
+    return BrowserObservation(identity, started, observed, checked, status, payload["started_at_raw"])
+
+
+def _browser_observation_child(deadline: float) -> int:
+    """Execute the single internal observer action with the existing Ops role."""
+    remaining = deadline-time.monotonic()
+    if not math.isfinite(remaining) or not 0 < remaining <= BROWSER_OBSERVATION_TIMEOUT_SECONDS:
+        return 2
+    try:
+        database_url, project = _validate_static_environment()
+        agent = OpsAgent(factory=make_session_factory(make_engine(database_url)),
+            docker=DockerAPI(transport=UnixSocketDockerTransport(os.getenv("OPS_AGENT_DOCKER_SOCKET", "/var/run/docker.sock")),
+                compose_project=project), instance_id="ops-browser-observation-child")
+        observation = agent._observe_browser_once(timeout_seconds=deadline-time.monotonic())
+        if observation is None or time.monotonic() >= deadline:
+            return 2
+        payload = {"container_id":observation.container_id, "started_at":observation.started_at.isoformat(),
+            "observed_at":observation.observed_at.isoformat(), "health_checked_at":observation.health_checked_at.isoformat()
+                if observation.health_checked_at is not None else None,
+            "status":observation.status, "started_at_raw":observation.started_at_raw}
+        output = json.dumps(payload, separators=(",", ":"))
+        if len(output.encode()) > _BROWSER_OBSERVER_OUTPUT_LIMIT:
+            return 2
+        print(output, flush=True)
+        return 0
+    except Exception:
+        # No raw database URL, Docker inspect or driver exception crosses stdout.
+        return 2
+
+
 def main() -> None:
     database_url, project = _validate_static_environment()
     factory = make_session_factory(make_engine(database_url))
@@ -607,4 +852,12 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == _BROWSER_OBSERVER_ARGUMENT:
+        try:
+            result = _browser_observation_child(float(sys.argv[2]))
+        except ValueError:
+            result = 2
+        raise SystemExit(result)
+    if len(sys.argv) != 1:
+        raise SystemExit(2)
     main()

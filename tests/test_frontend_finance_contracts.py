@@ -163,7 +163,6 @@ def test_store_page_has_base_and_sap_contract_actions_and_single_correction() ->
         "服务店名称",
         "有效SAP编码",
         "最近导入时间",
-        "SAP确认状态",
         "异议编号",
         "门店",
         "有效 SAP",

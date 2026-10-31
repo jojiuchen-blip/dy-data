@@ -1016,7 +1016,7 @@ const feeDetail = (month, productType, page) => ({ context: { month, storeId: nu
 test("fee details share month and type across list paging export refresh and clear failed period", async () => withPage(async ({ page, requests, handle }) => {
   let failed = false;
   handle(async (route, url) => {
-    if (url.pathname.endsWith("/meta/filters")) { await route.fulfill({ json: payload(typedMeta) }); return true; }
+    if (url.pathname.endsWith("/publications/settlement/filters")) { await route.fulfill({ json: payload(typedMeta, "settlement", "detail-types") }); return true; }
     if (url.pathname.endsWith("/order-fee-details/export")) { await route.fulfill({ contentType: "text/csv", headers: { "Content-Disposition": "attachment; filename=orders.csv" }, body: "orderId\n订单分佣测试" }); return true; }
     if (url.pathname.endsWith("/order-fee-details")) { await route.fulfill(failed ? periodUnavailable : { json: payload(feeDetail(url.searchParams.get("month"), url.searchParams.get("productType"), Number(url.searchParams.get("page")))) }); return true; }
     return false;
@@ -1025,6 +1025,7 @@ test("fee details share month and type across list paging export refresh and cle
   await page.goto(`${baseUrl}/details?product_scope=旧范围`);
   await page.locator("tbody").getByText("订单分佣测试", { exact: true }).waitFor();
   assert.equal(requests.find((url) => url.pathname.endsWith("/order-fee-details")).searchParams.get("month"), "2026-09");
+  assert.equal(requests.filter((url) => url.pathname.endsWith("/meta/filters")).length, 0, "commission details must not inherit unrelated catalog and historical filter types");
   assert.equal(await page.getByText("隐藏旧范围", { exact: false }).count(), 0);
   await choose(page, "商品类型", "历史类型B");
   await choose(page, "账期", "2026-08");

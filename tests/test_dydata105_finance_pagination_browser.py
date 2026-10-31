@@ -158,7 +158,7 @@ def test_dydata105_real_pagination_and_all_rows_download(
         assert content.startswith(b"\xef\xbb\xbf")
         records = list(csv.DictReader(StringIO(content.decode("utf-8-sig"))))
         assert len(records) == 61
-        key = "dispute_id" if name == "disputes" else "store_id"
+        key = {"disputes": "dispute_id", "stores": "门店ID"}.get(name, "store_id")
         assert {row[key] for row in records} == {f"{PREFIX}{index:03d}" for index in range(61)}
         if name in {"promotion", "management"}:
             base = 20001 if name == "management" else 10001

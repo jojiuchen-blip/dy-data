@@ -586,7 +586,13 @@ def test_frozen_row_preview_uses_only_whitelisted_fields_and_does_not_drift(clie
     response = client.get(path, params={"pageSize": 1})
     assert response.status_code == 200, response.text
     data = response.json()["data"]
-    assert data["previewSummary"] == {"frozenAvailable": True, "blockedRowCount": 0, "totalRows": 1}
+    assert data["previewSummary"] == {
+        "frozenAvailable": True, "blockedRowCount": 0, "totalRows": 1,
+        "createRowCount": int(import_type == "MANAGEMENT_FACTORY_RESULT"),
+        "updateRowCount": int(import_type != "MANAGEMENT_FACTORY_RESULT"),
+        "unchangedRowCount": 0, "failedRowCount": 0, "unavailableRowCount": 0,
+        "writtenRowCount": 0, "pendingRowCount": 1,
+    }
     preview = data["list"][0]["preview"]
     assert preview["available"] and preview["stateTransition"]["allowed"]
     if import_type == "MANAGEMENT_FACTORY_RESULT":
@@ -617,7 +623,11 @@ def test_preview_rows_have_real_pagination_whole_batch_summary_and_legacy_unavai
     second = client.get(path, params={"page": 2, "pageSize": 1}).json()["data"]
     assert first["total"] == second["total"] == 2
     assert first["list"][0]["rowNumber"] == 2 and second["list"][0]["rowNumber"] == 3
-    assert first["previewSummary"] == second["previewSummary"] == {"frozenAvailable": True, "blockedRowCount": 1, "totalRows": 2}
+    assert first["previewSummary"] == second["previewSummary"] == {
+        "frozenAvailable": True, "blockedRowCount": 1, "totalRows": 2,
+        "createRowCount": 1, "updateRowCount": 0, "unchangedRowCount": 0,
+        "failedRowCount": 1, "unavailableRowCount": 0, "writtenRowCount": 0, "pendingRowCount": 1,
+    }
     assert not second["list"][0]["preview"]["stateTransition"]["allowed"]
     assert second["list"][0]["preview"]["blockedReasons"]
     assert client.get(path, params={"pageSize": 51}).status_code == 422

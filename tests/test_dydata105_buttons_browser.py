@@ -77,7 +77,7 @@ def test_dydata105_four_import_buttons_commit_readback_replay_and_reverse(
             page.get_by_role("button", name="确认提交", exact=True).click()
         committed = pending.value
         assert committed.status == 200, committed.text()
-        expect(page.get_by_text("导入结果已生效；导入时间作为审核通过或结算完成时间。", exact=True)).to_be_visible()
+        expect(page.get_by_text("导入已提交，正在重新读取正式数据；厂家结果的导入时间作为审核通过或结算完成时间。", exact=True)).to_be_visible()
         with factory() as session:
             persisted = session.scalar(select(FinanceImportBatch).where(FinanceImportBatch.batch_id == batch["batchId"]))
             assert persisted.batch_status in (5, 8)
@@ -168,7 +168,7 @@ def test_dydata105_four_import_error_files_are_complete_without_business_writes(
         assert payload.startswith(b"\xef\xbb\xbf")
         errors = list(csv.DictReader(StringIO(payload.decode("utf-8-sig"))))
         assert len(errors) == detail["errors"]["total"] > 0
-        assert all(row["reason"] and row["field"] for row in errors)
+        assert all(row["错误原因"] and row["字段"] for row in errors)
         expect(page.get_by_role("button", name="确认提交", exact=True)).to_be_disabled()
         assert business_counts() == before
         page.get_by_role("link", name="查看导入记录", exact=True).click()

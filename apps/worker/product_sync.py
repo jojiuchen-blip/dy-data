@@ -13,7 +13,7 @@ from typing import Any, Protocol
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from src.dy_data.product_classification import synced_product_type
+from apps.api.dy_api.commission_classification import maintained_type, participation_rules
 
 from apps.api.dy_api.db import get_session_factory, session_scope
 from apps.api.dy_api.models import (
@@ -1125,6 +1125,7 @@ def _update_current_snapshots(
             select(DimSkuProductRule).where(DimSkuProductRule.sku_id.in_(sku_ids))
         )
     } if sku_ids else {}
+    classification_rules = participation_rules(session, sku_ids, as_of=observed_at)
     inserted_count = 0
     updated_count = 0
     unchanged_count = 0
@@ -1140,7 +1141,7 @@ def _update_current_snapshots(
             session.add(row)
             inserted_count += 1
         changed = False
-        product_type = synced_product_type(row.product_scope, row.product_type)
+        product_type = maintained_type(row, row.product_type, classification_rules)
         if row.product_type != product_type:
             row.product_type = product_type
             changed = True

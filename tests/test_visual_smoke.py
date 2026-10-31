@@ -6318,7 +6318,7 @@ def test_finance_import_clears_stale_preview_after_409(
         upload_button.click()
         expect(page.get_by_role("region", name="逐行字段预览", exact=True)).to_contain_text("380.00")
         page.get_by_role("button", name="确认提交").click()
-        page.get_by_text("导入结果已生效；导入时间作为审核通过或结算完成时间。", exact=True).wait_for(timeout=10000)
+        page.get_by_text("导入已提交，正在重新读取正式数据；厂家结果的导入时间作为审核通过或结算完成时间。", exact=True).wait_for(timeout=10000)
         assert commit_attempts == 2
     finally:
         context.close()

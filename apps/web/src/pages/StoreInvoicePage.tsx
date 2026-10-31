@@ -26,6 +26,7 @@ import type {
 import { formatCurrency, formatDateTime } from "../utils/format";
 import { userFacingError } from "../utils/userFacingError";
 import { createPendingRequestKey } from "../utils/pendingRequestKey";
+import { initialStatementMonth, previousShanghaiStatementMonth } from "../utils/statementMonth";
 
 interface StoreInvoicePageProps {
   currentUser: AdminUser;
@@ -140,6 +141,7 @@ export function selectAllRegisterableInvoiceStatements(
 interface SystemSelectedInvoiceGroupData extends StoreBillingStatementListData {
   selectedMonth: string;
   selectedGroupStatements: StoreBillingStatement[];
+  selectedMonthStatements: StoreBillingStatement[];
 }
 
 async function loadSystemSelectedInvoiceGroup({
@@ -155,61 +157,25 @@ async function loadSystemSelectedInvoiceGroup({
   statementMonths: string[];
   storeId: string;
 }): Promise<ApiLoadResult<SystemSelectedInvoiceGroupData>> {
-  const eligibleMonths = [
-    ...new Set([...statementMonths, currentMonth]),
-  ]
-    .filter(
-      (statementMonth) =>
-        statementMonth >= formalPeriodStartMonth && statementMonth <= currentMonth,
-    )
-    .sort((left, right) => left.localeCompare(right));
-  const responses = await Promise.all(
-    eligibleMonths.map((statementMonth) =>
-      fetchStoreBillingStatements({
-        storeId,
-        month: statementMonth,
-        metricScope,
-        feeDirection: "PROMOTION",
-        pageSize: 50,
-      }),
-    ),
-  );
-  const allStatements = responses.flatMap((response) => response.data.list);
-  const registerableStatements = allStatements.filter(
-    (statement) =>
-      statement.month <= currentMonth &&
-      isRegisterablePromotionStatement(statement),
-  );
-  const requiredGroupByStatementId = new Map<string, string>();
-  registerableStatements.forEach((statement) => {
-    const groupId = statement.promotionInvoiceGroupId;
-    if (!groupId) return;
-    const requiredStatementIds = statement.promotionRequiredStatementIds.length
-      ? statement.promotionRequiredStatementIds
-      : [statement.statementId];
-    requiredStatementIds.forEach((statementId) => {
-      const previousGroupId = requiredGroupByStatementId.get(statementId);
-      if (previousGroupId && previousGroupId !== groupId) {
-        throw new Error("同一账期被分配到多个抵扣组，请刷新后重试。");
-      }
-      requiredGroupByStatementId.set(statementId, groupId);
-    });
+  // The server summary owns all required carry-forward groups. Reading every
+  // unrelated historical month made one failed request hide valid amounts.
+  // Detail reads are restricted to the server's exact required IDs instead.
+  void statementMonths;
+  const selectedResponse = await fetchStoreBillingStatements({
+    storeId, month: currentMonth, metricScope, feeDirection: "PROMOTION", pageSize: 50,
   });
-  const selectedMonth = currentMonth;
-  const selectedResponse =
-    responses.find((response) =>
-      response.data.list.some((statement) => statement.month === selectedMonth),
-    ) ?? responses[responses.length - 1];
-  if (!selectedResponse) {
-    throw new Error("系统未返回可用的正式账期。");
+  const summary = selectedResponse.data.promotionInvoiceSummary;
+  const requiredIds = summary?.requiredStatementIds ?? [];
+  if (new Set(requiredIds).size !== requiredIds.length || requiredIds.length > 240) {
+    throw new Error("可开票账期组不完整，请刷新或联系管理员。");
   }
-
+  const selectedMonth = currentMonth;
   const visibleStatements = new Map(
-    allStatements.map((statement) => [statement.statementId, statement]),
+    selectedResponse.data.list.map((statement) => [statement.statementId, statement]),
   );
-  const selectedGroupStatements = await Promise.all(
-    [...requiredGroupByStatementId.entries()].map(
-      async ([statementId, groupId]) => {
+  const requiredStatements = await Promise.all(
+    requiredIds.map(
+      async (statementId) => {
         const statement =
           visibleStatements.get(statementId) ??
           (await fetchStoreBillingStatement(statementId)).data;
@@ -217,8 +183,9 @@ async function loadSystemSelectedInvoiceGroup({
           statement.storeId !== storeId ||
           !statement.isCurrent ||
           statement.month < formalPeriodStartMonth ||
-          statement.month > currentMonth ||
-          statement.promotionInvoiceGroupId !== groupId
+          statement.month > previousShanghaiStatementMonth() ||
+          !isRegisterablePromotionStatement(statement) ||
+          statement.promotionRequiredStatementIds.some((id) => !requiredIds.includes(id))
         ) {
           throw new Error("抵扣组已变化，请刷新后重试。");
         }
@@ -226,6 +193,20 @@ async function loadSystemSelectedInvoiceGroup({
       },
     ),
   );
+  const groupByRequiredId = new Map<string, string>();
+  requiredStatements.forEach((statement) => {
+    statement.promotionRequiredStatementIds.forEach((id) => {
+      const previous = groupByRequiredId.get(id);
+      if (previous && previous !== statement.promotionInvoiceGroupId) {
+        throw new Error("抵扣组已变化，请刷新后重试。");
+      }
+      groupByRequiredId.set(id, statement.promotionInvoiceGroupId ?? "");
+    });
+  });
+  const selectedGroupStatements = selectAllRegisterableInvoiceStatements(requiredStatements, previousShanghaiStatementMonth());
+  if (selectedGroupStatements.length !== requiredIds.length) {
+    throw new Error("可开票账期组已变化，请刷新后重试。");
+  }
   selectedGroupStatements.sort(
     (left, right) =>
       left.month.localeCompare(right.month) ||
@@ -240,6 +221,7 @@ async function loadSystemSelectedInvoiceGroup({
       total: selectedGroupStatements.length,
       selectedMonth,
       selectedGroupStatements,
+      selectedMonthStatements: selectedResponse.data.list,
     },
   };
 }
@@ -262,7 +244,7 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
           ? requestedStoreId
           : currentUser.store_ids[0] ?? ""
       : requestedStoreId || restoredReplacementContext?.storeId || currentUser.store_ids[0] || "";
-  const [month, setMonth] = useState("");
+  const [month, setMonth] = useState(() => initialStatementMonth(searchParams));
   const [storeId, setStoreId] = useState(
     initialStoreId,
   );
@@ -299,7 +281,7 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
   const enabled = Boolean(storeId && month);
   const metaResource = useApiResource(fetchSettlementFilterMeta, []);
   const filterMeta = metaResource.data?.data;
-  const currentPeriodMonth = filterMeta?.statementMonths[0] ?? "";
+  const currentPeriodMonth = initialStatementMonth(searchParams);
   const statementResource = useApiResource(
     () =>
       loadSystemSelectedInvoiceGroup({
@@ -353,6 +335,20 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
       statement.isCurrent && statement.promotionConfirmation && statement.promotionInvoiceGroupId),
   );
   const displayInvoiceSummary = summaryReady ? invoiceSummary : null;
+  const selectedMonthStatements = statementResource.data?.data.selectedMonthStatements ?? [];
+  const invoiceAmountPlaceholder = metaResource.loading || statementResource.loading
+    ? "正在读取账单金额"
+    : metaResource.error || statementResource.error
+      ? "账单金额读取失败，请重试"
+      : !storeId
+        ? "请选择有权限的门店"
+        : selectedMonthStatements.length === 0
+          ? "所选账期尚无账单"
+          : selectedMonthStatements.some((statement) => !statement.promotionConfirmation)
+            ? "账单待确认，尚不可开票"
+            : selectedMonthStatements.every((statement) => statement.promotionAmountCent === 0)
+              ? "本期金额为0，无需开票"
+              : "当前无待开票金额，请核对开票或结转状态";
   const invoiceValidationItems = validateInvoiceRegistration({
     fillerPhone, invoiceDate, invoiceNumber,
     invoiceNumbers: invoices.map((invoice) => invoice.invoiceNumber),
@@ -372,9 +368,9 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
       `项目名称：${PROMOTION_INVOICE_PROJECT_NAME}`,
       `税收分类编码：${PROMOTION_INVOICE_TAX_CLASSIFICATION}`,
       `税率：${PROMOTION_INVOICE_TAX_RATE_PERCENT}%`,
-      `价税合计（含税总额）：${displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.invoiceAmountCent) : "尚未生成"}`,
-      `不含税金额：${displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.netAmountCent) : "尚未生成"}`,
-      `税额：${displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.taxAmountCent) : "尚未生成"}`,
+      `价税合计（含税总额）：${displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.invoiceAmountCent) : invoiceAmountPlaceholder}`,
+      `不含税金额：${displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.netAmountCent) : invoiceAmountPlaceholder}`,
+      `税额：${displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.taxAmountCent) : invoiceAmountPlaceholder}`,
     ];
     try {
       await navigator.clipboard.writeText(lines.join("\n"));
@@ -632,9 +628,9 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
               <div><dt>项目名称</dt><dd>{PROMOTION_INVOICE_PROJECT_NAME}</dd></div>
               <div><dt>税收分类编码</dt><dd>{PROMOTION_INVOICE_TAX_CLASSIFICATION}</dd></div>
               <div><dt>税率</dt><dd>{PROMOTION_INVOICE_TAX_RATE_PERCENT}%</dd></div>
-              <div><dt>价税合计（含税总额）</dt><dd>{displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.invoiceAmountCent) : "尚未生成"}</dd></div>
-              <div><dt>不含税金额</dt><dd>{displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.netAmountCent) : "尚未生成"}</dd></div>
-              <div><dt>税额（6%）</dt><dd>{displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.taxAmountCent) : "尚未生成"}</dd></div>
+              <div><dt>价税合计（含税总额）</dt><dd>{displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.invoiceAmountCent) : invoiceAmountPlaceholder}</dd></div>
+              <div><dt>不含税金额</dt><dd>{displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.netAmountCent) : invoiceAmountPlaceholder}</dd></div>
+              <div><dt>税额（6%）</dt><dd>{displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.taxAmountCent) : invoiceAmountPlaceholder}</dd></div>
             </dl>
             {copyMessage ? <p role="status">{copyMessage}</p> : null}
           </section>

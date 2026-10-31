@@ -102,7 +102,7 @@
 
 **响应 `data`**：更新后的 `SkuProductItem`。
 
-**约束**：全国管理员才可写分类；只写类型/服务标记及审计列，平台字段拒绝。精确内部 scope=精诚养车的当前类型强制精诚养车，其他 scope 保留人工类型，不从名称推断。SKU不存在404，版本不匹配409 CONCURRENT_MODIFICATION。历史费用/账单类型与金额不改，独立打榜 scope 不改。
+**约束**：全国管理员才可写分类；只写类型/服务标记及审计列，平台字段拒绝。按2026-10-30已确认正式参与SKU规则维护当前类别，明确售后官方保留，其余参与SKU精诚养车；无参与证据的其他商品不扩大归类，旧scope转换仅保留兼容，不从名称推断。SKU不存在404，版本不匹配409 CONCURRENT_MODIFICATION。历史费用/账单类型与金额不改，独立打榜 scope 不改。
 
 ### 2.1 既有批量与分类导入补充合同
 
@@ -237,3 +237,9 @@
 **响应 `data`**：`{ scopeRuleVersions: string[], effectiveMonth, ownerAccountId, allowedSaleChannels }`。
 
 **约束**：按渠道分别创建不可变版本；同月、同账号、同渠道冲突返回 409。未知渠道默认不计费并进入数据质量问题，不允许通过该接口配置为“默认允许”。
+
+## 2026-10-30 分佣展示类型增量
+
+正式参与资格依据及目录维护见[Schema](../foundation-schema-dy-data/product-rule-source.md#2026-10-30-参与sku类型与原财务类型)。该规则扩充旧scope转换，不将共享元数据中的非分佣商品强制改为两类型。结算明细读取settlement专属元数据；新结算发布合同commission-product-type-v3，切换API前须预热。
+
+分佣/财务明细productType表示准确SKU的展示类别，可选snapshotProductType保留原费用/冻结分录类型；金额、费率、实收、确认和发票资格仍取原正式来源。未能分类的事实与无逐笔来源旧聚合保留可见，并返回覆盖原因计数，不靠隐藏unknown宣称已完整。独立打榜和其他非分佣模块保留原集合与分类合同。

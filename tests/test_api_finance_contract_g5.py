@@ -489,9 +489,13 @@ def test_order_list_and_export_share_q_status_dates_and_frozen_product_type(
     assert row["serviceStoreName"] == "G5 Store Historical"
     assert row["effectiveSapCode"] == "SAP-HISTORICAL"
     assert row["productType"] == "SERVICE_PRODUCT"
+    assert row["snapshotProductType"] == "SERVICE_PRODUCT"
     assert row["settlementStatus"] == "SETTLED"
     assert row["settlementDate"] == "2026-08-15"
     assert payload["definitions"]["productType"]["source"] == (
+        "commission_classification.reporting_type_expression"
+    )
+    assert payload["definitions"]["snapshotProductType"]["source"] == (
         "settlement_statement_entry.product_type"
     )
     assert payload["definitions"]["billingStoreId"]["source"] == (
@@ -1680,36 +1684,20 @@ def test_sap_confirmation_bulk_import_updates_type_one_effective_sap_without_rew
     assert statement.sap_code_snapshot == "SAP-HISTORICAL-SNAPSHOT"
 
 
-def test_finance_import_templates_are_real_header_only_files(
-    client: TestClient,
-) -> None:
-    _login(client)
-    expected_headers = {
-        "BASIC_INFO": "storeId,storeName,sapCode,importedAt",
-        "PROMOTION_FACTORY_RESULT": (
-            "invoiceNumber,reviewResult,rejectionReason,settlementDate,"
-            "settlementAmountCent"
-        ),
-        "MANAGEMENT_FACTORY_RESULT": (
-            "storeId,statementMonth,storeName,invoiceNumber,invoiceDate,"
-            "deductionDate,deductionAmountCent"
-        ),
-        "SAP_CONFIRMATION": (
-            "storeId,storeName,financeInitialSap,serviceStoreCode,finalSapCode,"
-            "factoryConfirmationResult,confirmedAt"
-        ),
-    }
+def test_finance_import_templates_have_chinese_blank_data_and_separate_examples(client: TestClient) -> None:
+    from io import BytesIO
+    from openpyxl import load_workbook
+    from apps.api.dy_api.finance_import_templates import FINANCE_IMPORT_TEMPLATE_FIELDS, finance_import_headers
 
-    for import_type, expected_header in expected_headers.items():
-        response = client.get(
-            f"/api/v1/admin/finance-imports/templates/{import_type}"
-        )
+    _login(client)
+    for import_type in FINANCE_IMPORT_TEMPLATE_FIELDS:
+        response = client.get(f"/api/v1/admin/finance-imports/templates/{import_type}")
         assert response.status_code == 200
-        assert response.content.startswith(b"\xef\xbb\xbf")
-        assert response.headers["content-type"].startswith("text/csv")
-        assert response.content.decode("utf-8-sig").splitlines() == [
-            expected_header
-        ]
+        assert response.headers["content-type"].startswith("application/vnd.openxmlformats")
+        workbook = load_workbook(BytesIO(response.content))
+        assert list(workbook["数据导入"].values) == [tuple(finance_import_headers(import_type))]
+        assert workbook["填写示例"].max_row == 2
+        assert workbook["填写说明"].max_row > 2
 
 
 def test_finance_contract_exports_are_header_only_when_no_official_rows_exist(

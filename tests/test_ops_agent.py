@@ -117,10 +117,11 @@ def _seed_heartbeat(
 
 
 class FakeDocker:
-    def __init__(self, refs, *, on_restart=None, on_resolve=None):
+    def __init__(self, refs, *, on_restart=None, on_resolve=None, on_observe=None):
         self.refs = list(refs)
         self.on_restart = on_restart
         self.on_resolve = on_resolve
+        self.on_observe = on_observe
         self.resolve_calls: list[str] = []
         self.restart_calls: list[tuple[str, str, int]] = []
 
@@ -134,6 +135,12 @@ class FakeDocker:
         self.restart_calls.append((container.service, container.container_id, grace_seconds))
         if self.on_restart is not None:
             self.on_restart()
+
+    def observe_browser(self, *, timeout_seconds=20):
+        from apps.ops_agent.docker_api import DockerAPIError
+        if self.on_observe is not None:
+            return self.on_observe(timeout_seconds)
+        raise DockerAPIError("browser observation not configured for this fixture")
 
 
 def _agent(
@@ -152,7 +159,7 @@ def _agent(
 ):
     from apps.ops_agent.main import OpsAgent
 
-    return OpsAgent(
+    agent = OpsAgent(
         factory=factory,
         docker=docker,
         instance_id=instance_id,
@@ -163,7 +170,9 @@ def _agent(
         heartbeat_poll_seconds=heartbeat_poll_seconds,
         browser_active_file=browser_active_file,
         command_ttl_seconds=command_ttl_seconds,
+        browser_observer=lambda budget: agent._observe_browser_once(timeout_seconds=budget),
     )
+    return agent
 
 
 def test_expired_command_never_reaches_docker(factory) -> None:
@@ -793,7 +802,7 @@ def test_same_target_cooldown_blocks_restart_until_window_elapses(factory) -> No
 
 
 def test_target_cooldown_does_not_block_another_component(factory) -> None:
-    from apps.ops_agent.docker_api import ContainerRef
+    from apps.ops_agent.docker_api import BrowserObservation, ContainerRef
     from apps.ops_agent.main import CommandEnvelope
 
     now = datetime(2026, 8, 9, 1, 29, 50, tzinfo=UTC)
@@ -830,19 +839,15 @@ def test_target_cooldown_does_not_block_another_component(factory) -> None:
     clock[0] = now + timedelta(seconds=3)
 
     def publish_browser_replacement() -> None:
-        _seed_heartbeat(
-            factory,
-            component_type="browser",
-            instance_id="browser-new",
-            now=clock[0] + timedelta(seconds=1),
-            started_at=clock[0] + timedelta(seconds=1),
-        )
+        clock[0] += timedelta(seconds=1)
 
     docker = FakeDocker(
         [ContainerRef(container_id="browser-1", service="browser")],
         on_restart=publish_browser_replacement,
+        on_observe=lambda _budget: BrowserObservation(container_id="browser-1",
+            started_at=clock[0], observed_at=clock[0], health_checked_at=clock[0], status="healthy"),
     )
-    result = _agent(factory, docker, now, clock=lambda: clock[0]).run_once()
+    result = _agent(factory, docker, now, clock=lambda: clock[0], heartbeat_timeout_seconds=5).run_once()
 
     assert result is not None and result.status == "success"
     assert result.command_id == browser_id

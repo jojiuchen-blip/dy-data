@@ -82,7 +82,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
   const [page, setPage] = useState(1);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  const metaResource = useApiResource(fetchSettlementFilterMeta, []);
+  const metaResource = useApiResource(() => fetchSettlementFilterMeta("settlement"), []);
   const meta = metaResource.data?.data;
 
   const statementId = searchParams.get("statementId") ?? undefined;

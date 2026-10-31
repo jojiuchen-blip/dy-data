@@ -268,7 +268,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
     setNoticeIsError(false);
     try {
       await downloadFinanceImportTemplate(importType);
-      setNotice("模板已下载，文件仅包含正式字段和填写说明。");
+      setNotice("中文模板已下载；请在“数据导入”表填写，“填写示例”和说明表不参与导入。");
     } catch (error) {
       setNoticeIsError(true);
       setNotice(userFacingError(error, "模板下载失败，请稍后重试。"));
