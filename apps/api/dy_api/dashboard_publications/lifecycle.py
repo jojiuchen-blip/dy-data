@@ -89,12 +89,9 @@ def resolve_publication(
         raise PublicationError("PUBLICATION_NOT_READY", "首次分析版本尚未发布", 503)
     expected_contract = MODULE_CONTRACT_VERSIONS.get(module)
     actual_contract = (row["stats_json"] or {}).get("contract_version")
-    # Financial history retains its original type snapshots and complete
-    # all-scope partitions. Those legacy rows remain safely readable. Sales
-    # and clues changed classification at build time, so their old rows must
-    # not be presented as a publication of the new interpretation.
-    legacy_financial = module == "settlement" and actual_contract is None
-    if expected_contract and actual_contract != expected_contract and not legacy_financial:
+    # Changed analytical classifications need a new complete publication.
+    # Original financial rows and independent ranking retain their contracts.
+    if expected_contract and actual_contract != expected_contract:
         if publication_id is not None:
             raise PublicationError("PUBLICATION_EXPIRED", "指定分析版本使用旧商品分类，请刷新后重试", 410)
         raise PublicationError("PUBLICATION_NOT_READY", "新版商品分类分析尚未发布", 503)

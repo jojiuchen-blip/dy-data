@@ -91,7 +91,6 @@ export function FinanceStoresPage({ currentUser, searchParams }: FinanceStoresPa
     { key: "storeName", title: "服务店名称", minWidth: 220, render: (row) => row.storeName },
     { key: "effectiveSap", title: "有效SAP编码", minWidth: 150, render: (row) => row.effectiveSapCode ?? "—" },
     { key: "updatedAt", title: "最近导入时间", minWidth: 170, render: (row) => formatDateTime(row.effectiveSapUpdatedAt ?? row.updatedAt) },
-    { key: "sapStatus", title: "SAP确认状态", minWidth: 150, render: (row) => displayFinanceSapStatus(row.sapStatus) },
   ];
 
   const sapColumns: Column<FinanceStoreRow>[] = [
@@ -127,7 +126,7 @@ export function FinanceStoresPage({ currentUser, searchParams }: FinanceStoresPa
     setNoticeIsError(false);
     try {
       await downloadFinanceImportTemplate(importType);
-      setNotice("模板已下载，文件仅包含正式字段和填写说明。");
+      setNotice("中文模板已下载；请在“数据导入”表填写，“填写示例”和说明表不参与导入。");
     } catch (error) {
       setNoticeIsError(true);
       setNotice(userFacingError(error, "模板下载失败，请稍后重试。"));
@@ -223,7 +222,7 @@ export function FinanceStoresPage({ currentUser, searchParams }: FinanceStoresPa
         <>
           <div className="finance-policy-banner" role="note">
             <strong>历史账期保留当时快照</strong>
-            <span>重新导入的服务店名称和有效 SAP 仅影响后续新账期，不刷新历史账单与订单明细。</span>
+            <span>导入生效后，当前门店基础信息及相关查询将显示最新允许字段；历史账单、订单和发票继续保留当时快照。</span>
           </div>
           {showImport ? <FinanceImportActionPanel fixedImportType="BASIC_INFO" month={month} onCommitted={() => financeResource.reload()} scope="STORE" /> : null}
         </>

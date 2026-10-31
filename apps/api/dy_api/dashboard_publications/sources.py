@@ -54,7 +54,7 @@ SOURCE_TABLES = tuple(sorted({name for names in MODULE_SOURCE_TABLES.values() fo
 MODULE_CONTRACT_VERSIONS = {
     "sales": "product-type-v2",
     "clue-overview": "product-type-v2",
-    "settlement": "product-type-v2",
+    "settlement": "commission-product-type-v3",
 }
 
 

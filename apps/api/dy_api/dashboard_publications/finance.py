@@ -19,7 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Session
 
 from .schema import metadata
-from . import period_readiness
+from . import commission_types, period_readiness
 
 
 FORMAL_START = "2026-08"
@@ -189,14 +189,14 @@ def _source_context(session, cutoff):
     return store, months, sorted(selectable_months, reverse=True)
 
 
-def _build_dimensions(session, publication_id, store, statement_months, cutoff):
+def _build_dimensions(session, publication_id, store, statement_months, cutoff, *, product_types=None):
     rows = [{"publication_id": publication_id, "kind": "store",
              "key": item["store_id"], "value": item}
             for item in store.list_stores(scope_store_ids=None)]
     values = {
         "product_scopes": ["all"],
         "product_scope_type_map": {},
-        "product_types": store.list_product_types(),
+        "product_types": store.list_product_types() if product_types is None else product_types,
         "default_product_type": store.default_product_type(),
         "sale_months": store.list_sale_months(),
         "verify_months": store.list_verify_months(),
@@ -302,6 +302,9 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
     """Freeze resolved ranking partitions and monthly display facts; never commit."""
     store, months, selectable_months = _source_context(session, cutoff)
     ranking_count = monthly_count = 0
+    uncovered_ranking_rows = uncovered_monthly_rows = 0
+    classify_types = commission_types.has_changes(session, months)
+    store_names = {row["store_id"]: row["store_name"] for row in store.list_stores(scope_store_ids=None)} if classify_types else {}
     for month in months:
         for period_type in (1, 2):
             if store._pinned_aggregate_generation() is None:
@@ -313,12 +316,19 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
                     period_type=period_type, period_key=month)
             if source is None:
                 continue
+            selected_months = (month,) if period_type == 1 else tuple(key for key in months if FORMAL_START <= key <= month)
+            classified = commission_types.partitions(session, selected_months) if classify_types else []
+            classified_stores = {row["store_id"] for row in classified}
             columns = ("store_id", "store_name", "product_scope", "product_type", *RANK_METRICS)
             rows = session.execute(text(
                 f"SELECT {', '.join('source.' + key for key in columns)} "
                 f"FROM {source} WHERE {condition}"), params).mappings()
             batch = []
             for row in rows:
+                if row["store_id"] in classified_stores:
+                    continue
+                if classify_types:
+                    uncovered_ranking_rows += 1
                 batch.append({"publication_id": publication_id, "period_type": period_type,
                               "period_key": month, **dict(row)})
                 if len(batch) == 500:
@@ -327,6 +337,15 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
                     batch = []
             _write(session, ranking, batch)
             ranking_count += len(batch)
+            if classify_types:
+                typed_rows = [{"publication_id": publication_id, "period_type": period_type,
+                    "period_key": month, "store_id": row["store_id"],
+                    "store_name": store_names.get(row["store_id"], row["store_id"]),
+                    "product_scope": row["product_scope"], "product_type": row["product_type"],
+                    **{key: int(row[key]) for key in RANK_METRICS}}
+                    for row in classified if row["store_id"]]
+                _write(session, ranking, typed_rows)
+                ranking_count += len(typed_rows)
         if store._pinned_aggregate_generation() is None:
             source, condition, params = ("agg_store_monthly_settlement AS source",
                 "source.month = :month", {"month": month})
@@ -336,8 +355,17 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
             (row["store_id"], row["product_scope"], row["product_type"]): dict(row)
             for row in session.execute(text("SELECT source.* "
                 f"FROM {source} WHERE {condition}"), params).mappings()}
+        if classify_types:
+            classified = commission_types.partitions(session, (month,))
+            classified_stores = {row["store_id"] for row in classified}
+            source_rows = {key: value for key, value in source_rows.items() if key[0] not in classified_stores}
+            uncovered_monthly_rows += len(source_rows)
+            source_rows.update({(row["store_id"], row["product_scope"], row["product_type"]): dict(row)
+                for row in classified if row["store_id"]})
         keys = set(source_rows)
         headers, lines_by_store = _monthly_lines(session, store, month)
+        if classify_types:
+            lines_by_store = commission_types.lines(session, month, store)
         from apps.worker.protected_billing_authority import protected_statement_condition
         from ..models import SettlementStatement
         protected_statement_ids = set(session.scalars(select(SettlementStatement.statement_id).where(
@@ -374,8 +402,17 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
                 "lines": _json_value(lines)})
         _write(session, monthly, batch)
         monthly_count += len(batch)
-    dimension_count, period_stats = _build_dimensions(session, publication_id, store, selectable_months, cutoff)
+    reporting_types = None
+    if classify_types:
+        reporting_types = ["all", *sorted(set(session.scalars(select(monthly.c.product_type).where(
+            monthly.c.publication_id == publication_id, monthly.c.product_type != "all"))))]
+    dimension_count, period_stats = _build_dimensions(session, publication_id, store, selectable_months, cutoff,
+        product_types=reporting_types)
     return {"row_count": ranking_count + monthly_count + dimension_count,
+            "commission_types_reclassified": classify_types,
+            "commission_type_coverage": commission_types.coverage(session, months),
+            "legacy_uncovered_ranking_rows": uncovered_ranking_rows,
+            "legacy_uncovered_monthly_rows": uncovered_monthly_rows,
             "ranking_rows": ranking_count, "monthly_rows": monthly_count,
             "source_generation_id": store._pinned_aggregate_generation(), "data_as_of": None, **period_stats}
 

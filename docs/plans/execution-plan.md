@@ -1,4 +1,22 @@
-# 当前执行：DYDATA-106 线索明细筛选（2026-10-28）
+# 当前执行：DYDATA-104 十月三十日新增五项
+
+| 字段 | 内容 |
+|---|---|
+| 当前阶段 | S4 |
+| 当前正式计划文件组 | [主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md) / [看板](delivery-plans/task-kanban-dydata-104-followthrough.md) |
+| 当前活跃 Phase / Task | Phase 2 / T3.1，进行中 |
+| 当前子开发计划 | [T3.1](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md) |
+| 当前目标 | 分佣分类、逾期自动确认及开票金额、中文模板/示例、门店资料列调整、导入完整更新 |
+| 进行中任务 | 五项及浏览器监督已集成；批准数据补费和8/9月仅发布已正式执行并独立回读，仍有补证事项；新应用尚未部署 |
+| 下一步任务 | 复验修正后的完整CI及镜像；完成真实页面下载，容量恢复后正式部署，核对待决hold后再补确认 |
+| 完成标准摘要 | 五项代码/数据/测试/目标部署/页面下载证据对应，旧未完成及保护项分别保留 |
+| 当前阻塞与前置依赖 | 生产容量门禁未满足；历史依据与指定保护账务交协作者补证；新代码CI和部署分别验收，原Ops失败审计保留 |
+
+证据见[本轮台账](../verification/dydata-104-oct30-delivery.md)。原授权数据修复和8/9月仅发布已取得实际回读，逐项统计与剩余补证见104受控回执；新增五项部署及全票业务验收仍未完成。下方其他任务和历次入口保留，不覆写其业务状态。
+
+---
+
+# 并行交付记录：DYDATA-106 线索明细筛选（2026-10-28）
 
 - 当前阶段：S4 / Phase 1 / T1.1，进行中；用户已明确授权修复、合入main并部署。
 - 当前正式计划：[DYDATA-106](delivery-plans/main-delivery-plan-dydata-106.md)；[任务看板](delivery-plans/task-kanban-dydata-106.md)；[当前子计划](delivery-plans/sub-delivery-plan-dydata-106-T1.1-clue-filters.md)。

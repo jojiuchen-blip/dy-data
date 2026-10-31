@@ -49,7 +49,6 @@ from apps.worker.clue_follow_up_state import (
     soft_delete_follow_up_record,
 )
 from src.dy_data.clue_access import can_access_clue_store
-from src.dy_data.product_classification import synced_product_type
 from src.dy_data.phones import normalize_phone, mask_phone, is_online_cipher, phone_source_fingerprint
 from ..clue_phone_cache import get_phone, put_phone
 from ..clue_phone_filters import matching_phone_order_ids
@@ -2026,8 +2025,11 @@ class DashboardDataStore:
     ) -> tuple[int, bool]:
         if self.session is None or DimSkuProductRule is None:
             return 0, False
+        from ..commission_classification import maintained_type, participation_rules
+
         updated = 0
         requires_rebuild = False
+        classification_rules = participation_rules(self.session, (_to_str(rule.get("sku_id")).strip() for rule in rules))
         for rule in rules:
             sku_id = _to_str(rule.get("sku_id")).strip()
             product_type = _to_str(rule.get("product_type")).strip()
@@ -2053,7 +2055,7 @@ class DashboardDataStore:
             )
             # Internal scope still defines independent Douyin ranking membership.
             # A legacy edit must not change it or infer it from a product type.
-            existing.product_type = synced_product_type(existing.product_scope, product_type)
+            existing.product_type = maintained_type(existing, product_type, classification_rules)
             existing.commission_rate = rate
             existing.is_service_product = is_service
             existing.manual_modified_at = generated_at()
@@ -3218,6 +3220,13 @@ class DashboardDataStore:
             "page_size": page_size,
         }
 
+    @staticmethod
+    def _commission_product_type_sql(sku_column: str, snapshot_column: str) -> str:
+        """Read a display type by exact SKU, retaining the financial snapshot."""
+        catalog = f"(SELECT cc.product_type FROM dim_sku_product_rules cc WHERE cc.sku_id = {sku_column})"
+        return (f"CASE WHEN {snapshot_column} = '售后官方' OR {catalog} = '售后官方' THEN '售后官方' "
+                f"WHEN {catalog} = '精诚养车' THEN '精诚养车' ELSE {snapshot_column} END")
+
     def _order_fee_source_rows(
         self, filters: dict[str, Any]
     ) -> tuple[list[dict[str, Any]], str | None]:
@@ -3366,9 +3375,13 @@ class DashboardDataStore:
                     "WHERE status_adjustment.original_fee_result_id = r.fee_result_id)"
                 )
 
+        classification_sku = ("COALESCE((SELECT NULLIF(ce.sku_id_snapshot, '') "
+            "FROM settlement_statement_entry ce WHERE ce.statement_entry_id = e.statement_entry_id), r.sku_id)"
+            if statement_id else "r.sku_id")
+        reporting_product_type = self._commission_product_type_sql(classification_sku, "r.product_type")
         if requested_product_type != "all":
             params["product_type"] = requested_product_type
-            clauses.append("r.product_type = :product_type")
+            clauses.append(f"{reporting_product_type} = :product_type")
         else:
             visible_product_types = self._visible_product_types()
             if visible_product_types is not None:
@@ -3452,7 +3465,8 @@ class DashboardDataStore:
                          WHERE d.sku_id = r.sku_id LIMIT 1),
                        o.product_name
                    ) AS product_name,
-                   r.product_scope, r.product_type, r.sale_channel_normalized,
+                   r.product_scope, {reporting_product_type} AS product_type,
+                   r.product_type AS snapshot_product_type, r.sale_channel_normalized,
                    r.source_amount_cent, r.refunded_amount_cent,
                    r.fee_base_cent, r.fee_rate, r.fee_amount_cent,
                    r.rule_version, r.result_status
@@ -3627,6 +3641,7 @@ class DashboardDataStore:
             "product_name": row.get("product_name"),
             "product_scope": _to_str(row.get("product_scope")),
             "product_type": _to_str(row.get("product_type")),
+            "snapshot_product_type": _to_str(row.get("snapshot_product_type", row.get("product_type"))),
             "sale_channel": _to_str(row.get("sale_channel_normalized"), "UNKNOWN"),
             "source_amount_cent": _to_int(row.get("source_amount_cent")),
             "refunded_amount_cent": _to_int(row.get("refunded_amount_cent")),
@@ -3995,7 +4010,8 @@ class DashboardDataStore:
                        ''
                    ) AS product_name,
                    settlement_order_details.sku_id, owner_account_id,
-                   owner_account_name, product_type, sale_store_id,
+                   owner_account_name,
+                   {self._commission_product_type_sql("settlement_order_details.sku_id", "settlement_order_details.product_type")} AS product_type, sale_store_id,
                    sale_store_name, sale_store.certified_subject_name AS sale_store_subject_name,
                    sale_time, is_verified, verify_store_id,
                    verify_store_name, verify_store.certified_subject_name AS verify_store_subject_name,
@@ -5442,7 +5458,8 @@ class DashboardDataStore:
                        ''
                    ) AS product_name,
                    settlement_order_details.sku_id, owner_account_id,
-                   owner_account_name, product_type, sale_store_id,
+                   owner_account_name,
+                   {self._commission_product_type_sql("settlement_order_details.sku_id", "settlement_order_details.product_type")} AS product_type, sale_store_id,
                    sale_store_name, sale_store.certified_subject_name AS sale_store_subject_name,
                    sale_time, is_verified, verify_store_id,
                    verify_store_name, verify_store.certified_subject_name AS verify_store_subject_name,
@@ -5732,7 +5749,7 @@ class DashboardDataStore:
         params: dict[str, Any] = {}
 
         product_sql = self._product_filter_condition(
-            "settlement_order_details.product_type",
+            self._commission_product_type_sql("settlement_order_details.sku_id", "settlement_order_details.product_type"),
             params,
             product_scope=_to_str(filters.get("product_scope"), "all"),
             product_type=_to_str(filters.get("product_type"), "all"),

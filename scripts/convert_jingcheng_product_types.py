@@ -31,11 +31,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.db import make_engine
+from apps.api.dy_api.commission_classification import maintained_type, participation_rules
 from apps.api.dy_api.models import AccountPermissionAuditLog, DimSkuProductRule, JobRun, User
 from apps.worker.repositories import HEAVY_SYNC_CLAIM_LOCK_KEY
 from dy_data.product_classification import JINGCHENG_PRODUCT_SCOPE, JINGCHENG_PRODUCT_TYPE
 
 OPERATION = "CATALOG_JINGCHENG_TYPE_CONVERSION"
+PARTICIPATING_OPERATION = "CATALOG_COMMISSION_TYPE_CONVERSION"
 
 
 class ConversionError(ValueError):
@@ -103,8 +105,9 @@ def _fence(session: Session) -> None:
 def convert_product_types(
     session: Session, *, actor: str, change_reason: str, idempotency_key: str,
     apply: bool = False, preview_hash: str | None = None,
+    participating_only: bool = False,
 ) -> dict[str, Any]:
-    """Review every exact-scope SKU, or atomically apply that matching preview.
+    """Review exact legacy-scope or evidenced participating SKUs, then apply.
 
     The hash binds request identity and full current catalog snapshots, including
     no-op targets. SQLite is for isolated tests; production CLI apply requires
@@ -118,57 +121,87 @@ def convert_product_types(
         raise ConversionError("apply requires the exact preview hash")
     if session.in_transaction():
         raise ConversionError("use a fresh session without an existing transaction")
-    request_hash = _digest({"operation": OPERATION, "actor": actor, "change_reason": change_reason,
-                            "scope": JINGCHENG_PRODUCT_SCOPE, "type": JINGCHENG_PRODUCT_TYPE})
+    operation = PARTICIPATING_OPERATION if participating_only else OPERATION
+    request_hash = _digest({"operation": operation, "actor": actor, "change_reason": change_reason,
+                            "scope": None if participating_only else JINGCHENG_PRODUCT_SCOPE, "type": JINGCHENG_PRODUCT_TYPE})
     audit_id = "catalog-type-" + sha256(idempotency_key.encode("utf-8")).hexdigest()
     with session.begin():
         if apply:
             _fence(session)
+            if participating_only and session.get_bind().dialect.name == "postgresql":
+                session.execute(text("LOCK TABLE sku_fee_rule IN SHARE ROW EXCLUSIVE MODE"))
         actor_role, actor_user_id = _actor(session, actor, lock=apply)
         replay = session.get(AccountPermissionAuditLog, audit_id)
         if replay is not None:
             stored = replay.after_json
-            if replay.action != OPERATION or stored.get("request_hash") != request_hash:
+            if replay.action != operation or stored.get("request_hash") != request_hash:
                 raise ConversionError("idempotency key reused with different request")
             if apply and stored.get("preview_hash") != preview_hash:
                 raise ConversionError("idempotency replay requires the original preview hash")
             return {**stored, "replayed": True}
+        evidence_as_of = datetime.now(timezone.utc)
+        rules = participation_rules(session, as_of=evidence_as_of) if participating_only else {}
         query = select(DimSkuProductRule).where(
+            DimSkuProductRule.sku_id.in_(tuple(rules)) if participating_only else
             DimSkuProductRule.product_scope == JINGCHENG_PRODUCT_SCOPE,
         ).order_by(DimSkuProductRule.sku_id)
         if apply:
             query = query.with_for_update()
         targets = list(session.scalars(query))
         before = [_catalog_snapshot(row) for row in targets]
-        fingerprint = _digest({"request_hash": request_hash, "targets": before})
+        rule_evidence = [{column.key: _plain(getattr(rule, column.key))
+                         for column in inspect(type(rule)).column_attrs}
+                        for sku_rules in rules.values() for rule in sku_rules]
+        fingerprint_input = {"request_hash": request_hash, "targets": before}
+        if participating_only:
+            fingerprint_input["participation_rules"] = rule_evidence
+        fingerprint = _digest(fingerprint_input)
         groups = Counter(row.product_type for row in targets)
         diff = [{"sku_id": row.sku_id, "product_id": row.product_id,
                  "product_scope": row.product_scope, "product_type_before": row.product_type,
-                 "product_type_after": JINGCHENG_PRODUCT_TYPE,
-                 "changed": row.product_type != JINGCHENG_PRODUCT_TYPE} for row in targets]
+                 "product_type_after": maintained_type(row, row.product_type, rules)
+                    if participating_only else JINGCHENG_PRODUCT_TYPE,
+                 "changed": row.product_type != (maintained_type(row, row.product_type, rules)
+                    if participating_only else JINGCHENG_PRODUCT_TYPE)} for row in targets]
         changed_count = sum(item["changed"] for item in diff)
         report = {
-            "operation": OPERATION, "scope": JINGCHENG_PRODUCT_SCOPE,
-            "product_type": JINGCHENG_PRODUCT_TYPE, "preview_hash": fingerprint,
+            "operation": operation, "scope": None if participating_only else JINGCHENG_PRODUCT_SCOPE,
+            "product_type": None if participating_only else JINGCHENG_PRODUCT_TYPE, "preview_hash": fingerprint,
             "request_hash": request_hash, "actor": actor, "actor_role": actor_role,
             "change_reason": change_reason, "target_count": len(targets),
             "changed_count": changed_count, "unchanged_count": len(targets) - changed_count,
             "before_groups": [{"product_type": key, "count": count} for key, count in sorted(groups.items())],
-            "after_groups": [{"product_type": JINGCHENG_PRODUCT_TYPE, "count": len(targets)}] if targets else [],
+            "after_groups": [{"product_type": key, "count": count} for key, count in sorted(
+                Counter(item["product_type_after"] for item in diff).items())],
             "diff": diff, "applied": False, "replayed": False, "rebuild_queued": False,
         }
+        if participating_only:
+            known = {row.sku_id for row in targets}
+            unproven = list(session.scalars(select(DimSkuProductRule).where(
+                DimSkuProductRule.sku_id.not_in(tuple(rules))).order_by(DimSkuProductRule.sku_id)))
+            report.update(selection="published-positive-rule-sku", evidence_as_of=evidence_as_of.isoformat(),
+                product_types=["售后官方", JINGCHENG_PRODUCT_TYPE], participation_rules=rule_evidence,
+                official_count=sum(item["product_type_after"] == "售后官方" for item in diff),
+                official_unchanged_count=sum(item["product_type_before"] == item["product_type_after"] == "售后官方" for item in diff),
+                converted_to_jingcheng_count=sum(item["changed"] and item["product_type_after"] == JINGCHENG_PRODUCT_TYPE for item in diff),
+                converted_to_official_count=sum(item["changed"] and item["product_type_after"] == "售后官方" for item in diff),
+                missing_catalog_sku_ids=sorted(set(rules) - known),
+                unproven_skus=[{"sku_id": row.sku_id, "product_id": row.product_id,
+                    "product_scope": row.product_scope, "product_type": row.product_type,
+                    "reason": "NO_PUBLISHED_EFFECTIVE_POSITIVE_RULE"} for row in unproven])
         if not apply:
             return report
         if preview_hash != fingerprint:
             raise ConversionError("preview hash stale: exact target set or catalog changed")
         now = datetime.now(timezone.utc)
+        expected_types = {item["sku_id"]: item["product_type_after"] for item in diff}
         for row in targets:
-            if row.product_type != JINGCHENG_PRODUCT_TYPE:
-                row.product_type = JINGCHENG_PRODUCT_TYPE
+            if row.product_type != expected_types[row.sku_id]:
+                row.product_type = expected_types[row.sku_id]
                 row.manual_modified_at, row.manual_modified_by = now, actor
         report["applied"] = True
         session.add(AccountPermissionAuditLog(
-            audit_id=audit_id, action=OPERATION, result="success", actor_user_id=actor_user_id,
+            audit_id=audit_id, action=operation, result="success", actor_user_id=actor_user_id,
             actor_username=actor, actor_role=actor_role, target_user_id=None, target_username=None,
             before_json={"catalog": before}, after_json=report, created_at=now,
         ))
@@ -178,7 +211,7 @@ def convert_product_types(
         session.expire_all()
         after = list(session.scalars(query.execution_options(populate_existing=True)))
         if [row.sku_id for row in after] != [item["sku_id"] for item in diff] or any(
-            row.product_type != JINGCHENG_PRODUCT_TYPE for row in after
+            row.product_type != expected_types[row.sku_id] for row in after
         ):
             raise ConversionError("catalog readback differs from the reviewed conversion")
         return report
@@ -234,6 +267,8 @@ def main() -> int:
     parser.add_argument("--idempotency-key", required=True)
     parser.add_argument("--preview-hash")
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--participating-skus", action="store_true",
+        help="DYDATA-104 Oct30: select exact SKUs with formal published participation rules; preserve official types")
     args = parser.parse_args()
     try:
         report_path = _private_report_path(args.report)
@@ -245,6 +280,7 @@ def main() -> int:
                 report = convert_product_types(
                     session, actor=args.actor, change_reason=args.change_reason,
                     idempotency_key=args.idempotency_key, apply=args.apply, preview_hash=args.preview_hash,
+                    participating_only=args.participating_skus,
                 )
             json.dump(report, output, ensure_ascii=False, indent=2)
         print(json.dumps({key: report[key] for key in (

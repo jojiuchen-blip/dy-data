@@ -13,6 +13,7 @@ import { ResourceNotice } from "../components/ResourceState";
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
 import { TablePagination } from "../components/TablePagination";
 import { FinanceImportPreviewTable } from "../components/FinanceImportPreviewTable";
+import { displayFinanceImportField } from "../utils/financeImportLabels";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
   FinanceImportBatchRow,
@@ -96,7 +97,7 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
   const errorColumns: Column<FinanceImportErrorRow>[] = [
     { key: "row", title: "原文件行号", render: (row) => row.rowNumber },
     { key: "business", title: "业务唯一键", minWidth: 180, render: (row) => row.businessKey },
-    { key: "field", title: "字段", render: (row) => row.field },
+    { key: "field", title: "字段", render: (row) => displayFinanceImportField(row.field) },
     { key: "value", title: "原始值", minWidth: 160, render: (row) => row.originalValue ?? "-" },
     { key: "reason", title: "错误原因", minWidth: 220, render: (row) => row.reason },
     { key: "suggestion", title: "建议修正方式", minWidth: 220, render: (row) => row.suggestion },
@@ -197,7 +198,7 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
           <div className="section-title"><div><h2>批次详情</h2><p>{detail?.fileName ?? selectedBatchId}</p></div><Button onClick={clearSelectedBatch} variant="text">关闭</Button></div>
           <ResourceNotice loading={detailResource.loading} error={detailResource.error} />
           {detail ? <>
-            <div className="finance-import-summary"><span>场景<strong>{displayFinanceImportScenario(detail.scenario)}</strong></span><span>成功<strong>{detail.successRows}</strong></span><span>错误<strong>{detail.errorRows}</strong></span><span>版本<strong>V{detail.readVersion} / V{detail.currentVersion}</strong></span></div>
+            <div className="finance-import-summary"><span>场景<strong>{displayFinanceImportScenario(detail.scenario)}</strong></span><span>校验通过<strong>{detail.successRows}</strong></span><span>错误<strong>{detail.errorRows}</strong></span><span>版本<strong>V{detail.readVersion} / V{detail.currentVersion}</strong></span></div>
             <FinanceImportPreviewTable key={detail.batchId} batchId={detail.batchId} />
             {detail.reversesBatchId ? <p>本批次用于撤销：<strong>{detail.reversesBatchId}</strong></p> : null}
             {detail.reversedByBatchId ? <p>本批次已由以下批次撤销：<strong>{detail.reversedByBatchId}</strong></p> : null}

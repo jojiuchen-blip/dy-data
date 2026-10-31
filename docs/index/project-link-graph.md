@@ -4,9 +4,9 @@
 
 ## 1. 摘要
 
-- 文件节点：1401
-- 文件关系：1681
-- 诊断问题：40
+- 文件节点：1456
+- 文件关系：1744
+- 诊断问题：43
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
 
@@ -110,22 +110,23 @@
 | AGENTS.md | links_to | project-rules.md | AGENTS.md:83 |
 | AGENTS.md | links_to | RELEASING.md | AGENTS.md:141 |
 | apps/web/README.md | links_to | docs/design-system/README.md | apps/web/README.md:53 |
-| CHANGELOG.md | links_to | docs/devlog/2026-09-10-priority-daily.md | CHANGELOG.md:135 |
-| CHANGELOG.md | links_to | docs/devlog/20260723_refactor_log_Keith_Chen.md | CHANGELOG.md:151 |
-| CHANGELOG.md | links_to | docs/devlog/20260827_dydata-46-production-promotion.md | CHANGELOG.md:151 |
-| CHANGELOG.md | links_to | docs/devlog/20260910_refactor_log_Keith_Chen.md | CHANGELOG.md:135 |
-| CHANGELOG.md | links_to | docs/devlog/20260911_ranking_dashboard_production.md | CHANGELOG.md:119 |
-| CHANGELOG.md | links_to | docs/devlog/20260915_account_org_scope.md | CHANGELOG.md:120 |
-| CHANGELOG.md | links_to | docs/devlog/20260917_account_current_org.md | CHANGELOG.md:120 |
-| CHANGELOG.md | links_to | docs/devlog/20260928_refactor_log_Your_Name.md | CHANGELOG.md:102 |
-| CHANGELOG.md | links_to | docs/devlog/20260929_activation_guide_reminder.md | CHANGELOG.md:103 |
-| CHANGELOG.md | links_to | docs/devlog/20261009_disk_ranking_retention.md | CHANGELOG.md:85 |
-| CHANGELOG.md | links_to | docs/devlog/20261020_dydata-104-followthrough.md | CHANGELOG.md:68 |
-| CHANGELOG.md | links_to | docs/devlog/20261028_refactor_log_Keith_Chen.md | CHANGELOG.md:35 |
-| CHANGELOG.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-46-production-promotion-T2.1-release-uat.md | CHANGELOG.md:151 |
-| CHANGELOG.md | links_to | docs/verification/dydata-104-oct23.md | CHANGELOG.md:51 |
-| CHANGELOG.md | links_to | docs/verification/dydata-104-oct27-delivery.md | CHANGELOG.md:51 |
-| CHANGELOG.md | links_to | docs/verification/dydata-104-oct28-verify-impact.md | CHANGELOG.md:34 |
+| CHANGELOG.md | links_to | docs/devlog/2026-09-10-priority-daily.md | CHANGELOG.md:168 |
+| CHANGELOG.md | links_to | docs/devlog/20260723_refactor_log_Keith_Chen.md | CHANGELOG.md:184 |
+| CHANGELOG.md | links_to | docs/devlog/20260827_dydata-46-production-promotion.md | CHANGELOG.md:184 |
+| CHANGELOG.md | links_to | docs/devlog/20260910_refactor_log_Keith_Chen.md | CHANGELOG.md:168 |
+| CHANGELOG.md | links_to | docs/devlog/20260911_ranking_dashboard_production.md | CHANGELOG.md:152 |
+| CHANGELOG.md | links_to | docs/devlog/20260915_account_org_scope.md | CHANGELOG.md:153 |
+| CHANGELOG.md | links_to | docs/devlog/20260917_account_current_org.md | CHANGELOG.md:153 |
+| CHANGELOG.md | links_to | docs/devlog/20260928_refactor_log_Your_Name.md | CHANGELOG.md:135 |
+| CHANGELOG.md | links_to | docs/devlog/20260929_activation_guide_reminder.md | CHANGELOG.md:136 |
+| CHANGELOG.md | links_to | docs/devlog/20261009_disk_ranking_retention.md | CHANGELOG.md:118 |
+| CHANGELOG.md | links_to | docs/devlog/20261020_dydata-104-followthrough.md | CHANGELOG.md:101 |
+| CHANGELOG.md | links_to | docs/devlog/20261028_refactor_log_Keith_Chen.md | CHANGELOG.md:68 |
+| CHANGELOG.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-46-production-promotion-T2.1-release-uat.md | CHANGELOG.md:184 |
+| CHANGELOG.md | links_to | docs/verification/dydata-104-oct23.md | CHANGELOG.md:84 |
+| CHANGELOG.md | links_to | docs/verification/dydata-104-oct27-delivery.md | CHANGELOG.md:49 |
+| CHANGELOG.md | links_to | docs/verification/dydata-104-oct28-verify-impact.md | CHANGELOG.md:67 |
+| CHANGELOG.md | links_to | docs/verification/dydata-104-oct30-delivery.md | CHANGELOG.md:32 |
 | CHANGELOG.md | links_to | README.md | CHANGELOG.md:3 |
 | CHANGELOG.md | links_to | RELEASING.md | CHANGELOG.md:3 |
 | design-system/dy-data/MASTER.md | links_to | docs/design-system/README.md | design-system/dy-data/MASTER.md:15 |
@@ -138,12 +139,15 @@
 | docs/项目产品介绍书.md | links_to | docs/governance/authority-map.md | docs/项目产品介绍书.md:89 |
 | docs/项目产品介绍书.md | links_to | docs/runbook.md | docs/项目产品介绍书.md:87 |
 | docs/项目产品介绍书.md | links_to | project-profile.md | docs/项目产品介绍书.md:89 |
-| docs/api-contract.md | links_to | docs/api/dashboard-publications.md | docs/api-contract.md:18 |
-| docs/api-contract.md | links_to | docs/api/pdca-event-snapshot.md | docs/api-contract.md:26 |
-| docs/api-contract.md | links_to | docs/api/product-type-classification.md | docs/api-contract.md:197 |
-| docs/api-contract.md | links_to | docs/api/settlement-scope-rules.md | docs/api-contract.md:204 |
-| docs/api-contract.md | links_to | docs/devlog/20260914_ranking_export.md | docs/api-contract.md:180 |
+| docs/api-contract.md | links_to | docs/api/dashboard-publications.md | docs/api-contract.md:44 |
+| docs/api-contract.md | links_to | docs/api/pdca-event-snapshot.md | docs/api-contract.md:52 |
+| docs/api-contract.md | links_to | docs/api/product-type-classification.md | docs/api-contract.md:223 |
+| docs/api-contract.md | links_to | docs/api/settlement-scope-rules.md | docs/api-contract.md:230 |
+| docs/api-contract.md | links_to | docs/devlog/20260914_ranking_export.md | docs/api-contract.md:206 |
 | docs/api-contract.md | links_to | docs/prd/foundation/foundation-api-dy-data.md | docs/api-contract.md:3 |
+| docs/api-contract.md | links_to | docs/prd/foundation/foundation-api-dy-data/billing-invoice.md | docs/api-contract.md:245 |
+| docs/api-contract.md | links_to | docs/prd/foundation/foundation-api-dy-data/sku-fee-admin.md | docs/api-contract.md:247 |
+| docs/api-contract.md | links_to | docs/verification/dydata-104-oct30-delivery.md | docs/api-contract.md:247 |
 | docs/api/dashboard-publications.md | links_to | docs/api/product-type-classification.md | docs/api/dashboard-publications.md:93 |
 | docs/api/pdca-event-snapshot.md | links_to | docs/api/pdca-event-manifest.schema.json | docs/api/pdca-event-snapshot.md:83 |
 | docs/api/pdca-event-snapshot.md | links_to | docs/api/pdca-event-page.schema.json | docs/api/pdca-event-snapshot.md:84 |
@@ -215,10 +219,6 @@
 | docs/devlog/20260820_refactor_log_jojiuchen-blip.md | links_to | docs/prd/foundation/foundation-api-dy-data/settlement-reporting.md | docs/devlog/20260820_refactor_log_jojiuchen-blip.md:49 |
 | docs/devlog/20260820_refactor_log_jojiuchen-blip.md | links_to | docs/prd/foundation/foundation-schema-dy-data.md | docs/devlog/20260820_refactor_log_jojiuchen-blip.md:158 |
 | docs/devlog/20260820_refactor_log_jojiuchen-blip.md | links_to | docs/prd/foundation/foundation-schema-dy-data/settlement-reporting.md | docs/devlog/20260820_refactor_log_jojiuchen-blip.md:158 |
-| docs/devlog/20260820_refactor_log_jojiuchen-blip.md | links_to | docs/prd/subprd/03-subprd-order-fee-details.md | docs/devlog/20260820_refactor_log_jojiuchen-blip.md:49 |
-| docs/devlog/20260820_refactor_log_jojiuchen-blip.md | links_to | project-profile.md | docs/devlog/20260820_refactor_log_jojiuchen-blip.md:61 |
-| docs/devlog/20260821_refactor_log_jojiuchen-blip.md | links_to | docs/plans/2026-08-21-dydata-19-t5-controller-spec.md | docs/devlog/20260821_refactor_log_jojiuchen-blip.md:194 |
-| docs/devlog/20260821_refactor_log_jojiuchen-blip.md | links_to | docs/plans/dydata-19-task-g1a-brief.md | docs/devlog/20260821_refactor_log_jojiuchen-blip.md:194 |
 
 ## 4. 诊断问题
 
@@ -227,6 +227,9 @@
 | error | broken_link | docs/brd/BRD-clue-center-20260721-2134.md | docs/brd/BRD-clue-center-20260721-2134.md references missing file .gstack/qa-reports/qa-report-clue-allocation-2026-07-18.md |
 | error | broken_link | docs/brd/BRD-clue-center-20260721-2134.md | docs/brd/BRD-clue-center-20260721-2134.md references missing file .gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md |
 | error | broken_link | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T3.2-settlement-pages.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T3.2-settlement-pages.md references missing file docs/plans/delivery-plans/docs/prd/subprd/04-subprd-invoice-guide.md |
+| error | broken_link | docs/plans/delivery-plans/sub-delivery-plan-dydata-106-T1.1-clue-filters.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-106-T1.1-clue-filters.md references missing file docs/plans/delivery-plans/foundation/foundation-api-clue-center/lead-query-and-contact.md |
+| error | broken_link | docs/plans/delivery-plans/sub-delivery-plan-dydata-106-T1.1-clue-filters.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-106-T1.1-clue-filters.md references missing file docs/plans/delivery-plans/foundation/foundation-schema-clue-center.md |
+| error | broken_link | docs/plans/delivery-plans/sub-delivery-plan-dydata-110-T1.1-auth.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-110-T1.1-auth.md references missing file docs/plans/delivery-plans/foundation/foundation-api-dy-data/common-contract.md |
 | error | broken_link | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md references missing file docs/plans/account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md |
 | error | broken_link | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md references missing file docs/plans/account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md |
 | error | broken_link | docs/plans/delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T2.1-dydata-58-foundation.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T2.1-dydata-58-foundation.md references missing file docs/plans/delivery-plans/docs/superpowers/specs/2026-08-06-dy-data-8gb-safe-sync-control-plane-design.md |

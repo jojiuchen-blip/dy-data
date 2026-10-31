@@ -685,6 +685,10 @@ def _process_queued_jobs(factory) -> bool:
     if decision.action is not ResourceAction.ALLOW:
         # Only explicitly admitted daily work may proceed while draining.
         return False
+    from apps.worker.billing_auto_confirmation import process_due_auto_confirmations
+
+    if process_due_auto_confirmations(factory):
+        return True
     ensure_month_close_job(factory)
     rebuild = process_queued_settlement_rebuilds(factory)
     if rebuild is not None and rebuild.processed_job_id is not None:

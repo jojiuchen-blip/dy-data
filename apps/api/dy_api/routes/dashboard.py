@@ -15,13 +15,23 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTT
 from fastapi.responses import Response, StreamingResponse
 from cryptography.fernet import Fernet, InvalidToken
 from openpyxl import load_workbook
-from sqlalchemy import BigInteger, String, and_, func, not_, or_, select, text, update
+from sqlalchemy import BigInteger, String, and_, case, func, not_, or_, select, text, update
 from sqlalchemy.exc import DBAPIError, IntegrityError
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import aliased, sessionmaker
 
 from dy_api.auth import AuthContext, get_current_user
 from dy_api.db import get_session_factory
 from dy_api.export_metadata import export_filter_header
+from apps.api.dy_api.finance_import_templates import (
+    FINANCE_IMPORT_TEMPLATE_FIELDS,
+    FINANCE_IMPORT_FIELD_LABELS,
+    FINANCE_IMPORT_IDENTIFIER_FIELDS,
+    FINANCE_IMPORT_TYPE_LABELS,
+    FINANCE_IMPORT_VALUE_ALIASES,
+    build_finance_import_workbook,
+    finance_import_header_keys,
+    finance_import_headers,
+)
 from dy_api.routes._data import (
     ReportingPermissionError,
     ReportingValidationError,
@@ -210,34 +220,6 @@ PROMOTION_INVOICE_TAX_RATE_PERCENT = 6
 BEIJING_TIME_ZONE = ZoneInfo("Asia/Shanghai")
 MAX_FINANCE_IMPORT_ROWS = 5000
 MAX_FINANCE_ORDER_EXPORT_ROWS = 100_000
-FINANCE_IMPORT_TEMPLATE_FIELDS = {
-    "BASIC_INFO": ["storeId", "storeName", "sapCode", "importedAt"],
-    "PROMOTION_FACTORY_RESULT": [
-        "invoiceNumber",
-        "reviewResult",
-        "rejectionReason",
-        "settlementDate",
-        "settlementAmountCent",
-    ],
-    "MANAGEMENT_FACTORY_RESULT": [
-        "storeId",
-        "statementMonth",
-        "storeName",
-        "invoiceNumber",
-        "invoiceDate",
-        "deductionDate",
-        "deductionAmountCent",
-    ],
-    "SAP_CONFIRMATION": [
-        "storeId",
-        "storeName",
-        "financeInitialSap",
-        "serviceStoreCode",
-        "finalSapCode",
-        "factoryConfirmationResult",
-        "confirmedAt",
-    ],
-}
 
 FINANCE_ORDER_DETAIL_DEFINITIONS = {
     "storeName": {
@@ -288,7 +270,8 @@ FINANCE_ORDER_DETAIL_DEFINITIONS.update(
         "orderStatus": {"source": "settlement_statement_entry.order_status_snapshot", "description": "锁账时冻结的订单状态。"},
         "couponStatus": {"source": "settlement_statement_entry.coupon_status_snapshot", "description": "锁账时冻结的券状态。"},
         "productName": {"source": "settlement_statement_entry.product_name_snapshot", "description": "锁账时冻结的商品名称。"},
-        "productType": {"source": "settlement_statement_entry.product_type", "description": "锁账分录中不可变的商品类型。"},
+        "productType": {"source": "commission_classification.reporting_type_expression", "description": "通过准确SKU确定的当前分佣展示类型；金额仍来自冻结分录，原类型见snapshotProductType。"},
+        "snapshotProductType": {"source": "settlement_statement_entry.product_type", "description": "账单生成时保留的不可变商品类型，不随展示分类修改。"},
         "skuId": {"source": "settlement_statement_entry.sku_id_snapshot", "description": "锁账时冻结的 SKU 标识。"},
         "skuName": {"source": "settlement_statement_entry.sku_name_snapshot", "description": "锁账时冻结的 SKU 名称。"},
         "saleChannel": {"source": "settlement_statement_entry.sale_channel_snapshot", "description": "锁账时冻结的销售渠道。"},
@@ -1691,39 +1674,35 @@ def transition_admin_dispute(
 def download_admin_finance_import_template(
     import_type: str,
     request: Request,
+    file_format: str = Query(default="xlsx", alias="format"),
     current_user: AuthContext = Depends(get_current_user),
 ):
-    """Return the formal import header only; never include demonstration rows."""
-
+    """Download Chinese input fields with a separate, non-imported example."""
     _require_finance_admin(current_user, request)
     normalized_type = import_type.strip().upper()
     if normalized_type not in FINANCE_IMPORT_TEMPLATE_FIELDS:
-        _raise_reporting_error(
-            request,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "VALIDATION_FAILED",
-            "importType 不是受支持的财务导入类型",
-            field="importType",
-        )
-    _require_finance_admin(
-        current_user,
-        request,
-        page_key=_finance_import_page_key(normalized_type),
-    )
-    buffer = StringIO(newline="")
-    writer = DictWriter(
-        buffer, fieldnames=FINANCE_IMPORT_TEMPLATE_FIELDS[normalized_type]
-    )
-    writer.writeheader()
-    filename = quote(f"finance-import-{normalized_type.lower()}-template.csv")
-    return Response(
-        content=with_utf8_bom(buffer.getvalue()),
-        media_type="text/csv; charset=utf-8",
-        headers={
-            "Content-Disposition": f"attachment; filename*=UTF-8''{filename}",
-            "X-Request-ID": request_id(request),
-        },
-    )
+        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY,
+                               "VALIDATION_FAILED", "请选择受支持的财务导入类型", field="importType")
+    _require_finance_admin(current_user, request, page_key=_finance_import_page_key(normalized_type))
+    normalized_format = file_format.lower()
+    if normalized_format not in {"csv", "xlsx"}:
+        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY,
+                               "VALIDATION_FAILED", "模板格式只支持 xlsx 或 csv", field="format")
+    if normalized_format == "xlsx":
+        content = build_finance_import_workbook(normalized_type)
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        buffer = StringIO(newline="")
+        writer = DictWriter(buffer, fieldnames=finance_import_headers(normalized_type))
+        writer.writeheader()
+        content = with_utf8_bom(buffer.getvalue())
+        media_type = "text/csv; charset=utf-8"
+    filename = quote(f"{FINANCE_IMPORT_TYPE_LABELS[normalized_type]}-导入模板.{normalized_format}")
+    return Response(content=content, media_type=media_type, headers={
+        "Content-Disposition": f"attachment; filename*=UTF-8''{filename}",
+        "X-Request-ID": request_id(request),
+        "Link": f'</api/v1/admin/finance-imports/templates/{normalized_type}?format=xlsx>; rel="describedby"; type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"',
+    })
 
 
 @router.post("/admin/finance-imports")
@@ -1831,85 +1810,89 @@ def create_finance_import(
     first_errors: list[dict] = []
     seen_business_keys: set[str] = set()
     seen_invoice_numbers: set[str] = set()
-    for row_number, raw_row in _iter_finance_import_rows(file, filename, request):
-        if total_rows >= MAX_FINANCE_IMPORT_ROWS:
-            session.rollback()
-            _raise_reporting_error(
-                request,
-                status.HTTP_413_CONTENT_TOO_LARGE,
-                "IMPORT_FILE_TOO_LARGE",
-                "财务导入文件不得超过 5000 行",
-                field="file",
-            )
-        total_rows += 1
-        business_key, normalized_payload, errors = _validate_final_finance_import_row(
-            session,
-            import_type=normalized_type,
-            statement_month=statement_month,
-            row_number=row_number,
-            raw_row=raw_row,
-        )
-        scope_store_ids = _finance_scope_store_ids(current_user)
-        row_store_id = str(normalized_payload.get("storeId") or "")
-        if scope_store_ids is not None and row_store_id not in scope_store_ids:
-            errors.append(
-                _finance_import_error(
-                    row_number,
-                    business_key,
-                    "storeId",
-                    row_store_id,
-                    "门店不在当前账号授权范围内",
-                    "仅保留当前账号可管理的门店",
+    try:
+        for row_number, raw_row in _iter_finance_import_rows(file, filename, request, normalized_type):
+            if total_rows >= MAX_FINANCE_IMPORT_ROWS:
+                session.rollback()
+                _raise_reporting_error(
+                    request,
+                    status.HTTP_413_CONTENT_TOO_LARGE,
+                    "IMPORT_FILE_TOO_LARGE",
+                    "财务导入文件不得超过 5000 行",
+                    field="file",
                 )
-            )
-        if business_key in seen_business_keys:
-            errors.append(
-                _finance_import_error(
-                    row_number,
-                    business_key,
-                    "businessKey",
-                    business_key,
-                    "批次内业务唯一键重复",
-                    "删除重复行",
-                )
-            )
-        seen_business_keys.add(business_key)
-        if normalized_type == "MANAGEMENT_FACTORY_RESULT":
-            invoice_number = str(normalized_payload.get("invoiceNumber") or "")
-            if invoice_number and invoice_number in seen_invoice_numbers:
-                errors.append(_finance_import_error(
-                    row_number, business_key, "invoiceNumber", invoice_number,
-                    "批次内发票号码重复，不能跨门店或账期重复登记", "每张真实票据只登记一次",
-                ))
-            seen_invoice_numbers.add(invoice_number)
-        normalized_hasher.update(
-            json.dumps(
-                normalized_payload,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        )
-        if errors:
-            error_rows += 1
-            first_errors.extend(errors[: max(0, 100 - len(first_errors))])
-        normalized_payload["__preview"] = _capture_finance_import_preview(
-            session, normalized_type, normalized_payload, errors, batch.submitted_at,
-        )
-        if normalized_type in ("BASIC_INFO", "SAP_CONFIRMATION"):
-            normalized_payload["_previewProfileId"] = normalized_payload["__preview"]["targetRecordId"]
-        session.add(
-            FinanceImportRow(
-                batch_id=batch.batch_id,
+            total_rows += 1
+            business_key, normalized_payload, errors = _validate_final_finance_import_row(
+                session,
+                import_type=normalized_type,
+                statement_month=statement_month,
                 row_number=row_number,
-                business_key=business_key,
-                normalized_payload=normalized_payload,
-                row_status=4 if errors else 1,
-                validation_errors=errors,
+                raw_row=raw_row,
             )
-        )
-        if total_rows % 500 == 0:
-            session.flush()
+            scope_store_ids = _finance_scope_store_ids(current_user)
+            row_store_id = str(normalized_payload.get("storeId") or "")
+            if scope_store_ids is not None and row_store_id not in scope_store_ids:
+                errors.append(
+                    _finance_import_error(
+                        row_number,
+                        business_key,
+                        "storeId",
+                        row_store_id,
+                        "门店不在当前账号授权范围内",
+                        "仅保留当前账号可管理的门店",
+                    )
+                )
+            if business_key in seen_business_keys:
+                errors.append(
+                    _finance_import_error(
+                        row_number,
+                        business_key,
+                        "businessKey",
+                        business_key,
+                        "批次内业务唯一键重复",
+                        "删除重复行",
+                    )
+                )
+            seen_business_keys.add(business_key)
+            if normalized_type == "MANAGEMENT_FACTORY_RESULT":
+                invoice_number = str(normalized_payload.get("invoiceNumber") or "")
+                if invoice_number and invoice_number in seen_invoice_numbers:
+                    errors.append(_finance_import_error(
+                        row_number, business_key, "invoiceNumber", invoice_number,
+                        "批次内发票号码重复，不能跨门店或账期重复登记", "每张真实票据只登记一次",
+                    ))
+                seen_invoice_numbers.add(invoice_number)
+            normalized_hasher.update(
+                json.dumps(
+                    normalized_payload,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            )
+            if errors:
+                error_rows += 1
+                first_errors.extend(errors[: max(0, 100 - len(first_errors))])
+            normalized_payload["__preview"] = _capture_finance_import_preview(
+                session, normalized_type, normalized_payload, errors, batch.submitted_at,
+            )
+            if normalized_type in ("BASIC_INFO", "SAP_CONFIRMATION"):
+                normalized_payload["_previewProfileId"] = normalized_payload["__preview"]["targetRecordId"]
+            session.add(
+                FinanceImportRow(
+                    batch_id=batch.batch_id,
+                    row_number=row_number,
+                    business_key=business_key,
+                    normalized_payload=normalized_payload,
+                    row_status=4 if errors else 1,
+                    validation_errors=errors,
+                )
+            )
+            if total_rows % 500 == 0:
+                session.flush()
+    except HTTPException:
+        session.rollback()
+        raise
 
     if not total_rows:
         session.rollback()
@@ -1920,6 +1903,9 @@ def create_finance_import(
             "财务导入文件没有数据行，请填写模板后重新上传",
             field="file",
         )
+    # Flush pending rows before bulk status updates; the request Session may
+    # disable autoflush, so NO_CHANGE must not leave newly inserted rows pending.
+    session.flush()
     batch.normalized_sha256 = normalized_hasher.hexdigest()
     batch.total_rows = total_rows
     batch.error_rows = error_rows
@@ -2201,14 +2187,32 @@ def list_finance_import_preview_rows(
         "available": False, "reason_code": "PREVIEW_SNAPSHOT_UNAVAILABLE",
         "reason": "此批次未保存字段预览，请重新上传",
     }
-    snapshots = list(session.scalars(select(FinanceImportRow.normalized_payload).where(
-        FinanceImportRow.batch_id == batch_id,
-    )))
+    snapshot_rows = list(session.execute(select(
+        FinanceImportRow.normalized_payload, FinanceImportRow.row_status,
+    ).where(FinanceImportRow.batch_id == batch_id)))
+    snapshots = [payload for payload, _row_status in snapshot_rows]
     available_count = sum(bool(item.get("__preview", {}).get("available")) for item in snapshots)
     blocked_count = sum(
         not item.get("__preview", {}).get("stateTransition", {}).get("allowed", False)
         for item in snapshots
     )
+    change_counts = {"create_row_count": 0, "update_row_count": 0, "unchanged_row_count": 0,
+                     "failed_row_count": 0, "unavailable_row_count": 0}
+    written_count = 0
+    pending_count = 0
+    for payload, row_status in snapshot_rows:
+        preview = payload.get("__preview", {})
+        if row_status == 4:
+            change_counts["failed_row_count"] += 1
+        elif row_status == 2:
+            change_counts["unchanged_row_count"] += 1
+        elif not preview.get("available"):
+            change_counts["unavailable_row_count"] += 1
+        else:
+            key = "create_row_count" if preview.get("before") is None else "update_row_count"
+            change_counts[key] += 1
+        written_count += row_status == 5
+        pending_count += row_status in (1, 3)
     return _reporting_success(request, {
         "list": [{
             "row_number": row.row_number, "business_key": row.business_key,
@@ -2219,6 +2223,7 @@ def list_finance_import_preview_rows(
         "preview_summary": {
             "frozen_available": bool(batch.total_rows) and available_count == batch.total_rows,
             "blocked_row_count": blocked_count, "total_rows": batch.total_rows,
+            **change_counts, "written_row_count": written_count, "pending_row_count": pending_count,
         },
     })
 
@@ -5672,7 +5677,6 @@ def export_admin_finance_stores(
             "effective_sap_version",
             "effective_sap_updated_by",
             "effective_sap_updated_at",
-            "sap_status",
             "statement_total_cent",
             "confirmed_amount_cent",
             "pending_invoice_amount_cent",
@@ -5680,6 +5684,14 @@ def export_admin_finance_stores(
             "settled_or_deducted_amount_cent",
         ],
         rows=items,
+        header_labels={
+            "store_id": "门店ID", "store_name": "门店名称", "store_maintained_sap_code": "门店维护SAP编码",
+            "finance_imported_sap_code": "财务导入SAP编码", "effective_sap_code": "有效SAP编码",
+            "effective_sap_version": "有效SAP版本", "effective_sap_updated_by": "最近操作人",
+            "effective_sap_updated_at": "最近更新时间", "statement_total_cent": "账单总额（分）",
+            "confirmed_amount_cent": "已确认金额（分）", "pending_invoice_amount_cent": "待开票金额（分）",
+            "issued_amount_cent": "已开票金额（分）", "settled_or_deducted_amount_cent": "已结算或扣款金额（分）",
+        },
     )
 
 
@@ -6877,48 +6889,69 @@ def _finance_import_cell_text(value) -> str:
 
 
 def _iter_finance_import_rows(
-    file: UploadFile, filename: str, request: Request
+    file: UploadFile, filename: str, request: Request, import_type: str,
 ):
-    """Yield finance-import rows from CSV or XLSX without loading the file fully."""
+    """Read one unambiguous data sheet, never a template's example/notes."""
+    def header_keys(headers):
+        try:
+            return finance_import_header_keys(import_type, [_finance_import_cell_text(value) for value in headers])
+        except ValueError as exc:
+            _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                   "VALIDATION_FAILED", str(exc), field="file")
+
+    def normalized_row(keys, values, row_number):
+        if len(values) > len(keys) and any(value not in (None, "") for value in values[len(keys):]):
+            _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                   "VALIDATION_FAILED", f"第{row_number}行数据列多于表头，请检查分隔符或错列", field="file")
+        return {key: value for key, value in zip(keys, values) if key is not None}
+
     if filename.lower().endswith(".csv"):
         text_stream = TextIOWrapper(file.file, encoding="utf-8-sig", newline="")
         try:
-            for row_number, raw_row in enumerate(DictReader(text_stream), start=2):
-                yield row_number, raw_row
+            reader = DictReader(text_stream)
+            keys = header_keys(reader.fieldnames or [])
+            # Use reader.reader after consuming the header, preserving duplicate-column detection.
+            for row_number, values in enumerate(reader.reader, start=2):
+                if not any(str(value).strip() for value in values):
+                    continue
+                yield row_number, normalized_row(keys, values, row_number)
         except UnicodeDecodeError:
-            _raise_reporting_error(
-                request,
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
-                "VALIDATION_FAILED",
-                "CSV 文件必须使用 UTF-8 编码",
-                field="file",
-            )
+            _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                   "VALIDATION_FAILED", "CSV 文件必须使用 UTF-8 编码", field="file")
         finally:
             text_stream.detach()
         return
-
     try:
-        workbook = load_workbook(file.file, read_only=True, data_only=True)
+        workbook = load_workbook(file.file, read_only=True, data_only=False)
     except Exception:
-        _raise_reporting_error(
-            request,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "VALIDATION_FAILED",
-            "XLSX 文件无法读取",
-            field="file",
-        )
+        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY,
+                               "VALIDATION_FAILED", "XLSX 文件无法读取", field="file")
     try:
-        values = workbook.active.iter_rows(values_only=True)
+        if "数据导入" in workbook.sheetnames:
+            sheet = workbook["数据导入"]
+            unexpected = [item for item in workbook if item.title not in {"数据导入", "填写示例", "填写说明"}
+                          and any(any(value not in (None, "") for value in row) for row in item.iter_rows(values_only=True))]
+            if unexpected:
+                _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                       "VALIDATION_FAILED", "存在无法识别的其他数据表；请仅保留数据导入及模板的示例/说明表", field="file")
+        elif len(workbook.worksheets) == 1 and workbook.active.title not in {"填写示例", "填写说明"}:
+            sheet = workbook.active
+        else:
+            _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                   "VALIDATION_FAILED", "请使用“数据导入”表；示例/说明不能导入，多张旧数据表请拆分文件", field="file")
+        values = sheet.iter_rows(values_only=True)
         header_row = next(values, None)
         if header_row is None:
             return
-        headers = [_finance_import_cell_text(value) for value in header_row]
-        for row_number, row_values in enumerate(values, start=2):
-            if all(value is None for value in row_values):
+        keys = header_keys(header_row)
+        for row_number, cells in enumerate(sheet.iter_rows(min_row=2), start=2):
+            if any(cell.data_type == "f" for cell in cells):
+                _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                       "VALIDATION_FAILED", f"第{row_number}行包含公式，请粘贴原始文本或数值", field="file")
+            row_values = [cell.value for cell in cells]
+            if all(value in (None, "") for value in row_values):
                 continue
-            yield row_number, {
-                header: value for header, value in zip(headers, row_values)
-            }
+            yield row_number, normalized_row(keys, row_values, row_number)
     finally:
         workbook.close()
 
@@ -6933,6 +6966,18 @@ def _validate_final_finance_import_row(
 ) -> tuple[str, dict, list[dict]]:
     """Validate the four finance templates frozen in the DYDATA-19 issue body."""
     errors: list[dict] = []
+    raw_row = dict(raw_row)
+    for field, aliases in FINANCE_IMPORT_VALUE_ALIASES.items():
+        value = _finance_import_cell_text(raw_row.get(field))
+        if value in aliases:
+            raw_row[field] = aliases[value]
+    for field in FINANCE_IMPORT_IDENTIFIER_FIELDS:
+        value = raw_row.get(field)
+        if isinstance(value, (int, float)) and len(str(int(value))) > 15:
+            errors.append(_finance_import_error(
+                row_number, "", field, str(value),
+                "长编号必须按文本填写，Excel数字可能已丢失精度", "将单元格设为文本，并从原始来源重新粘贴完整编号",
+            ))
     store_id = _finance_import_cell_text(raw_row.get("storeId"))
     store_name = _finance_import_cell_text(raw_row.get("storeName"))
     invoice_number = _finance_import_cell_text(raw_row.get("invoiceNumber"))
@@ -7008,7 +7053,11 @@ def _validate_final_finance_import_row(
         exact_store()
         sap_code = _finance_import_cell_text(raw_row.get("sapCode"))
         if not sap_code:
-            add_error("sapCode", sap_code, "SAP 编码必填", "填写财务 SAP 编码")
+            existing_profile = _current_finance_sap_profile(session, store_id)
+            if existing_profile is not None and not existing_profile.is_tombstone:
+                sap_code = existing_profile.sap_code or ""
+        if not sap_code:
+            add_error("sapCode", sap_code, "首次资料的 SAP 编码必填；空白仅保留已有值", "填写财务 SAP 编码")
         elif len(sap_code) > 128:
             add_error("sapCode", sap_code, "SAP 编码不得超过 128 字符", "填写有效 SAP 编码")
         imported_at = parse_datetime("importedAt")
@@ -7820,7 +7869,7 @@ def _finance_import_error_csv(session, batch_id: str):
     buffer = StringIO()
     buffer.write("\ufeff")
     writer = DictWriter(buffer, fieldnames=fieldnames, lineterminator="\r\n")
-    writer.writeheader()
+    writer.writerow({"rowNumber": "原文件行号", "businessKey": "业务唯一键", "field": "字段", "originalValue": "原始值", "reason": "错误原因", "suggestion": "建议修正方式"})
     yield buffer.getvalue()
     buffer.seek(0)
     buffer.truncate(0)
@@ -7838,7 +7887,7 @@ def _finance_import_error_csv(session, batch_id: str):
                 {
                     "rowNumber": error["row_number"],
                     "businessKey": error["business_key"],
-                    "field": error["field"],
+                    "field": FINANCE_IMPORT_FIELD_LABELS.get(error["field"], error["field"]),
                     "originalValue": error["original_value"],
                     "reason": error["reason"],
                     "suggestion": error["suggestion"],
@@ -7932,6 +7981,10 @@ def _commit_store_finance_profile_row(
             "门店财务资料已变化，请重新上传校验", field="storeId",
         )
     _revalidate_finance_import_row(session, batch=batch, row=row, request=request)
+    preserve_sap_confirmation = bool(
+        batch.import_type == 1 and current is not None and not current.is_tombstone
+        and current.sap_code == payload.get("sapCode")
+    )
     next_version = 1
     if current is not None:
         next_version = current.version_no + 1
@@ -7952,17 +8005,17 @@ def _commit_store_finance_profile_row(
                 if batch.import_type == 4
                 else payload.get("sapCode")
             ),
-            initial_sap_code=payload.get("financeInitialSap"),
-            service_store_code=payload.get("serviceStoreCode"),
+            initial_sap_code=current.initial_sap_code if preserve_sap_confirmation else payload.get("financeInitialSap"),
+            service_store_code=current.service_store_code if preserve_sap_confirmation else payload.get("serviceStoreCode"),
             factory_confirmed=(
                 payload.get("factoryConfirmationResult") == "CONFIRMED"
                 if batch.import_type == 4
-                else None
+                else current.factory_confirmed if preserve_sap_confirmation else None
             ),
             confirmed_at=(
                 datetime.fromisoformat(payload["confirmedAt"])
                 if batch.import_type == 4
-                else None
+                else current.confirmed_at if preserve_sap_confirmation else None
             ),
             import_batch_id=batch.batch_id,
             created_at=committed_at,
@@ -8282,6 +8335,12 @@ def _capture_finance_import_preview(
                 from_state = "TOMBSTONE"
         to_state = payload.get("factoryConfirmationResult") if import_type == "SAP_CONFIRMATION" else "CURRENT_PROFILE"
         allowed_changes = ["追加财务资料版本；不改变费用、账单、发票、付款或锁账事实"]
+        if import_type == "BASIC_INFO":
+            allowed_changes.append("SAP空白或未提供时保留当前有效值；旧模板确认状态列忽略")
+            if target is not None and target.sap_code == payload.get("sapCode") and not target.is_tombstone:
+                allowed_changes.append("SAP编码未变，保留原有确认结果、时间及相关编码")
+            elif target is not None:
+                allowed_changes.append("SAP编码变更：旧版本确认事实保留；新SAP值不自动获得厂家确认")
     elif import_type == "PROMOTION_FACTORY_RESULT":
         target_type = "PROMOTION_INVOICE"
         target = session.scalar(select(PromotionInvoice).join(PromotionInvoiceAllocation, PromotionInvoiceAllocation.invoice_id == PromotionInvoice.invoice_id).where(
@@ -9539,13 +9598,13 @@ def _statement_confirmable_amounts(
             .group_by(SettlementDispute.fee_direction)
         )
     }
-    return {
-        "PROMOTION": statement.promotion_net_fee_cent - frozen_amounts.get(1, 0),
-        "MANAGEMENT": max(
-            statement.management_net_fee_cent - frozen_amounts.get(2, 0),
-            0,
-        ),
-    }
+    from src.dy_data.billing_amounts import statement_confirmable_amounts
+
+    return statement_confirmable_amounts(
+        promotion_net_fee_cent=statement.promotion_net_fee_cent,
+        management_net_fee_cent=statement.management_net_fee_cent,
+        frozen_by_direction=frozen_amounts,
+    )
 
 
 def _statement_header_item(
@@ -10136,7 +10195,11 @@ def _create_dispute_statement_version(
 
     new_statement_id = f"statement-{uuid4().hex}"
     operated_at = utcnow()
-    should_auto_confirm = operated_at.day > 6
+    from src.dy_data.billing_dates import confirmation_due_at
+
+    # Historical bills stay overdue even when corrected on the first six days
+    # of a later month. The boundary belongs to the bill's Shanghai month.
+    should_auto_confirm = operated_at >= confirmation_due_at(current_statement.statement_month)
     current_statement.is_current = False
     session.flush()
     new_statement = SettlementStatement(
@@ -10624,6 +10687,66 @@ def _finance_sap_state(session, store_id: str) -> dict:
     }
 
 
+def _finance_sap_resolution_lineage(
+    session, current_profiles: list[StoreFinanceProfile],
+) -> dict[str, list[StoreFinanceProfile]]:
+    """Follow exact committed same-value imports/restorations to their evidence.
+
+    A normal BASIC_INFO row points to its locked preview profile. A formal
+    reversal points to the exact previous target it restored. Mere historical
+    SAP equality is not a link; changes, tombstones and unproved links stop.
+    Strictly decreasing versions prevent cycles without an arbitrary depth cap.
+    """
+    profile_ids = tuple(profile.profile_id for profile in current_profiles)
+    if not profile_ids:
+        return {}
+    lineage = select(
+        StoreFinanceProfile.profile_id.label("current_profile_id"),
+        StoreFinanceProfile.profile_id.label("source_profile_id"),
+    ).where(
+        StoreFinanceProfile.profile_id.in_(profile_ids),
+        StoreFinanceProfile.is_tombstone.is_(False),
+        StoreFinanceProfile.sap_code.is_not(None),
+    ).cte("finance_sap_resolution_lineage", recursive=True)
+    child = aliased(StoreFinanceProfile)
+    parent = aliased(StoreFinanceProfile)
+    import_row = aliased(FinanceImportRow)
+    import_batch = aliased(FinanceImportBatch)
+    previous_id = case(
+        (import_batch.batch_status == 9, import_row.previous_target_record_id),
+        else_=import_row.normalized_payload["_previewProfileId"].as_string(),
+    )
+    predecessor = select(
+        lineage.c.current_profile_id,
+        parent.profile_id.label("source_profile_id"),
+    ).select_from(lineage).join(child, child.profile_id == lineage.c.source_profile_id).join(
+        import_row, and_(
+            import_row.target_record_id == child.profile_id,
+            import_row.batch_id == child.import_batch_id,
+            import_row.row_status == 5,
+        ),
+    ).join(import_batch, and_(
+        import_batch.batch_id == child.import_batch_id,
+        import_batch.batch_status.in_((5, 8, 9)),
+        import_batch.import_type.in_((1, 4)),
+    )).join(parent, parent.profile_id == previous_id).where(
+        or_(import_batch.batch_status == 9, import_batch.import_type == 1),
+        parent.store_id == child.store_id,
+        parent.profile_type == child.profile_type,
+        parent.version_no < child.version_no,
+        parent.sap_code == child.sap_code,
+        parent.is_tombstone.is_(False),
+    )
+    lineage = lineage.union(predecessor)
+    result: dict[str, list[StoreFinanceProfile]] = {}
+    for current_id, source in session.execute(
+        select(lineage.c.current_profile_id, StoreFinanceProfile).select_from(lineage)
+        .join(StoreFinanceProfile, StoreFinanceProfile.profile_id == lineage.c.source_profile_id)
+    ):
+        result.setdefault(current_id, []).append(source)
+    return result
+
+
 def _finance_store_sap_items(
     session, store_rows: list[DimStore]
 ) -> list[dict]:
@@ -10698,9 +10821,16 @@ def _finance_store_sap_items(
         for profile in control_by_store.values()
         if profile is not None
     ]
-    tracked_profile_ids = tuple(
-        profile.profile_id for profile in tracked_profiles
-    )
+    resolution_profiles_by_current = _finance_sap_resolution_lineage(session, tracked_profiles)
+    resolution_sources = {
+        source.profile_id: source
+        for sources in resolution_profiles_by_current.values() for source in sources
+    }
+    current_ids_by_source: dict[str, list[str]] = {}
+    for current_id, sources in resolution_profiles_by_current.items():
+        for source in sources:
+            current_ids_by_source.setdefault(source.profile_id, []).append(current_id)
+    tracked_profile_ids = tuple(resolution_sources)
     correction_audit_by_profile: dict[str, FinanceOperationAudit] = {}
     handled_suggestion_by_profile: dict[str, SapSuggestion] = {}
     if tracked_profile_ids:
@@ -10709,12 +10839,14 @@ def _finance_store_sap_items(
             .where(
                 FinanceOperationAudit.operation_type
                 == "SAP_SINGLE_CORRECTION",
+                FinanceOperationAudit.target_type == "STORE_FINANCE_PROFILE",
                 FinanceOperationAudit.target_id.in_(tracked_profile_ids),
                 FinanceOperationAudit.result_status == 1,
             )
             .order_by(FinanceOperationAudit.occurred_at.desc())
         ):
-            correction_audit_by_profile.setdefault(audit.target_id, audit)
+            for current_id in current_ids_by_source.get(audit.target_id, []):
+                correction_audit_by_profile.setdefault(current_id, audit)
         for suggestion in session.scalars(
             select(SapSuggestion)
             .where(
@@ -10725,13 +10857,12 @@ def _finance_store_sap_items(
             .order_by(SapSuggestion.handled_at.desc())
         ):
             if suggestion.confirmed_profile_id is not None:
-                handled_suggestion_by_profile.setdefault(
-                    suggestion.confirmed_profile_id, suggestion
-                )
+                for current_id in current_ids_by_source.get(suggestion.confirmed_profile_id, []):
+                    handled_suggestion_by_profile.setdefault(current_id, suggestion)
     import_batch_ids = tuple(
         {
             profile.import_batch_id
-            for profile in tracked_profiles
+            for profile in [*tracked_profiles, *resolution_sources.values()]
             if profile.import_batch_id
         }
     )
@@ -10789,19 +10920,22 @@ def _finance_store_sap_items(
             occurred_at = _finance_datetime(audit.occurred_at)
             if occurred_at is not None:
                 resolution_times.append(occurred_at)
-        if (
-            effective_profile is not None
-            and import_batch is not None
-            and import_batch.import_type == 4
-        ):
-            for value in (
-                effective_profile.confirmed_at,
-                import_batch.committed_at,
-                effective_profile.updated_at,
-            ):
-                normalized = _finance_datetime(value)
+        source_profiles = resolution_profiles_by_current.get(
+            control_profile.profile_id if control_profile is not None else "", []
+        )
+        for source_profile in source_profiles:
+            source_confirmation_at = _finance_datetime(source_profile.confirmed_at)
+            if source_confirmation_at is not None:
+                resolution_times.append(source_confirmation_at)
+            source_import = batch_by_id.get(source_profile.import_batch_id)
+            if source_import is not None and source_import.import_type == 4 and source_import.batch_status in (5, 8):
+                # Only an actual SAP confirmation supplies a resolution time.
+                # A later metadata import or restoration is not a new decision.
+                normalized = _finance_datetime(source_import.committed_at)
                 if normalized is not None:
                     resolution_times.append(normalized)
+                # gmt_modified also changes when a profile is superseded;
+                # it is metadata, never evidence of a newer SAP decision.
         resolution_at = max(resolution_times) if resolution_times else None
         suggestion_submitted_at = _finance_datetime(
             suggestion.submitted_at if suggestion is not None else None
@@ -11468,6 +11602,8 @@ def _finance_order_detail_audit_filters(filters: dict) -> dict:
 
 def _finance_order_details_query(filters: dict):
     """Return the immutable projection used without variation by list and export."""
+    from ..commission_classification import reporting_type_expression
+
     direction = filters["feeDirection"]
     direction_code = CONFIRMATION_DIRECTION_TO_DB[direction]
     promotion_settled_date = (
@@ -11511,6 +11647,9 @@ def _finance_order_details_query(filters: dict):
         == management_confirmed_amount,
     )
     sku_expr = SettlementStatementEntry.sku_id_snapshot
+    classification_sku = func.coalesce(func.nullif(sku_expr, ""), select(SettlementFeeResult.sku_id).where(
+        SettlementFeeResult.fee_result_id == SettlementStatementEntry.original_fee_result_id
+    ).correlate(SettlementStatementEntry).scalar_subquery())
     sale_channel_expr = SettlementStatementEntry.sale_channel_snapshot
     verify_time_expr = SettlementStatementEntry.verify_time_snapshot
     active_invoice = PromotionInvoice if direction == "PROMOTION" else InvoiceRecord
@@ -11599,7 +11738,8 @@ def _finance_order_details_query(filters: dict):
             SettlementStatementEntry.order_status_snapshot.label("order_status"),
             SettlementStatementEntry.coupon_status_snapshot.label("coupon_status"),
             SettlementStatementEntry.product_name_snapshot.label("product_name"),
-            SettlementStatementEntry.product_type.label("product_type"),
+            reporting_type_expression(classification_sku, SettlementStatementEntry.product_type).label("product_type"),
+            SettlementStatementEntry.product_type.label("snapshot_product_type"),
             sku_expr.label("sku_id"),
             SettlementStatementEntry.sku_name_snapshot.label("sku_name"),
             sale_channel_expr.label("sale_channel"),
@@ -11677,6 +11817,7 @@ def _finance_order_detail_item(row, direction: str) -> dict:
         "coupon_status": values["coupon_status"],
         "product_name": values["product_name"],
         "product_type": values["product_type"],
+        "snapshot_product_type": values["snapshot_product_type"],
         "sku_id": values["sku_id"],
         "sku_name": values["sku_name"],
         "sale_channel": values["sale_channel"],
@@ -11776,12 +11917,16 @@ def _finance_csv_download(
     filename_prefix: str,
     fieldnames: list[str],
     rows: list[dict],
+    header_labels: dict[str, str] | None = None,
 ) -> Response:
     """Build a real CSV export whose empty state is exactly one header row."""
 
     buffer = StringIO(newline="")
     writer = DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
-    writer.writeheader()
+    if header_labels:
+        writer.writerow(header_labels)
+    else:
+        writer.writeheader()
     writer.writerows(rows)
     filename = quote(f"{filename_prefix}-{generated_at().date().isoformat()}.csv")
     return Response(

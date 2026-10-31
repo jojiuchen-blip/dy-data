@@ -11,6 +11,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from openpyxl import load_workbook
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -45,7 +46,7 @@ def _database_fingerprint(session: Session) -> dict[str, str]:
 def test_every_finance_download_keeps_business_versions_amounts_and_jobs(
     client: TestClient, db_session: Session, tmp_path: Path,
 ) -> None:
-    """Compare full persisted values after each of 24 repeated real downloads."""
+    """Compare full persisted values after each of 32 repeated real downloads."""
     statement = _seed_store_and_statement(db_session)
     _seed_promotion_invoice(db_session, statement=statement)
     for direction in (1, 2):
@@ -81,6 +82,10 @@ def test_every_finance_download_keeps_business_versions_amounts_and_jobs(
         for kind in ("BASIC_INFO", "PROMOTION_FACTORY_RESULT", "MANAGEMENT_FACTORY_RESULT", "SAP_CONFIRMATION")
     ]
     cases += [
+        (f"/api/v1/admin/finance-imports/templates/{kind}", {"format": "csv"}, False)
+        for kind in ("BASIC_INFO", "PROMOTION_FACTORY_RESULT", "MANAGEMENT_FACTORY_RESULT", "SAP_CONFIRMATION")
+    ]
+    cases += [
         ("/api/v1/admin/finance/invoices/export", {"month": "2026-08", "feeDirection": direction}, direction == "PROMOTION")
         for direction in ("PROMOTION", "MANAGEMENT")
     ]
@@ -99,8 +104,20 @@ def test_every_finance_download_keeps_business_versions_amounts_and_jobs(
         for attempt in range(2):
             response = client.get(endpoint, params=params)
             assert response.status_code == 200, (endpoint, response.text)
-            assert response.content.startswith(b"\xef\xbb\xbf"), endpoint
-            rows = list(csv.DictReader(io.StringIO(response.content.decode("utf-8-sig"))))
+            if "/templates/" in endpoint and params.get("format") != "csv":
+                assert "spreadsheetml.sheet" in response.headers["content-type"]
+                workbook = load_workbook(io.BytesIO(response.content))
+                assert workbook.sheetnames == ["数据导入", "填写示例", "填写说明"]
+                assert workbook["数据导入"].max_row == 1
+                assert workbook["填写示例"].max_row == 2
+                assert any(any(ord(char) > 127 for char in str(cell.value))
+                           for cell in workbook["数据导入"][1])
+                rows = []
+            else:
+                assert response.content.startswith(b"\xef\xbb\xbf"), endpoint
+                rows = list(csv.DictReader(io.StringIO(response.content.decode("utf-8-sig"))))
+                if "/templates/" in endpoint:
+                    assert "format=xlsx" in response.headers["link"]
             if expect_rows:
                 assert rows, endpoint
             assert _database_fingerprint(db_session) == baseline, endpoint

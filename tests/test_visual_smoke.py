@@ -3019,7 +3019,7 @@ def test_order_details_direct_url_loads_authorized_default_scope(
         page.clock.set_fixed_time("2026-10-20T02:00:00Z")
         install_settlement_user_route(page, "admin")
         page.route(
-            "**/api/v1/meta/filters",
+            "**/api/v1/dashboard/publications/settlement/filters*",
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
@@ -3074,7 +3074,7 @@ def test_order_details_direct_export_omits_source_rate_context(
     try:
         install_settlement_user_route(page, "admin")
         page.route(
-            "**/api/v1/meta/filters",
+            "**/api/v1/dashboard/publications/settlement/filters*",
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
@@ -3131,7 +3131,7 @@ def test_order_fee_details_displays_structured_request_id(
     try:
         install_settlement_user_route(page, "admin")
         page.route(
-            "**/api/v1/meta/filters",
+            "**/api/v1/dashboard/publications/settlement/filters*",
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
@@ -3183,7 +3183,7 @@ def test_order_fee_details_exposes_real_api_error_states(
     try:
         install_api_routes(page)
         page.route(
-            "**/api/v1/meta/filters",
+            "**/api/v1/dashboard/publications/settlement/filters*",
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
@@ -3222,7 +3222,7 @@ def test_order_fee_details_real_api_success_and_export_by_role(
     try:
         install_settlement_user_route(page, role)
         page.route(
-            "**/api/v1/meta/filters",
+            "**/api/v1/dashboard/publications/settlement/filters*",
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
@@ -3268,7 +3268,7 @@ def test_order_fee_details_real_api_empty_state(
     try:
         install_settlement_user_route(page, "store")
         page.route(
-            "**/api/v1/meta/filters",
+            "**/api/v1/dashboard/publications/settlement/filters*",
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
@@ -3303,7 +3303,7 @@ def test_order_fee_details_export_surfaces_conflict(
     try:
         install_settlement_user_route(page, "admin")
         page.route(
-            "**/api/v1/meta/filters",
+            "**/api/v1/dashboard/publications/settlement/filters*",
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
@@ -4100,7 +4100,7 @@ def test_audited_internal_values_are_presented_as_user_facing_chinese(
     try:
         install_api_routes(page)
         page.goto(f"{vite_base_url}/admin/sync", wait_until="domcontentloaded")
-        page.get_by_text("数据同步管理", exact=False).first.wait_for(timeout=10000)
+        page.get_by_text("订单数据同步", exact=True).first.wait_for(timeout=10000)
         sync_text = page.locator("body").inner_text()
         assert "订单数据同步" in sync_text
         assert "订单数据：拉取" in sync_text
@@ -6318,7 +6318,7 @@ def test_finance_import_clears_stale_preview_after_409(
         upload_button.click()
         expect(page.get_by_role("region", name="逐行字段预览", exact=True)).to_contain_text("380.00")
         page.get_by_role("button", name="确认提交").click()
-        page.get_by_text("导入结果已生效；导入时间作为审核通过或结算完成时间。", exact=True).wait_for(timeout=10000)
+        page.get_by_text("导入已提交，正在重新读取正式数据；厂家结果的导入时间作为审核通过或结算完成时间。", exact=True).wait_for(timeout=10000)
         assert commit_attempts == 2
     finally:
         context.close()

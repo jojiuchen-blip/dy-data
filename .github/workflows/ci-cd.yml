@@ -164,8 +164,10 @@ jobs:
         run: |
           mkdir -p logs/ci
           python -c 'import psycopg; conn = psycopg.connect("host=127.0.0.1 port=5432 dbname=dydata_release user=postgres password=postgres", autocommit=True); conn.execute("CREATE DATABASE dydata_delivery_test"); conn.close()'
-          python -m pytest -q -ra tests/test_dydata104_finance_state_matrix.py tests/test_account_qualification_postgres.py tests/test_historical_fee_correction_postgres.py tests/test_protected_billing_authority_postgres.py tests/test_product_sync_completeness_postgres.py tests/test_product_sync_sku_lookup_postgres.py tests/test_product_sync_failure_diagnostics.py tests/test_month_close_auto_bootstrap_postgres.py tests/test_missing_fee_repair_postgres.py tests/test_missing_fee_write_proof_postgres.py tests/test_settlement_verify_impact_selection.py --junitxml=logs/ci/dydata104-postgres.xml
+          python -c 'import os; assert all(os.environ.get(name, "").startswith("postgresql+psycopg://") for name in ("DYDATA_FINANCE_TEST_DATABASE_URL", "DYDATA_PUBLICATION_TEST_DATABASE_URL")), "October 30 gates require explicit disposable PostgreSQL URLs"'
+          python -m pytest -q -ra tests/test_dydata104_finance_state_matrix.py tests/test_account_qualification_postgres.py tests/test_historical_fee_correction_postgres.py tests/test_protected_billing_authority_postgres.py tests/test_product_sync_completeness_postgres.py tests/test_product_sync_sku_lookup_postgres.py tests/test_product_sync_failure_diagnostics.py tests/test_month_close_auto_bootstrap_postgres.py tests/test_missing_fee_repair_postgres.py tests/test_missing_fee_write_proof_postgres.py tests/test_settlement_verify_impact_selection.py tests/test_finance_import_chinese_templates.py tests/test_finance_sap_resolution_lineage.py tests/test_billing_auto_confirmation_postgres.py tests/test_commission_product_types_postgres.py tests/test_commission_authority_query_postgres.py tests/test_commission_authority_import_paths.py tests/test_ops_browser_observation.py --junitxml=logs/ci/dydata104-postgres.xml
           python -c 'import xml.etree.ElementTree as E; suites = list(E.parse("logs/ci/dydata104-postgres.xml").getroot().iter("testsuite")); assert suites and sum(int(s.get("tests", 0)) for s in suites) > 0, "DYDATA-104 PostgreSQL gate collected no tests"; assert all(int(s.get(k, 0)) == 0 for s in suites for k in ("skipped", "failures", "errors")), "DYDATA-104 PostgreSQL gate must not skip or fail selected tests"'
+          python -c 'import xml.etree.ElementTree as E; cases = list(E.parse("logs/ci/dydata104-postgres.xml").getroot().iter("testcase")); executed = [c for c in cases if not any(c.find(status) is not None for status in ("skipped", "failure", "error"))]; oct30_counts = {"test_finance_import_chinese_templates": 22, "test_finance_sap_resolution_lineage": 11, "test_billing_auto_confirmation_postgres": 14, "test_commission_product_types_postgres": 10, "test_commission_authority_query_postgres": 18, "test_commission_authority_import_paths": 4, "test_ops_browser_observation": 58}; assert all(sum(c.get("classname", "").endswith(module) for c in executed) >= minimum for module, minimum in oct30_counts.items()), "October 30 PostgreSQL modules must execute all required cases"'
           python -c 'import xml.etree.ElementTree as E; cases = list(E.parse("logs/ci/dydata104-postgres.xml").getroot().iter("testcase")); executed = [c for c in cases if c.get("classname", "").endswith("test_product_sync_failure_diagnostics") and "postgres" in c.get("name", "")]; assert len(executed) == 11 and all(not any(c.find(status) is not None for status in ("skipped", "failure", "error")) for c in executed), "all eleven product failure diagnostics PostgreSQL cases must execute successfully"'
           python -c 'import xml.etree.ElementTree as E; cases = list(E.parse("logs/ci/dydata104-postgres.xml").getroot().iter("testcase")); executed = [c for c in cases if c.get("classname", "").endswith("test_settlement_verify_impact_selection") and "postgres" in c.get("name", "")]; assert len(executed) == 11 and all(not any(c.find(status) is not None for status in ("skipped", "failure", "error")) for c in executed), "all eleven verify impact PostgreSQL cases must execute successfully"'
           # The complete authority file also owns the publication-only coordinator.
@@ -215,8 +217,9 @@ jobs:
         timeout-minutes: 15
         run: |
           mkdir -p logs/ci
-          python -m pytest -q -ra tests/test_dydata104_finance_preview_browser.py tests/test_dydata105_buttons_browser.py --junitxml=logs/ci/dydata104-finance-browser.xml
+          python -m pytest -q -ra tests/test_dydata104_finance_preview_browser.py tests/test_dydata105_buttons_browser.py tests/test_dydata104_oct30_invoice_browser.py tests/test_finance_import_chinese_browser.py --junitxml=logs/ci/dydata104-finance-browser.xml
           python -c 'import xml.etree.ElementTree as E; suites = list(E.parse("logs/ci/dydata104-finance-browser.xml").getroot().iter("testsuite")); assert suites and sum(int(s.get("tests", 0)) for s in suites) > 0, "DYDATA-104 browser gate collected no tests"; assert all(int(s.get(k, 0)) == 0 for s in suites for k in ("skipped", "failures", "errors")), "DYDATA-104 browser gate must not skip or fail selected tests"'
+          python -c 'import xml.etree.ElementTree as E; cases = list(E.parse("logs/ci/dydata104-finance-browser.xml").getroot().iter("testcase")); executed = [c for c in cases if not any(c.find(status) is not None for status in ("skipped", "failure", "error"))]; assert sum(c.get("classname", "").endswith("test_dydata104_oct30_invoice_browser") for c in executed) >= 9 and sum(c.get("classname", "").endswith("test_finance_import_chinese_browser") for c in executed) >= 2, "October 30 invoice and committed import browser scenarios must execute"'
 
       - name: Upload DYDATA-104 verification receipts
         if: always()
@@ -265,12 +268,23 @@ jobs:
           python -c 'import xml.etree.ElementTree as E; suites = list(E.parse("logs/ci/dydata104-browser-image.xml").getroot().iter("testsuite")); assert suites and sum(int(s.get("tests", 0)) for s in suites) == 3, "browser image gate must execute exactly three tests"; assert all(int(s.get(k, 0)) == 0 for s in suites for k in ("skipped", "failures", "errors")), "browser image gate must not skip or fail selected tests"'
           python -c 'import xml.etree.ElementTree as E; cases = list(E.parse("logs/ci/dydata104-browser-image.xml").getroot().iter("testcase")); executed = {c.get("name", "") for c in cases if c.get("classname", "").endswith("test_browser_image_dependency_compat") and not any(c.find(status) is not None for status in ("skipped", "failure", "error"))}; image_required = {"test_browser_pillow_rgb_image_round_trip[PNG]", "test_browser_pillow_rgb_image_round_trip[TIFF]", "test_browser_requests_urllib3_pool_handles_regular_and_chunked_responses"}; assert image_required <= executed, "browser image compatibility cases were not executed successfully"'
 
+      - name: Verify browser process recovery in the built image
+        timeout-minutes: 10
+        env:
+          DY_BROWSER_RECOVERY_IMAGE: dy-dashboard-browser:ci
+        run: |
+          mkdir -p logs/ci
+          python -m pytest -q -ra tests/test_browser_process_recovery_image.py --junitxml=logs/ci/dydata104-browser-recovery.xml
+          python -c 'import xml.etree.ElementTree as E; suites = list(E.parse("logs/ci/dydata104-browser-recovery.xml").getroot().iter("testsuite")); assert suites and sum(int(s.get("tests", 0)) for s in suites) == 3, "browser recovery gate must execute three real process recovery cases"; assert all(int(s.get(k, 0)) == 0 for s in suites for k in ("skipped", "failures", "errors")), "browser recovery gate must not skip or fail selected tests"'
+
       - name: Upload DYDATA-104 browser image verification receipt
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: dydata104-browser-image-${{ github.job }}-${{ github.sha }}
-          path: logs/ci/dydata104-browser-image.xml
+          path: |
+            logs/ci/dydata104-browser-image.xml
+            logs/ci/dydata104-browser-recovery.xml
           if-no-files-found: warn
 
       - name: Build Web Docker image

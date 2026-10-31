@@ -16,6 +16,7 @@ WORKFLOWS = ("ci-cd.yml", "tencent-lighthouse-deploy.yml")
 PG_NAME = "Verify DYDATA-104 financial operations and month-end evidence on PostgreSQL"
 BROWSER_NAME = "Verify DYDATA-104 financial preview and operation buttons in Chromium"
 IMAGE_NAME = "Verify browser image dependency compatibility"
+RECOVERY_NAME = "Verify browser process recovery in the built image"
 PG_FILES = {
     "tests/test_dydata104_finance_state_matrix.py",
     "tests/test_account_qualification_postgres.py",
@@ -28,10 +29,19 @@ PG_FILES = {
     "tests/test_missing_fee_repair_postgres.py",
     "tests/test_missing_fee_write_proof_postgres.py",
     "tests/test_settlement_verify_impact_selection.py",
+    "tests/test_finance_import_chinese_templates.py",
+    "tests/test_finance_sap_resolution_lineage.py",
+    "tests/test_billing_auto_confirmation_postgres.py",
+    "tests/test_commission_product_types_postgres.py",
+    "tests/test_commission_authority_query_postgres.py",
+    "tests/test_commission_authority_import_paths.py",
+    "tests/test_ops_browser_observation.py",
 }
 BROWSER_FILES = {
     "tests/test_dydata104_finance_preview_browser.py",
     "tests/test_dydata105_buttons_browser.py",
+    "tests/test_dydata104_oct30_invoice_browser.py",
+    "tests/test_finance_import_chinese_browser.py",
 }
 COORDINATOR_CASES = {
     "test_postgres_publication_only_complete_apply[metadata]",
@@ -368,7 +378,9 @@ def test_browser_image_gate_uses_built_image_offline_and_single_readonly_test_mo
     ]
     receipt = _step(workflow, "Upload DYDATA-104 browser image verification receipt")
     assert receipt["if"] == "always()" and receipt["uses"] == "actions/upload-artifact@v4"
-    assert receipt["with"]["path"] == "logs/ci/dydata104-browser-image.xml"
+    assert set(receipt["with"]["path"].splitlines()) == {
+        "logs/ci/dydata104-browser-image.xml", "logs/ci/dydata104-browser-recovery.xml",
+    }
     assert steps.index(receipt) > steps.index(gate)
     assert "|| true" not in gate["run"] and "secrets." not in str(gate)
 

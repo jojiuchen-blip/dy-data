@@ -222,6 +222,8 @@ python scripts/refresh_store_scores.py --lookback-days 30 --min-samples 20 --dry
 
 ## 8. 受限 Ops Agent 与 8GB 资源护栏
 
+候选增量（DYDATA-104，尚待部署）：Ops Agent 对唯一 browser 的 Compose label lookup 后增加固定只读 inspect，并核对ID/labels及真实启动和近期同次健康检查。空闲最多每30秒观察一次；只记录 `observer=ops_agent/source=docker_inspect` 的真实组件心跳，未知CPU/RSS/队列/活动不补零。browser不增加DB凭据或socket，Docker写动作仍只有原固定重启。固定内部子进程统一限制观察、连接及提交的墙钟时间，超时终止并回收；所有实例的导出活动仍保护，不被新观察掩盖。只有新启动且真实healthy的browser可确认恢复；原失败审计不覆盖。详见[观察验证](verification/dydata-104-oct31-browser-observation.md)。
+
 Ops Agent 是独立的、无 HTTP 端口的运维进程。它只接受数据库中已确认的两类固定命令：`restart(worker)` 和 `restart(browser)`；不提供 shell、exec、stop、remove、scale、镜像或任意参数入口。Docker socket 只挂载到 Ops Agent，API 服务不挂载 Docker socket。目标容器必须通过当前 Compose project/service label 唯一匹配；零个或多个匹配均 fail closed。
 
 命令 claim 使用短 TTL（pending 默认 120 秒）和单目标活动唯一约束。运行中的过期 claim 会回收为 pending，并递增 `lease_epoch`；完成更新必须同时匹配 command、owner、epoch 且仍未过期，因此旧执行者不能完成已被回收的命令。已领取 lease 的有限预算按串行链路相加：pending TTL 余量、两次 Docker label 查询、restart grace/响应余量和 replacement heartbeat 等待；restart 副作用前还会原子校验 owner/epoch/lease 并按剩余链路续租。每次命令成功、失败或拒绝完成时，`cooldown_until` 都从完成时间重新起算固定 300 秒。
