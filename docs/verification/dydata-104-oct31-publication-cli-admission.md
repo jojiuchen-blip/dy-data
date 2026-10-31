@@ -15,7 +15,7 @@
 - dry-run继续调用原正式预演，不读取本次压力窗口设置、不启动monitor。apply仍由本进程正式monitor给出真实ALLOW，再以原月份及精确preview hash调用原正式服务；成功或拒绝均保留原stop清理。
 - 未修改 `initial_state`、恢复/稳定时间、资源guard开关、心跳归属、正式服务校验、数据库结构或SQL/事务预算，不从其他进程借用准入结论。
 
-现有[正式契约](../prd/foundation/foundation-api-dy-data/settlement-authority.md)第46行仍记录默认90秒、范围0..600，属于本次发现的CLI参数契约漂移，已向主线程提交同步请求。该Foundation正文不在本worker写集内，待主线程按既有增量流程回捞；不将本地候选与旧参数描述同时宣称已生效。
+[正式契约](../prd/foundation/foundation-api-dy-data/settlement-authority.md)已由主入口按S4-FCR-020同步派生默认与0..1800秒显式范围，保留旧预算缺口和修前失败；没有新业务规则或DDL。合同和本地候选不代表生产已生效。
 
 预算只覆盖正常连续采样的完整观察时间。持续压力、采样异常或正式服务重新校验发现来源变化仍须拒绝；扩大等待预算不保证发布成功。
 
@@ -48,4 +48,4 @@ python .tmp/run-repository-pytest.py tests/test_settlement_publication_cli_resou
 
 ## 交付边界
 
-仅提供候选代码、测试与本记录，未push、未修改主工作树、未连接或写入生产。生产仍以Root实际983运行读回为准；Root正在执行的独立资源观察不受本地源码修改影响。真实准入、固定hash发布、独立只读回读及8/9月业务验收由Root串行执行，本测试不能替代这些证据。
+本定向修复提供候选代码、测试与本记录；整体PR、CI及生产交付以[主线程证据](dydata-104-oct30-delivery.md)为准。生产仍以Root实际983运行读回为准；Root正在执行的独立资源观察不受本地源码修改影响。真实准入、固定hash发布、独立只读回读及8/9月业务验收由Root串行执行，本测试不能替代这些证据。

@@ -359,3 +359,20 @@
 | 状态 | 已采纳（主入口依据 2026-10-30 用户确认接管增量，候选正文已回捞；最终集成检查、正式逐账单预演/补执行及生产页面验收尚未完成）。 |
 
 本条按最新用户确认补充早期“账单确认均人工”的历史描述，仅适用于满足本条条件的逾期方向。`BILLING_AUTO_CONFIRM_ENABLED` 默认 false，初次启用前核对未补费及保护清单并登记必要 hold；人工已确认、争议、锁账、来源不齐、版本变化和显式暂停均继续保护。重放主动回滚且零写入；正式提交保留 SQL/总事务预算、延迟约束检查及最终 seal。不得补录暂停 22 券或将三组受保护金额视为已批准更正，不自动登记发票/付款。执行与回滚入口见[运行合同](../../ops/billing-auto-confirmation.md)；373 券与 8/9 月发布收尾仍独立未完成。
+
+
+## S4-FCR-020：仅发布CLI完整资源观察预算
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-020` |
+| 来源 Task | `DYDATA-104 / T3.1 8/9月仅发布收尾（2026-10-31实际入口拒绝）` |
+| 分类 | `DRIFT / GAP` |
+| 改动项 | 将CLI默认观察预算推导为覆盖正式recovery+stable及采样裕量、至少900秒；显式范围0..1800，超上限配置明确拒绝；短预算仍可安全拒绝。 |
+| 原因 | 新monitor按既有策略从protected开始，默认180+600秒后才ALLOW，旧CLI默认90/最大600秒不足以覆盖完整观察；重新启动不能跳过保护。 |
+| 指向代码块 | `scripts/ops/publish_settlement_authority.py::_default_admission_wait_seconds/main`；`tests/test_settlement_publication_cli_resource_wait.py`。 |
+| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-api-dy-data/settlement-authority.md §3`；`docs/prd/foundation/foundation-delivery-dy-data.md` 本次增量一致性记录。 |
+| 严重度 | 阻断既有正式运维发布入口的正常资源入场。 |
+| 状态 | 已采纳（主入口在104已授权修复范围接收技术预算缺口，候选参数合同已同步；不新增业务规则或数据库结构，生产仍独立验收）。 |
+
+不更改资源策略、初态、恢复/稳定阈值、采样、心跳归属、正式服务或源hash，不关闭guard或增加自动重试。短预算和持续不健康必须0服务调用。真实策略配受控测试时钟证明完整780秒后才准入；测试时钟不用于生产。证据见[CLI入场验证](../../verification/dydata-104-oct31-publication-cli-admission.md)。
