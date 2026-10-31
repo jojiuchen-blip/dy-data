@@ -1,7 +1,7 @@
 {
   "mode": "project-link-index",
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-10-31T08:50:41.579Z",
+  "generatedAt": "2026-10-31T10:42:56.035Z",
   "hostRoot": ".",
   "outputs": {
     "graphJson": "docs/index/project-link-graph.json",
@@ -9,15 +9,15 @@
     "wikiSchemaJson": "docs/index/project-wiki-schema.json"
   },
   "summary": {
-    "nodes": 1454,
-    "edges": 1733,
+    "nodes": 1456,
+    "edges": 1744,
     "issues": 43,
     "errors": 43,
     "warnings": 0,
     "nodesByKind": {
       "config": 34,
-      "doc": 272,
-      "source_code": 885,
+      "doc": 273,
+      "source_code": 886,
       "readme": 6,
       "baseline_audit": 2,
       "brd": 2,
@@ -36,7 +36,7 @@
       "page_ledger": 1
     },
     "edgesByRelation": {
-      "links_to": 1145,
+      "links_to": 1156,
       "depends_on": 579,
       "indexes": 9
     }
@@ -8800,6 +8800,15 @@
       "title": "DYDATA-104：浏览器真实健康观察与恢复确认"
     },
     {
+      "id": "docs/verification/dydata-104-oct31-publication-cli-admission.md",
+      "path": "docs/verification/dydata-104-oct31-publication-cli-admission.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "DYDATA-104：publication-only CLI 资源观察预算修复"
+    },
+    {
       "id": "docs/verification/dydata-104-product-types.md",
       "path": "docs/verification/dydata-104-product-types.md",
       "kind": "doc",
@@ -12607,6 +12616,15 @@
       "title": "---------------------------------------------------------------------------"
     },
     {
+      "id": "tests/test_settlement_publication_cli_resource_wait.py",
+      "path": "tests/test_settlement_publication_cli_resource_wait.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_settlement_publication_cli_resource_wait.py"
+    },
+    {
       "id": "tests/test_settlement_publication_only.py",
       "path": "tests/test_settlement_publication_only.py",
       "kind": "source_code",
@@ -13370,7 +13388,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 166,
+          "line": 168,
           "text": "- [优先日任务日志](docs/devlog/2026-09-10-priority-daily.md)与 [9 月 10 日开发日志](docs/devlog/20260910_refactor_log_Keith_Chen.md)提供运行、页面和阶段末部署证据。",
           "syntax": "markdown"
         }
@@ -13387,7 +13405,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 182,
+          "line": 184,
           "text": "Agent 环境边界证据：[测试验收日志](docs/devlog/20260723_refactor_log_Keith_Chen.md)、[生产提升日志](docs/devlog/20260827_dydata-46-production-promotion.md)、[生产 UAT 计划](docs/plans/delivery-plans/sub-delivery-plan-dydata-46-production-promotion-T2.1-release-uat.md)。",
           "syntax": "markdown"
         }
@@ -13404,7 +13422,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 182,
+          "line": 184,
           "text": "Agent 环境边界证据：[测试验收日志](docs/devlog/20260723_refactor_log_Keith_Chen.md)、[生产提升日志](docs/devlog/20260827_dydata-46-production-promotion.md)、[生产 UAT 计划](docs/plans/delivery-plans/sub-delivery-plan-dydata-46-production-promotion-T2.1-release-uat.md)。",
           "syntax": "markdown"
         }
@@ -13421,7 +13439,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 166,
+          "line": 168,
           "text": "- [优先日任务日志](docs/devlog/2026-09-10-priority-daily.md)与 [9 月 10 日开发日志](docs/devlog/20260910_refactor_log_Keith_Chen.md)提供运行、页面和阶段末部署证据。",
           "syntax": "markdown"
         }
@@ -13438,7 +13456,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 150,
+          "line": 152,
           "text": "- [打榜生产日志](docs/devlog/20260911_ranking_dashboard_production.md)保留首次异常及后续修复过程。",
           "syntax": "markdown"
         }
@@ -13455,7 +13473,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 151,
+          "line": 153,
           "text": "- 账号范围与最终修复见 [9 月 15 日组织范围日志](docs/devlog/20260915_account_org_scope.md)、[9 月 17 日当前组织日志](docs/devlog/20260917_account_current_org.md)。",
           "syntax": "markdown"
         }
@@ -13472,7 +13490,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 151,
+          "line": 153,
           "text": "- 账号范围与最终修复见 [9 月 15 日组织范围日志](docs/devlog/20260915_account_org_scope.md)、[9 月 17 日当前组织日志](docs/devlog/20260917_account_current_org.md)。",
           "syntax": "markdown"
         }
@@ -13489,7 +13507,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 133,
+          "line": 135,
           "text": "- [9 月 28 日开发日志](docs/devlog/20260928_refactor_log_Your_Name.md)限定 PDCA 发布范围；来源完整截止时间未知的限制仍保留。",
           "syntax": "markdown"
         }
@@ -13506,7 +13524,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 134,
+          "line": 136,
           "text": "- [9 月 29 日激活指引日志](docs/devlog/20260929_activation_guide_reminder.md)包含完整 SHA 部署回执和页面验证。上述记录不等于全部财务数据完整性已验收。",
           "syntax": "markdown"
         }
@@ -13523,7 +13541,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 116,
+          "line": 118,
           "text": "- [榜单生命周期与磁盘治理日志](docs/devlog/20261009_disk_ranking_retention.md)记录生产验证。",
           "syntax": "markdown"
         }
@@ -13540,7 +13558,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 99,
+          "line": 101,
           "text": "- [DYDATA-104 跟进日志](docs/devlog/20261020_dydata-104-followthrough.md)记录发布、页面验收和独立九月账期修复。",
           "syntax": "markdown"
         }
@@ -13557,7 +13575,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 66,
+          "line": 68,
           "text": "- [10 月 28 日开发日志](docs/devlog/20261028_refactor_log_Keith_Chen.md)记录新候选应用切换待办；同日[执行记录](https://github.com/jojiuchen-blip/dy-data/blob/344ba4cc7ae279996d6ed65e9a8f4f4c6c385fb5/docs/plans/execution-plan.md#L26)记载仅完成备份与 0066 迁移，尚未切换新版。数据库迁移不能证明应用已升级。",
           "syntax": "markdown"
         }
@@ -13574,7 +13592,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 182,
+          "line": 184,
           "text": "Agent 环境边界证据：[测试验收日志](docs/devlog/20260723_refactor_log_Keith_Chen.md)、[生产提升日志](docs/devlog/20260827_dydata-46-production-promotion.md)、[生产 UAT 计划](docs/plans/delivery-plans/sub-delivery-plan-dydata-46-production-promotion-T2.1-release-uat.md)。",
           "syntax": "markdown"
         }
@@ -13591,7 +13609,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 82,
+          "line": 84,
           "text": "- [10 月 23 日验证](docs/verification/dydata-104-oct23.md)记录 #61 的先行发布；[10 月 27 日交付验证](docs/verification/dydata-104-oct27-delivery.md)记录本批最终应用 SHA。",
           "syntax": "markdown"
         }
@@ -13608,19 +13626,19 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 47,
+          "line": 49,
           "text": "完整主线CI5389通过／490跳过，独立239PG、28Chromium及3镜像专项均零跳过、零失败。实际生产1744文件和各服务关键文件与源码一致，8服务运行及配置健康检查通过，数据库为`20261027_0066`；真实管理员页面已读取新入口。详见[本次发布记录](docs/verification/dydata-104-oct27-delivery.md#2026-10-28-最新主线127d生产发布)。",
           "syntax": "markdown"
         },
         {
           "path": "CHANGELOG.md",
-          "line": 67,
+          "line": 69,
           "text": "- 上述为原候选建档时的历史状态；后续07:02:13实际部署及rc.2切换的运行读回见[本次发布记录](docs/verification/dydata-104-oct27-delivery.md#2026-10-28-最新主线127d生产发布)，不补造当时已有tag或已完成业务验收。",
           "syntax": "markdown"
         },
         {
           "path": "CHANGELOG.md",
-          "line": 82,
+          "line": 84,
           "text": "- [10 月 23 日验证](docs/verification/dydata-104-oct23.md)记录 #61 的先行发布；[10 月 27 日交付验证](docs/verification/dydata-104-oct27-delivery.md)记录本批最终应用 SHA。",
           "syntax": "markdown"
         }
@@ -13637,7 +13655,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 65,
+          "line": 67,
           "text": "- [10 月 28 日核销影响验证](docs/verification/dydata-104-oct28-verify-impact.md)仍以 `9b1feb8` 为旧生产应用基线。",
           "syntax": "markdown"
         }
@@ -13654,7 +13672,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 30,
+          "line": 32,
           "text": "本批不新增数据库结构迁移，不改变费率、历史确认/开票/付款事实。代码集成与专项验证不等于最终 CI、生产部署或业务验收；[交付证据](docs/verification/dydata-104-oct30-delivery.md)持续记录实际状态。暂停 22 券、三组受保护金额以及旧 373 券补费和 8/9 月发布收尾仍按原边界独立处理，104 未完成。",
           "syntax": "markdown"
         }
@@ -16664,19 +16682,70 @@
       ]
     },
     {
-      "id": "docs/devlog/20261031_refactor_log_Keith_Chen.md->project-rules.md:links_to",
+      "id": "docs/devlog/20261031_refactor_log_Keith_Chen.md->docs/plans/foundation-plans/foundation-change-requests-dy-data.md:links_to",
       "from": "docs/devlog/20261031_refactor_log_Keith_Chen.md",
-      "to": "project-rules.md",
-      "target": "project-rules.md",
+      "to": "docs/plans/foundation-plans/foundation-change-requests-dy-data.md",
+      "target": "docs/plans/foundation-plans/foundation-change-requests-dy-data.md",
       "relation": "links_to",
       "status": "resolved",
       "anchor": null,
       "evidence": [
         {
           "path": "docs/devlog/20261031_refactor_log_Keith_Chen.md",
-          "line": 69,
-          "text": "- **🔧 是否提炼为规则**：✅ 建议写入 `project-rules.md` / ⬜ 仅记录",
+          "line": 48,
+          "text": "| 修改 | `docs/plans/foundation-plans/foundation-change-requests-dy-data.md` | FCR-020技术增量 |",
           "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20261031_refactor_log_Keith_Chen.md->docs/prd/foundation/foundation-api-dy-data/settlement-authority.md:links_to",
+      "from": "docs/devlog/20261031_refactor_log_Keith_Chen.md",
+      "to": "docs/prd/foundation/foundation-api-dy-data/settlement-authority.md",
+      "target": "docs/prd/foundation/foundation-api-dy-data/settlement-authority.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20261031_refactor_log_Keith_Chen.md",
+          "line": 47,
+          "text": "| 修改 | `docs/prd/foundation/foundation-api-dy-data/settlement-authority.md` | CLI参数合同同步 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20261031_refactor_log_Keith_Chen.md->docs/verification/dydata-104-oct30-delivery.md:links_to",
+      "from": "docs/devlog/20261031_refactor_log_Keith_Chen.md",
+      "to": "docs/verification/dydata-104-oct30-delivery.md",
+      "target": "docs/verification/dydata-104-oct30-delivery.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20261031_refactor_log_Keith_Chen.md",
+          "line": 24,
+          "text": "- 涉及文件：`apps/ops_agent/main.py`、`apps/ops_agent/docker_api.py`、`apps/api/dy_api/dashboard_publications/commission_types.py`、[交付台账](../verification/dydata-104-oct30-delivery.md)。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20261031_refactor_log_Keith_Chen.md->docs/verification/dydata-104-oct31-publication-cli-admission.md:links_to",
+      "from": "docs/devlog/20261031_refactor_log_Keith_Chen.md",
+      "to": "docs/verification/dydata-104-oct31-publication-cli-admission.md",
+      "target": "docs/verification/dydata-104-oct31-publication-cli-admission.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20261031_refactor_log_Keith_Chen.md",
+          "line": 35,
+          "text": "- 旧CLI观察上限不足以覆盖正式恢复及稳定期。候选按策略配置推导默认等待并保持显式上限；短等待、持续不健康和来源变化仍拒绝。根因、修前失败及30项定向结果见[CLI验证](../verification/dydata-104-oct31-publication-cli-admission.md)。",
+          "syntax": "markdown"
         }
       ]
     },
@@ -35713,7 +35782,7 @@
         {
           "path": "docs/plans/execution-plan.md",
           "line": 15,
-          "text": "证据见[本轮台账](../verification/dydata-104-oct30-delivery.md)。原373券、8/9月发布及业务验收尚未完成；本轮五项不替代全票收尾。下方其他任务和历次入口保留，不覆写其业务状态。",
+          "text": "证据见[本轮台账](../verification/dydata-104-oct30-delivery.md)。原授权数据修复和8/9月仅发布已取得实际回读，逐项统计与剩余补证见104受控回执；新增五项部署及全票业务验收仍未完成。下方其他任务和历次入口保留，不覆写其业务状态。",
           "syntax": "markdown"
         }
       ]
@@ -35930,6 +35999,23 @@
       ]
     },
     {
+      "id": "docs/plans/foundation-plans/foundation-change-requests-dy-data.md->docs/prd/foundation/foundation-delivery-dy-data.md:links_to",
+      "from": "docs/plans/foundation-plans/foundation-change-requests-dy-data.md",
+      "to": "docs/prd/foundation/foundation-delivery-dy-data.md",
+      "target": "docs/prd/foundation/foundation-delivery-dy-data.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/foundation-plans/foundation-change-requests-dy-data.md",
+          "line": 374,
+          "text": "| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-api-dy-data/settlement-authority.md §3`；`docs/prd/foundation/foundation-delivery-dy-data.md` 本次增量一致性记录。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
       "id": "docs/plans/foundation-plans/foundation-change-requests-dy-data.md->docs/prd/foundation/foundation-glossary-dy-data.md:links_to",
       "from": "docs/plans/foundation-plans/foundation-change-requests-dy-data.md",
       "to": "docs/prd/foundation/foundation-glossary-dy-data.md",
@@ -36069,6 +36155,23 @@
           "path": "docs/plans/foundation-plans/foundation-change-requests-dy-data.md",
           "line": 345,
           "text": "新增/更新/不变/失败/预览不可用互斥合计 `totalRows`；`writtenRowCount/pendingRowCount` 为另一处理维度，不将上传有效行当正式写入。来源回溯仅沿成功行 `_previewProfileId` 或撤销 `previous_target_record_id`，限定同店、同类型、同 SAP、版本下降且非 tombstone；确认时间取原正式来源而非后来资料导入时间。独立 SAP 确认与历史消费保护保留，不新增表或列。专项证据见[财务导入验证](../../verification/dydata-104-oct30-finance-imports.md)。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/foundation-plans/foundation-change-requests-dy-data.md->docs/verification/dydata-104-oct31-publication-cli-admission.md:links_to",
+      "from": "docs/plans/foundation-plans/foundation-change-requests-dy-data.md",
+      "to": "docs/verification/dydata-104-oct31-publication-cli-admission.md",
+      "target": "docs/verification/dydata-104-oct31-publication-cli-admission.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/foundation-plans/foundation-change-requests-dy-data.md",
+          "line": 378,
+          "text": "不更改资源策略、初态、恢复/稳定阈值、采样、心跳归属、正式服务或源hash，不关闭guard或增加自动重试。短预算和持续不健康必须0服务调用。真实策略配受控测试时钟证明完整780秒后才准入；测试时钟不用于生产。证据见[CLI入场验证](../../verification/dydata-104-oct31-publication-cli-admission.md)。",
           "syntax": "markdown"
         }
       ]
@@ -37375,7 +37478,7 @@
       "evidence": [
         {
           "path": "docs/prd/foundation/foundation-api-dy-data/settlement-authority.md",
-          "line": 63,
+          "line": 65,
           "text": "合成/本地 PG 证据见 [自动启动验证报告](../../../verification/dydata-104-oct27-month-auto-bootstrap.md)：报告记录相关集179 passed及本地隔离PG五项5 passed，覆盖完整日/观察后实际月度计算、并发幂等、旧未 pin 回滚、full无active和闭包门禁。这是合成月底与本地测试结果；10月真实月底尚未发生，不据此宣称真实冻结收据、生产月结或生产容量验收完成。",
           "syntax": "markdown"
         }
@@ -43622,6 +43725,23 @@
       ]
     },
     {
+      "id": "docs/verification/dydata-104-oct30-delivery.md->docs/verification/dydata-104-oct31-publication-cli-admission.md:links_to",
+      "from": "docs/verification/dydata-104-oct30-delivery.md",
+      "to": "docs/verification/dydata-104-oct31-publication-cli-admission.md",
+      "target": "docs/verification/dydata-104-oct31-publication-cli-admission.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/verification/dydata-104-oct30-delivery.md",
+          "line": 94,
+          "text": "- 仅发布CLI预算覆盖正式recovery+stable及采样裕量，不改变资源策略；新CLI与原publication-only30项、Root含续租与治理40项通过。FCR-020已同步CLI参数合同，见[专项](dydata-104-oct31-publication-cli-admission.md)。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
       "id": "docs/verification/dydata-104-oct30-product-types.md->docs/ops/product-type-conversion.md:links_to",
       "from": "docs/verification/dydata-104-oct30-product-types.md",
       "to": "docs/ops/product-type-conversion.md",
@@ -43634,6 +43754,91 @@
           "path": "docs/verification/dydata-104-oct30-product-types.md",
           "line": 8,
           "text": "2. 既有转换入口新增显式 `--participating-skus` 模式，旧 scope 操作保持兼容。预演报告逐 SKU 列出前后类型、官方保留/转换数量、规则版本/日期、缺档和无资格证据组。应用锁定目录与规则表，重新核对完整证据摘要；审计、回读和写入同事务，重放幂等，不排队费用重建。具体命令及保护见[操作流程](../ops/product-type-conversion.md)。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/verification/dydata-104-oct31-publication-cli-admission.md->docs/prd/foundation/foundation-api-dy-data/settlement-authority.md:links_to",
+      "from": "docs/verification/dydata-104-oct31-publication-cli-admission.md",
+      "to": "docs/prd/foundation/foundation-api-dy-data/settlement-authority.md",
+      "target": "docs/prd/foundation/foundation-api-dy-data/settlement-authority.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/verification/dydata-104-oct31-publication-cli-admission.md",
+          "line": 18,
+          "text": "[正式契约](../prd/foundation/foundation-api-dy-data/settlement-authority.md)已由主入口按S4-FCR-020同步派生默认与0..1800秒显式范围，保留旧预算缺口和修前失败；没有新业务规则或DDL。合同和本地候选不代表生产已生效。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/verification/dydata-104-oct31-publication-cli-admission.md->docs/verification/dydata-104-oct30-delivery.md:links_to",
+      "from": "docs/verification/dydata-104-oct31-publication-cli-admission.md",
+      "to": "docs/verification/dydata-104-oct30-delivery.md",
+      "target": "docs/verification/dydata-104-oct30-delivery.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/verification/dydata-104-oct31-publication-cli-admission.md",
+          "line": 51,
+          "text": "本定向修复提供候选代码、测试与本记录；整体PR、CI及生产交付以[主线程证据](dydata-104-oct30-delivery.md)为准。生产仍以Root实际983运行读回为准；Root正在执行的独立资源观察不受本地源码修改影响。真实准入、固定hash发布、独立只读回读及8/9月业务验收由Root串行执行，本测试不能替代这些证据。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/verification/dydata-104-oct31-publication-cli-admission.md->scripts/ops/publish_settlement_authority.py:links_to",
+      "from": "docs/verification/dydata-104-oct31-publication-cli-admission.md",
+      "to": "scripts/ops/publish_settlement_authority.py",
+      "target": "scripts/ops/publish_settlement_authority.py",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/verification/dydata-104-oct31-publication-cli-admission.md",
+          "line": 5,
+          "text": "基线 `d4285711`。本任务仅修复 [publication-only CLI](../../scripts/ops/publish_settlement_authority.py) 的观察等待预算，不改变资源策略、健康阈值、采样间隔、正式发布服务或来源预演 hash。任务承接 DYDATA-104 已登记的准入问题。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/verification/dydata-104-oct31-publication-cli-admission.md->tests/test_settlement_publication_cli_resource_wait.py:links_to",
+      "from": "docs/verification/dydata-104-oct31-publication-cli-admission.md",
+      "to": "tests/test_settlement_publication_cli_resource_wait.py",
+      "target": "tests/test_settlement_publication_cli_resource_wait.py",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/verification/dydata-104-oct31-publication-cli-admission.md",
+          "line": 24,
+          "text": "新增 [CLI资源等待测试](../../tests/test_settlement_publication_cli_resource_wait.py) 以真实 `ResourcePressurePolicy(initial_state=\"protected\")` 和受控测试时钟，每5秒输入样本。未修改主机时间，不真实睡眠13分钟，不启动生产monitor或写入账务。该文件的正式服务入口由替身记录调用，既有 [publication-only测试](../../tests/test_settlement_publication_only.py) 继续验证隔离环境的正式服务及保护逻辑。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/verification/dydata-104-oct31-publication-cli-admission.md->tests/test_settlement_publication_only.py:links_to",
+      "from": "docs/verification/dydata-104-oct31-publication-cli-admission.md",
+      "to": "tests/test_settlement_publication_only.py",
+      "target": "tests/test_settlement_publication_only.py",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/verification/dydata-104-oct31-publication-cli-admission.md",
+          "line": 24,
+          "text": "新增 [CLI资源等待测试](../../tests/test_settlement_publication_cli_resource_wait.py) 以真实 `ResourcePressurePolicy(initial_state=\"protected\")` 和受控测试时钟，每5秒输入样本。未修改主机时间，不真实睡眠13分钟，不启动生产monitor或写入账务。该文件的正式服务入口由替身记录调用，既有 [publication-only测试](../../tests/test_settlement_publication_only.py) 继续验证隔离环境的正式服务及保护逻辑。",
           "syntax": "markdown"
         }
       ]

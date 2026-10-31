@@ -41,7 +41,7 @@
 | 10 | `settlement_fee_result` | 双费用计算 | 新建 | 保存单券、单费用方向的不可变计算快照 | [结算与报表 §1](foundation-schema-dy-data/settlement-reporting.md#1-settlement_fee_result--单券费用结果) | **变更** |
 | 11 | `settlement_fee_result_current` | 双费用计算 | 新建 | 指向每张券、每个费用方向的当前结果 | [结算与报表 §2](foundation-schema-dy-data/settlement-reporting.md#2-settlement_fee_result_current--当前结果指针) | |
 | 12 | `settlement_fee_adjustment` | 费用调整 | 新建 | 保存退款、取消核销产生的负向调整 | [结算与报表 §3](foundation-schema-dy-data/settlement-reporting.md#3-settlement_fee_adjustment--费用调整记录) | |
-| 13 | `settlement_statement` | 锁账与开票 | 新建 | 保存门店月度账单状态、锁账时间和双费用汇总 | [结算与报表 §4](foundation-schema-dy-data/settlement-reporting.md#4-settlement_statement--门店月度账单与锁账) | **变更** |
+| 13 | `settlement_statement` | 锁账与开票 | 新建 | 保存门店月度账单状态、锁账时间和双费用汇总 | [结算与报表 §4](foundation-schema-dy-data/settlement-reporting.md#4-settlement_statement--门店月度账单不可变版本与锁账) | **变更** |
 | 14 | `settlement_statement_line` | 锁账与开票 | 新建 | 保存账单内按费用方向和产品维度冻结的汇总行 | [结算与报表 §5](foundation-schema-dy-data/settlement-reporting.md#5-settlement_statement_line--账单汇总行) | **新增** |
 | 15 | `settlement_statement_entry` | 锁账与开票 | 新建 | 冻结账单实际纳入的费用结果或调整记录 | [结算与报表 §6](foundation-schema-dy-data/settlement-reporting.md#6-settlement_statement_entry--账单来源项) | **新增** |
 | 16 | `agg_store_monthly_settlement` | 单店分账 | 现有·需改动 | 提供单店月度双费用汇总投影 | [结算与报表 §7](foundation-schema-dy-data/settlement-reporting.md#7-agg_store_monthly_settlement--单店月度双费用投影现有需改动) | |
