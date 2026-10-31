@@ -1,7 +1,7 @@
 {
   "mode": "project-link-index",
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-10-31T10:42:56.035Z",
+  "generatedAt": "2026-10-31T10:52:15.406Z",
   "hostRoot": ".",
   "outputs": {
     "graphJson": "docs/index/project-link-graph.json",
@@ -38653,7 +38653,7 @@
         {
           "path": "docs/prd/foundation/foundation-schema-dy-data.md",
           "line": 44,
-          "text": "| 13 | `settlement_statement` | 锁账与开票 | 新建 | 保存门店月度账单状态、锁账时间和双费用汇总 | [结算与报表 §4](foundation-schema-dy-data/settlement-reporting.md#4-settlement_statement--门店月度账单与锁账) | **变更** |",
+          "text": "| 13 | `settlement_statement` | 锁账与开票 | 新建 | 保存门店月度账单状态、锁账时间和双费用汇总 | [结算与报表 §4](foundation-schema-dy-data/settlement-reporting.md#4-settlement_statement--门店月度账单不可变版本与锁账) | **变更** |",
           "syntax": "markdown"
         },
         {
