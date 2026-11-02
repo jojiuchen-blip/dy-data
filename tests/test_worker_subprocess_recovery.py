@@ -807,30 +807,10 @@ def test_postgres_supervisor_closes_attempt_through_task_control_api(
 ) -> None:
     factory = t12_postgres_factory
     job_id = f"t22-pg-supervisor-{time.time_ns()}"
-    parent_id = f"{job_id}-parent"
     with factory() as session:
-        session.add(
-            JobRun(
-                job_id=parent_id,
-                job_name="range_sync",
-                status="pending",
-                started_at=datetime.now(UTC),
-                success_count=0,
-                failed_count=0,
-                metadata_json={},
-                job_kind="range_sync",
-                data_source="douyin",
-                config_version="v1",
-                window_start=datetime(2026, 8, 5, tzinfo=UTC),
-                window_end=datetime(2026, 8, 7, tzinfo=UTC),
-                attempt_count=0,
-                max_attempts=3,
-                lease_epoch=0,
-            )
-        )
-        session.commit()
-        seeded_job = _seed_job(session, job_id, parent_job_id=parent_id, complete_stages=True)
+        seeded_job = _seed_job(session, job_id, complete_stages=True)
         job_id = seeded_job.job_id
+        parent_id = seeded_job.parent_job_id
     try:
         supervisor = SubprocessSupervisor(
             control_session_factory=factory,
@@ -888,30 +868,10 @@ def test_postgres_supervisor_failure_uses_fenced_fail_job(
 ) -> None:
     factory = t12_postgres_factory
     job_id = f"t22-pg-supervisor-fail-{time.time_ns()}"
-    parent_id = f"{job_id}-parent"
     with factory() as session:
-        session.add(
-            JobRun(
-                job_id=parent_id,
-                job_name="range_sync",
-                status="pending",
-                started_at=datetime.now(UTC),
-                success_count=0,
-                failed_count=0,
-                metadata_json={},
-                job_kind="range_sync",
-                data_source="douyin",
-                config_version="v1",
-                window_start=datetime(2026, 8, 5, tzinfo=UTC),
-                window_end=datetime(2026, 8, 7, tzinfo=UTC),
-                attempt_count=0,
-                max_attempts=3,
-                lease_epoch=0,
-            )
-        )
-        session.commit()
-        seeded_job = _seed_job(session, job_id, parent_job_id=parent_id, max_attempts=1)
+        seeded_job = _seed_job(session, job_id, max_attempts=1)
         job_id = seeded_job.job_id
+        parent_id = seeded_job.parent_job_id
     try:
         supervisor = SubprocessSupervisor(
             control_session_factory=factory,
@@ -969,30 +929,10 @@ def test_postgres_retry_wait_is_reported_not_busy_when_db_budget_remains(
 ) -> None:
     factory = t12_postgres_factory
     job_id = f"t22-pg-retry-wait-{time.time_ns()}"
-    parent_id = f"{job_id}-parent"
     with factory() as session:
-        session.add(
-            JobRun(
-                job_id=parent_id,
-                job_name="range_sync",
-                status="pending",
-                started_at=datetime.now(UTC),
-                success_count=0,
-                failed_count=0,
-                metadata_json={},
-                job_kind="range_sync",
-                data_source="douyin",
-                config_version="v1",
-                window_start=datetime(2026, 8, 5, tzinfo=UTC),
-                window_end=datetime(2026, 8, 7, tzinfo=UTC),
-                attempt_count=0,
-                max_attempts=3,
-                lease_epoch=0,
-            )
-        )
-        session.commit()
-        seeded_job = _seed_job(session, job_id, parent_job_id=parent_id, max_attempts=3)
+        seeded_job = _seed_job(session, job_id, max_attempts=3)
         job_id = seeded_job.job_id
+        parent_id = seeded_job.parent_job_id
     try:
         supervisor = SubprocessSupervisor(
             control_session_factory=factory,
