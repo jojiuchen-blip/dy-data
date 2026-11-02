@@ -157,7 +157,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml exec postgres \
 
 绑定采集检测到抖音登录页时，任务失败原因记录为 `douyin_backend_login_required`。后台“数据同步”的任务列表和最近失败提示显示“抖音后台登录已失效，请在受保护的浏览器中重新登录后重试”。管理员应进入受保护浏览器，完成抖音后台登录，再重试绑定同步并确认任务成功和数据更新时间；无需清空浏览器资料或重新配置开放平台密钥。该提示只用于明确检测到的登录失效，不把普通超时、接口地址未发现或 HTTP 错误统一归为登录问题。历史模糊错误不自动改写。
 
-生产浏览器采集应通过适配器启动：
+后台账号绑定每半小时由 worker 调度。确需单次恢复账号名单时，先核对原任务的阶段、租约、上游冷却和采集标记。在持有共享 heavy 领取锁的维护会话中，重新确认没有在途写入、worker 的资源心跳允许日常采集，再限时运行以下适配器。适配器自身只持有浏览器采集标记。为单次恢复使用新的审计编号，复用原任务编号会覆盖其运行记录。
 
 ```bash
 python scripts/exports/auto_export_backend_aweme_chromium.py \
@@ -169,6 +169,8 @@ python scripts/exports/auto_export_backend_aweme_chromium.py \
 ```
 
 适配器会写入 `running` 状态，校验 Chromium CDP 可达，执行具体采集命令；失败时记录 `failed`，成功后清理单次临时下载目录。具体采集命令会收到 `JOB_RUN_ID`、`BROWSER_CDP_URL`、`BROWSER_EXPORT_RUN_DIR`、`BROWSER_EXPORT_DOWNLOAD_DIR` 和 `BROWSER_EXPORT_ARTIFACT_DIR`。
+
+核对本批次 `fetched`、失败数，以及 `raw_aweme_bindings` 按 `source_run_id` 回读的行数和更新时间。`upserted` 包含账号、门店等多张表的写入。定时同步是否恢复，另以原任务的重试结果及后续半小时任务的提交记录判定。
 
 ### 5.1 线索分配 M1 数据基础
 
