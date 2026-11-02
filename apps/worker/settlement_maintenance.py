@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import stat
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from sqlalchemy import func, literal, select, text
@@ -301,12 +302,18 @@ def automatic_runner_resource_limits(
     return limits
 
 
-def process_automatic_settlement_maintenance(factory: sessionmaker) -> bool:
+def process_automatic_settlement_maintenance(
+    factory: sessionmaker,
+    *,
+    on_manifest_limit: Callable[[sessionmaker], object] | None = None,
+) -> bool:
     """Return True when this tick must reserve its heavy-work opportunity.
 
     Resource/estimate failures, disabled maintenance at the threshold, and an
     exhausted fixed job all defer safely; the caller must not grow the lineage.
     Genuine runner failures propagate after its existing attempt accounting.
+    A manifest-only admission failure may offer the explicit no-lineage roster
+    callback after a fresh disk check, while still reserving the entire tick.
     """
     try:
         head = _active_head(factory)
@@ -343,6 +350,24 @@ def process_automatic_settlement_maintenance(factory: sessionmaker) -> bool:
         # reserve the tick too; no exception text/connection details are logged.
         reason = str(exc) if isinstance(exc, MaintenanceAdmissionError) else type(exc).__name__
         LOGGER.warning("settlement_maintenance_deferred reason=%s", reason)
+        if reason == "manifest_rows_exceed_limit" and on_manifest_limit is not None:
+            # The manifest limit is checked before disk headroom. Re-read the
+            # actual PG filesystem so that this exception cannot conceal a
+            # missing marker or exhausted disk reserve. Keep the existing
+            # conservative write/WAL allowance for the independent roster job.
+            try:
+                capacity = disk_capacity_limits()
+                required = (
+                    capacity.min_disk_headroom_bytes
+                    + capacity.max_estimated_write_bytes
+                    + capacity.max_estimated_wal_bytes
+                )
+                if capacity.observed_disk_headroom_bytes < required:
+                    raise MaintenanceAdmissionError("disk_headroom_insufficient")
+            except Exception:
+                LOGGER.warning("settlement_maintenance_account_refresh_deferred reason=disk_headroom_unavailable")
+                return True
+            on_manifest_limit(factory)
         return True
     runner.run_settlement_compaction_job(job_id=claimed[0], factory=factory, claim_id=claimed[1])
     return True

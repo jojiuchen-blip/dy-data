@@ -20,7 +20,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.dy_api.db import session_scope
-from apps.api.dy_api.models import JobRun
+from apps.api.dy_api.models import JobImpact, JobRun
 from apps.worker.daily_windows import DailySyncPlan, plan_daily_sync
 from apps.worker.day_recovery import (
     DIMENSION_CONFIG_PREFIX,
@@ -902,6 +902,99 @@ def _history_bounds(session: Session, *, daily_date: date) -> tuple[date, date]:
     return history_start, upper_date
 
 
+def run_maintenance_safe_account_tick(
+    factory: sessionmaker[Session],
+    *,
+    now: datetime | None = None,
+    child_runner: Callable[..., Any] | None = None,
+) -> PriorityTickResult:
+    """Refresh only a no-impact incremental roster while lineage is capped.
+
+    This entry is offered only after maintenance proves a manifest-only limit
+    and fresh disk headroom. The regular supervisor still owns resource,
+    quota, attempt, parent-identity and heavy-slot admission. Roster ingestion
+    writes dimensions without JobImpact rows; its incremental settle stage is
+    therefore fence-only and cannot publish another lineage generation.
+    """
+    local_now = local_shanghai_now(now)
+    blocked = _resource_wait(local_now.date(), None, DAILY_REQUIRED_PURPOSE)
+    if blocked is not None:
+        return _snapshot(blocked)
+    targets = ("backend_aweme_export",)
+    with session_scope(factory) as session:
+        # An expired lease is not proof that its old process has exited. Only
+        # normal recovery may release that writer before this narrow path runs.
+        live_heavy = session.scalar(select(JobRun).where(
+            or_(JobRun.execution_slot == "heavy_sync", JobRun.job_name == "settlement_rebuild"),
+            JobRun.status == "running",
+        ).order_by(JobRun.job_id).limit(1))
+        if live_heavy is not None:
+            return _snapshot(_waiting_result(local_now.date(), live_heavy, reason="heavy_slot_busy"))
+        rows = _account_refresh_rows(session, local_now.date())
+        job = _select_candidate(
+            rows, now=local_now, allowed_purposes={DAILY_REQUIRED_PURPOSE}, session=session,
+        )
+        if job is None:
+            job = _select_cross_day_dimension_retry(session, local_now, targets=targets)
+        if job is None and not rows:
+            plans = _plan_due_dimensions(session, local_now, targets=targets)
+            if plans:
+                rows = _account_refresh_rows(session, local_now.date())
+                job = _select_candidate(
+                    rows, now=local_now, allowed_purposes={DAILY_REQUIRED_PURPOSE}, session=session,
+                )
+        if job is None:
+            return _snapshot(PriorityTickResult(
+                mode=PRIORITY_DAILY_MODE, action="waiting", business_date=local_now.date(),
+                reason="account_refresh_not_due",
+            ))
+        metadata = job.metadata_json or {}
+        attempts_allowed = (3 if job.max_attempts is None else job.max_attempts) + (job.quota_pause_count or 0)
+        has_impacts = session.scalar(
+            select(JobImpact.id).where(JobImpact.source_run_id == job.job_id).limit(1)
+        ) is not None
+        if (
+            job.job_kind != "parent_sync" or job.job_name != "parent_sync"
+            or job.execution_slot != "heavy_sync"
+            or _row_target(job) != "backend_aweme_export"
+            or metadata.get("settlement_mode") != "incremental"
+            or metadata.get("required_stages") != ["collect_dimensions", "settle"]
+            or job.cancel_requested_at is not None
+            or job.pause_after_stage_requested_at is not None
+            or (job.attempt_count or 0) >= attempts_allowed
+            or has_impacts
+        ):
+            return _snapshot(_waiting_result(local_now.date(), job, reason="account_refresh_scope_unsafe"))
+        job_id = job.job_id
+        job_date = _job_business_date(job)
+        _stamp_job_metadata(
+            session, job_id=job_id, purpose=DAILY_REQUIRED_PURPOSE,
+            priority_date=job_date, request_budget_date=local_now.date(),
+        )
+    blocked = _resource_wait(job_date, job_id, DAILY_REQUIRED_PURPOSE)
+    if blocked is not None:
+        return _snapshot(blocked)
+    result = (child_runner or _default_child_runner)(factory, job_id)
+    return _snapshot(PriorityTickResult(
+        mode=PRIORITY_DAILY_MODE, action="executed", business_date=job_date,
+        selected_job_id=job_id, selected_purpose=DAILY_REQUIRED_PURPOSE,
+        status=_result_status(result), reason=_result_reason(result),
+    ))
+
+
+def _account_refresh_rows(session: Session, business_date: date) -> tuple[JobRun, ...]:
+    """Read only bounded unfinished roster parents, without other dimensions."""
+    return tuple(session.scalars(
+        select(JobRun).where(
+            JobRun.job_kind == "parent_sync",
+            JobRun.config_version.like(f"{DIMENSION_CONFIG_PREFIX}%"),
+            JobRun.metadata_json["target"].as_string() == "backend_aweme_export",
+            JobRun.status.in_(("pending", "running", "retry_wait")),
+            _business_date_predicate(business_date),
+        ).order_by(JobRun.job_id).limit(MAX_DIMENSION_RETRY_CANDIDATES)
+    ))
+
+
 def _select_due_dimension_candidate(
     session: Session,
     now: datetime,
@@ -915,7 +1008,9 @@ def _select_due_dimension_candidate(
     )
 
 
-def _select_cross_day_dimension_retry(session: Session, now: datetime) -> JobRun | None:
+def _select_cross_day_dimension_retry(
+    session: Session, now: datetime, *, targets: tuple[str, ...] = DIMENSION_TARGETS,
+) -> JobRun | None:
     """Offer bounded old retries without changing their window or terminal state.
 
     The indexed retry status narrows the queue before the SQL limit. Terminal,
@@ -932,7 +1027,7 @@ def _select_cross_day_dimension_retry(session: Session, now: datetime) -> JobRun
             JobRun.job_name == "parent_sync",
             JobRun.execution_slot == "heavy_sync",
             JobRun.config_version.like(f"{DIMENSION_CONFIG_PREFIX}%"),
-            JobRun.metadata_json["target"].as_string().in_(DIMENSION_TARGETS),
+            JobRun.metadata_json["target"].as_string().in_(targets),
             or_(purpose.is_(None), purpose == DAILY_REQUIRED_PURPOSE),
             JobRun.window_start < today_start,
             JobRun.window_end <= today_start,
@@ -956,15 +1051,17 @@ def _select_cross_day_dimension_retry(session: Session, now: datetime) -> JobRun
 def _plan_due_dimensions(
     session: Session,
     now: datetime,
+    *,
+    targets: tuple[str, ...] = DIMENSION_TARGETS,
 ) -> tuple[DailySyncPlan, ...]:
-    if not _dimension_refresh_due(session, now):
+    if not _dimension_refresh_due(session, now, targets=targets):
         return ()
     slot_minute = (now.minute // 30) * 30
     slot = f"{now:%Y%m%d%H}{slot_minute:02d}"
     config_version = f"{PRIORITY_CONFIG_VERSION}-dimensions-{slot}"
     start, end = _day_window(now.date())
     plans: list[DailySyncPlan] = []
-    for target in DIMENSION_TARGETS:
+    for target in targets:
         plan = plan_daily_sync(
             session,
             start=start,
@@ -990,7 +1087,19 @@ def _plan_due_dimensions(
     return tuple(plans)
 
 
-def _dimension_refresh_due(session: Session, now: datetime) -> bool:
+def _dimension_refresh_due(
+    session: Session, now: datetime, *, targets: tuple[str, ...] = DIMENSION_TARGETS,
+) -> bool:
+    if targets != DIMENSION_TARGETS:
+        latest = session.execute(
+            select(JobRun.finished_at, JobRun.started_at).where(
+                JobRun.job_kind == "parent_sync",
+                JobRun.status == "success",
+                JobRun.config_version.like(f"{PRIORITY_CONFIG_VERSION}-dimensions-%"),
+                JobRun.metadata_json["target"].as_string().in_(targets),
+            ).order_by(JobRun.finished_at.desc(), JobRun.job_id).limit(1)
+        ).first()
+        return latest is None or now - _as_shanghai(latest[0] or latest[1]) >= DIMENSION_REFRESH_INTERVAL
     rows = list(
         session.scalars(
             select(JobRun)
@@ -1006,7 +1115,7 @@ def _dimension_refresh_due(session: Session, now: datetime) -> bool:
     timestamps = [
         _as_shanghai(row.finished_at or row.started_at)
         for row in rows
-        if _row_target(row) in DIMENSION_TARGETS
+        if _row_target(row) in targets
         and (row.finished_at is not None or row.started_at is not None)
     ]
     if not timestamps:
