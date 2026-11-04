@@ -20,13 +20,19 @@ from apps.api.dy_api.models import (
     JobRun,
     SettlementProjectionActive,
     SettlementProjectionGeneration,
+    SettlementProjectionCompactionClosure,
     SettlementProjectionPartitionManifest,
 )
 from apps.worker.legacy_projection_bootstrap import (
     COMPACTION_PROTOCOL,
+    COMPACTION_OPERATION,
     ResourceGateConfig,
     _compaction_fingerprint,
+    _compaction_provenance_rows,
     _compaction_resource,
+    _expanded_provenance_checksum,
+    _validate_compaction_checkpoint,
+    LegacyProjectionBootstrapError,
 )
 from apps.worker import settlement_compaction as runner
 
@@ -55,6 +61,9 @@ class MaintenanceEstimate:
     lineage_depth: int
     closure_rows: int
     manifest_rows: int
+    provenance_checksum: str | None = None
+    direct_sources: tuple[tuple[str, str], ...] = ()
+    provenance_sources: tuple[tuple[str, str], ...] = ()
 
 
 def disk_capacity_limits(path: str | None = None) -> ResourceGateConfig:
@@ -133,10 +142,11 @@ def _active_head(factory: sessionmaker) -> tuple[str, int, str] | None:
 def estimate_automatic_compaction(
     factory: sessionmaker, *, base_generation_id: str
 ) -> MaintenanceEstimate:
-    """Count direct lineage and DISTINCT keys in SQL; load no manifest payloads.
+    """Count bounded provenance and DISTINCT keys; load no manifest payloads.
 
     A compact ancestor terminates the direct chain. Its historical provenance
-    closure is deliberately not expanded. Tombstones are metadata writes too.
+    closure contributes its verified source membership to metadata capacity.
+    Tombstones are metadata writes too.
     """
     generation = SettlementProjectionGeneration
     manifest = SettlementProjectionPartitionManifest
@@ -145,12 +155,14 @@ def estimate_automatic_compaction(
         chain = select(
             generation.generation_id, generation.base_generation_id,
             generation.generation_kind, generation.lineage_depth, generation.state,
+            generation.manifest_checksum,
             literal(0).label("hop"),
         ).where(generation.generation_id == base_generation_id).cte("maintenance_chain", recursive=True)
         chain = chain.union_all(
             select(
                 generation.generation_id, generation.base_generation_id,
                 generation.generation_kind, generation.lineage_depth, generation.state,
+                generation.manifest_checksum,
                 (chain.c.hop + 1).label("hop"),
             ).join(chain, generation.generation_id == chain.c.base_generation_id)
             .where(chain.c.hop < MAX_DIRECT_LINEAGE_ROWS - 1)
@@ -173,7 +185,18 @@ def estimate_automatic_compaction(
             manifest.generation_id.in_(direct_ids), manifest.source_kind != "legacy_root",
         ).distinct().limit(MAX_MANIFEST_ROWS + 1).subquery()
         count = int(session.scalar(select(func.count()).select_from(keys)) or 0)
-        return MaintenanceEstimate(base_generation_id, depth, len(rows), count)
+        direct_rows = [row._mapping for row in rows]
+        try:
+            closure_rows = _compaction_provenance_rows(session, direct_rows)
+        except LegacyProjectionBootstrapError as exc:
+            raise MaintenanceAdmissionError("compact_provenance_invalid") from exc
+        return MaintenanceEstimate(
+            base_generation_id, depth, len(closure_rows), count,
+            _expanded_provenance_checksum(direct_rows, closure_rows),
+            tuple(sorted((str(row["generation_id"]), str(row["manifest_checksum"]))
+                         for row in direct_rows)),
+            tuple((row["generation_id"], row["manifest_checksum"]) for row in closure_rows),
+        )
 
 
 def _check_estimate(estimate: MaintenanceEstimate, limits: ResourceGateConfig) -> None:
@@ -272,29 +295,106 @@ def automatic_runner_resource_limits(
             SettlementProjectionGeneration.generation_kind == "compact",
             SettlementProjectionGeneration.compaction_base_generation_id == base_generation_id,
             SettlementProjectionGeneration.state.in_(("staging", "ready")),
-        ).limit(2)))
-        if len(candidates) > 1:
+        ).limit(3)))
+        # One original partial and one current deterministic candidate are the
+        # only compatible pair. Read an extra row before filtering, so a third
+        # conflicting candidate cannot hide behind an arbitrary LIMIT 2.
+        if len(candidates) > 2:
             raise MaintenanceAdmissionError("multiple_compaction_checkpoints")
-        if candidates:
-            candidate = candidates[0]
+        current_candidates = []
+        original_partials = 0
+        effective_checksums: set[str] = set()
+        for candidate in candidates:
             checkpoint = candidate.checkpoint_json or {}
             source = candidate.source_input_json or {}
             head = session.get(SettlementProjectionGeneration, base_generation_id)
             effective = checkpoint.get("effective_checksum")
-            if (head is None or not isinstance(effective, str)
+            if (head is None or not isinstance(effective, str) or len(effective) != 64
+                    or any(character not in "0123456789abcdef" for character in effective)
+                    or candidate.base_generation_id is not None or candidate.lineage_depth != 0
+                    or candidate.projection_name != "settlement"
                     or source.get("protocol") != COMPACTION_PROTOCOL
+                    or source.get("projection") != "settlement"
+                    or source.get("operation") != COMPACTION_OPERATION
                     or source.get("base_generation_id") != base_generation_id
                     or source.get("effective_checksum") != effective
                     or checkpoint.get("protocol") != COMPACTION_PROTOCOL
                     or checkpoint.get("base_generation_id") != base_generation_id
                     or checkpoint.get("batch_size") != batch_size
-                    or candidate.input_fingerprint != _compaction_fingerprint(
-                        base_generation_id, str(head.manifest_checksum), effective)
                     or candidate.generation_id != f"settlement-compact:{candidate.input_fingerprint}"):
                 raise MaintenanceAdmissionError("compaction_checkpoint_identity_invalid")
+            current_fingerprint = _compaction_fingerprint(
+                base_generation_id, str(head.manifest_checksum), effective,
+                estimate.provenance_checksum,
+            )
+            original_fingerprint = _compaction_fingerprint(
+                base_generation_id, str(head.manifest_checksum), effective,
+            )
+            is_current = (candidate.input_fingerprint == current_fingerprint
+                          and source.get("provenance_checksum") == estimate.provenance_checksum)
+            is_original_partial = (
+                estimate.provenance_checksum is not None
+                and candidate.input_fingerprint == original_fingerprint
+                and source.get("provenance_checksum") is None
+                and candidate.state == "staging" and candidate.published_at is None
+                and candidate.manifest_checksum is None and checkpoint.get("phase") == "scan"
+            )
+            if not is_current and not is_original_partial:
+                raise MaintenanceAdmissionError("compaction_checkpoint_identity_invalid")
+            effective_checksums.add(effective)
+            if len(effective_checksums) > 1:
+                raise MaintenanceAdmissionError("compaction_checkpoint_identity_invalid")
+            expected_sources = estimate.provenance_sources if is_current else estimate.direct_sources
+            closure = tuple(session.execute(select(
+                SettlementProjectionCompactionClosure.source_generation_id,
+                SettlementProjectionCompactionClosure.source_digest,
+            ).where(
+                SettlementProjectionCompactionClosure.compact_generation_id == candidate.generation_id,
+            ).order_by(SettlementProjectionCompactionClosure.source_generation_id)
+              .limit(len(expected_sources) + 1)).all())
+            if not expected_sources or closure != expected_sources:
+                raise MaintenanceAdmissionError("compaction_checkpoint_closure_invalid")
             frozen = checkpoint.get("estimated_disk_headroom_bytes")
             if isinstance(frozen, bool) or not isinstance(frozen, int) or frozen < 0:
                 raise MaintenanceAdmissionError("compaction_checkpoint_budget_invalid")
+            if is_original_partial:
+                original_partials += 1
+                if original_partials > 1:
+                    raise MaintenanceAdmissionError("multiple_compaction_checkpoints")
+                manifest_count = checkpoint.get("estimated_manifest_rows")
+                if isinstance(manifest_count, bool) or not isinstance(manifest_count, int) or manifest_count < 0:
+                    raise MaintenanceAdmissionError("compaction_checkpoint_budget_invalid")
+                original_limits = replace(limits, observed_disk_headroom_bytes=frozen + limits.min_disk_headroom_bytes)
+                original_resource, refusal = _compaction_resource(manifest_count, len(expected_sources), original_limits)
+                try:
+                    original_checkpoint = _validate_compaction_checkpoint(
+                        candidate, base_generation_id=base_generation_id,
+                        effective_checksum=effective, resource=original_resource,
+                        batch_size=batch_size, source_generation_count=len(expected_sources),
+                    )
+                except LegacyProjectionBootstrapError as exc:
+                    raise MaintenanceAdmissionError("compaction_checkpoint_identity_invalid") from exc
+                if (refusal is not None
+                        or candidate.estimated_write_rows != original_resource[1]
+                        or candidate.estimated_write_bytes != original_resource[2]
+                        or candidate.estimated_wal_bytes != original_resource[3]
+                        or candidate.estimated_disk_headroom_bytes != original_resource[4]):
+                    raise MaintenanceAdmissionError("compaction_checkpoint_budget_invalid")
+                partial_count = original_checkpoint["partition_count"]
+                bounded_rows = select(SettlementProjectionPartitionManifest.partition_key).where(
+                    SettlementProjectionPartitionManifest.generation_id == candidate.generation_id,
+                ).limit(partial_count + 1).subquery()
+                actual_count = session.scalar(select(func.count()).select_from(bounded_rows))
+                if actual_count != partial_count:
+                    raise MaintenanceAdmissionError("compaction_checkpoint_identity_invalid")
+                # The original partial remains immutable audit evidence. Its
+                # frozen capacity does not belong to the new fingerprint.
+                continue
+            current_candidates.append((candidate, frozen))
+        if len(current_candidates) > 1:
+            raise MaintenanceAdmissionError("multiple_compaction_checkpoints")
+        if current_candidates:
+            _candidate, frozen = current_candidates[0]
             # Only the accounting budget is frozen. Actual free space was
             # independently re-read and admitted above on every execution.
             limits = replace(limits, observed_disk_headroom_bytes=frozen + limits.min_disk_headroom_bytes)
