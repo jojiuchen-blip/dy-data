@@ -49,6 +49,33 @@ MODULE_SOURCE_TABLES: dict[str, tuple[str, ...]] = {
 }
 SOURCE_TABLES = tuple(sorted({name for names in MODULE_SOURCE_TABLES.values() for name in names}))
 
+# Snapshot locks cover reads, not only tracked refresh dependencies. Keep this
+# separate from SOURCE_TABLES: adding a read lock is not a tracker migration.
+_SNAPSHOT_COMMON_TABLES = (
+    "job_runs", "dashboard_publication_source_counters",
+    "dashboard_publication_runs", "dashboard_publication_heads",
+)
+_SNAPSHOT_EXTRA_TABLES: dict[str, tuple[str, ...]] = {
+    "douyin-ranking": ("dashboard_ranking_lead_bindings", "dashboard_ranking_info"),
+    "sales": (),
+    "clue-overview": (),
+    "settlement": (
+        "settlement_statement_confirmation", "settlement_dispute", "promotion_invoice_allocation",
+        "invoice_record", "settlement_carryforward_source", "settlement_carryforward_application",
+    ),
+    "finance": ("settlement_fee_result", "settlement_statement_entry", "settlement_statement_line"),
+}
+
+
+def snapshot_source_tables(module: str) -> tuple[str, ...]:
+    """Declare physical relations read by the audited built-in builders.
+
+    ACCESS SHARE protects the MVCC snapshot from TRUNCATE/DDL while allowing
+    normal source DML. Names are code-owned declarations, never request input.
+    """
+    return tuple(sorted(set(MODULE_SOURCE_TABLES[module])
+                        | set(_SNAPSHOT_COMMON_TABLES) | set(_SNAPSHOT_EXTRA_TABLES[module])))
+
 # Only changed analytical contracts participate. Independent ranking keeps its
 # original fingerprint payload and finance keeps its immutable amount contract.
 MODULE_CONTRACT_VERSIONS = {
