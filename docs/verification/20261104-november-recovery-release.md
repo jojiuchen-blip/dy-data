@@ -1,8 +1,10 @@
 # 十一月数据恢复发布记录
 
-记录时间：2026-11-04，Asia/Shanghai。产品候选：`1.6.0-rc.3`；未创建 Git tag。应用已部署，业务数据恢复与验收进行中。
+记录时间：2026-11-04，Asia/Shanghai。本文件依次记录PR74 / `1.6.0-rc.3`的数据恢复及PR75 / `1.6.0-rc.4`的固定快照发布；均未创建Git tag。
 
-## 源码、产物与范围
+最新状态（20:18）：实际应用源码为 `1f02204bcbb0c68830ff8ac3a201ab864c6c8374`，20:14完成部署，20:15五模块与运行核验通过，磁盘61.43 GiB可用。下文PR74证据保留历史身份，最新PR75产物及验收在末节；商品SKU、退款口径和完整来源截止时间仍有缺口。
+
+## PR74 源码、产物与范围
 
 - 实际构建源码：`de230863cad8025455b71f4da0ec92379c120c1a`。
 - [PR74](https://github.com/jojiuchen-blip/dy-data/pull/74) 合并到 main：`101772120447dd2ac67784b24d755db5918f47fa`。两者树完全一致：`f15686a2ddf195899bc4770393c9c374ed96f932`。
@@ -123,3 +125,38 @@ CLI返回、原任务success / attempt 2/3、数据库发布事件、生成摘�
 17:59生产复核：八服务running，六个具有healthcheck的服务healthy，全部restart=0 / OOM=false；公网首页200、未登录auth/me 401，正常五模块check-ready退出0。实际API和worker镜像仍是本记录的de230版本；PG文件系统可用65,953,001,472 bytes，约61.4 GiB。新固定快照修复尚未部署。
 
 另保留既有刷新跟踪边界：例如只更改settlement_statement_line的product_type且没有其他受跟踪表变化时，finance的来源指纹可能不改变。此次补齐关系锁不等于为这些旧依赖新增变化计数，未做跟踪迁移、计数重置或扩大金融口径；不得据此宣称所有历史刷新遗漏已解决。
+
+## PR75 固定快照候选与完整验证
+
+精确源码 `1f02204bcbb0c68830ff8ac3a201ab864c6c8374`，代码树 `9982a4b8911f86469dfd266c7fdb9a86c7a89fba`；[PR75](https://github.com/jojiuchen-blip/dy-data/pull/75) 于20:07合入main，合并提交 `ad9185ef3454134ecdff833ec5b9b5224ae05695` 与候选代码树一致。源码归档SHA-256为 `d785e39bc7a04706d78b2320c5a3beebffa54bbb0752bd345a40a96fed30b7d4`。
+
+- 本机精确CI PostgreSQL功能集合125 passed / 0 skipped，包含15项新快照安全用例；3个既有独立规模/冻结schema诊断函数共4例明确deselect，同文件其他功能测试保留。两条工作流对JUnit非空、零跳过/失败以及9个关键函数集合做强制断言，并上传回执。
+- 主线程集成生命周期36 passed；两位独立只读审查无新增阻断项。生产只读核对53个声明依赖关系均存在，无需迁移。
+- [精确CI 41812438089](https://github.com/jojiuchen-blip/dy-data/actions/runs/41812438089) 于19:08 completed / success。全仓5,442 passed / 510 skipped，耗时2,216.99秒；适用PG门禁独立执行，包括静态发布125、金融/月末239、维护/共享领取155及重复压缩4项。Chromium28、Nginx4、API镜像2、浏览器镜像3项均通过，前端和四类镜像构建完成。Railway相关任务按配置跳过，不是本环境部署证据。
+- 全局文件与套件门禁通过；当前T3.1三份计划一致，环境与PRD入口有效。索引仍报告43项既有链接问题，当前新增发布记录没有坏链；未宣称全仓文档链接全绿。
+
+18:14已在独立候选目录完成实际生产目标镜像构建，沿既有Dockerfile和镜像源；API为 `sha256:ef5b9cc5883b4fdf3edbb9bd18eb4252c3d3368f115376689a79f448fd792e75`，worker/publisher为 `sha256:826c6c12cb2e4ff793a384f3244706262dfb06229dd9ca5db429b53edabd56b1`。三个发布运行文件与兼容reader的散列均与冻结源码相同；无网络临时容器的应用导入、默认启动、manifest和401鉴权检查通过，未访问生产数据库。
+
+20:07复查生产仍为de230、八服务正常、PG磁盘可用65,889,533,952 bytes；20:08有界只读查询无running采集任务。20:09启动限定三服务切换，使用实际CI导出、main引用及原始Git commit对象校验候选与合并树，保留当前de230兼容镜像作为回退。20:10旧worker/publisher正常退出并开始预热；实际完成和新head证据另在下节登记，不以启动命令或候选构建成功代替部署成功。
+
+## 20:14 PR75 实际部署与20:15独立读回
+
+产品批次 `1.6.0-rc.4`，未创建tag。运行标识 `publication-1f02204bcbb0-20261104t120918z-635506`；20:14:28.252211完成限定三服务切换，实际源码和API/worker镜像与上节候选一致。其余五个服务的容器身份与镜像保持，Web及proxy只执行Nginx配置检查和重载。数据库前后均为 `20261027_0066`，未迁移、生成整库备份、重试维护、重跑采集或更改任务终态；既有源码staging按规则保留一份previous源码。
+
+五模块正常预热均退出0。抖音榜单、结算、财务有独立的新head证据；核销和线索复用原完整版本，不能描述成五模块都新建了数据。20:15有界只读核对结果：
+
+| 模块 | 完整head | 发布时间（+08:00） | 本次预热 |
+|---|---|---|---|
+| douyin-ranking | `74c35638e1b9464688e42e2df2423f66` | 20:11:58.563817 | 新版本 |
+| sales | `c37b01b376794a3aa16d3a01b3065917` | 19:39:43.264491 | 来源未变，复用 |
+| clue-overview | `aae0b57ba1a74b74b1f06d474dc5d0ea` | 20:07:18.102730 | 来源未变，复用 |
+| settlement | `740740573abe4d16859eeb8c811ac757` | 20:12:58.626517 | 新版本 |
+| finance | `dc1ed14bc01144a0a39ebfa0bb37ec19` | 20:13:11.755931 | 新版本 |
+
+五个head及各模块最新尝试均为success，无最新错误；正常check-ready退出0。结算新head明确引用恢复后的active generation `settlement-lineage:8148043cf24985239fc903fc6e634c225c4c1d8b97d3d9f08890cd93eac57cb4`；应用部署未修改结算active身份。
+
+本次生产预热的新版本均记录 `source_advanced_during_build=false`；固定快照遇并发提交后标为stale的行为由真实PG门禁证明，本次生产没有人为写业务记录制造并发。五模块data_as_of仍为空，发布时间不代表完整业务覆盖截止时间；未在这轮重新测量登录用户页面延迟。
+
+20:15独立核对实际镜像、worker运行文件散列和服务状态：八服务running，六个有healthcheck的服务healthy，全部restart=0 / OOM=false；公网首页200，未登录auth/me 401。PG文件系统可用65,955,143,680 bytes（61.43 GiB），固定余量28,516,426,138 bytes及下一备份预留3,294,689,312 bytes均满足；现有普通备份仍是已验证的2026-10-28副本，未声称做过完整恢复演练。
+
+原部署回执保持；同一受控运行目录追加 `post-deploy-verification.json`，last-deploy关联该证据并标为 `deployed_publication_verified_business_acceptance_pending`。这表示应用及静态发布核验通过，不代表商品SKU、退款经济口径或104全部业务验收通过。后续本节文档提交只补录事实，不替换实际应用源码SHA。
