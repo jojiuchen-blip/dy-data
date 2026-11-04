@@ -1,7 +1,7 @@
 {
   "mode": "project-link-index",
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-11-04T10:01:41.787Z",
+  "generatedAt": "2026-11-04T12:19:46.817Z",
   "hostRoot": ".",
   "outputs": {
     "graphJson": "docs/index/project-link-graph.json",
@@ -1156,7 +1156,7 @@
       "owner_skill": "coding-standards",
       "authority": true,
       "slug": null,
-      "title": "Only changed analytical contracts participate. Independent ranking keeps its"
+      "title": "Snapshot locks cover reads, not only tracked refresh dependencies. Keep this"
     },
     {
       "id": "apps/api/dy_api/db.py",
@@ -13136,7 +13136,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 166,
+          "line": 176,
           "text": "- [优先日任务日志](docs/devlog/2026-09-10-priority-daily.md)与 [9 月 10 日开发日志](docs/devlog/20260910_refactor_log_Keith_Chen.md)提供运行、页面和阶段末部署证据。",
           "syntax": "markdown"
         }
@@ -13153,7 +13153,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 182,
+          "line": 192,
           "text": "Agent 环境边界证据：[测试验收日志](docs/devlog/20260723_refactor_log_Keith_Chen.md)、[生产提升日志](docs/devlog/20260827_dydata-46-production-promotion.md)、[生产 UAT 计划](docs/plans/delivery-plans/sub-delivery-plan-dydata-46-production-promotion-T2.1-release-uat.md)。",
           "syntax": "markdown"
         }
@@ -13170,7 +13170,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 182,
+          "line": 192,
           "text": "Agent 环境边界证据：[测试验收日志](docs/devlog/20260723_refactor_log_Keith_Chen.md)、[生产提升日志](docs/devlog/20260827_dydata-46-production-promotion.md)、[生产 UAT 计划](docs/plans/delivery-plans/sub-delivery-plan-dydata-46-production-promotion-T2.1-release-uat.md)。",
           "syntax": "markdown"
         }
@@ -13187,7 +13187,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 166,
+          "line": 176,
           "text": "- [优先日任务日志](docs/devlog/2026-09-10-priority-daily.md)与 [9 月 10 日开发日志](docs/devlog/20260910_refactor_log_Keith_Chen.md)提供运行、页面和阶段末部署证据。",
           "syntax": "markdown"
         }
@@ -13204,7 +13204,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 150,
+          "line": 160,
           "text": "- [打榜生产日志](docs/devlog/20260911_ranking_dashboard_production.md)保留首次异常及后续修复过程。",
           "syntax": "markdown"
         }
@@ -13221,7 +13221,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 151,
+          "line": 161,
           "text": "- 账号范围与最终修复见 [9 月 15 日组织范围日志](docs/devlog/20260915_account_org_scope.md)、[9 月 17 日当前组织日志](docs/devlog/20260917_account_current_org.md)。",
           "syntax": "markdown"
         }
@@ -13238,7 +13238,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 151,
+          "line": 161,
           "text": "- 账号范围与最终修复见 [9 月 15 日组织范围日志](docs/devlog/20260915_account_org_scope.md)、[9 月 17 日当前组织日志](docs/devlog/20260917_account_current_org.md)。",
           "syntax": "markdown"
         }
@@ -13255,7 +13255,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 133,
+          "line": 143,
           "text": "- [9 月 28 日开发日志](docs/devlog/20260928_refactor_log_Your_Name.md)限定 PDCA 发布范围；来源完整截止时间未知的限制仍保留。",
           "syntax": "markdown"
         }
@@ -13272,7 +13272,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 134,
+          "line": 144,
           "text": "- [9 月 29 日激活指引日志](docs/devlog/20260929_activation_guide_reminder.md)包含完整 SHA 部署回执和页面验证。上述记录不等于全部财务数据完整性已验收。",
           "syntax": "markdown"
         }
@@ -13289,7 +13289,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 116,
+          "line": 126,
           "text": "- [榜单生命周期与磁盘治理日志](docs/devlog/20261009_disk_ranking_retention.md)记录生产验证。",
           "syntax": "markdown"
         }
@@ -13306,7 +13306,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 99,
+          "line": 109,
           "text": "- [DYDATA-104 跟进日志](docs/devlog/20261020_dydata-104-followthrough.md)记录发布、页面验收和独立九月账期修复。",
           "syntax": "markdown"
         }
@@ -13323,7 +13323,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 66,
+          "line": 76,
           "text": "- [10 月 28 日开发日志](docs/devlog/20261028_refactor_log_Keith_Chen.md)记录新候选应用切换待办；同日[执行记录](https://github.com/jojiuchen-blip/dy-data/blob/344ba4cc7ae279996d6ed65e9a8f4f4c6c385fb5/docs/plans/execution-plan.md#L26)记载仅完成备份与 0066 迁移，尚未切换新版。数据库迁移不能证明应用已升级。",
           "syntax": "markdown"
         }
@@ -13340,7 +13340,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 182,
+          "line": 192,
           "text": "Agent 环境边界证据：[测试验收日志](docs/devlog/20260723_refactor_log_Keith_Chen.md)、[生产提升日志](docs/devlog/20260827_dydata-46-production-promotion.md)、[生产 UAT 计划](docs/plans/delivery-plans/sub-delivery-plan-dydata-46-production-promotion-T2.1-release-uat.md)。",
           "syntax": "markdown"
         }
@@ -13357,7 +13357,13 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 30,
+          "line": 27,
+          "text": "精确候选完整CI 5,442 passed / 510 skipped，适用PG专项独立通过，其中静态发布125项零跳过。目标镜像散列、独立启动冒烟与部署后运行读回通过；抖音榜单、结算、财务预热生成新版本，核销与线索来源未变而复用完整版本。20:15五模块最新尝试均success，八服务正常，磁盘61.43 GiB可用。商品SKU、退款单位/范围缺证、来源完整截止时间未知及已有未跟踪刷新依赖继续保留，DYDATA-104未关闭。见[发布与验收记录](docs/verification/20261104-november-recovery-release.md)。",
+          "syntax": "markdown"
+        },
+        {
+          "path": "CHANGELOG.md",
+          "line": 40,
           "text": "精确候选完整 CI 5,438 passed / 495 skipped，适用 PostgreSQL 专项另行执行，构建与实际镜像检查通过。上线后原维护任务第二次成功，11月2、3日均完成采集、整理、结算与发布，账号本日及原失败任务均恢复。八服务正常，数据库保持 `20261027_0066`，磁盘约61.4 GiB可用。商品缺SKU、退款口径缺证和看板刷新时效仍分别核验，五模块完整截止时间未知；合并后重复CI发现的浏览器响应竞态及后续测试修复单独记录。见[发布记录](docs/verification/20261104-november-recovery-release.md)。",
           "syntax": "markdown"
         }
@@ -13374,7 +13380,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 82,
+          "line": 92,
           "text": "- [10 月 23 日验证](docs/verification/dydata-104-oct23.md)记录 #61 的先行发布；[10 月 27 日交付验证](docs/verification/dydata-104-oct27-delivery.md)记录本批最终应用 SHA。",
           "syntax": "markdown"
         }
@@ -13391,19 +13397,19 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 47,
+          "line": 57,
           "text": "完整主线CI5389通过／490跳过，独立239PG、28Chromium及3镜像专项均零跳过、零失败。实际生产1744文件和各服务关键文件与源码一致，8服务运行及配置健康检查通过，数据库为`20261027_0066`；真实管理员页面已读取新入口。详见[本次发布记录](docs/verification/dydata-104-oct27-delivery.md#2026-10-28-最新主线127d生产发布)。",
           "syntax": "markdown"
         },
         {
           "path": "CHANGELOG.md",
-          "line": 67,
+          "line": 77,
           "text": "- 上述为原候选建档时的历史状态；后续07:02:13实际部署及rc.2切换的运行读回见[本次发布记录](docs/verification/dydata-104-oct27-delivery.md#2026-10-28-最新主线127d生产发布)，不补造当时已有tag或已完成业务验收。",
           "syntax": "markdown"
         },
         {
           "path": "CHANGELOG.md",
-          "line": 82,
+          "line": 92,
           "text": "- [10 月 23 日验证](docs/verification/dydata-104-oct23.md)记录 #61 的先行发布；[10 月 27 日交付验证](docs/verification/dydata-104-oct27-delivery.md)记录本批最终应用 SHA。",
           "syntax": "markdown"
         }
@@ -13420,7 +13426,7 @@
       "evidence": [
         {
           "path": "CHANGELOG.md",
-          "line": 65,
+          "line": 75,
           "text": "- [10 月 28 日核销影响验证](docs/verification/dydata-104-oct28-verify-impact.md)仍以 `9b1feb8` 为旧生产应用基线。",
           "syntax": "markdown"
         }
@@ -13767,7 +13773,7 @@
         {
           "path": "docs/api/dashboard-publications.md",
           "line": 3,
-          "text": "状态：统一静态读取已部署；2026-11-04 正在验证持续业务写入期间的快照发布修复。实际部署版本与验收见[发布记录](../verification/20261104-november-recovery-release.md)。",
+          "text": "状态：统一静态读取与持续业务写入期间的固定快照发布修复均已部署；2026-11-04五模块可读性与运行检查通过。实际部署版本、业务缺证和验收边界见[发布记录](../verification/20261104-november-recovery-release.md)。",
           "syntax": "markdown"
         }
       ]
@@ -33979,7 +33985,7 @@
         {
           "path": "docs/plans/execution-plan.md",
           "line": 1,
-          "text": "> **2026-11-04 本会话执行（17:57）**：PR74已合并并部署；原维护任务第二次成功，11月1—3日采集及结算发布链路、当日账号与原失败导出均已核实恢复。四模块已刷新，抖音榜单因持续门店跟进改变来源而反复构建失败。正在隔离实现并验证内置构建器显式PG固定快照模式：保持完整性/事务/计数门禁，合法外部提交标记待更新并排下一版；通过精确CI及生产读回前不宣称部署。测试响应竞态修复已通过相关5项。商品SKU和退款口径仍缺证，104保持进行中。八服务正常，磁盘约61.4 GiB。见[当日开发日志](../devlog/20261104_refactor_log_Keith_Chen.md)与[发布记录](../verification/20261104-november-recovery-release.md)。",
+          "text": "> **2026-11-04 本会话执行（20:18）**：PR74与PR75均已合并部署；实际应用源码1f02204b于20:14完成三服务切换，无迁移。原维护第二次成功，11月1—3日采集及结算发布链路、当日账号与原失败导出均已恢复。固定快照发布修复通过精确完整CI（5,442 passed），五模块当前完整版本及最新尝试均success；抖音榜单、结算、财务产生新版本，核销与线索来源未变而复用。八服务正常，磁盘61.43 GiB可用。商品SKU、退款单位/范围缺证和完整业务截止时间未知仍保留，104继续进行中。详见[当日开发日志](../devlog/20261104_refactor_log_Keith_Chen.md)与[发布记录](../verification/20261104-november-recovery-release.md)。",
           "syntax": "markdown"
         }
       ]
@@ -35268,7 +35274,7 @@
         {
           "path": "docs/plans/execution-plan.md",
           "line": 1,
-          "text": "> **2026-11-04 本会话执行（17:57）**：PR74已合并并部署；原维护任务第二次成功，11月1—3日采集及结算发布链路、当日账号与原失败导出均已核实恢复。四模块已刷新，抖音榜单因持续门店跟进改变来源而反复构建失败。正在隔离实现并验证内置构建器显式PG固定快照模式：保持完整性/事务/计数门禁，合法外部提交标记待更新并排下一版；通过精确CI及生产读回前不宣称部署。测试响应竞态修复已通过相关5项。商品SKU和退款口径仍缺证，104保持进行中。八服务正常，磁盘约61.4 GiB。见[当日开发日志](../devlog/20261104_refactor_log_Keith_Chen.md)与[发布记录](../verification/20261104-november-recovery-release.md)。",
+          "text": "> **2026-11-04 本会话执行（20:18）**：PR74与PR75均已合并部署；实际应用源码1f02204b于20:14完成三服务切换，无迁移。原维护第二次成功，11月1—3日采集及结算发布链路、当日账号与原失败导出均已恢复。固定快照发布修复通过精确完整CI（5,442 passed），五模块当前完整版本及最新尝试均success；抖音榜单、结算、财务产生新版本，核销与线索来源未变而复用。八服务正常，磁盘61.43 GiB可用。商品SKU、退款单位/范围缺证和完整业务截止时间未知仍保留，104继续进行中。详见[当日开发日志](../devlog/20261104_refactor_log_Keith_Chen.md)与[发布记录](../verification/20261104-november-recovery-release.md)。",
           "syntax": "markdown"
         }
       ]

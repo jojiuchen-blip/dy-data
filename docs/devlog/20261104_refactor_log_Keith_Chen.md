@@ -101,3 +101,12 @@
 - **操作**：确认真实门店跟进导致来源持续改变；隔离实现显式PG快照策略，声明关系预锁、事务自写保护及外部变化stale标记；两人只读审查并跑真实PG回归
 - **结果**：初轮核心62项通过，扩大专项执行中；当前生产仍de230，缺日与账号恢复已完成，新的快照调整尚未部署
 - **涉及文件**：apps/api/dy_api/dashboard_publications/lifecycle.py、apps/api/dy_api/dashboard_publications/sources.py、apps/worker/dashboard_publications.py、docs/api/dashboard-publications.md
+---
+
+## 补充更新 4（20:18 · 窗口 4）
+
+### 任务 5：固定快照发布上线与最终技术验收
+- **目标**：完成PR75合并部署并核验静态版本与服务器容量
+- **操作**：核对精确CI和合并树；部署冻结候选API/worker/publisher；五模块正常预热，独立读取镜像、head、服务、数据库及磁盘；回填版本和受控回执
+- **结果**：20:14:28切换成功，实际源码1f02204bcbb0c68830ff8ac3a201ab864c6c8374；完整CI5442通过/510跳过，适用PG另组实跑125及其他专项；20:15五模块可读且最新尝试success，八服务健康，磁盘61.43GiB
+- **涉及文件**：CHANGELOG.md、docs/api/dashboard-publications.md、docs/verification/20261104-november-recovery-release.md、docs/plans/execution-plan.md
