@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import threading
 from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import uvicorn
@@ -125,6 +126,25 @@ def fill_registration(page, number="00123456789012345678"):
     page.get_by_label("20 位数电专票号码", exact=True).fill(number)
 
 
+def _invoice_statement_response(response, api_url):
+    url = urlsplit(response.url)
+    api = urlsplit(api_url)
+    return (response.request.method == "GET"
+            and (url.scheme, url.netloc, url.path) == (api.scheme, api.netloc, "/api/v1/store-settlements")
+            and parse_qs(url.query) == {"storeId": ["oct23-store"], "month": ["2026-09"],
+                "metricScope": ["MONTH"], "feeDirection": ["PROMOTION"], "pageSize": ["50"]})
+
+
+def _open_invoice_with_statement_data(page, web, api_url):
+    # The invoice page fetches several months concurrently. Bind assertions to
+    # this bill's promotion request rather than whichever month finishes last.
+    with page.expect_response(lambda response: _invoice_statement_response(response, api_url)) as loaded:
+        info = confirm_and_open(page, web)
+    response = loaded.value
+    assert response.status == 200, response.text()
+    return info, response.json()["data"]
+
+
 @pytest.mark.parametrize("width,height", [(390, 844), (768, 1024), (1440, 900)])
 def test_confirmed_bill_displays_server_tax_and_registers_without_manual_amounts(
     browser, invoice_web, invoice_api, tmp_path, width, height,
@@ -134,14 +154,10 @@ def test_confirmed_bill_displays_server_tax_and_registers_without_manual_amounts
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.on("console", lambda message: errors.append(message.text) if message.type == "error" else None)
-    summaries = []
     posts = []
     page.on("request", lambda request: posts.append(request) if request.method == "POST" and request.url.endswith("/promotion-invoices") else None)
-    page.on("response", lambda response: summaries.append(response) if "/store-settlements?" in response.url else None)
     try:
-        info = confirm_and_open(page, invoice_web)
-        assert summaries
-        statement_data = summaries[-1].json()["data"]
+        info, statement_data = _open_invoice_with_statement_data(page, invoice_web, invoice_api[0])
         summary = statement_data["promotionInvoiceSummary"]
         group_id = statement_data["list"][0]["promotionInvoiceGroupId"]
         assert summary == {"invoiceAmountCent": 10601, "netAmountCent": 10001,
@@ -177,6 +193,55 @@ def test_confirmed_bill_displays_server_tax_and_registers_without_manual_amounts
             assert (row.invoice_amount_cent, row.net_amount_cent, row.tax_amount_cent) == (10601, 10001, 600)
         assert errors == []
         page.screenshot(path=str(tmp_path / f"invoice-success-{width}.png"), full_page=True)
+    finally:
+        context.close()
+
+
+def test_invoice_summary_ignores_later_empty_month_response(browser, invoice_web, invoice_api):
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    summaries = []
+    held = []
+    target_seen = False
+
+    def release_after_target(response):
+        nonlocal target_seen
+        if _invoice_statement_response(response, invoice_api[0]):
+            target_seen = True
+            for route, fetched in held:
+                route.fulfill(response=fetched)
+            held.clear()
+
+    def hold_empty_month(route):
+        query = parse_qs(urlsplit(route.request.url).query)
+        if (route.request.method != "GET" or query.get("storeId") != ["oct23-store"]
+                or query.get("feeDirection") != ["PROMOTION"] or query.get("month") == ["2026-09"]):
+            route.continue_()
+            return
+        fetched = route.fetch()
+        assert fetched.status == 200, fetched.text()
+        assert fetched.json()["data"]["list"] == []
+        if target_seen:
+            route.fulfill(response=fetched)
+        else:
+            held.append((route, fetched))
+
+    page.on("response", lambda response: summaries.append(response)
+            if "/store-settlements?" in response.url else None)
+    page.on("response", release_after_target)
+    page.route(f"{invoice_api[0]}/api/v1/store-settlements?*", hold_empty_month)
+    try:
+        info, statement_data = _open_invoice_with_statement_data(page, invoice_web, invoice_api[0])
+        # Preserve real server bodies, but force an unrelated empty month to
+        # complete last. The former summaries[-1] selector then reads no bill.
+        assert target_seen
+        assert summaries[-1].json()["data"]["list"] == []
+        assert not _invoice_statement_response(summaries[-1], invoice_api[0])
+        assert statement_data["list"][0]["statementId"] == "oct23-bill"
+        assert statement_data["promotionInvoiceSummary"] == {
+            "invoiceAmountCent": 10601, "netAmountCent": 10001, "taxAmountCent": 600,
+            "taxRatePercent": 6, "requiredStatementIds": ["oct23-bill"]}
+        expect(info).to_contain_text("106.01")
     finally:
         context.close()
 
