@@ -1,6 +1,13 @@
-> **2026-11-04 本会话执行**：用户授权解除结算维护阻塞，按正常日批及历史配额补齐11月2、3日，再核验结算与五模块发布；退款缺证继续隔离。维护首次尝试暴露重复压缩的来源闭包缺失，固定任务保留 attempt 1/3，旧未发布批次保留。PR74正修复完整来源引用及审计键长度，待精确候选验证后协调 API、worker、publisher 读取兼容性并恢复；当前未部署、未补齐。证据见[当日开发日志](../devlog/20261104_refactor_log_Keith_Chen.md)。
+> **2026-11-04 本会话执行（17:57）**：PR74已合并并部署；原维护任务第二次成功，11月1—3日采集及结算发布链路、当日账号与原失败导出均已核实恢复。四模块已刷新，抖音榜单因持续门店跟进改变来源而反复构建失败。正在隔离实现并验证内置构建器显式PG固定快照模式：保持完整性/事务/计数门禁，合法外部提交标记待更新并排下一版；通过精确CI及生产读回前不宣称部署。测试响应竞态修复已通过相关5项。商品SKU和退款口径仍缺证，104保持进行中。八服务正常，磁盘约61.4 GiB。见[当日开发日志](../devlog/20261104_refactor_log_Keith_Chen.md)与[发布记录](../verification/20261104-november-recovery-release.md)。
 
-# 当前执行：DYDATA-106 线索明细筛选（2026-10-28）
+# 当前执行：DYDATA-104 十一月数据恢复与静态发布（2026-11-04）
+
+- 当前正式计划：[DYDATA-104](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)；[任务看板](delivery-plans/task-kanban-dydata-104-followthrough.md)；[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。
+- 当前阶段：S4 / T3.1，进行中；沿用用户已授权的恢复、合入和部署范围。
+- 当前技术工作：完成持续业务写入下固定快照发布修复的精确测试、CI、应用部署及版本读回；普通业务来源完整性和金额保护保持。
+- 本轮已完成与未完成以顶部实时摘要和发布记录为准；以下保留其他需求与历史交付记录，不将旧状态当作当前验收结果。
+
+# 历史执行：DYDATA-106 线索明细筛选（2026-10-28）
 
 - 当前阶段：S4 / Phase 1 / T1.1，进行中；用户已明确授权修复、合入main并部署。
 - 当前正式计划：[DYDATA-106](delivery-plans/main-delivery-plan-dydata-106.md)；[任务看板](delivery-plans/task-kanban-dydata-106.md)；[当前子计划](delivery-plans/sub-delivery-plan-dydata-106-T1.1-clue-filters.md)。
