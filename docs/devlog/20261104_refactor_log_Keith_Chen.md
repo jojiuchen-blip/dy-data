@@ -64,3 +64,40 @@
 - 专项独立验证另有 reader/API/publisher/维护 183 passed（4 个 PG 用例另组执行）、builder 30 passed、PG runner/maintenance 58 passed。父线程已检查关键代码差异，并补核生产复合外键启用且已验证，未放松外键或来源完整性。
 - 最新远端 main 仍为 `9831027a151d7bc844edde2128906f148cadc1f5`，原 PR74 head 为 c1126301，无新增远端冲突；本次差异不含 Alembic、依赖、Web 或部署配置变更。工作流 YAML、suite lock、全局文件和 S4 路由检查通过，无 foundation 漂移。
 - 新候选完整 CI、代码合并、生产应用切换及缺日补采仍未完成，须继续逐项取证。
+
+## 15:27 应用切换完成，数据恢复继续
+
+- 精确源码 `de230863cad8025455b71f4da0ec92379c120c1a` 的 [CI 41785324793](https://github.com/jojiuchen-blip/dy-data/actions/runs/41785324793) 全部通过：完整 pytest **5,438 passed / 495 skipped**；真实 PostgreSQL 专项、28 项 Chromium、4 项 Nginx 导出、2 项 API 镜像及 3 项浏览器镜像检查另行通过，前端与四类镜像构建完成。普通全仓的环境跳过不作为 PG 专项证据。
+- 旧 c112 本机完整回归最终为 5,434 passed / 492 skipped / 2 failed：月结时钟用例已修复；发票移动端用例的并发响应选取偶发失败，独立复测及最终 Linux 全仓均通过。保留旧失败记录，不将复测改写为旧整轮全绿。
+- [PR74](https://github.com/jojiuchen-blip/dy-data/pull/74) 已合入 main，合并 SHA `101772120447dd2ac67784b24d755db5918f47fa`；合并树与候选树均为 `f15686a2ddf195899bc4770393c9c374ed96f932`，无新增代码差异。
+- 生产复用已构建并按实际文件校验的固定 API/worker 镜像。15:25–15:27 顺序停止旧领取进程、检查五模块现有完整 head、切换 publisher/API/worker，并重载两层 Nginx。15:27:13 运行回执完成；公网首页 200、未登录 auth/me 401，八服务运行正常，三服务新镜像及 reader 64/1,024 已读回。
+- 数据库仍为 `20261027_0066`，没有迁移或新整库备份。现有 2,196,459,541-byte 备份目录校验通过，未做恢复演练；切换后 PG 文件系统可用 67,091,705,856 bytes，超过 15% 固定余量及下一备份预留。
+- 五模块预热均返回 `PUBLICATION_SOURCE_BUSY`，现有完整静态版本通过可读门禁；这不表示已刷新业务数据。11 月 2、3 日仍待补齐，账号原任务仍 retry_wait；五模块 `data_as_of` 未知，不能用构建或发布时间替代。
+- 15:33:04 已沿固定维护任务启动正常 CLI 第二次尝试流程，保持原冻结预算、旧 22,000 行 partial 和 attempt 1/3，先等待真实资源观察再领取；尚未宣称已领取或成功。当前实际磁盘检查与冻结预算分别留存，未改任务状态、配额或默认行数上限。
+- 发布记录见 [十一月恢复发布](../verification/20261104-november-recovery-release.md)。本次文档提交与实际部署源码分别记录，后续继续核对维护回执、日批/历史补采、账号原任务及五模块更新。
+
+## 15:57 固定维护任务成功，正常日批恢复
+
+- 正常 CLI 经资源观察，于15:46:07领取原任务第二次尝试；15:57:14发布成功，driver回执为 `published_verified`。共304批、121,345分区、114来源，active深度48→0；新候选 `settlement-compact:5dad4bc5b4fb66fc6d8a9390443d6ee729be3a919f37d533cd0933967d19bba2`，manifest checksum `ddfcc8c64c4c7c96ebb6195efae302387d5ffefd7ba81bd4165e631e36ff0ea4`。
+- 原任务成功 / attempt 2/3，CLI与数据库持久发布事件、ready摘要、active身份一致。旧22,000分区 / 55批partial、原冻结预算和重试上限保持。五张保护表的行数和内容指纹与维护前完全一致，PG可用67,087,552,512 bytes。
+- 15:57:19正常调度建立11月3日任务 `date-sync-b0e711bf469c31a3c97db715187d5891`，所属 `range-sync-7da5b69490da9cd15b3a042ccc668afe`；其维度子任务已成功，日期采集已提交真实订单响应。未手工新造日批或历史任务、重置配额或改终态。
+- 11月2日历史缺口、旧账号任务及五模块新版本继续验收。当前维护成功不代表退款口径已补证，也不代表所有后续数据完成；默认100,000分区门槛保持，后续再次触达仍须按原容量规则评估。
+- [104进展评论](https://linear.app/keith-lim/issue/DYDATA-104#comment-c6872966)记录实际CI、部署与维护结果；104保持进行中。
+---
+
+## 补充更新 2（17:30 · 窗口 2）
+
+### 任务 3：十一月日批与账号恢复验收
+- **目标**：沿正常调度恢复缺日数据，分别核验应用、结算发布和静态看板
+- **操作**：精确候选CI通过后合并PR74并部署API、worker、publisher；原固定维护第二次成功，随后正常完成11月3日日批、账号原任务与11月2日历史补采，使用READ ONLY有界查询验收阶段和发布证据。
+- **结果**：11月2、3日均完成采集、整理、结算和最终发布，11月1日原成功保持；账号本日导出3114条且旧失败任务正常第二次成功。结算看板17:26使用最新8148 generation发布，财务、核销、线索已刷新；抖音榜单因正常门店跟进持续改源仍在自动重试，不跳过来源一致性。商品首批10ID三次空SKU且目录无精确映射，退款单位/范围缺证保持隔离。main重复CI发票响应竞态已确定复现并修复，最终对应文件5通过；不改业务代码。八服务正常，当前磁盘约61.4 GiB。
+- **涉及文件**：tests/test_dydata104_oct23_invoice_browser.py、CHANGELOG.md、docs/verification/20261104-november-recovery-release.md、docs/plans/execution-plan.md
+---
+
+## 补充更新 3（17:57 · 窗口 3）
+
+### 任务 4：持续跟进下的静态版本发布修复
+- **目标**：让完整静态看板在普通业务写入期间继续更新
+- **操作**：确认真实门店跟进导致来源持续改变；隔离实现显式PG快照策略，声明关系预锁、事务自写保护及外部变化stale标记；两人只读审查并跑真实PG回归
+- **结果**：初轮核心62项通过，扩大专项执行中；当前生产仍de230，缺日与账号恢复已完成，新的快照调整尚未部署
+- **涉及文件**：apps/api/dy_api/dashboard_publications/lifecycle.py、apps/api/dy_api/dashboard_publications/sources.py、apps/worker/dashboard_publications.py、docs/api/dashboard-publications.md
