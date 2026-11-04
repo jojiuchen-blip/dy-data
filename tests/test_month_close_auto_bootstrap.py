@@ -209,21 +209,36 @@ def test_unrelated_month_does_not_change_bootstrap_hash_or_reset_failed_budget(d
     assert db_session.get(JobRun, first).attempt_count == 3
 
 
-def test_same_failed_input_uses_normal_worker_retry_budget_without_new_scheduler_jobs(db_session):
+def test_same_failed_input_uses_normal_worker_retry_budget_without_new_scheduler_jobs(db_session, monkeypatch):
     from apps.worker.queued_jobs import process_queued_settlement_rebuilds
 
+    # Claims/failures use database time while the queue accepts an explicit
+    # observation time. Keep both on the same advancing clock for real retries.
+    clock = NOW
+    monkeypatch.setattr(rebuild, "_database_utcnow", lambda session: clock)
     factory = _seed(db_session, legacy=True, records=[binding(account="other")])
     job_id = close.ensure_month_close_job(factory, now=NOW)
     before = _financial_facts(db_session)
     for attempt in (1, 2, 3):
-        result = process_queued_settlement_rebuilds(factory, now=NOW)
+        result = process_queued_settlement_rebuilds(factory, now=clock)
         assert result.processed_job_id == job_id
         db_session.expire_all()
         job = db_session.get(JobRun, job_id)
         assert job.attempt_count == attempt
         assert job.status == ("failed" if attempt == 3 else "retry_wait")
         assert close.ensure_month_close_job(factory, now=NOW) == job_id
-    assert process_queued_settlement_rebuilds(factory, now=NOW).processed_job_id is None
+        if attempt < 3:
+            assert job.next_retry_at is not None
+            retry_at = job.next_retry_at.replace(tzinfo=timezone.utc)
+            assert retry_at > clock
+            assert process_queued_settlement_rebuilds(
+                factory, now=retry_at - timedelta(microseconds=1)
+            ).processed_job_id is None
+            db_session.expire_all()
+            assert db_session.get(JobRun, job_id).attempt_count == attempt
+            assert db_session.get(JobRun, job_id).status == "retry_wait"
+            clock = retry_at
+    assert process_queued_settlement_rebuilds(factory, now=clock).processed_job_id is None
     assert _financial_facts(db_session) == before
     assert db_session.scalar(select(func.count()).select_from(JobRun).where(JobRun.job_name == "settlement_rebuild")) == 1
 
