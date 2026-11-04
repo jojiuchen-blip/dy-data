@@ -59,6 +59,10 @@ python scripts/backup_retention.py --backup-dir /path/to/backups --apply \
 
 结算投影链达到深度 48 时，worker 优先调用有界压缩维护，硬限制 64 保持。每个 base 使用固定任务身份，最多三次尝试；耗尽、磁盘证据不足、资源冷却或同 base 手动任务需要处理时停止继续增长，不能更换任务 ID 绕过预算。`SETTLEMENT_AUTOMATIC_MAINTENANCE_ENABLED=false` 在已达阈值时同样安全延后，不代表允许无维护继续堆积。
 
+重复压缩必须保留有效数据引用所需的完整来源集合：直接链深度最多 64，来源集合独立上限 1,024，压缩节点与循环保护继续生效。估算、构建、checkpoint 与发布校验使用同一来源集合；不能移除外键或跳过历史来源摘要核验。继承来源展开时使用确定的新候选身份，旧未发布失败批次保留供审计，固定任务身份和剩余尝试次数不变；未知、冲突或超限候选一律停止恢复，不手工修改 checkpoint。
+
+读取来源集合上限发生兼容变化时，必须先协调更新 API、worker 与 publisher，再允许维护发布新结果。新结果超出旧 reader 能力后，不能直接回退旧应用、拨回 active 指针或自动恢复整库；后续修复必须保留对已发布数据形态的读取能力。纯应用更新且无迁移时，核验现有有效备份与容量即可，不因重启重复生成整库副本；迁移仍执行既有备份门禁。
+
 容量必须读取真实 PostgreSQL 数据目录所在文件系统。部署先由 `scripts/prepare_postgres_capacity_probe.py --container-id <当前数据库容器 ID>` 读取 `SHOW data_directory` 并匹配最深持久挂载，只在该目录创建固定内容的 `.dydata-capacity-probe` 普通文件。将输出设置为部署环境的 `SETTLEMENT_COMPACTION_DISK_PROBE_SOURCE`，Compose 只向 worker 只读挂载该文件到 `/run/dydata/postgres-capacity`，禁止暴露数据库整卷或 Docker socket。迁移到其他主机或卷时必须重新推导来源，不能复制旧绝对路径。
 
 当前部署环境写入器仅接受不含空白和 `| $ & #`、引号、反引号、Linux 字面反斜杠的来源路径。探针工具会在创建文件前拒绝这些字符，避免升级时环境变量替换或 Compose 解析改变真实路径。自定义 bind 目录须满足此限制，不能忽略错误后沿用默认探针。
