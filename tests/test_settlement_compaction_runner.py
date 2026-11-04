@@ -449,6 +449,62 @@ def compaction_pg():
         admin.dispose()
 
 
+def test_pg_compaction_event_keys_fit_audit_column_and_replay(compaction_pg) -> None:
+    from datetime import datetime, timezone
+
+    from apps.worker.settlement_compaction import (
+        SETTLEMENT_COMPACTION_PROTOCOL,
+        _record_compaction_event,
+    )
+
+    factory = compaction_pg
+    job_id = settlement_compaction_job_id("pg-compaction-event-key")
+    event_types = (
+        "settlement_compaction_failed",
+        "settlement_compaction_blocked_manual_same_base",
+        "settlement_compaction_blocked_manual_job_requires_operator",
+    )
+    legacy_keys = {
+        event_type: f"{SETTLEMENT_COMPACTION_PROTOCOL}:{event_type}:{job_id}"
+        for event_type in event_types
+    }
+    assert len(legacy_keys[event_types[0]]) <= 128
+    assert all(len(legacy_keys[event_type]) > 128 for event_type in event_types[1:])
+    with factory() as session:
+        job = JobRun(
+            job_id=job_id, job_name=SETTLEMENT_COMPACTION_JOB_NAME,
+            status="queued", started_at=datetime.now(timezone.utc),
+        )
+        session.add(job)
+        session.commit()
+        for event_type in event_types:
+            _record_compaction_event(
+                session, job=job, event_type=event_type,
+                reason=event_type, payload={"reason": event_type},
+            )
+        session.commit()
+
+    # A fresh session exercises the same key used for the INSERT and lookup;
+    # retries must neither exceed varchar(128) nor duplicate an existing event.
+    with factory() as session:
+        job = session.get(JobRun, job_id)
+        for event_type in event_types:
+            _record_compaction_event(
+                session, job=job, event_type=event_type,
+                reason=event_type, payload={"reason": event_type},
+            )
+        session.commit()
+    with factory() as session:
+        events = list(session.scalars(select(JobEvent).where(JobEvent.job_id == job_id)))
+        assert len(events) == len(event_types)
+        keys = {event.event_type: event.idempotency_key for event in events}
+        assert len(set(keys.values())) == len(event_types)
+        assert all(len(key) <= 128 for key in keys.values())
+        assert keys[event_types[0]] == legacy_keys[event_types[0]]
+        assert all(keys[event_type].startswith("settlement-compaction-event:sha256:")
+                   for event_type in event_types[1:])
+
+
 def test_pg_concurrent_claims_are_exclusive(compaction_pg) -> None:
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
