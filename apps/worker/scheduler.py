@@ -676,11 +676,15 @@ def _process_queued_jobs(factory) -> bool:
     from apps.worker.settlement_maintenance import process_automatic_settlement_maintenance
     from apps.worker.resource_monitor import current_resource_decision
     from apps.ops_agent.resources import ResourceAction
+    from apps.worker.priority_scheduler import run_maintenance_safe_account_tick
 
     decision = current_resource_decision()
     if decision.action is ResourceAction.STOP:
         return True
-    if process_automatic_settlement_maintenance(factory):
+    maintenance_options = {}
+    if resolve_scheduler_mode() == "priority_daily":
+        maintenance_options["on_manifest_limit"] = run_maintenance_safe_account_tick
+    if process_automatic_settlement_maintenance(factory, **maintenance_options):
         return True
     if decision.action is not ResourceAction.ALLOW:
         # Only explicitly admitted daily work may proceed while draining.

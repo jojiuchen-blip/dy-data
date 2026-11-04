@@ -7,6 +7,8 @@ import os
 import re
 import tempfile
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from datetime import UTC, datetime
@@ -127,7 +129,7 @@ def export_backend_aweme_records_via_browser(
         except BrowserExportError as exc:
             if "Timed out waiting for backend aweme workbook download" not in str(exc):
                 raise
-            return fetch_backend_aweme_records_via_bind_list_api(cdp_url=cdp_url)
+            return fetch_backend_aweme_records_via_bind_list_api(cdp_url=cdp_url, export_url=export_url)
         records = parse_backend_aweme_workbook(workbook)
         # The list endpoint has a different scope; its Total is not an export
         # completeness contract. Only this exact task and file can certify it.
@@ -195,6 +197,79 @@ def upsert_backend_aweme_records(
     return stats
 
 
+def _same_backend_aweme_route(url: str, target_url: str) -> bool:
+    candidate = urlparse(url)
+    target = urlparse(target_url)
+    candidate_origin = (
+        candidate.scheme, candidate.hostname,
+        candidate.port or (443 if candidate.scheme == "https" else 80),
+    )
+    target_origin = (
+        target.scheme, target.hostname,
+        target.port or (443 if target.scheme == "https" else 80),
+    )
+    paths = {target.path.rstrip("/") or "/"}
+    if target.hostname == "life.douyin.com" and paths == {"/"}:
+        # The legacy root entry redirects authenticated users to this route.
+        paths.add("/p/liteapp/bc_manage")
+    return candidate_origin == target_origin and (candidate.path.rstrip("/") or "/") in paths
+
+
+def _close_owned_backend_aweme_page(page: Any, target_url: str, *, allow_blank: bool = False) -> None:
+    from playwright.sync_api import Error as PlaywrightError
+
+    try:
+        if allow_blank and page.url == "about:blank":
+            page.close()
+            return
+        if not _same_backend_aweme_route(page.url, target_url):
+            return
+        try:
+            raise_if_login_required(page)
+        except BrowserExportError:
+            return
+        visible_text = page.locator("body").inner_text(timeout=1000)
+        if not isinstance(visible_text, str) or re.search(
+            r"验证码|安全验证|安全检查|滑块|captcha|verify.{0,30}human|security check", visible_text, re.I,
+        ):
+            return
+        page.close()
+    except PlaywrightError:
+        logging.getLogger(__name__).warning("backend_aweme_owned_page_cleanup_unavailable")
+
+
+@contextmanager
+def managed_backend_aweme_page(
+    context: Any, target_url: str, *, create_if_missing: bool = True,
+) -> Iterator[Any]:
+    existing_pages = list(context.pages)
+    page = next((item for item in existing_pages if _same_backend_aweme_route(item.url, target_url)), None)
+    created = page is None
+    if created:
+        if not create_if_missing:
+            raise BrowserExportError("Backend aweme business page is not available for API fallback.")
+        page = context.new_page()
+    popups = []
+
+    def remember_popup(popup: Any) -> None:
+        # A page's popup event identifies its opener. Never sweep context.pages.
+        if popup not in existing_pages and popup not in popups:
+            popups.append(popup)
+
+    page.on("popup", remember_popup)
+    completed = False
+    try:
+        yield page
+        completed = True
+    finally:
+        page.remove_listener("popup", remember_popup)
+        for popup in popups:
+            _close_owned_backend_aweme_page(popup, target_url)
+        if created and (completed or page.url == "about:blank"):
+            _close_owned_backend_aweme_page(page, target_url, allow_blank=True)
+        # A failed primary page remains available to login and API fallback.
+
+
 def export_workbook_via_browser(
     *,
     cdp_url: str | None = None,
@@ -227,82 +302,87 @@ def export_workbook_via_browser(
         with sync_playwright() as playwright:
             browser = playwright.chromium.connect_over_cdp(resolve_playwright_cdp_url(resolved_cdp_url))
             context = browser.contexts[0] if browser.contexts else browser.new_context(accept_downloads=True)
-            page = context.pages[0] if context.pages else context.new_page()
-            completed_download: dict[str, str] = {}
-            observed_responses: list[dict[str, Any]] = []
-            from apps.worker.browser_exports.backend_aweme_proof import BackendExportTask, EXPORT_START_PATH
-            task = BackendExportTask()
-            capture_active = False
+            with managed_backend_aweme_page(context, target_url) as page:
+                completed_download: dict[str, str] = {}
+                observed_responses: list[dict[str, Any]] = []
+                from apps.worker.browser_exports.backend_aweme_proof import BackendExportTask, EXPORT_START_PATH
+                task = BackendExportTask()
+                capture_active = False
 
-            def capture_export_response(response: Any) -> None:
-                response_url = str(response.url)
-                if is_relevant_export_response(response_url):
-                    item = {"url": redact_url(response_url), "status": getattr(response, "status", None)}
+                def capture_export_response(response: Any) -> None:
+                    response_url = str(response.url)
+                    if is_relevant_export_response(response_url):
+                        item = {"url": redact_url(response_url), "status": getattr(response, "status", None)}
+                        try:
+                            payload = response.json()
+                        except Exception:
+                            payload = None
+                        if payload is not None:
+                            item["response_keys"] = list(payload)[:30] if isinstance(payload, dict) else []
+                        observed_responses.append(item)
+                        del observed_responses[:-30]
+
+                    if not capture_active:
+                        return
                     try:
                         payload = response.json()
                     except Exception:
-                        payload = None
-                    if payload is not None:
-                        item["response_keys"] = list(payload)[:30] if isinstance(payload, dict) else []
-                    observed_responses.append(item)
-                    del observed_responses[:-30]
+                        return
+                    path = urlparse(response_url).path
+                    if path == EXPORT_START_PATH:
+                        try:
+                            request_json = response.request.post_data_json
+                        except Exception:
+                            request_json = None
+                        task.observe_start(method=response.request.method, url=response_url,
+                                           request_json=request_json, response=payload)
+                    elif path.rstrip("/") == "/life/gate/v3/download/mget":
+                        task.observe_poll(payload)
+                        info = task.file_info()
+                        if info:
+                            completed_download.update(info)
 
-                if not capture_active:
-                    return
+                page.on("response", capture_export_response)
                 try:
-                    payload = response.json()
-                except Exception:
-                    return
-                path = urlparse(response_url).path
-                if path == EXPORT_START_PATH:
                     try:
-                        request_json = response.request.post_data_json
-                    except Exception:
-                        request_json = None
-                    task.observe_start(method=response.request.method, url=response_url,
-                                       request_json=request_json, response=payload)
-                elif path.rstrip("/") == "/life/gate/v3/download/mget":
-                    task.observe_poll(payload)
-                    info = task.file_info()
-                    if info:
-                        completed_download.update(info)
+                        page.goto(target_url, wait_until="domcontentloaded", timeout=timeout_ms)
+                    except PlaywrightTimeoutError:
+                        raise_if_login_required(page)
+                        raise
+                    raise_if_login_required(page)
 
-            page.on("response", capture_export_response)
-            try:
-                page.goto(target_url, wait_until="domcontentloaded", timeout=timeout_ms)
-            except PlaywrightTimeoutError:
-                raise_if_login_required(page)
-                raise
-            raise_if_login_required(page)
+                    try:
+                        capture_active = True
+                        click_backend_export(page, export_selector=export_selector, export_text=export_text, timeout_ms=timeout_ms)
+                    except PlaywrightTimeoutError:
+                        raise_if_login_required(page)
+                        raise
 
-            try:
-                capture_active = True
-                click_backend_export(page, export_selector=export_selector, export_text=export_text, timeout_ms=timeout_ms)
-            except PlaywrightTimeoutError:
-                raise_if_login_required(page)
-                raise
-
-            try:
-                info = wait_for_completed_download(page, completed_download, timeout_ms=timeout_ms)
-            except (BrowserExportError, PlaywrightTimeoutError):
-                raise_if_login_required(page)
-                raise
-            path = save_workbook_from_file_url(
-                context,
-                file_url=info["file_url"],
-                file_name=info.get("file_name") or "",
-                target_dir=target_dir,
-                timeout_ms=timeout_ms,
-            )
-            try:
-                return task.bind_file(path)
-            except ValueError as exc:
-                raise BrowserExportError("Backend aweme exact export task proof is invalid.") from exc
+                    try:
+                        info = wait_for_completed_download(page, completed_download, timeout_ms=timeout_ms)
+                    except (BrowserExportError, PlaywrightTimeoutError):
+                        raise_if_login_required(page)
+                        raise
+                    path = save_workbook_from_file_url(
+                        context,
+                        file_url=info["file_url"],
+                        file_name=info.get("file_name") or "",
+                        target_dir=target_dir,
+                        timeout_ms=timeout_ms,
+                    )
+                    try:
+                        return task.bind_file(path)
+                    except ValueError as exc:
+                        raise BrowserExportError("Backend aweme exact export task proof is invalid.") from exc
+                finally:
+                    page.remove_listener("response", capture_export_response)
     except PlaywrightTimeoutError as exc:
         raise BrowserExportError("Timed out waiting for backend aweme workbook download.") from exc
 
 
-def fetch_backend_aweme_records_via_bind_list_api(*, cdp_url: str | None = None) -> list[dict[str, Any]]:
+def fetch_backend_aweme_records_via_bind_list_api(
+    *, cdp_url: str | None = None, export_url: str | None = None,
+) -> list[dict[str, Any]]:
     resolved_cdp_url = (cdp_url if cdp_url is not None else os.getenv("BROWSER_CDP_URL", "")).strip()
     if not resolved_cdp_url:
         raise BrowserExportError("BROWSER_CDP_URL is required when workbook_path is not provided.")
@@ -316,26 +396,27 @@ def fetch_backend_aweme_records_via_bind_list_api(*, cdp_url: str | None = None)
     with sync_playwright() as playwright:
         browser = playwright.chromium.connect_over_cdp(resolve_playwright_cdp_url(resolved_cdp_url))
         context = browser.contexts[0] if browser.contexts else browser.new_context(accept_downloads=True)
-        page = context.pages[0] if context.pages else context.new_page()
-        raise_if_login_required(page)
-        try:
-            bind_list_url = discover_backend_aweme_bind_list_url(page)
-        except PlaywrightError:
+        target_url = export_url or os.getenv("BACKEND_AWEME_EXPORT_URL", DEFAULT_EXPORT_URL)
+        with managed_backend_aweme_page(context, target_url, create_if_missing=False) as page:
             raise_if_login_required(page)
-            raise
-        if not bind_list_url:
-            raise_if_login_required(page)
-            raise BrowserExportError("Backend aweme bind list API URL was not observed after export download timeout.")
-        try:
-            records = fetch_backend_aweme_bind_list_records(page, bind_list_url)
-        except (BrowserExportError, PlaywrightError):
-            raise_if_login_required(page)
-            raise
-        print(
-            f"[backend-aweme-export] bind_list_api_fallback fetched={len(records)}",
-            flush=True,
-        )
-        return records
+            try:
+                bind_list_url = discover_backend_aweme_bind_list_url(page)
+            except PlaywrightError:
+                raise_if_login_required(page)
+                raise
+            if not bind_list_url:
+                raise_if_login_required(page)
+                raise BrowserExportError("Backend aweme bind list API URL was not observed after export download timeout.")
+            try:
+                records = fetch_backend_aweme_bind_list_records(page, bind_list_url)
+            except (BrowserExportError, PlaywrightError):
+                raise_if_login_required(page)
+                raise
+            print(
+                f"[backend-aweme-export] bind_list_api_fallback fetched={len(records)}",
+                flush=True,
+            )
+            return records
 
 
 def discover_backend_aweme_bind_list_url(page: Any) -> str | None:

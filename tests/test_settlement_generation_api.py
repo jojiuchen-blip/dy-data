@@ -24,6 +24,7 @@ from apps.api.dy_api.routes.admin import (
 )
 from apps.api.dy_api.schemas import StoreScoreSnapshotRow, StoreScoreSnapshotRunData
 from apps.worker.projection_lineage import (
+    MAX_COMPACT_PROVENANCE_SOURCES,
     MAX_LINEAGE_DEPTH,
     MAX_PARTITION_KEYS,
     LineageError,
@@ -4284,27 +4285,27 @@ def _seed_compact_closure_sources(
     return head_id, source_ids
 
 
-def test_compact_closure_accepts_65_sources_and_rejects_66_before_row_reads(
+def test_compact_closure_accepts_1024_sources_and_rejects_1025_before_row_reads(
     db_session,
 ) -> None:
-    head_65, _ = _seed_compact_closure_sources(
+    head_at_limit, _ = _seed_compact_closure_sources(
         db_session,
         prefix="compact-limit-ok",
-        source_count=MAX_LINEAGE_DEPTH + 1,
+        source_count=MAX_COMPACT_PROVENANCE_SOURCES,
     )
     resolved = resolve_projection_partitions(
         db_session,
         artifact="monthly",
         partition_keys=["missing"],
-        pinned_generation_id=head_65,
+        pinned_generation_id=head_at_limit,
     )["missing"]
     assert resolved.source_kind == "legacy_root"
     assert resolved.source_generation_ids == frozenset()
 
-    head_66, _ = _seed_compact_closure_sources(
+    head_over_limit, _ = _seed_compact_closure_sources(
         db_session,
         prefix="compact-limit-bad",
-        source_count=MAX_LINEAGE_DEPTH + 2,
+        source_count=MAX_COMPACT_PROVENANCE_SOURCES + 1,
     )
     observed_sql: list[str] = []
 
@@ -4319,7 +4320,7 @@ def test_compact_closure_accepts_65_sources_and_rejects_66_before_row_reads(
                 db_session,
                 artifact="monthly",
                 partition_keys=["missing"],
-                pinned_generation_id=head_66,
+                pinned_generation_id=head_over_limit,
             )
     finally:
         event.remove(bind, "before_cursor_execute", capture_sql)

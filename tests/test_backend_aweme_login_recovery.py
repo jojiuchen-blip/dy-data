@@ -16,7 +16,7 @@ def browser_page(monkeypatch):
     page.url = "https://life.douyin.com/p/liteapp/bc_manage"
     page.content.return_value = "抖音号明细"
     page.expect_download.return_value = nullcontext(SimpleNamespace(value=None))
-    context = SimpleNamespace(pages=[page])
+    context = SimpleNamespace(pages=[page], new_page=Mock(return_value=page))
     browser = SimpleNamespace(contexts=[context])
     playwright = SimpleNamespace(chromium=SimpleNamespace(connect_over_cdp=lambda _: browser))
     monkeypatch.setattr("playwright.sync_api.sync_playwright", lambda: nullcontext(playwright))
@@ -50,11 +50,11 @@ def test_delayed_login_redirect_takes_priority_over_download_recovery(browser_pa
     fallback.assert_not_called()
 
 
-def test_fallback_login_page_does_not_report_missing_api(browser_page, monkeypatch):
+def test_fallback_without_business_page_does_not_create_an_unnavigated_page(browser_page, monkeypatch):
     browser_page.url = "https://life.douyin.com/p/login"
     discover = Mock(return_value=None)
     monkeypatch.setattr(backend_aweme, "discover_backend_aweme_bind_list_url", discover)
-    with pytest.raises(backend_aweme.BrowserExportError, match="^douyin_backend_login_required$"):
+    with pytest.raises(backend_aweme.BrowserExportError, match="business page is not available for API fallback"):
         backend_aweme.fetch_backend_aweme_records_via_bind_list_api(cdp_url="test")
     discover.assert_not_called()
 

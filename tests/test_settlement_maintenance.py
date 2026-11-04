@@ -152,17 +152,18 @@ def test_estimate_is_direct_distinct_and_includes_tombstones(db_session):
     assert estimate.manifest_rows == 2  # overlay + tombstone; legacy root excluded
     assert len(queries) == 2
     assert "DISTINCT" in queries[-1] and "count(" in queries[-1].lower()
-    assert all("compaction_closure" not in query and "checksum" not in query for query in queries)
+    assert all("compaction_closure" not in query and "status_counts_json" not in query
+               and "last_key" not in query for query in queries)
 
 
-def test_estimate_stops_at_compact_ancestor(db_session):
+def test_estimate_rejects_compact_ancestor_without_valid_provenance(db_session):
     head = _seed_depth(db_session)
     terminal = db_session.get(SettlementProjectionGeneration, "auto-48-root")
     terminal.generation_kind = "compact"
     terminal.compaction_base_generation_id = "historic-provenance-not-traversed"
     db_session.commit()
-    estimate = maintenance.estimate_automatic_compaction(_factory(db_session), base_generation_id=head)
-    assert estimate.closure_rows == 49 and estimate.manifest_rows == 2
+    with pytest.raises(maintenance.MaintenanceAdmissionError, match="compact_provenance_invalid"):
+        maintenance.estimate_automatic_compaction(_factory(db_session), base_generation_id=head)
 
 
 def test_estimate_refuses_chain_beyond_hard_64(db_session):
