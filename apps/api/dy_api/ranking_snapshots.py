@@ -22,6 +22,7 @@ from apps.api.dy_api.ranking_schema_v1 import (
     org_history, eligibility, lead_bindings, runs, samples, snapshots,
 )
 from apps.api.dy_api.ranking_identity import OrderAttributionIndex
+from apps.api.dy_api.ranking_history import load_confirmed_aliases, restore_missing_poi
 from apps.api.dy_api.clue_product_scope import PRODUCT_SCOPE_LABELS, scope_predicate, validate_product_scope
 from apps.api.dy_api.ranking_legacy_followup import (
     LEGACY_DEFINITIONS as CLUE_FOLLOWUP_METRIC_DEFINITIONS,
@@ -29,7 +30,7 @@ from apps.api.dy_api.ranking_legacy_followup import (
     bulk_evaluate_legacy_ranking_followup as bulk_evaluate_clue_followup_metrics,
 )
 
-METRIC_VERSION = "douyin-ranking-self-store-v7-period-start-sales-org-" + LEGACY_RANKING_VERSION
+METRIC_VERSION = "douyin-ranking-self-store-v8-historical-owner-" + LEGACY_RANKING_VERSION
 
 
 
@@ -232,10 +233,10 @@ def calculate_snapshot(
     for poi, store in poi_rows:
         poi_candidates[poi].add(store)
     poi_stores = {poi: next(iter(stores)) for poi, stores in poi_candidates.items() if len(stores) == 1}
-    owner_index = OrderAttributionIndex(
-        accounts=_limited_rows(session, select(DimAwemeAccount), MAX_DIMENSION_ROWS, scalar=True),
-        bindings=_limited_rows(session, select(RawAwemeBinding), MAX_DIMENSION_ROWS, scalar=True),
-        poi_to_store=poi_rows)
+    accounts = _limited_rows(session, select(DimAwemeAccount), MAX_DIMENSION_ROWS, scalar=True)
+    bindings = _limited_rows(session, select(RawAwemeBinding), MAX_DIMENSION_ROWS, scalar=True)
+    owner_index = OrderAttributionIndex(accounts=accounts, bindings=bindings, poi_to_store=poi_rows)
+    confirmed = load_confirmed_aliases(session, accounts, bindings, poi_rows, MAX_DIMENSION_ROWS, cutoff)
     for order in orders:
         at = order.sale_time or order.pay_time
         if not at or not start <= utc(at) < end or utc(at) > cutoff:
@@ -243,6 +244,7 @@ def calculate_snapshot(
         at = utc(at)
         owner = owner_index.resolve(occurred_at=at, owner_account_id=order.owner_account_id,
             owner_douyin_uid=order.owner_douyin_uid, owner_account_name=order.owner_account_name)
+        owner = restore_missing_poi(owner, confirmed, order)
         store = owner.store_id
         # Sales and their eligible-store denominator use the same period-start
         # organization. Lead responsibility remains pinned independently below.

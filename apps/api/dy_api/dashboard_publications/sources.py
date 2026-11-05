@@ -76,8 +76,7 @@ def snapshot_source_tables(module: str) -> tuple[str, ...]:
     return tuple(sorted(set(MODULE_SOURCE_TABLES[module])
                         | set(_SNAPSHOT_COMMON_TABLES) | set(_SNAPSHOT_EXTRA_TABLES[module])))
 
-# Only changed analytical contracts participate. Independent ranking keeps its
-# original fingerprint payload and finance keeps its immutable amount contract.
+# Only changed analytical contracts participate; finance keeps its immutable amount contract.
 MODULE_CONTRACT_VERSIONS = {
     "sales": "product-type-v2",
     "clue-overview": "product-type-v2",
@@ -127,6 +126,10 @@ def source_fingerprint(session: Session, module: str | None = None, *, now: date
         from . import period_readiness
         time_token["financial_periods"] = period_readiness.fingerprint(period_readiness.capture(session, cutoff))
     payload = {"sources": [tuple(row) for row in rows], "time": time_token}
+    if module == "douyin-ranking":
+        # A rebuild dependency, not a wire-format change: old complete heads
+        # remain readable until a new immutable ranking is ready.
+        payload["order_attribution_version"] = "historical-store-account-v1"
     if module in MODULE_CONTRACT_VERSIONS:
         payload["contract_version"] = MODULE_CONTRACT_VERSIONS[module]
     return hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode()).hexdigest()
