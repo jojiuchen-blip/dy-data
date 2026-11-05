@@ -55,6 +55,7 @@ Exit Criteria：两项任务有生产读回、回滚依据和完整差异证据�
 |---|---|---|---|
 | T0.1 | [sub-delivery-plan-dydata114-T0.1-store-code.md](sub-delivery-plan-dydata114-T0.1-store-code.md) | 已完成 | 2026-11-05 |
 | T0.2 | [sub-delivery-plan-dydata114-T0.2-history.md](sub-delivery-plan-dydata114-T0.2-history.md) | 进行中 | - |
+| T0.3 | [sub-delivery-plan-dydata114-T0.3-area.md](sub-delivery-plan-dydata114-T0.3-area.md) | 进行中 | - |
 
 ## 4. 任务看板
 
@@ -80,3 +81,4 @@ Exit Criteria：两项任务有生产读回、回滚依据和完整差异证据�
 |---|---|---|
 | docs/prd/mainprd-dy-data.md 全局设计规则 | T0.1 | sub-delivery-plan-dydata114-T0.1-store-code.md |
 | docs/api/dashboard-publications.md 发布与读取协议 | T0.2 | sub-delivery-plan-dydata114-T0.2-history.md |
+| docs/api/ranking-lifecycle.md 历史榜单 | T0.3 | sub-delivery-plan-dydata114-T0.3-area.md |

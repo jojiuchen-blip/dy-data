@@ -15,7 +15,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.ranking_schema_v1 import metadata, runs
-from apps.api.dy_api.ranking_lifecycle_schema import SOURCE_TABLES, snapshot_lifecycle
+from apps.api.dy_api.ranking_lifecycle_schema import snapshot_lifecycle
 from apps.api.dy_api.ranking_lifecycle import (
     archive_snapshot, backfill_lifecycle_metadata, cleanup_snapshots, hold_snapshot_read, record_snapshot_access,
     register_snapshot, reusable_business_snapshot, source_fingerprint,
@@ -37,14 +37,14 @@ def pg():
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     try:
         metadata.create_all(engine)
-        with engine.begin() as connection:
-            for name in SOURCE_TABLES:
-                if name not in metadata.tables:
-                    connection.execute(text(f'CREATE TABLE "{name}" (order_id text PRIMARY KEY, value text)'))
         path = Path(__file__).resolve().parents[1] / "alembic/versions/20261009_0062_ranking_lifecycle.py"
         spec = importlib.util.spec_from_file_location("ranking_migration_under_test", path)
         migration = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(migration)
+        with engine.begin() as connection:
+            for name in migration.SOURCE_TABLES_0062:
+                if name not in metadata.tables:
+                    connection.execute(text(f'CREATE TABLE "{name}" (order_id text PRIMARY KEY, value text)'))
         with engine.begin() as connection:
             with Operations.context(MigrationContext.configure(connection)):
                 migration.upgrade()

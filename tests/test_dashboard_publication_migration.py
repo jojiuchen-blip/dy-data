@@ -43,7 +43,7 @@ def test_frozen_migration_has_no_runtime_import_and_matches_final_schema():
     frozen = migration().frozen_metadata_0063()
     assert set(frozen.tables) == set(metadata.tables)
     # Later additive migrations own these counters; the 0063 DDL stays frozen.
-    later_sources = {"historical_sale_attribution_decisions", "account_qualification_version"}
+    later_sources = {"historical_sale_attribution_decisions", "account_qualification_version", "ranking_area_corrections"}
     assert later_sources <= set(SOURCE_TABLES)
     assert set(migration().SOURCE_TABLES_0063) == set(SOURCE_TABLES) - later_sources
     cycle_sort = frozen.tables["dashboard_publication_sales_coupons"].c.cycle_sort_days
@@ -123,14 +123,14 @@ def test_clean_and_populated_full_postgres_chain_upgrade(full_pg_stack, populate
             session.commit()
     command.upgrade(config, "head")
     with Session(engine) as session:
-        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261027_0066"
-        assert session.scalar(text("SELECT count(*) FROM dashboard_publication_source_counters")) == 44
+        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261105_0067"
+        assert session.scalar(text("SELECT count(*) FROM dashboard_publication_source_counters")) == len(SOURCE_TABLES)
         assert source_fingerprint(session, "sales")
         if populated:
             assert session.get(DimStore, "migration-store").store_name == "Migration Store"
         assert session.scalar(text("SELECT count(*) FROM pg_trigger WHERE tgname='dashboard_publication_change' "
                                    "AND tgrelid IN (SELECT c.oid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
-                                   "WHERE n.nspname=current_schema())")) == 44
+                                   "WHERE n.nspname=current_schema())")) == len(SOURCE_TABLES)
     # The new revision itself is reversible before any sidecar facts exist;
     # source facts survive and can be tracked again after re-upgrading.
     command.downgrade(config, "20261009_0062")
