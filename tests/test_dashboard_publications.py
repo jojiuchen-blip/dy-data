@@ -330,13 +330,14 @@ def test_source_dependency_names_exist_in_actual_schemas():
     from apps.api.dy_api.dashboard_publications.sources import MODULE_SOURCE_TABLES, SOURCE_TABLES, snapshot_source_tables
     from apps.api.dy_api.models import Base
     from apps.api.dy_api.ranking_schema_v1 import metadata as ranking_metadata
-    assert set(SOURCE_TABLES) <= set(Base.metadata.tables) | set(ranking_metadata.tables)
+    from apps.api.dy_api.ranking_area_corrections import corrections
+    assert set(SOURCE_TABLES) <= set(Base.metadata.tables) | set(ranking_metadata.tables) | {corrections.name}
     from apps.api.dy_api.dashboard_publications import ranking_schema
     for module, tracked in MODULE_SOURCE_TABLES.items():
         declared = snapshot_source_tables(module)
         assert tuple(sorted(set(declared))) == declared
         assert set(tracked) <= set(declared)
-        assert set(declared) <= set(Base.metadata.tables) | set(ranking_metadata.tables) | set(metadata.tables)
+        assert set(declared) <= set(Base.metadata.tables) | set(ranking_metadata.tables) | set(metadata.tables) | {corrections.name}
         assert {"dashboard_publication_runs", "dashboard_publication_heads", "job_runs",
                 "dashboard_publication_source_counters"} <= set(declared)
 

@@ -128,8 +128,10 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
         return dates_versions[index][1] if index >= 0 else None
 
     session.execute(frozen.info.insert().values(publication_id=publication_id, cutoff=cutoff))
-    org_count = _copy(session, org_history, frozen.organizations, publication_id,
-        org_history.c.effective_from <= cutoff,
+    from ..ranking_area_corrections import effective_roster
+    roster = effective_roster(session, cutoff)
+    org_count = _copy(session, roster, frozen.organizations, publication_id,
+        roster.c.effective_from <= cutoff,
         [column.name for column in frozen.organizations.c if column.name != "publication_id"])
     eligibility_count = _copy(session, eligibility, frozen.eligibility, publication_id,
         eligibility.c.product_scope == "精诚养车",

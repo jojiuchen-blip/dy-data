@@ -29,7 +29,7 @@ MODULE_SOURCE_TABLES: dict[str, tuple[str, ...]] = {
         "raw_douyin_orders", "raw_douyin_clues", "clue_center_orders", "clue_assignment_rounds",
         "clue_follow_up_records", "raw_douyin_order_coupons", "raw_douyin_verify_records",
         "dim_aweme_accounts", "raw_aweme_bindings", "dim_store_poi_mappings", "dim_sku_product_rules",
-        "ranking_store_org_history", "ranking_store_eligibility", "ranking_lead_org_bindings",
+        "ranking_store_org_history", "ranking_area_corrections", "ranking_store_eligibility", "ranking_lead_org_bindings",
     ),
     "sales": ("settlement_order_details", "dim_stores", "dim_sku_product_rules"),
     "clue-overview": (

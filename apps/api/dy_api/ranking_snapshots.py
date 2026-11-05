@@ -116,7 +116,8 @@ def calculate_snapshot(
             raise ValueError("run ID already used with another configuration")
         return run_id
 
-    history = _limited_rows(session, select(org_history), MAX_ORG_HISTORY_ROWS, mappings=True)
+    from .ranking_area_corrections import effective_roster
+    history = _limited_rows(session, select(effective_roster(session, cutoff)), MAX_ORG_HISTORY_ROWS, mappings=True)
     timeline: dict[str, datetime] = {}
     by_org = {}
     for row in history:
@@ -399,14 +400,16 @@ def read_snapshot_report(
     run = session.execute(query.order_by(runs.c.created_at.desc(), runs.c.run_id.desc()).limit(1)).mappings().first()
     if not run:
         raise ValueError("该期间尚未生成指标快照，请等待数据处理完成或调整日期范围")
-    query = select(snapshots, org_history).join(org_history,
-        (snapshots.c.mapping_version == org_history.c.mapping_version) &
-        (snapshots.c.store_id == org_history.c.store_id)).where(snapshots.c.run_id == run["run_id"])
+    from .ranking_area_corrections import effective_roster
+    roster = effective_roster(session, run["observed_through"])
+    query = select(snapshots, roster).join(roster,
+        (snapshots.c.mapping_version == roster.c.mapping_version) &
+        (snapshots.c.store_id == roster.c.store_id)).where(snapshots.c.run_id == run["run_id"])
     if scope_store_ids is not None:
         query = query.where(snapshots.c.store_id.in_(scope_store_ids))
-    for column, value in [(org_history.c.group_name, group_name), (org_history.c.service_center_name, service_center_name),
-                          (org_history.c.district_name, district_name), (org_history.c.area_name, area_name),
-                          (org_history.c.store_id, store_id)]:
+    for column, value in [(roster.c.group_name, group_name), (roster.c.service_center_name, service_center_name),
+                          (roster.c.district_name, district_name), (roster.c.area_name, area_name),
+                          (roster.c.store_id, store_id)]:
         if value:
             query = query.where(column == value)
     grouped = {}
