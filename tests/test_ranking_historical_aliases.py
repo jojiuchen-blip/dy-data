@@ -31,8 +31,23 @@ def test_historical_owner_requires_independent_join_on_both_sides():
         "a", "resolved_historical_store_account", True)
 
 
+def test_stable_store_and_handle_pair_does_not_require_a_sale_under_the_new_name():
+    data = fixture()
+    data[0][0].nickname, data[0][0].binding_status = "another handle", "未知状态"
+    assert simulate(data, [("encrypted", "old", None)]).store_id == "a"
+
+
+def test_personal_unbind_is_not_a_store_account_unbind_for_the_same_poi():
+    dims, rows, pois = fixture()
+    rows.append(Row(**(vars(rows[1]) | {"binding_key":"personal", "binding_status":"已解绑",
+        "raw_payload":{"账号类型":"个人号"}})))
+    assert simulate((dims, rows, pois), OBSERVED).store_id == "a"
+    rows[-1].raw_payload = {"账号类型":"子机构门店号"}
+    assert simulate((dims, rows, pois), OBSERVED).store_id is None
+
+
 @pytest.mark.parametrize("observations", [
-    [("encrypted", "old", None), ("other", "new", None)],
+    [("encrypted", "old", None), ("other", "old", None)],
     OBSERVED + [("encrypted", "third", None)], OBSERVED + [("encrypted","new","other-uid")],
 ])
 def test_unlinked_order_owner_does_not_inherit_store(observations):

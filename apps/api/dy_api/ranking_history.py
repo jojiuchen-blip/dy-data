@@ -16,6 +16,7 @@ class Alias:
     old: str
     current: str
     source_keys: tuple[str, str]
+    witnessed_names: frozenset[str]
 
 
 def _payload(row):
@@ -28,6 +29,11 @@ def _text(value):
 
 def _unbounded(row):
     return all(_payload(row).get(k) in (None, "", 0, "0") for k in ("bind_start_time", "bind_end_time"))
+
+
+def _export_type(row):
+    p = _payload(row)
+    return next((p[k] for k in ("账号类型", "账户类型", "account_type") if p.get(k)), None)
 
 
 def historical_aliases(accounts, bindings, pois):
@@ -58,22 +64,27 @@ def historical_aliases(accounts, bindings, pois):
         if len(dims) != 1:
             continue
         dim = dims[0]
-        if (dim.store_id != store or dim.binding_status != "认证成功" or
-                not dim.nickname or dim.valid_from or dim.valid_to):
+        # This dimension is keyed by merchant account; the binding below is
+        # keyed by BOTH merchant and Douyin handle. Other handles can change
+        # the dimension's display name or status without changing this pair.
+        if dim.store_id != store or dim.valid_from or dim.valid_to:
             continue
         poi_ids = {r.poi_id for r in rows if r.poi_id}
         if len(poi_ids) != 1 or poi_stores[next(iter(poi_ids))] != {store}:
             continue
-        if any(not _unbounded(r) or r.binding_status not in {"active", "审核中", "认证成功"} for r in rows):
+        if any(not _unbounded(r) or (r.binding_status not in {"active", "审核中", "认证成功"}
+                and not (_export_type(r) == "个人号" and r.binding_status == "已解绑" and r.poi_id))
+                for r in rows):
             continue
         new = [r for r in rows if r.poi_id and r.binding_status == "认证成功"
-               and r.douyin_nickname == dim.nickname and
-               any(_payload(r).get(key) == "子机构门店号" for key in ("账号类型", "账户类型", "account_type"))]
-        if len(new) != 1 or names[dim.nickname] != {store}:
+               and _export_type(r) == "子机构门店号"]
+        if len(new) != 1 or not new[0].douyin_nickname or names[new[0].douyin_nickname] != {store}:
             continue
+        witnessed_names = frozenset(r.douyin_nickname for r in rows
+            if r.douyin_nickname and names[r.douyin_nickname] == {store})
         for r in rows:
             old = r.douyin_nickname
-            if not old or old == dim.nickname or names[old] != {store} or r.poi_id or r.binding_status != "active":
+            if not old or names[old] != {store} or r.poi_id or r.binding_status != "active":
                 continue
             p = _payload(r)
             content = p.get("integration_content")
@@ -84,24 +95,29 @@ def historical_aliases(accounts, bindings, pois):
                     _text(p.get("status")) != "1" or _text(p.get("account_type")) != "20" or
                     _text(user.get("aweme_id")) != douyin):
                 continue
-            result[old].add(Alias(store, douyin, old, dim.nickname, (r.binding_key, new[0].binding_key)))
+            result[old].add(Alias(store, douyin, old, new[0].douyin_nickname,
+                (r.binding_key, new[0].binding_key), witnessed_names))
     return {name: next(iter(values)) for name, values in result.items() if len(values) == 1}
 
 
 def confirmed_order_aliases(aliases, identities):
-    """Only bridge an order owner observed under BOTH names, with no third identity."""
+    """Names locate a source row; the verified account/handle pair proves the store.
+
+    No sale under the new nickname is required. Block reuse of the old name
+    across order owners and contradictory identities observed for the owner.
+    """
     by_owner = defaultdict(set)
+    name_owners = defaultdict(set)
     for account, name, uid in identities:
         if account:
             by_owner[account].add((name, uid))
+            name_owners[name].add(account)
     confirmed = {}
     for account, observed in by_owner.items():
         names = {name for name, _ in observed}
-        if len(names) != 2:
-            continue
         for old in names:
             alias = aliases.get(old)
-            if (alias and alias.current in names and
+            if (alias and name_owners[old] == {account} and names <= alias.witnessed_names and
                     all(not uid or uid == alias.douyin for _, uid in observed)):
                 confirmed[account, old] = alias
     return confirmed
