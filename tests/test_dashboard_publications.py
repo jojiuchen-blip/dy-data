@@ -123,9 +123,9 @@ def test_module_contract_token_changes_only_affected_source_fingerprints(factory
     with factory() as session:
         before = {module: sources.source_fingerprint(session, module, now=at)
             for module in ("sales", "clue-overview", "douyin-ranking")}
-        # The independent board keeps the exact pre-change payload/hash.
+        # A pre-alias board must be republished without changing any source counters.
         rows = [(name, 0) for name in sorted(sources.MODULE_SOURCE_TABLES["douyin-ranking"])]
-        assert before["douyin-ranking"] == hashlib.sha256(json.dumps(
+        assert before["douyin-ranking"] != hashlib.sha256(json.dumps(
             {"sources": rows, "time": {}}, separators=(",", ":")).encode()).hexdigest()
         monkeypatch.setitem(sources.MODULE_CONTRACT_VERSIONS, "sales", "next-product-type-contract")
         assert sources.source_fingerprint(session, "sales", now=at) != before["sales"]
