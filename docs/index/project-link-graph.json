@@ -1,7 +1,7 @@
 {
   "mode": "project-link-index",
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-11-12T03:38:24.018Z",
+  "generatedAt": "2026-11-12T03:41:09.355Z",
   "hostRoot": ".",
   "outputs": {
     "graphJson": "docs/index/project-link-graph.json",
@@ -34649,13 +34649,13 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 250,
+          "line": 251,
           "text": "- 当前：新增回归及查询修正，待审查、CI、API-only 候选验证和真实两日差异审计。详见[接口约束](../api/pdca-event-snapshot.md)及[开发日志](../devlog/20260928_refactor_log_Your_Name.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 258,
+          "line": 259,
           "text": "- 进度：本地专项88通过/6跳过；PostgreSQL隔离CI94通过/0跳过；全仓2905通过/517跳过，缺依赖的12项在补齐后连同相邻用例复跑19通过；Web build通过。[草稿PR #42](https://github.com/jojiuchen-blip/dy-data/pull/42)常规CI运行中；[契约与缺口](../api/pdca-event-snapshot.md)、[开发日志](../devlog/20260928_refactor_log_Your_Name.md)。",
           "syntax": "markdown"
         }
@@ -34672,7 +34672,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 186,
+          "line": 187,
           "text": "- 2026-10-20 用户继续授权按推荐方案处理退款解析与旧任务；已无冲突合入最新 main，保留原工作区修改。此前磁盘清理已执行，静态新版尚未部署；本次修复先完成只读核对及安全重放门禁，既有财务结果的重复扣减风险不得靠直接补事件绕过。PR #50 依赖保持独立。证据见 [开发日志](../devlog/20261019_unified_dashboard_publications.md)及[退款恢复契约](../api/refund-evidence-recovery.md)。",
           "syntax": "markdown"
         }
@@ -34689,7 +34689,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 399,
+          "line": 400,
           "text": "- 页面内部结构与业务交互以冻结原型逐项验收；视觉继续以 `docs/design-system/tokens.json`、`docs/design-system/README.md`、`apps/web/src/design-tokens.css` 和共享组件为权威。",
           "syntax": "backtick"
         }
@@ -34706,7 +34706,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 433,
+          "line": 434,
           "text": "- 当前证据见 [2026-09-07 开发日志](../devlog/20260907_refactor_log_jojiuchen-blip.md)，需求与验收状态以 Linear DYDATA-87 为准；未获用户验收前不关闭。",
           "syntax": "markdown"
         }
@@ -34723,7 +34723,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 315,
+          "line": 316,
           "text": "- 记录：[开发日志](../devlog/20260914_ranking_export.md)。",
           "syntax": "markdown"
         }
@@ -34740,7 +34740,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 326,
+          "line": 327,
           "text": "- 下一步：用户验收；本次恢复监控已达成目标并暂停，系统既有历史补拉继续。详情见[开发日志](../devlog/20260914_refactor_log_Keith_Chen.md)。",
           "syntax": "markdown"
         }
@@ -34757,7 +34757,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 302,
+          "line": 303,
           "text": "- 追加任务：T0.2，已完成（2026-09-15）；PR #34与部署34937054128成功，新批量账号初始密码123456，组织路径及模板同步修正。记录见[日志](../devlog/20260915_account_default_password.md)。",
           "syntax": "markdown"
         }
@@ -34774,7 +34774,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 305,
+          "line": 306,
           "text": "- 当前任务：T0.1，已完成。PR #33合并，生产eeca61e部署成功（运行34928814248），3079项测试通过；记录见[交付日志](../devlog/20260915_account_org_scope.md)。Linear 团队不可访问，本地需求与证据已保存。",
           "syntax": "markdown"
         }
@@ -34791,7 +34791,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 297,
+          "line": 298,
           "text": "- 验证：新增3项用例先失败复现，修复后44项专项通过；完整CI与正式部署35176467356成功，生产70行预览无错误且全部创建成功，下载结果逐项核对一致。证据见[开发日志](../devlog/20260917_account_current_org.md)。",
           "syntax": "markdown"
         }
@@ -34808,7 +34808,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 287,
+          "line": 288,
           "text": "- 证据：[开发日志](../devlog/20260917_activation_half_hour.md)。",
           "syntax": "markdown"
         }
@@ -34825,7 +34825,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 269,
+          "line": 270,
           "text": "- 证据：[开发日志](../devlog/20260924_clue_product_scope.md)。",
           "syntax": "markdown"
         }
@@ -34842,13 +34842,13 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 250,
+          "line": 251,
           "text": "- 当前：新增回归及查询修正，待审查、CI、API-only 候选验证和真实两日差异审计。详见[接口约束](../api/pdca-event-snapshot.md)及[开发日志](../devlog/20260928_refactor_log_Your_Name.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 258,
+          "line": 259,
           "text": "- 进度：本地专项88通过/6跳过；PostgreSQL隔离CI94通过/0跳过；全仓2905通过/517跳过，缺依赖的12项在补齐后连同相邻用例复跑19通过；Web build通过。[草稿PR #42](https://github.com/jojiuchen-blip/dy-data/pull/42)常规CI运行中；[契约与缺口](../api/pdca-event-snapshot.md)、[开发日志](../devlog/20260928_refactor_log_Your_Name.md)。",
           "syntax": "markdown"
         }
@@ -34865,7 +34865,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 239,
+          "line": 240,
           "text": "- 已提交、推送并部署4662d6b2；公网手机/桌面弹窗、免登录指南及4页PDF验收通过。证据：[日志](../devlog/20260929_activation_guide_reminder.md)。",
           "syntax": "markdown"
         }
@@ -34882,13 +34882,13 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 227,
+          "line": 228,
           "text": "- 418e5402已于2026-10-08 12:57上线；全仓3332通过/178跳过、PostgreSQL线索并发13通过。三个反馈订单定向修复且历史跟进保留；剩余全量回填须先有界预演。详见[发布验收](../devlog/20261008_clue_terminal_followup.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 233,
+          "line": 234,
           "text": "- 已实现终态独立刷新、跟进/分配入口保护、默认预演的历史修复工具，以及排行榜/门店评分共享的分配起算规则；T0.1 开发完成。最终专项254通过，全量3313通过/178跳过/2失败，失败修正后复验2通过；构建通过。[验收记录](../devlog/20261008_clue_terminal_followup.md)。",
           "syntax": "markdown"
         }
@@ -34905,7 +34905,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 220,
+          "line": 221,
           "text": "- 两店历史名称纠正迁移 `20261008_0061` 已实现，保留审计及条件回滚。详见 [修正说明](../devlog/20261008_historical_store_name_correction.md)。",
           "syntax": "markdown"
         }
@@ -34922,7 +34922,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 213,
+          "line": 214,
           "text": "- 已完成：15 份普通旧备份及 1,090 个重复榜单清理，末次磁盘 98%→80%；变化检测、静态导出、两版保留、显式归档和通用备份规则已开发验证。详见 [验收记录](../devlog/20261009_disk_ranking_retention.md)。",
           "syntax": "markdown"
         }
@@ -34939,7 +34939,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 221,
+          "line": 222,
           "text": "- 已经 [PR #45](https://github.com/jojiuchen-blip/dy-data/pull/45) 合并 main，业务版本 `ddb3bab8`；合并前与主分支 CI 均通过，云端完整回归 3372 通过、178 跳过。本地真实后端桌面/移动联调、组件契约、构建及独立审查通过。用户已授权服务器部署，[腾讯恢复发布](https://github.com/jojiuchen-blip/dy-data/actions/runs/37873921163) 已成功，备份、0061 迁移、服务健康及历史看板回读通过。见 [增量日志](../devlog/20261009_refactor_log_Your_Name.md)。",
           "syntax": "markdown"
         }
@@ -34956,7 +34956,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 193,
+          "line": 194,
           "text": "- API 诊断 OOM 后已验证服务 healthy 与公开入口 HTTP200；后续诊断移至 worker。详细证据与剩余事项见[当前日志](../devlog/20261015_dydata-102-compaction-recovery.md)。",
           "syntax": "markdown"
         }
@@ -34973,7 +34973,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 186,
+          "line": 187,
           "text": "- 2026-10-20 用户继续授权按推荐方案处理退款解析与旧任务；已无冲突合入最新 main，保留原工作区修改。此前磁盘清理已执行，静态新版尚未部署；本次修复先完成只读核对及安全重放门禁，既有财务结果的重复扣减风险不得靠直接补事件绕过。PR #50 依赖保持独立。证据见 [开发日志](../devlog/20261019_unified_dashboard_publications.md)及[退款恢复契约](../api/refund-evidence-recovery.md)。",
           "syntax": "markdown"
         }
@@ -34990,7 +34990,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 168,
+          "line": 169,
           "text": "- 当前证据与风险：[开发日志](../devlog/20261020_dydata-104-followthrough.md)。未完成来源、首版、部署及用户业务验收前，不关闭需求。",
           "syntax": "markdown"
         }
@@ -35007,7 +35007,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 178,
+          "line": 179,
           "text": "- 2026-10-20 21:54关联需求收口：按用户授权，DYDATA-97原始实收/费用导出修复从In Review关闭为Done；扩大后的完整生产导出按钮、权限与金额验收明确由104 E/AC8继续承接。102九月补账暂缓、103真实完整月结闭环待验收、104业务遗留均保持In Progress，四票已追加可追溯评论；详见[记录与评论链接](../devlog/20261020_refactor_log_Keith_Chen.md)。本次仅整理需求与文档，未修改生产。",
           "syntax": "markdown"
         }
@@ -35024,7 +35024,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 150,
+          "line": 151,
           "text": "| 当前验证证据 | [集成验证](../verification/dydata-105-verification.md)、[按钮台账](../verification/dydata-105-buttons.md)、[开发日志](../devlog/20261022_refactor_log_Keith_Chen.md) |",
           "syntax": "markdown"
         }
@@ -35041,7 +35041,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 10,
+          "line": 11,
           "text": "> **2026-11-04 发布记录（20:18）**：PR74与PR75均已合并部署；实际应用源码1f02204b于20:14完成三服务切换，无迁移。原维护第二次成功，11月1—3日采集及结算发布链路、当日账号与原失败导出均已恢复。固定快照发布修复通过精确完整CI（5,442 passed），五模块当前完整版本及最新尝试均success；抖音榜单、结算、财务产生新版本，核销与线索来源未变而复用。八服务正常，磁盘61.43 GiB可用。商品SKU、退款单位/范围缺证和完整业务截止时间未知仍保留，104继续进行中。详见[当日开发日志](../devlog/20261104_refactor_log_Keith_Chen.md)与[发布记录](../verification/20261104-november-recovery-release.md)。",
           "syntax": "markdown"
         }
@@ -35058,7 +35058,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 163,
+          "line": 164,
           "text": "- 2026-10-21 用户恢复九月处理授权、排除八月缺日。固定 v2 全链成功，九月30/30；正常自动月结生成452张待确认账单，两费各10,032.68元，逐层金额差异0、保护指纹不变。月结自动复核0新增、452张 unchanged；实际财务页面和导出来源一致。八月缺日及累计门禁保留。详见[恢复核验记录](../ops/dydata-104-september-recovery-20261021.md)。当前会话为唯一显式恢复执行者。",
           "syntax": "markdown"
         }
@@ -35075,13 +35075,13 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 397,
+          "line": 398,
           "text": "- 正式计划入口：[DYDATA-81 增量主交付计划](delivery-plans/main-delivery-plan-dy-data.md)；[任务看板](delivery-plans/task-kanban-dy-data.md)；当前子计划为 [T5.7 系统测试与用户验收](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)，控制器规格为 [DYDATA-81 财务合同 G5](2026-08-30-dydata-81-finance-contract-controller-spec.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 449,
+          "line": 450,
           "text": "- 当前 DYDATA-81 增量计划文件组：[主交付计划](delivery-plans/main-delivery-plan-dy-data.md)、[任务看板](delivery-plans/task-kanban-dy-data.md)、[T5.7 子计划](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md) 与 [G5 控制器规格](2026-08-30-dydata-81-finance-contract-controller-spec.md)。",
           "syntax": "markdown"
         }
@@ -35098,7 +35098,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 421,
+          "line": 422,
           "text": "- 2026-09-09 当前修复进展：用户授权全部排查修复部署及门店财务开票闭环；执行 [本轮控制规格](2026-09-09-dydata-87-settlement-invoice-controller-spec.md)。有效核销共同门槛、无效结果退出、两费取消冲回、重核销血缘及退款幂等已补修；0051 增加核销快照、锁账恢复关联和私有账单来源包。生产只读确认正式账单为 0，已补发布与待确认账单生成同事务入口、零账期新版本、来源漂移终止任务；不自动确认或开票。采集隔离回归 46 passed，结算/增量/来源/生成 API 一轮 260 passed，之后投影边界和表单重试仍在最终复核，不能当作最终树全量通过。确认/异议/开票锁与幂等目标绑定、SAP 快照已补修，真实 PG 并发门禁待 CI。跨月共同费率/基数及计入月待用户明确；本批未提交、未部署、金额未验收，旧发布记录不能替代本轮放行。",
           "syntax": "markdown"
         }
@@ -35115,19 +35115,19 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 292,
+          "line": 293,
           "text": "- 当前正式计划：[账号组织权限](delivery-plans/main-delivery-plan-account-org-scope.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 301,
+          "line": 302,
           "text": "- 已完成计划：[账号组织权限与门店选择](delivery-plans/main-delivery-plan-account-org-scope.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 304,
+          "line": 305,
           "text": "- 已完成计划：[账号组织权限与门店选择](delivery-plans/main-delivery-plan-account-org-scope.md)。",
           "syntax": "markdown"
         }
@@ -35144,7 +35144,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 238,
+          "line": 239,
           "text": "- 用户已验收并授权发布；[主计划](delivery-plans/main-delivery-plan-activation-guide-reminder.md)，T0.1已完成。",
           "syntax": "markdown"
         }
@@ -35161,7 +35161,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 265,
+          "line": 266,
           "text": "- 当前正式计划：[商品范围与组织筛选](delivery-plans/main-delivery-plan-clue-product-scope.md)。",
           "syntax": "markdown"
         }
@@ -35178,13 +35178,13 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 225,
+          "line": 226,
           "text": "- 当前正式计划：[线索终态与跟进规则](delivery-plans/main-delivery-plan-clue-terminal-followup.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 232,
+          "line": 233,
           "text": "- 当前阶段 S4；[主计划](delivery-plans/main-delivery-plan-clue-terminal-followup.md)、[T0.1](delivery-plans/sub-delivery-plan-clue-terminal-followup-T0.1.md)。",
           "syntax": "markdown"
         }
@@ -35201,7 +35201,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 211,
+          "line": 212,
           "text": "- 当前正式计划：[disk-ranking-retention](delivery-plans/main-delivery-plan-disk-ranking-retention.md)；当前 Task T0.1，已完成开发，正在整合发布。",
           "syntax": "markdown"
         }
@@ -35218,13 +35218,13 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 397,
+          "line": 398,
           "text": "- 正式计划入口：[DYDATA-81 增量主交付计划](delivery-plans/main-delivery-plan-dy-data.md)；[任务看板](delivery-plans/task-kanban-dy-data.md)；当前子计划为 [T5.7 系统测试与用户验收](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)，控制器规格为 [DYDATA-81 财务合同 G5](2026-08-30-dydata-81-finance-contract-controller-spec.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 449,
+          "line": 450,
           "text": "- 当前 DYDATA-81 增量计划文件组：[主交付计划](delivery-plans/main-delivery-plan-dy-data.md)、[任务看板](delivery-plans/task-kanban-dy-data.md)、[T5.7 子计划](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md) 与 [G5 控制器规格](2026-08-30-dydata-81-finance-contract-controller-spec.md)。",
           "syntax": "markdown"
         }
@@ -35241,7 +35241,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 201,
+          "line": 202,
           "text": "- 正式计划：[主计划](delivery-plans/main-delivery-plan-dydata-102-september.md)、[T0.1](delivery-plans/sub-delivery-plan-dydata-102-september-T0.1-september-billing.md)。",
           "syntax": "markdown"
         }
@@ -35259,42 +35259,42 @@
         {
           "path": "docs/plans/execution-plan.md",
           "line": 3,
-          "text": "- 阶段为 S4 / T3.1，进行中。沿用 [主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)、[看板](delivery-plans/task-kanban-dydata-104-followthrough.md)及[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。",
+          "text": "- 当前正式计划：[主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)、[看板](delivery-plans/task-kanban-dydata-104-followthrough.md)及[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 14,
+          "line": 15,
           "text": "- 当前正式计划：[DYDATA-104](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)；[任务看板](delivery-plans/task-kanban-dydata-104-followthrough.md)；[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 24,
+          "line": 25,
           "text": "| 当前正式计划文件组 | [主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md) / [看板](delivery-plans/task-kanban-dydata-104-followthrough.md) |",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 51,
+          "line": 52,
           "text": "| 当前正式计划文件组 | [主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md) / [看板](delivery-plans/task-kanban-dydata-104-followthrough.md) |",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 115,
+          "line": 116,
           "text": "| 正式计划 | [主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md) / [看板](delivery-plans/task-kanban-dydata-104-followthrough.md) |",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 131,
+          "line": 132,
           "text": "- 当前正式计划：[dydata-104-followthrough](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)；[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 165,
+          "line": 166,
           "text": "- 正式计划：[主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)、[看板](delivery-plans/task-kanban-dydata-104-followthrough.md)。",
           "syntax": "markdown"
         }
@@ -35311,7 +35311,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 143,
+          "line": 144,
           "text": "| 当前正式计划 | [DYDATA-105 主计划](delivery-plans/main-delivery-plan-dydata-105.md) |",
           "syntax": "markdown"
         }
@@ -35328,7 +35328,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 40,
+          "line": 41,
           "text": "- 当前正式计划：[DYDATA-106](delivery-plans/main-delivery-plan-dydata-106.md)；[任务看板](delivery-plans/task-kanban-dydata-106.md)；[当前子计划](delivery-plans/sub-delivery-plan-dydata-106-T1.1-clue-filters.md)。",
           "syntax": "markdown"
         }
@@ -35345,13 +35345,13 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 410,
+          "line": 411,
           "text": "- 正式计划入口：[`main-delivery-plan-dydata-45-test-agent-connect.md`](delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md)，T1.1、T1.2、T2.1、T2.2、T3.1 均已完成，等待人类 Owner 最终审核。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 410,
+          "line": 411,
           "text": "- 正式计划入口：[`main-delivery-plan-dydata-45-test-agent-connect.md`](delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md)，T1.1、T1.2、T2.1、T2.2、T3.1 均已完成，等待人类 Owner 最终审核。",
           "syntax": "backtick"
         }
@@ -35368,7 +35368,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 405,
+          "line": 406,
           "text": "- 正式计划入口：[DYDATA-46 主交付计划](delivery-plans/main-delivery-plan-dydata-46-production-promotion.md)；Linear 仍是其范围、验收与状态权威。",
           "syntax": "markdown"
         }
@@ -35385,7 +35385,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 532,
+          "line": 533,
           "text": "- 当前正式计划文件组：`docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md`、`task-kanban-dydata-81-store-finance.md` 与对应子开发计划。",
           "syntax": "backtick"
         }
@@ -35402,7 +35402,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 440,
+          "line": 441,
           "text": "- 正式计划入口：[DYDATA-89 主开发计划](delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md)；[任务看板](delivery-plans/task-kanban-dydata-89-clue-onboarding.md)；当前子计划为 [T0.1 线索中心逐步聚焦引导](delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md)。",
           "syntax": "markdown"
         }
@@ -35419,7 +35419,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 539,
+          "line": 540,
           "text": "- 主开发计划：[DYDATA-90 采集修复](delivery-plans/main-delivery-plan-dydata-90-collector-fixes.md)。",
           "syntax": "markdown"
         }
@@ -35436,19 +35436,19 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 448,
+          "line": 449,
           "text": "- 历史正式分配修复记录：[正式分配修复](delivery-plans/main-delivery-plan-dydata-90-formal.md)",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 503,
+          "line": 504,
           "text": "- 历史正式分配修复记录：[正式分配修复](delivery-plans/main-delivery-plan-dydata-90-formal.md)",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 552,
+          "line": 553,
           "text": "当前计划：[正式分配](delivery-plans/main-delivery-plan-dydata-90-formal.md)，T0.3已完成。用户2026-09-10明确确认BRD增补及代码修复；自动超期关闭、日期筛选不变、总部池不再投放。",
           "syntax": "markdown"
         }
@@ -35465,7 +35465,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 358,
+          "line": 359,
           "text": "- 当前正式计划：[号码恢复](delivery-plans/main-delivery-plan-dydata-90-phone-repair.md)。",
           "syntax": "markdown"
         }
@@ -35482,7 +35482,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 386,
+          "line": 387,
           "text": "- 并行增量：[DYDATA-90 中心投影补漏](delivery-plans/main-delivery-plan-dydata-90-projection-gap.md)，[T0.4](delivery-plans/sub-delivery-plan-dydata-90-projection-gap-T0.4.md) 生产验证完成：215条有效遗漏已处理。",
           "syntax": "markdown"
         }
@@ -35499,7 +35499,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 383,
+          "line": 384,
           "text": "- 当前正式计划：[DYDATA-91 日期可见范围](delivery-plans/main-delivery-plan-dydata-91-visibility.md)。",
           "syntax": "markdown"
         }
@@ -35516,7 +35516,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 372,
+          "line": 373,
           "text": "- [主计划](delivery-plans/main-delivery-plan-dydata-93-admin-rules.md)、[看板](delivery-plans/task-kanban-dydata-93-admin-rules.md)、[T0.1](delivery-plans/sub-delivery-plan-dydata-93-admin-rules-T0.1-permissions.md) 已生成并通过结构校验，初稿待审阅。",
           "syntax": "markdown"
         }
@@ -35533,7 +35533,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 350,
+          "line": 351,
           "text": "- 当前正式计划：[登录失效提示](delivery-plans/main-delivery-plan-dydata-94-login-error.md)。",
           "syntax": "markdown"
         }
@@ -35550,7 +35550,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 331,
+          "line": 332,
           "text": "- 当前正式计划：[浏览器连接可靠性](delivery-plans/main-delivery-plan-dydata-95-browser.md)。",
           "syntax": "markdown"
         }
@@ -35567,7 +35567,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 320,
+          "line": 321,
           "text": "- 当前正式计划：[分级资源保护](delivery-plans/main-delivery-plan-dydata-96-memory.md)。",
           "syntax": "markdown"
         }
@@ -35584,7 +35584,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 274,
+          "line": 275,
           "text": "- 当前正式计划文件组：[主计划](delivery-plans/main-delivery-plan-dydata-97-fee-fixes.md)、[任务看板](delivery-plans/task-kanban-dydata-97-fee-fixes.md)。",
           "syntax": "markdown"
         }
@@ -35601,13 +35601,13 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 244,
+          "line": 245,
           "text": "用户先授权本地最小代码优化与测试，随后授权公开推送、草稿PR及隔离CI。见 [PDCA事件计划](delivery-plans/main-delivery-plan-pdca-events.md)。当前组合99通过、9个PG跳过；真实PG、实际有界性能及全仓CI未验，不宣称生产已修复。不修改原PDCA目录，不合并/部署/迁移/加索引/回填/扩大超时。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 255,
+          "line": 256,
           "text": "- 当前正式计划：[PDCA事件契约](delivery-plans/main-delivery-plan-pdca-events.md)。",
           "syntax": "markdown"
         }
@@ -35624,7 +35624,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 340,
+          "line": 341,
           "text": "- 当前正式计划：[打榜看板生产接入](delivery-plans/main-delivery-plan-ranking-dashboard-production.md)。",
           "syntax": "markdown"
         }
@@ -35641,7 +35641,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 310,
+          "line": 311,
           "text": "- 当前正式计划：[排序与导出](delivery-plans/main-delivery-plan-ranking-export.md)。",
           "syntax": "markdown"
         }
@@ -35658,7 +35658,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 184,
+          "line": 185,
           "text": "- 当前正式计划：[统一静态看板](delivery-plans/main-delivery-plan-unified-dashboard-publications.md)；T0.1 已完成，当前 S4 / [T1.1 验收](delivery-plans/sub-delivery-plan-unified-dashboard-publications-T1.1-acceptance.md) 进行中。",
           "syntax": "markdown"
         }
@@ -35675,7 +35675,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 293,
+          "line": 294,
           "text": "- 当前子开发计划：[T0.3](delivery-plans/sub-delivery-plan-account-org-scope-T0.3-current-org.md)。",
           "syntax": "markdown"
         }
@@ -35692,13 +35692,13 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 218,
+          "line": 219,
           "text": "- 用户明确授权跳过 Linear，直接推送并合并 Git；沿用 [T0.1](delivery-plans/sub-delivery-plan-clue-terminal-followup-T0.1.md) 的增量验收。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 232,
+          "line": 233,
           "text": "- 当前阶段 S4；[主计划](delivery-plans/main-delivery-plan-clue-terminal-followup.md)、[T0.1](delivery-plans/sub-delivery-plan-clue-terminal-followup-T0.1.md)。",
           "syntax": "markdown"
         }
@@ -35715,19 +35715,19 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 397,
+          "line": 398,
           "text": "- 正式计划入口：[DYDATA-81 增量主交付计划](delivery-plans/main-delivery-plan-dy-data.md)；[任务看板](delivery-plans/task-kanban-dy-data.md)；当前子计划为 [T5.7 系统测试与用户验收](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)，控制器规格为 [DYDATA-81 财务合同 G5](2026-08-30-dydata-81-finance-contract-controller-spec.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 449,
+          "line": 450,
           "text": "- 当前 DYDATA-81 增量计划文件组：[主交付计划](delivery-plans/main-delivery-plan-dy-data.md)、[任务看板](delivery-plans/task-kanban-dy-data.md)、[T5.7 子计划](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md) 与 [G5 控制器规格](2026-08-30-dydata-81-finance-contract-controller-spec.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 450,
+          "line": 451,
           "text": "- 当前子开发计划：[sub-delivery-plan-dy-data-T5.7-system-uat.md](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)。",
           "syntax": "markdown"
         }
@@ -35744,7 +35744,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 201,
+          "line": 202,
           "text": "- 正式计划：[主计划](delivery-plans/main-delivery-plan-dydata-102-september.md)、[T0.1](delivery-plans/sub-delivery-plan-dydata-102-september-T0.1-september-billing.md)。",
           "syntax": "markdown"
         }
@@ -35762,42 +35762,42 @@
         {
           "path": "docs/plans/execution-plan.md",
           "line": 3,
-          "text": "- 阶段为 S4 / T3.1，进行中。沿用 [主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)、[看板](delivery-plans/task-kanban-dydata-104-followthrough.md)及[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。",
+          "text": "- 当前正式计划：[主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)、[看板](delivery-plans/task-kanban-dydata-104-followthrough.md)及[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 14,
+          "line": 15,
           "text": "- 当前正式计划：[DYDATA-104](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)；[任务看板](delivery-plans/task-kanban-dydata-104-followthrough.md)；[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 26,
+          "line": 27,
           "text": "| 当前子开发计划 | [T3.1](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md) |",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 53,
+          "line": 54,
           "text": "| 当前子开发计划 | [当前T3.1](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md) |",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 117,
+          "line": 118,
           "text": "| 当前子开发计划 | [当前增量](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md) |",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 131,
+          "line": 132,
           "text": "- 当前正式计划：[dydata-104-followthrough](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)；[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 162,
+          "line": 163,
           "text": "- 当前阶段 S4，Linear DYDATA-104 为 In Progress，当前 Task T3.1：[生产业务验收](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md) 进行中；T2.1 九月恢复及金额核验已技术完成，转待验收。",
           "syntax": "markdown"
         }
@@ -35814,7 +35814,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 146,
+          "line": 147,
           "text": "| 当前子开发计划 | [T1.1 全按钮、权限与文件结果验收](delivery-plans/sub-delivery-plan-dydata-105-T1.1-acceptance.md) |",
           "syntax": "markdown"
         }
@@ -35831,7 +35831,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 40,
+          "line": 41,
           "text": "- 当前正式计划：[DYDATA-106](delivery-plans/main-delivery-plan-dydata-106.md)；[任务看板](delivery-plans/task-kanban-dydata-106.md)；[当前子计划](delivery-plans/sub-delivery-plan-dydata-106-T1.1-clue-filters.md)。",
           "syntax": "markdown"
         }
@@ -35848,7 +35848,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 533,
+          "line": 534,
           "text": "- 当前子开发计划：`sub-delivery-plan-dydata-81-store-finance-T1.3-production-release.md`。",
           "syntax": "backtick"
         }
@@ -35865,7 +35865,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 440,
+          "line": 441,
           "text": "- 正式计划入口：[DYDATA-89 主开发计划](delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md)；[任务看板](delivery-plans/task-kanban-dydata-89-clue-onboarding.md)；当前子计划为 [T0.1 线索中心逐步聚焦引导](delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md)。",
           "syntax": "markdown"
         }
@@ -35882,7 +35882,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 541,
+          "line": 542,
           "text": "- 当前子计划：[T0.1 采集状态更新](delivery-plans/sub-delivery-plan-dydata-90-collector-fixes-T0.1-collector-fixes.md)。",
           "syntax": "markdown"
         }
@@ -35899,7 +35899,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 359,
+          "line": 360,
           "text": "- 当前子开发计划：[T0.5](delivery-plans/sub-delivery-plan-dydata-90-phone-repair-T0.5.md)。",
           "syntax": "markdown"
         }
@@ -35916,7 +35916,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 386,
+          "line": 387,
           "text": "- 并行增量：[DYDATA-90 中心投影补漏](delivery-plans/main-delivery-plan-dydata-90-projection-gap.md)，[T0.4](delivery-plans/sub-delivery-plan-dydata-90-projection-gap-T0.4.md) 生产验证完成：215条有效遗漏已处理。",
           "syntax": "markdown"
         }
@@ -35933,7 +35933,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 384,
+          "line": 385,
           "text": "- 当前子开发计划：[T0.1 日期可见范围](delivery-plans/sub-delivery-plan-dydata-91-visibility-T0.1-clue-visibility.md)。",
           "syntax": "markdown"
         }
@@ -35950,7 +35950,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 372,
+          "line": 373,
           "text": "- [主计划](delivery-plans/main-delivery-plan-dydata-93-admin-rules.md)、[看板](delivery-plans/task-kanban-dydata-93-admin-rules.md)、[T0.1](delivery-plans/sub-delivery-plan-dydata-93-admin-rules-T0.1-permissions.md) 已生成并通过结构校验，初稿待审阅。",
           "syntax": "markdown"
         }
@@ -35967,7 +35967,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 351,
+          "line": 352,
           "text": "- 当前子开发计划：[T0.1](delivery-plans/sub-delivery-plan-dydata-94-login-error-T0.1.md)。",
           "syntax": "markdown"
         }
@@ -35984,7 +35984,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 332,
+          "line": 333,
           "text": "- 当前子开发计划：[T0.1](delivery-plans/sub-delivery-plan-dydata-95-browser-T0.1.md)。",
           "syntax": "markdown"
         }
@@ -36001,7 +36001,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 321,
+          "line": 322,
           "text": "- 当前子开发计划：[T0.1](delivery-plans/sub-delivery-plan-dydata-96-memory-T0.1.md)。",
           "syntax": "markdown"
         }
@@ -36018,7 +36018,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 275,
+          "line": 276,
           "text": "- 当前子开发计划：[T1.1 导出恢复与实收基数](delivery-plans/sub-delivery-plan-dydata-97-fee-fixes-T1.1-receipt-amount.md)。",
           "syntax": "markdown"
         }
@@ -36035,7 +36035,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 504,
+          "line": 505,
           "text": "- 当前子开发计划：[T2.4 全量、等价性和 8GB 最终门禁](delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T2.4-final-verification.md)。",
           "syntax": "markdown"
         }
@@ -36052,7 +36052,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 256,
+          "line": 257,
           "text": "- 当前 Task：T0.1，进行中；[子计划](delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md)。",
           "syntax": "markdown"
         }
@@ -36069,7 +36069,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 341,
+          "line": 342,
           "text": "- 当前子开发计划：[T0.1](delivery-plans/sub-delivery-plan-ranking-dashboard-production-T0.1-dashboard-integration.md)。",
           "syntax": "markdown"
         }
@@ -36086,7 +36086,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 311,
+          "line": 312,
           "text": "- 当前子开发计划：[T0.1](delivery-plans/sub-delivery-plan-ranking-export-T0.1.md)。",
           "syntax": "markdown"
         }
@@ -36103,7 +36103,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 184,
+          "line": 185,
           "text": "- 当前正式计划：[统一静态看板](delivery-plans/main-delivery-plan-unified-dashboard-publications.md)；T0.1 已完成，当前 S4 / [T1.1 验收](delivery-plans/sub-delivery-plan-unified-dashboard-publications-T1.1-acceptance.md) 进行中。",
           "syntax": "markdown"
         }
@@ -36120,13 +36120,13 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 397,
+          "line": 398,
           "text": "- 正式计划入口：[DYDATA-81 增量主交付计划](delivery-plans/main-delivery-plan-dy-data.md)；[任务看板](delivery-plans/task-kanban-dy-data.md)；当前子计划为 [T5.7 系统测试与用户验收](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)，控制器规格为 [DYDATA-81 财务合同 G5](2026-08-30-dydata-81-finance-contract-controller-spec.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 449,
+          "line": 450,
           "text": "- 当前 DYDATA-81 增量计划文件组：[主交付计划](delivery-plans/main-delivery-plan-dy-data.md)、[任务看板](delivery-plans/task-kanban-dy-data.md)、[T5.7 子计划](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md) 与 [G5 控制器规格](2026-08-30-dydata-81-finance-contract-controller-spec.md)。",
           "syntax": "markdown"
         }
@@ -36144,36 +36144,36 @@
         {
           "path": "docs/plans/execution-plan.md",
           "line": 3,
-          "text": "- 阶段为 S4 / T3.1，进行中。沿用 [主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)、[看板](delivery-plans/task-kanban-dydata-104-followthrough.md)及[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。",
+          "text": "- 当前正式计划：[主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)、[看板](delivery-plans/task-kanban-dydata-104-followthrough.md)及[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 14,
+          "line": 15,
           "text": "- 当前正式计划：[DYDATA-104](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)；[任务看板](delivery-plans/task-kanban-dydata-104-followthrough.md)；[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 24,
+          "line": 25,
           "text": "| 当前正式计划文件组 | [主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md) / [看板](delivery-plans/task-kanban-dydata-104-followthrough.md) |",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 51,
+          "line": 52,
           "text": "| 当前正式计划文件组 | [主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md) / [看板](delivery-plans/task-kanban-dydata-104-followthrough.md) |",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 115,
+          "line": 116,
           "text": "| 正式计划 | [主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md) / [看板](delivery-plans/task-kanban-dydata-104-followthrough.md) |",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 165,
+          "line": 166,
           "text": "- 正式计划：[主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)、[看板](delivery-plans/task-kanban-dydata-104-followthrough.md)。",
           "syntax": "markdown"
         }
@@ -36190,7 +36190,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 144,
+          "line": 145,
           "text": "| 当前任务看板 | [DYDATA-105 看板](delivery-plans/task-kanban-dydata-105.md) |",
           "syntax": "markdown"
         }
@@ -36207,7 +36207,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 40,
+          "line": 41,
           "text": "- 当前正式计划：[DYDATA-106](delivery-plans/main-delivery-plan-dydata-106.md)；[任务看板](delivery-plans/task-kanban-dydata-106.md)；[当前子计划](delivery-plans/sub-delivery-plan-dydata-106-T1.1-clue-filters.md)。",
           "syntax": "markdown"
         }
@@ -36224,7 +36224,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 532,
+          "line": 533,
           "text": "- 当前正式计划文件组：`docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md`、`task-kanban-dydata-81-store-finance.md` 与对应子开发计划。",
           "syntax": "backtick"
         }
@@ -36241,7 +36241,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 440,
+          "line": 441,
           "text": "- 正式计划入口：[DYDATA-89 主开发计划](delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md)；[任务看板](delivery-plans/task-kanban-dydata-89-clue-onboarding.md)；当前子计划为 [T0.1 线索中心逐步聚焦引导](delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md)。",
           "syntax": "markdown"
         }
@@ -36258,7 +36258,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 540,
+          "line": 541,
           "text": "- 任务看板：[DYDATA-90 看板](delivery-plans/task-kanban-dydata-90-collector-fixes.md)。",
           "syntax": "markdown"
         }
@@ -36275,7 +36275,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 385,
+          "line": 386,
           "text": "- 当前 Task：T0.1，生产验证完成、等待用户验收；[任务看板](delivery-plans/task-kanban-dydata-91-visibility.md)。",
           "syntax": "markdown"
         }
@@ -36292,7 +36292,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 372,
+          "line": 373,
           "text": "- [主计划](delivery-plans/main-delivery-plan-dydata-93-admin-rules.md)、[看板](delivery-plans/task-kanban-dydata-93-admin-rules.md)、[T0.1](delivery-plans/sub-delivery-plan-dydata-93-admin-rules-T0.1-permissions.md) 已生成并通过结构校验，初稿待审阅。",
           "syntax": "markdown"
         }
@@ -36309,7 +36309,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 274,
+          "line": 275,
           "text": "- 当前正式计划文件组：[主计划](delivery-plans/main-delivery-plan-dydata-97-fee-fixes.md)、[任务看板](delivery-plans/task-kanban-dydata-97-fee-fixes.md)。",
           "syntax": "markdown"
         }
@@ -36326,7 +36326,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 423,
+          "line": 424,
           "text": "- 2026-09-09 发布推进：单店及财务修复已提交 `4734b1c`，整合当前生产主线为 `2e2b95f`；最终清洁全量 `2497 passed / 139 skipped / 0 failed`，JUnit 0 errors，Web build、122 项治理测试与协议检查通过。独立审查无 Critical/Important；候选代码在生产只读事务核验财务 530 门店、推广 6716413 分，单店汇总与榜单一致，空权限为 0。增量安全报告见 `docs/security/dydata-87-finance-release-20260909.md`。现进入 PR/CI 与生产发布，尚未部署，不自动生成/确认/锁定账单。",
           "syntax": "backtick"
         }
@@ -36343,13 +36343,13 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 413,
+          "line": 414,
           "text": "- 权威规格：[`2026-07-22-dydata-45-test-agent-connect-design.md`](../superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md)。本增量仅覆盖当前腾讯云测试环境；未来企业内网生产版由 DYDATA-46 对入口、OAuth、keyring、部署、文档和 smoke 做彻底切换。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 413,
+          "line": 414,
           "text": "- 权威规格：[`2026-07-22-dydata-45-test-agent-connect-design.md`](../superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md)。本增量仅覆盖当前腾讯云测试环境；未来企业内网生产版由 DYDATA-46 对入口、OAuth、keyring、部署、文档和 smoke 做彻底切换。",
           "syntax": "backtick"
         }
@@ -36366,7 +36366,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 10,
+          "line": 11,
           "text": "> **2026-11-04 发布记录（20:18）**：PR74与PR75均已合并部署；实际应用源码1f02204b于20:14完成三服务切换，无迁移。原维护第二次成功，11月1—3日采集及结算发布链路、当日账号与原失败导出均已恢复。固定快照发布修复通过精确完整CI（5,442 passed），五模块当前完整版本及最新尝试均success；抖音榜单、结算、财务产生新版本，核销与线索来源未变而复用。八服务正常，磁盘61.43 GiB可用。商品SKU、退款单位/范围缺证和完整业务截止时间未知仍保留，104继续进行中。详见[当日开发日志](../devlog/20261104_refactor_log_Keith_Chen.md)与[发布记录](../verification/20261104-november-recovery-release.md)。",
           "syntax": "markdown"
         }
@@ -36383,7 +36383,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 108,
+          "line": 109,
           "text": "> 2026-10-26 最新：用户授权完成 D1–D7 核查、修复通用缺陷并统一交接 Linear。当前 S4 / T3.1 保持进行中；本轮基于 6ac6e440，集成负责人为当前 Codex。归属诊断、精确职人 UID 与历史区间兜底、月结阻断计数修复已实现，真实来源只读核查及回放成果见 [验证记录](../verification/dydata-104-data-rootcause-oct26.md)。商品类型与上月默认另见 [PR63](https://github.com/jojiuchen-blip/dy-data/pull/63)。生产未部署、未补录暂停券组、未改确认账务；历史日期/编号桥及账单更正仍分别验收。下方旧状态按日期保留。",
           "syntax": "markdown"
         }
@@ -36400,7 +36400,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 74,
+          "line": 75,
           "text": "- 09:34增量：漏费保护保留全部关系锁和核心账务摘要，大型派生关系改用事务写入计数及结构身份；预算保持SQL5秒/事务30秒。最终源码真实PG50券/50万派生行成功，apply5.906秒；最终回读相关24项分22+2通过，前版整套125项和原夹具失败记录分别保留。Root集成240项/0跳过及Web构建通过，见[专项证明](../verification/dydata-104-missing-fee-write-proof.md)。两发布流程显式执行完整新PG文件及关键收据，不以普通全仓跳过代替。生产373仍未写入；四个旧候选镜像及dangling缓存按精确计划清理后空闲17.849GB，仍不足15%门槛；原运行/回滚镜像和7份数据库备份保留。",
           "syntax": "markdown"
         }
@@ -36417,7 +36417,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 132,
+          "line": 133,
           "text": "- 当前动作：恢复入口、月榜/发票、商品查询、规则补丁及历史下架资格已集成，专项通过；[草稿PR62](https://github.com/jojiuchen-blip/dy-data/pull/62)提交 `8fd1564` 的[完整CI](https://github.com/jojiuchen-blip/dy-data/actions/runs/39904404108)已通过，未部署。补算前差异见[验证记录](../verification/dydata-104-oct23.md)。",
           "syntax": "markdown"
         }
@@ -36434,13 +36434,13 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 70,
+          "line": 71,
           "text": "- 2026-10-28 14:10增量：127d生产发布及源码/实际镜像/完整0066/8服务核验通过；实际页面读取手机号精准查询。首次预热因合法线索跟进更新来源而拒绝，复用有效备份与迁移从原warm尾段成功续接。完整记录见[发布证据](../verification/dydata-104-oct27-delivery.md#2026-10-28-最新主线127d生产发布)，下方旧状态按日期保留。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 79,
+          "line": 80,
           "text": "- PR63/65各自CI passed，现已本地集成及合入PR64；不等于新增月末资格、新集成、数据应用或生产已通过。[证据台账](../verification/dydata-104-oct27-delivery.md)分别记录实现、数据、CI、部署与验收。",
           "syntax": "markdown"
         }
@@ -36457,7 +36457,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 78,
+          "line": 79,
           "text": "- 正常登录后的管理控制POST另出现Origin拒绝，候选已按服务器明确配置的公共HTTPS地址修复守卫，保留原鉴权与跨站控制；专项70项、主线程独立关键11项通过，仍待目标完整CI及上线验收。详见[控制入口记录](../verification/dydata-104-oct28-control-origin.md)。",
           "syntax": "markdown"
         }
@@ -36474,7 +36474,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 77,
+          "line": 78,
           "text": "- 上线核查发现普通verify把上下文POI用于OR选券，扩大到该POI历史核销及意向订单券，不同impact页重复计算。已记录到104当前报告，沿用T3.1运行可靠性范围修复：普通事件保留准确旧新券/核销身份及发布维度，真正门店映射变更保留历史依赖；未知身份明确诊断，不扩全店兜底。详见[核查与验证](../verification/dydata-104-oct28-verify-impact.md)。",
           "syntax": "markdown"
         }
@@ -36491,7 +36491,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 33,
+          "line": 34,
           "text": "证据见[本轮台账](../verification/dydata-104-oct30-delivery.md)。原授权数据修复和8/9月仅发布已取得实际回读，逐项统计与剩余补证见104受控回执；新增五项部署及全票业务验收仍未完成。下方其他任务和历次入口保留，不覆写其业务状态。",
           "syntax": "markdown"
         }
@@ -36508,7 +36508,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 122,
+          "line": 123,
           "text": "| 当前阻塞与前置依赖 | [验证证据](../verification/dydata-104-product-types.md)持续回填；尚未生产发布/转换；数据核查由协作者处理，不恢复暂停的账务写入 |",
           "syntax": "markdown"
         }
@@ -36525,7 +36525,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 150,
+          "line": 151,
           "text": "| 当前验证证据 | [集成验证](../verification/dydata-105-verification.md)、[按钮台账](../verification/dydata-105-buttons.md)、[开发日志](../devlog/20261022_refactor_log_Keith_Chen.md) |",
           "syntax": "markdown"
         }
@@ -36542,7 +36542,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 150,
+          "line": 151,
           "text": "| 当前验证证据 | [集成验证](../verification/dydata-105-verification.md)、[按钮台账](../verification/dydata-105-buttons.md)、[开发日志](../devlog/20261022_refactor_log_Keith_Chen.md) |",
           "syntax": "markdown"
         }

@@ -1,6 +1,7 @@
 # 当前执行：DYDATA-104 五项交付与采集恢复（2026-11-12）
 
-- 阶段为 S4 / T3.1，进行中。沿用 [主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)、[看板](delivery-plans/task-kanban-dydata-104-followthrough.md)及[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。
+- 当前正式计划：[主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)、[看板](delivery-plans/task-kanban-dydata-104-followthrough.md)及[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。
+- 当前阶段：S4 / T3.1，进行中。
 - 在当前主线上集成 PR73 已确认功能。重新验证商品分类、按账期开票、中文模板、门店基础信息及导入回读，复核报表合同切换和采集浏览器恢复后再发布。
 - 10 月日数据完整、榜单可读。月结资格身份、历史归属、首次补确认暂停范围、SKU 与退款来源仍需协作者确认，见 [104 待裁决清单](https://linear.app/keith-lim/issue/DYDATA-104#comment-276d49af-17ec-4576-aafc-e2bda951a732)。
 - 以实际 CI、应用切换、生产页面和只读对账分别记录交付结果。下方保留历次现场状态。
