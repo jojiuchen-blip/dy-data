@@ -10,7 +10,7 @@ from apps.api.dy_api.dashboard_publications import commission_types, finance
 from apps.api.dy_api.models import (
     AggStoreMonthlySettlement, AggStoreRanking, DimSkuProductRule, DimStore,
     SettlementFeeResult, SettlementFeeResultCurrent, SettlementOrderDetail,
-    SettlementStatementEntry, SettlementStatementLine,
+    SettlementMonthlyOverlay, SettlementRankingOverlay, SettlementStatementEntry, SettlementStatementLine,
 )
 from apps.api.dy_api.routes._data import DashboardDataStore
 from test_dashboard_publication_finance import (
@@ -43,11 +43,21 @@ def _seed(session):
         values = dict(store_id="store", product_scope=scope, product_type=product_type,
             sales_order_count=1, sales_amount_cent=3000, promotion_net_fee_cent=450,
             management_net_fee_cent=0)
-        session.add(AggStoreMonthlySettlement(month="2026-08", **values))
+        session.add(AggStoreMonthlySettlement(month="2026-08", promotion_base_cent=3000,
+            promotion_original_fee_cent=450, **values))
         for period in (1, 2):
             session.add(AggStoreRanking(period_type=period, period_key="2026-08", month="2026-08",
                 store_name="Synthetic Store", net_settlement_reference_cent=450, **values))
     session.commit()
+
+
+def _set_store_aggregate_totals(session, *, store_id, count, amount, fee):
+    values = dict(sales_order_count=count, sales_amount_cent=amount, promotion_net_fee_cent=fee)
+    session.execute(update(AggStoreMonthlySettlement).where(
+        AggStoreMonthlySettlement.store_id == store_id).values(
+            promotion_base_cent=amount, promotion_original_fee_cent=fee, **values))
+    session.execute(update(AggStoreRanking).where(AggStoreRanking.store_id == store_id).values(
+        net_settlement_reference_cent=fee, **values))
 
 
 def test_analysis_reclassifies_exact_skus_and_reaggregates_distinct_orders(db_session, monkeypatch):
@@ -110,6 +120,13 @@ def test_frozen_protected_entries_reclassify_only_the_new_analysis(db_session, m
     for direction in (1, 2):
         _fixture_line_entries(db_session, statement_id, "allowed", "2026-08", f"protected-{direction}",
             direction, (77, 100), scope="历史scope", product_type="268保养")
+    rank_values = dict(sales_order_count=2, sales_amount_cent=2000, verified_order_count=2,
+        verified_amount_cent=2000, promotion_net_fee_cent=177, management_net_fee_cent=177)
+    db_session.execute(update(SettlementMonthlyOverlay).where(SettlementMonthlyOverlay.store_id == "allowed")
+        .values(promotion_base_cent=2000, promotion_original_fee_cent=177,
+            management_base_cent=2000, management_original_fee_cent=177, **rank_values))
+    db_session.execute(update(SettlementRankingOverlay).where(SettlementRankingOverlay.store_id == "allowed")
+        .values(net_settlement_reference_cent=0, **rank_values))
     db_session.add(DimSkuProductRule(sku_id="frozen-sku", product_scope="其他", product_type="精诚养车"))
     db_session.commit()
     before_lines = list(db_session.execute(select(SettlementStatementLine.statement_line_id,
@@ -148,6 +165,7 @@ def test_unresolved_and_uncovered_history_are_counted_and_remain_visible(db_sess
         rule_version="historic", scope_rule_version="historic", calculation_run_id="historic", calculated_at=NOW))
     db_session.add(SettlementFeeResultCurrent(coupon_id="missing-catalog", fee_direction=1,
         fee_result_id="missing-catalog"))
+    _set_store_aggregate_totals(db_session, store_id="store", count=2, amount=4000, fee=700)
     db_session.add(DimStore(store_id="legacy-store", store_name="Legacy Store"))
     for product_type in ("all", "历史类型"):
         db_session.add(AggStoreMonthlySettlement(month="2026-08", store_id="legacy-store",
@@ -173,3 +191,65 @@ def test_unresolved_and_uncovered_history_are_counted_and_remain_visible(db_sess
         "store_id": "store", "month": "2026-08", "product_type": "all"})["metrics"]["promotion_net_fee_cent"] == 700
     assert finance.read_monthly_settlement(db_session, "unresolved-types", {
         "store_id": "legacy-store", "month": "2026-08", "product_type": "历史类型"})["metrics"]["promotion_net_fee_cent"] == 90
+
+
+def test_cumulative_reclassification_counts_same_order_once_in_each_month(db_session, monkeypatch):
+    monkeypatch.setattr(finance.period_readiness, "capture", ready_periods_fixture)
+    _seed(db_session)
+    db_session.add(SettlementFeeResult(fee_result_id="september", coupon_id="september",
+        order_id="same-order", fee_direction=1, original_business_month="2026-09",
+        rule_match_date=date(2026, 9, 1), sale_store_id="store", sku_id="one",
+        product_scope="原scope", product_type="168保养", sale_channel_normalized="LIVE",
+        source_amount_cent=1000, fee_base_cent=1000, fee_rate="0.12", fee_amount_cent=120,
+        rule_version="synthetic-rule", scope_rule_version="synthetic-scope",
+        calculation_run_id="synthetic", calculated_at=NOW))
+    db_session.add(SettlementFeeResultCurrent(coupon_id="september", fee_direction=1, fee_result_id="september"))
+    db_session.add(AggStoreMonthlySettlement(month="2026-09", store_id="store", product_scope="all",
+        product_type="all", sales_order_count=1, sales_amount_cent=1000, promotion_base_cent=1000,
+        promotion_original_fee_cent=120, promotion_net_fee_cent=120))
+    for period, count, amount, fee in ((1, 1, 1000, 120), (2, 2, 4000, 570)):
+        db_session.add(AggStoreRanking(period_type=period, period_key="2026-09", month="2026-09",
+            store_id="store", store_name="Synthetic Store", product_scope="all", product_type="all",
+            sales_order_count=count, sales_amount_cent=amount, promotion_net_fee_cent=fee,
+            net_settlement_reference_cent=fee))
+    db_session.commit()
+    _run(db_session, "cross-month-types", "settlement")
+    stats = finance.build_settlement(db_session, "cross-month-types", NOW)
+    assert stats["commission_type_preserved_store_months"] == 0
+
+    for period, product_type, count, fee in (
+        ("MONTHLY", "all", 1, 120), ("MONTHLY", "精诚养车", 1, 120),
+        ("CUMULATIVE", "all", 2, 570), ("CUMULATIVE", "精诚养车", 2, 370),
+    ):
+        totals = finance.read_store_ranking(db_session, "cross-month-types", {
+            "period_type": period, "period_key": "2026-09", "product_type": product_type})["totals"]
+        assert (totals["sales_order_count"], totals["promotion_net_fee_cent"]) == (count, fee)
+
+
+def test_partial_store_coverage_keeps_aggregate_and_old_types(db_session, monkeypatch):
+    monkeypatch.setattr(finance.period_readiness, "capture", ready_periods_fixture)
+    _seed(db_session)
+    # A legacy store partition also accounts for a fee without exact source evidence.
+    _set_store_aggregate_totals(db_session, store_id="store", count=2, amount=4000, fee=700)
+    db_session.add(AggStoreMonthlySettlement(month="2026-08", store_id="store", product_scope="all",
+        product_type="legacy-only", sales_order_count=1, sales_amount_cent=1000,
+        promotion_base_cent=1000, promotion_original_fee_cent=250, promotion_net_fee_cent=250))
+    for period in (1, 2):
+        db_session.add(AggStoreRanking(period_type=period, period_key="2026-08", month="2026-08",
+            store_id="store", store_name="Synthetic Store", product_scope="all", product_type="legacy-only",
+            sales_order_count=1, sales_amount_cent=1000, promotion_net_fee_cent=250,
+            net_settlement_reference_cent=250))
+    db_session.commit()
+    _run(db_session, "partial-types", "settlement")
+    stats = finance.build_settlement(db_session, "partial-types", NOW)
+    assert stats["commission_type_preserved_store_months"] == 1
+
+    for product_type, count, fee in (("all", 2, 700), ("legacy-only", 1, 250), ("精诚养车", 0, 0)):
+        monthly = finance.read_monthly_settlement(db_session, "partial-types", {
+            "store_id": "store", "month": "2026-08", "product_type": product_type})
+        assert (monthly["metrics"]["sales_order_count"], monthly["metrics"]["promotion_net_fee_cent"]) == (count, fee)
+        assert all(line["product_type"] != "精诚养车" for line in monthly["lines"])
+        for period in ("MONTHLY", "CUMULATIVE"):
+            totals = finance.read_store_ranking(db_session, "partial-types", {
+                "period_type": period, "period_key": "2026-08", "product_type": product_type})["totals"]
+            assert (totals["sales_order_count"], totals["promotion_net_fee_cent"]) == (count, fee)

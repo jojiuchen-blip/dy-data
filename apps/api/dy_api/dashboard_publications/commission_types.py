@@ -121,7 +121,7 @@ def _metrics(source: Subquery) -> dict[str, Any]:
 
 
 def partitions(session: Session, months: Iterable[str]) -> list[RowMapping]:
-    """Reaggregate type partitions without summing overlapping order counts."""
+    """Deduplicate each month's orders before summing the requested months."""
     source = authority(months)
     fields = [key for key in source.c.keys() if key not in {"product_scope", "product_type"}]
     expanded = union(*(select(*(source.c[key] for key in fields),
@@ -129,9 +129,14 @@ def partitions(session: Session, months: Iterable[str]) -> list[RowMapping]:
         for scope in (source.c.product_scope, literal("all"))
         for product_type in (source.c.product_type, literal("all")))).subquery("classified_dimensions")
     values = _metrics(expanded)
-    return list(session.execute(select(expanded.c.store_id, expanded.c.product_scope,
-        expanded.c.product_type, *(value.label(key) for key, value in values.items()))
-        .group_by(expanded.c.store_id, expanded.c.product_scope, expanded.c.product_type)).mappings())
+    monthly = select(expanded.c.store_id, expanded.c.product_scope, expanded.c.product_type,
+        *(value.label(key) for key, value in values.items())).group_by(
+            expanded.c.month, expanded.c.store_id, expanded.c.product_scope, expanded.c.product_type,
+        ).subquery("classified_monthly_totals")
+    dimensions = (monthly.c.store_id, monthly.c.product_scope, monthly.c.product_type)
+    return list(session.execute(select(*dimensions,
+        *(func.sum(monthly.c[key]).label(key) for key in values))
+        .group_by(*dimensions)).mappings())
 
 
 def lines(session: Session, month: str, store: Any) -> dict[str, list[dict[str, Any]]]:

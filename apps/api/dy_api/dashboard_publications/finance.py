@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
+from itertools import groupby
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -303,9 +304,30 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
     store, months, selectable_months = _source_context(session, cutoff)
     ranking_count = monthly_count = 0
     uncovered_ranking_rows = uncovered_monthly_rows = 0
+    preserved_store_months = 0
+    preserve_cumulative: set[str] = set()
     classify_types = commission_types.has_changes(session, months)
     store_names = {row["store_id"]: row["store_name"] for row in store.list_stores(scope_store_ids=None)} if classify_types else {}
     for month in months:
+        if store._pinned_aggregate_generation() is None:
+            source, condition, params = ("agg_store_monthly_settlement AS source",
+                "source.month = :month", {"month": month})
+        else:
+            source, condition, params = store._monthly_source_spec(month=month)
+        source_rows = {} if source is None else {
+            (row["store_id"], row["product_scope"], row["product_type"]): dict(row)
+            for row in session.execute(text("SELECT source.* "
+                f"FROM {source} WHERE {condition}"), params).mappings()}
+        monthly_classified = commission_types.partitions(session, (month,)) if classify_types else []
+        monthly_totals = _commission_totals_by_store(monthly_classified)
+        # A known SKU on one row does not establish complete store coverage.
+        # Keep the whole original partition when the exact rows cannot explain
+        # its totals. For cumulative ranks, every contributing month must pass.
+        preserve_month = {store_id for store_id, _, _ in source_rows
+            if not _same_commission_totals(source_rows.get((store_id, "all", "all")),
+                monthly_totals.get(store_id), MONTH_METRICS[:-1])} if classify_types else set()
+        if month >= FORMAL_START:
+            preserve_cumulative.update(preserve_month)
         for period_type in (1, 2):
             if store._pinned_aggregate_generation() is None:
                 source, condition, params = ("agg_store_ranking AS source",
@@ -316,25 +338,41 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
                     period_type=period_type, period_key=month)
             if source is None:
                 continue
-            selected_months = (month,) if period_type == 1 else tuple(key for key in months if FORMAL_START <= key <= month)
-            classified = commission_types.partitions(session, selected_months) if classify_types else []
-            classified_stores = {row["store_id"] for row in classified}
+            if period_type == 1:
+                classified, totals, preserve = monthly_classified, monthly_totals, preserve_month
+            else:
+                selected_months = tuple(key for key in months if FORMAL_START <= key <= month)
+                classified = commission_types.partitions(session, selected_months) if classify_types else []
+                totals, preserve = _commission_totals_by_store(classified), preserve_cumulative
+            classified_stores = totals.keys() - preserve
             columns = ("store_id", "store_name", "product_scope", "product_type", *RANK_METRICS)
+            order = " ORDER BY source.store_id" if classify_types else ""
             rows = session.execute(text(
                 f"SELECT {', '.join('source.' + key for key in columns)} "
-                f"FROM {source} WHERE {condition}"), params).mappings()
+                f"FROM {source} WHERE {condition}{order}"), params).mappings()
             batch = []
-            for row in rows:
-                if row["store_id"] in classified_stores:
-                    continue
+            for store_id, group in groupby(rows, key=lambda row: row["store_id"]):
+                old_rows = list(group)
                 if classify_types:
-                    uncovered_ranking_rows += 1
-                batch.append({"publication_id": publication_id, "period_type": period_type,
-                              "period_key": month, **dict(row)})
-                if len(batch) == 500:
-                    _write(session, ranking, batch)
-                    ranking_count += len(batch)
-                    batch = []
+                    baseline = next((row for row in old_rows
+                        if (row["product_scope"], row["product_type"]) == ("all", "all")), None)
+                    if store_id in classified_stores and _same_commission_totals(
+                        baseline, totals[store_id], RANK_METRICS,
+                    ):
+                        continue
+                    classified_stores.discard(store_id)
+                    if period_type == 1:
+                        preserve_month.add(store_id)
+                        if month >= FORMAL_START:
+                            preserve_cumulative.add(store_id)
+                    uncovered_ranking_rows += len(old_rows)
+                for row in old_rows:
+                    batch.append({"publication_id": publication_id, "period_type": period_type,
+                                  "period_key": month, **dict(row)})
+                    if len(batch) == 500:
+                        _write(session, ranking, batch)
+                        ranking_count += len(batch)
+                        batch = []
             _write(session, ranking, batch)
             ranking_count += len(batch)
             if classify_types:
@@ -343,29 +381,22 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
                     "store_name": store_names.get(row["store_id"], row["store_id"]),
                     "product_scope": row["product_scope"], "product_type": row["product_type"],
                     **{key: int(row[key]) for key in RANK_METRICS}}
-                    for row in classified if row["store_id"]]
+                    for row in classified if row["store_id"] in classified_stores]
                 _write(session, ranking, typed_rows)
                 ranking_count += len(typed_rows)
-        if store._pinned_aggregate_generation() is None:
-            source, condition, params = ("agg_store_monthly_settlement AS source",
-                "source.month = :month", {"month": month})
-        else:
-            source, condition, params = store._monthly_source_spec(month=month)
-        source_rows = {} if source is None else {
-            (row["store_id"], row["product_scope"], row["product_type"]): dict(row)
-            for row in session.execute(text("SELECT source.* "
-                f"FROM {source} WHERE {condition}"), params).mappings()}
+        classified_stores = monthly_totals.keys() - preserve_month
         if classify_types:
-            classified = commission_types.partitions(session, (month,))
-            classified_stores = {row["store_id"] for row in classified}
             source_rows = {key: value for key, value in source_rows.items() if key[0] not in classified_stores}
             uncovered_monthly_rows += len(source_rows)
+            preserved_store_months += len(preserve_month)
             source_rows.update({(row["store_id"], row["product_scope"], row["product_type"]): dict(row)
-                for row in classified if row["store_id"]})
+                for row in monthly_classified if row["store_id"] in classified_stores})
         keys = set(source_rows)
         headers, lines_by_store = _monthly_lines(session, store, month)
-        if classify_types:
-            lines_by_store = commission_types.lines(session, month, store)
+        if classified_stores:
+            lines_by_store.update({store_id: lines
+                for store_id, lines in commission_types.lines(session, month, store).items()
+                if store_id in classified_stores})
         from apps.worker.protected_billing_authority import protected_statement_condition
         from ..models import SettlementStatement
         protected_statement_ids = set(session.scalars(select(SettlementStatement.statement_id).where(
@@ -411,10 +442,21 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
     return {"row_count": ranking_count + monthly_count + dimension_count,
             "commission_types_reclassified": classify_types,
             "commission_type_coverage": commission_types.coverage(session, months),
+            "commission_type_preserved_store_months": preserved_store_months,
             "legacy_uncovered_ranking_rows": uncovered_ranking_rows,
             "legacy_uncovered_monthly_rows": uncovered_monthly_rows,
             "ranking_rows": ranking_count, "monthly_rows": monthly_count,
             "source_generation_id": store._pinned_aggregate_generation(), "data_as_of": None, **period_stats}
+
+
+def _commission_totals_by_store(rows):
+    return {row["store_id"]: row for row in rows
+        if row["store_id"] and (row["product_scope"], row["product_type"]) == ("all", "all")}
+
+
+def _same_commission_totals(baseline, classified, metrics) -> bool:
+    return baseline is not None and classified is not None and all(
+        int(baseline.get(key) or 0) == int(classified[key]) for key in metrics)
 
 
 def _finance_display_context(session):

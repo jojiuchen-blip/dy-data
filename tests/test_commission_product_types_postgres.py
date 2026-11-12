@@ -16,6 +16,8 @@ from test_commission_product_publication import (
     test_order_list_pagination_and_full_export_use_the_same_exact_sku_types as assert_details,
     test_frozen_protected_entries_reclassify_only_the_new_analysis as assert_protected,
     test_unresolved_and_uncovered_history_are_counted_and_remain_visible as assert_uncovered,
+    test_cumulative_reclassification_counts_same_order_once_in_each_month as assert_cumulative,
+    test_partial_store_coverage_keeps_aggregate_and_old_types as assert_partial,
 )
 
 pytestmark = pytest.mark.skipif(not POSTGRES_URL, reason="dedicated PostgreSQL test URL not configured")
@@ -44,6 +46,14 @@ def test_protected_financial_classification_postgres(postgres_session, monkeypat
 
 def test_unresolved_and_uncovered_history_postgres(postgres_session, monkeypatch):
     assert_uncovered(postgres_session, monkeypatch)
+
+
+def test_cumulative_reclassification_postgres(postgres_session, monkeypatch):
+    assert_cumulative(postgres_session, monkeypatch)
+
+
+def test_partial_store_coverage_postgres(postgres_session, monkeypatch):
+    assert_partial(postgres_session, monkeypatch)
 
 
 def test_conversion_fence_blocks_concurrent_participation_change(postgres_session, monkeypatch):
