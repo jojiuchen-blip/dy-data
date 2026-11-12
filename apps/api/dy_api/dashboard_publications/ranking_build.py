@@ -15,6 +15,7 @@ from apps.api.dy_api.models import (
     RawDouyinOrderCoupon, RawDouyinVerifyRecord,
 )
 from apps.api.dy_api.ranking_identity import OrderAttributionIndex
+from apps.api.dy_api.ranking_history import load_confirmed_aliases, restore_missing_poi
 from apps.api.dy_api.ranking_legacy_followup import bulk_evaluate_legacy_ranking_followup
 from apps.api.dy_api.ranking_schema_v1 import eligibility, lead_bindings, org_history
 from apps.api.dy_api.ranking_snapshots import utc
@@ -127,8 +128,10 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
         return dates_versions[index][1] if index >= 0 else None
 
     session.execute(frozen.info.insert().values(publication_id=publication_id, cutoff=cutoff))
-    org_count = _copy(session, org_history, frozen.organizations, publication_id,
-        org_history.c.effective_from <= cutoff,
+    from ..ranking_area_corrections import effective_roster
+    roster = effective_roster(session, cutoff)
+    org_count = _copy(session, roster, frozen.organizations, publication_id,
+        roster.c.effective_from <= cutoff,
         [column.name for column in frozen.organizations.c if column.name != "publication_id"])
     eligibility_count = _copy(session, eligibility, frozen.eligibility, publication_id,
         eligibility.c.product_scope == "精诚养车",
@@ -140,8 +143,10 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
     if len(poi_rows) > DIMENSION_LIMIT:
         raise ValueError("榜单POI维度超过构建上限，请核对门店映射")
     unique_pois = _unique_poi_stores(poi_rows)
-    owner_index = OrderAttributionIndex(accounts=_dimensions(session, select(DimAwemeAccount)),
-        bindings=_dimensions(session, select(RawAwemeBinding)), poi_to_store=poi_rows)
+    accounts = _dimensions(session, select(DimAwemeAccount))
+    bindings = _dimensions(session, select(RawAwemeBinding))
+    owner_index = OrderAttributionIndex(accounts=accounts, bindings=bindings, poi_to_store=poi_rows)
+    confirmed = load_confirmed_aliases(session, accounts, bindings, poi_rows, DIMENSION_LIMIT, cutoff)
     sale_time = func.coalesce(RawDouyinOrder.sale_time, RawDouyinOrder.pay_time)
     order_count, last_id = 0, None
     while True:
@@ -158,6 +163,7 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
             at = utc(order.sale_time or order.pay_time)
             owner = owner_index.resolve(occurred_at=at, owner_account_id=order.owner_account_id,
                 owner_douyin_uid=order.owner_douyin_uid, owner_account_name=order.owner_account_name)
+            owner = restore_missing_poi(owner, confirmed, order)
             values.append(dict(publication_id=publication_id, order_id=order.order_id, occurred_at=at,
                 store_id=owner.store_id, is_jingcheng=order.sku_id in skus,
                 reason=None if owner.store_id else owner.reason, historical_unverified=owner.historical_period_unverified))

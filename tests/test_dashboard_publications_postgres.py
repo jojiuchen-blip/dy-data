@@ -12,12 +12,13 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import create_engine, func, select, text, update
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 
 from apps.api.dy_api.dashboard_publications.lifecycle import (
     PublicationError, cleanup_publications, publish_module, resolve_publication,
 )
-from apps.api.dy_api.dashboard_publications.schema import metadata, runs
+from apps.api.dy_api.dashboard_publications.schema import heads, metadata, runs
 
 
 @pytest.fixture()
@@ -181,6 +182,224 @@ def test_source_commit_during_repeatable_read_is_detected_by_observer(pg_factory
         assert session.scalar(text("SELECT count(*) FROM test_projection")) == 1
 
 
+def _snapshot_sales_sources(factory):
+    from apps.api.dy_api.dashboard_publications.sources import (
+        MODULE_SOURCE_TABLES, assert_sources_ready, snapshot_source_tables, source_fingerprint, tracking_ddl,
+    )
+    from apps.api.dy_api.models import JobRun
+
+    with factory.begin() as session:
+        JobRun.__table__.create(session.connection())
+        for name in MODULE_SOURCE_TABLES["sales"]:
+            session.execute(text(f'CREATE TABLE "{name}" (id integer PRIMARY KEY, value integer NOT NULL)'))
+            for statement in tracking_ddl(name):
+                session.execute(text(statement))
+            session.execute(text(f'INSERT INTO "{name}" VALUES (1, 1)'))
+    return {
+        "snapshot_tables": snapshot_source_tables("sales"),
+        "readiness_check": assert_sources_ready,
+        "fingerprint": lambda session: source_fingerprint(session, "sales"),
+    }
+
+
+def _snapshot_pair(session):
+    return tuple(session.execute(text(
+        "SELECT a.value,b.value FROM settlement_order_details a JOIN dim_stores b USING(id) WHERE a.id=1"
+    )).one())
+
+
+def test_snapshot_publishes_consistent_old_pair_as_stale_then_advances(pg_factory):
+    policy = _snapshot_sales_sources(pg_factory)
+    previous = publish_module(pg_factory, "sales", pg_build)
+    with pg_factory() as session:
+        initial_fingerprint = policy["fingerprint"](session)
+    observed = []
+
+    def changing(session, publication_id, cutoff):
+        observed.append(_snapshot_pair(session))
+        with pg_factory.begin() as writer:
+            writer.execute(text("SET LOCAL lock_timeout='500ms'"))
+            writer.execute(text("UPDATE settlement_order_details SET value=2 WHERE id=1"))
+            writer.execute(text("UPDATE dim_stores SET value=2 WHERE id=1"))
+        observed.append(_snapshot_pair(session))
+        session.execute(text("INSERT INTO test_projection VALUES (:id,:value)"),
+                        {"id": publication_id, "value": observed[-1][0] * 10 + observed[-1][1]})
+        return {"row_count": 1}
+
+    snapshot = publish_module(pg_factory, "sales", changing, **policy)
+    assert observed == [(1, 1), (1, 1)]
+    assert snapshot.id != previous.id and snapshot.status == "stale" and snapshot.data_as_of is None
+    assert snapshot.next_refresh_at == snapshot.published_at
+    with pg_factory() as session:
+        assert resolve_publication(session, "sales").status == "stale"
+        row = session.execute(select(runs).where(runs.c.id == snapshot.id)).mappings().one()
+        assert row["status"] == "success" and row["stats_json"]["source_advanced_during_build"] is True
+        assert row["source_fingerprint"] == initial_fingerprint
+        assert session.scalar(text("SELECT value FROM test_projection WHERE publication_id=:id"),
+                              {"id": snapshot.id}) == 11
+        assert _snapshot_pair(session) == (2, 2)
+
+    def latest(session, publication_id, cutoff):
+        pair = _snapshot_pair(session)
+        session.execute(text("INSERT INTO test_projection VALUES (:id,:value)"),
+                        {"id": publication_id, "value": pair[0] * 10 + pair[1]})
+        return {"row_count": 1}
+
+    replacement = publish_module(pg_factory, "sales", latest, **policy)
+    assert replacement.status == "available"
+    assert publish_module(pg_factory, "sales", latest, **policy) is None
+    with pg_factory() as session:
+        assert resolve_publication(session, "sales").id == replacement.id
+        assert session.scalar(text("SELECT value FROM test_projection WHERE publication_id=:id"),
+                              {"id": replacement.id}) == 22
+        assert session.scalar(text("SELECT count(*) FROM test_projection")) == 3
+
+
+@pytest.mark.parametrize("operation", ["TRUNCATE dim_sku_product_rules",
+                                      "ALTER TABLE dim_sku_product_rules ADD COLUMN forbidden integer"])
+def test_snapshot_locks_unread_source_before_first_snapshot(pg_factory, operation):
+    policy = _snapshot_sales_sources(pg_factory)
+
+    def attempt_destructive_change(session, publication_id, cutoff):
+        # The builder has not read this table. Without a pre-snapshot relation
+        # lock, TRUNCATE could expose an empty table even to REPEATABLE READ.
+        with pg_factory() as writer:
+            writer.execute(text("SET LOCAL lock_timeout='100ms'"))
+            writer.execute(text("SET LOCAL statement_timeout='1s'"))
+            with pytest.raises(DBAPIError) as caught:
+                writer.execute(text(operation))
+            assert caught.value.orig.sqlstate == "55P03"
+            writer.rollback()
+        assert session.scalar(text("SELECT value FROM dim_sku_product_rules WHERE id=1")) == 1
+        return pg_build(session, publication_id, cutoff)
+
+    assert publish_module(pg_factory, "sales", attempt_destructive_change, **policy).status == "available"
+
+
+def test_snapshot_refuses_a_source_lock_conflict_without_running_builder(pg_factory):
+    policy = _snapshot_sales_sources(pg_factory)
+    previous = publish_module(pg_factory, "sales", pg_build)
+    called = []
+    with pg_factory() as ddl:
+        ddl.execute(text("LOCK TABLE dim_sku_product_rules IN ACCESS EXCLUSIVE MODE"))
+        with pytest.raises(PublicationError):
+            publish_module(pg_factory, "sales", lambda *_: called.append(True), **policy)
+    assert called == []
+    with pg_factory() as session:
+        assert resolve_publication(session, "sales").id == previous.id
+
+
+@pytest.mark.parametrize("operation", ["source_write", "session_commit", "session_rollback",
+                                      "connection_commit", "connection_rollback", "caught_connection_commit"])
+def test_snapshot_rejects_builder_source_or_transaction_mutation(pg_factory, operation):
+    policy = _snapshot_sales_sources(pg_factory)
+    previous = publish_module(pg_factory, "sales", pg_build)
+
+    def invalid(session, publication_id, cutoff):
+        pg_build(session, publication_id, cutoff)
+        if operation == "source_write":
+            session.execute(text("UPDATE dim_stores SET value=9 WHERE id=1"))
+        elif operation == "caught_connection_commit":
+            with pytest.raises(RuntimeError):
+                session.connection().commit()
+        elif operation.startswith("session_"):
+            getattr(session, operation.removeprefix("session_"))()
+        else:
+            getattr(session.connection(), operation.removeprefix("connection_"))()
+        return {"row_count": 1}
+
+    with pytest.raises(PublicationError) as caught:
+        publish_module(pg_factory, "sales", invalid, **policy)
+    assert caught.value.code == ("PUBLICATION_SOURCE_CHANGED" if operation == "source_write"
+                                 else "PUBLICATION_BUILD_FAILED")
+    with pg_factory() as session:
+        assert resolve_publication(session, "sales").id == previous.id
+        assert session.scalar(text("SELECT count(*) FROM test_projection")) == 1
+        assert session.scalar(text("SELECT value FROM dim_stores WHERE id=1")) == 1
+        assert session.scalar(select(func.count()).select_from(runs).where(runs.c.status == "failed")) == 1
+
+
+@pytest.mark.parametrize("phase", ["before", "during"])
+def test_snapshot_still_rejects_incomplete_business_writer(pg_factory, phase):
+    from apps.api.dy_api.models import JobRun
+
+    policy = _snapshot_sales_sources(pg_factory)
+    previous = publish_module(pg_factory, "sales", pg_build)
+
+    def start_writer():
+        with pg_factory.begin() as writer:
+            writer.add(JobRun(job_id="incomplete", job_name="collect_once",
+                              status="running", metadata_json={}))
+
+    def changing(session, publication_id, cutoff):
+        start_writer()
+        return pg_build(session, publication_id, cutoff)
+
+    if phase == "before":
+        start_writer()
+    with pytest.raises(PublicationError) as caught:
+        publish_module(pg_factory, "sales", changing, **policy)
+    assert caught.value.code == "PUBLICATION_SOURCE_BUSY"
+    with pg_factory() as session:
+        assert resolve_publication(session, "sales").id == previous.id
+        assert session.scalar(text("SELECT count(*) FROM test_projection")) == 1
+
+
+def test_snapshot_observer_missing_counter_is_not_stale_success(pg_factory):
+    policy = _snapshot_sales_sources(pg_factory)
+    previous = publish_module(pg_factory, "sales", pg_build)
+
+    def remove_counter(session, publication_id, cutoff):
+        with pg_factory.begin() as writer:
+            writer.execute(text("DELETE FROM dashboard_publication_source_counters WHERE source_name='dim_stores'"))
+        return pg_build(session, publication_id, cutoff)
+
+    with pytest.raises(PublicationError) as caught:
+        publish_module(pg_factory, "sales", remove_counter, **policy)
+    assert caught.value.code == "PUBLICATION_SOURCE_TRACKING_INCOMPLETE"
+    with pg_factory() as session:
+        assert resolve_publication(session, "sales").id == previous.id
+        assert session.scalar(text("SELECT count(*) FROM test_projection")) == 1
+
+
+def test_snapshot_rejects_an_observer_reusing_the_build_connection(pg_factory):
+    policy = _snapshot_sales_sources(pg_factory)
+    previous = publish_module(pg_factory, "sales", pg_build)
+    builder_connection = []
+
+    def reused_factory():
+        return sessionmaker(builder_connection[0], expire_on_commit=False)() if builder_connection else pg_factory()
+
+    def capture_connection(session, publication_id, cutoff):
+        builder_connection.append(session.connection())
+        return pg_build(session, publication_id, cutoff)
+
+    with pytest.raises(PublicationError) as caught:
+        publish_module(reused_factory, "sales", capture_connection, **policy)
+    assert caught.value.code == "PUBLICATION_BUILD_FAILED"
+    with pg_factory() as session:
+        assert resolve_publication(session, "sales").id == previous.id
+        assert session.scalar(text("SELECT count(*) FROM test_projection")) == 1
+
+
+def test_snapshot_cannot_overwrite_a_head_changed_outside_the_module_lock(pg_factory):
+    policy = _snapshot_sales_sources(pg_factory)
+    first = publish_module(pg_factory, "sales", pg_build)
+    second = publish_module(pg_factory, "sales", pg_build)
+
+    def external_head_writer(session, publication_id, cutoff):
+        with pg_factory.begin() as writer:
+            writer.execute(update(heads).where(heads.c.module == "sales").values(publication_id=first.id))
+        return pg_build(session, publication_id, cutoff)
+
+    with pytest.raises(PublicationError):
+        publish_module(pg_factory, "sales", external_head_writer, **policy)
+    with pg_factory() as session:
+        assert resolve_publication(session, "sales").id == first.id
+        assert session.scalar(text("SELECT count(*) FROM test_projection")) == 2
+        assert session.scalar(select(runs.c.status).where(runs.c.id == second.id)) == "success"
+
+
 def test_shared_writer_lock_defers_build_without_leaking_connection_lock(pg_factory):
     key = 987654321
     with pg_factory() as writer:
@@ -193,7 +412,6 @@ def test_shared_writer_lock_defers_build_without_leaking_connection_lock(pg_fact
 
 
 def test_statement_tracking_covers_mutation_rollback_and_missing_counter(pg_factory):
-    from sqlalchemy.exc import DBAPIError
     from apps.api.dy_api.dashboard_publications.schema import source_counters
     from apps.api.dy_api.dashboard_publications.sources import MODULE_SOURCE_TABLES, source_fingerprint, tracking_ddl
 

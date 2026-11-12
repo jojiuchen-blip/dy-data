@@ -123,9 +123,9 @@ def test_module_contract_token_changes_only_affected_source_fingerprints(factory
     with factory() as session:
         before = {module: sources.source_fingerprint(session, module, now=at)
             for module in ("sales", "clue-overview", "douyin-ranking")}
-        # The independent board keeps the exact pre-change payload/hash.
+        # A pre-alias board must be republished without changing any source counters.
         rows = [(name, 0) for name in sorted(sources.MODULE_SOURCE_TABLES["douyin-ranking"])]
-        assert before["douyin-ranking"] == hashlib.sha256(json.dumps(
+        assert before["douyin-ranking"] != hashlib.sha256(json.dumps(
             {"sources": rows, "time": {}}, separators=(",", ":")).encode()).hexdigest()
         monkeypatch.setitem(sources.MODULE_CONTRACT_VERSIONS, "sales", "next-product-type-contract")
         assert sources.source_fingerprint(session, "sales", now=at) != before["sales"]
@@ -327,10 +327,19 @@ def test_refund_repair_verified_completion_and_heavy_claim_lock(factory):
 
 
 def test_source_dependency_names_exist_in_actual_schemas():
-    from apps.api.dy_api.dashboard_publications.sources import SOURCE_TABLES
+    from apps.api.dy_api.dashboard_publications.sources import MODULE_SOURCE_TABLES, SOURCE_TABLES, snapshot_source_tables
     from apps.api.dy_api.models import Base
     from apps.api.dy_api.ranking_schema_v1 import metadata as ranking_metadata
-    assert set(SOURCE_TABLES) <= set(Base.metadata.tables) | set(ranking_metadata.tables)
+    from apps.api.dy_api.ranking_area_corrections import corrections
+    assert set(SOURCE_TABLES) <= set(Base.metadata.tables) | set(ranking_metadata.tables) | {corrections.name}
+    from apps.api.dy_api.dashboard_publications import ranking_schema
+    for module, tracked in MODULE_SOURCE_TABLES.items():
+        declared = snapshot_source_tables(module)
+        assert tuple(sorted(set(declared))) == declared
+        assert set(tracked) <= set(declared)
+        assert set(declared) <= set(Base.metadata.tables) | set(ranking_metadata.tables) | set(metadata.tables) | {corrections.name}
+        assert {"dashboard_publication_runs", "dashboard_publication_heads", "job_runs",
+                "dashboard_publication_source_counters"} <= set(declared)
 
 
 def test_runtime_registry_and_injected_builder_tick(factory, monkeypatch):
@@ -340,6 +349,48 @@ def test_runtime_registry_and_injected_builder_tick(factory, monkeypatch):
     assert caught.value.code == "PUBLICATION_MODULE_UNKNOWN"
     results = run_tick(factory, {"sales": build}, guarded=False)
     assert results == {"sales": "published"}
+
+
+def test_snapshot_policy_does_not_relax_sqlite_observer_check(factory):
+    token = ["old"]
+    previous = publish_module(factory, "sales", build)
+
+    def changing(session, publication_id, cutoff):
+        token[0] = "new"
+        return build(session, publication_id, cutoff)
+
+    with pytest.raises(PublicationError) as caught:
+        publish_module(factory, "sales", changing, fingerprint=lambda _: token[0],
+                       readiness_check=lambda _: None, snapshot_tables=("unavailable_on_sqlite",))
+    assert caught.value.code == "PUBLICATION_SOURCE_CHANGED"
+    with factory() as session:
+        assert resolve_publication(session, "sales").id == previous.id
+
+
+def test_worker_snapshot_mode_requires_explicit_audited_builder(factory, monkeypatch):
+    from apps.worker import dashboard_publications as worker
+
+    calls = []
+    monkeypatch.setattr(worker, "publish_module", lambda *args, **kwargs: calls.append(kwargs))
+    assert worker.run_tick(factory, {"sales": build}, guarded=False) == {"sales": "unchanged_or_busy"}
+    assert calls[-1]["snapshot_tables"] == ()
+    assert worker.run_tick(factory, {"sales": build}, snapshot=True) == {"sales": "PUBLICATION_WORKER_FAILED"}
+    assert len(calls) == 1
+    monkeypatch.setattr(worker, "load_builder", lambda module: build)
+    assert worker.run_tick(factory, {"sales": build}, snapshot=True) == {"sales": "unchanged_or_busy"}
+    assert "settlement_order_details" in calls[-1]["snapshot_tables"]
+
+
+def test_production_once_path_explicitly_uses_snapshot_policy(factory, monkeypatch):
+    from apps.worker import dashboard_publications as worker
+
+    calls = []
+    monkeypatch.setattr(worker, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(worker, "load_builder", lambda module: build)
+    monkeypatch.setattr(worker, "run_tick", lambda *args, **kwargs: calls.append(kwargs) or {"sales": "published"})
+    monkeypatch.setattr(worker, "check_ready", lambda *args: True)
+    assert worker.main(["--once", "--module", "sales"]) == 0
+    assert calls == [{"snapshot": True}]
 
 
 def test_worker_cleanup_does_not_erase_its_latest_failure(factory):

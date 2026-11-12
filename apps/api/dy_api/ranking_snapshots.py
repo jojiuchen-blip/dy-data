@@ -22,6 +22,7 @@ from apps.api.dy_api.ranking_schema_v1 import (
     org_history, eligibility, lead_bindings, runs, samples, snapshots,
 )
 from apps.api.dy_api.ranking_identity import OrderAttributionIndex
+from apps.api.dy_api.ranking_history import load_confirmed_aliases, restore_missing_poi
 from apps.api.dy_api.clue_product_scope import PRODUCT_SCOPE_LABELS, scope_predicate, validate_product_scope
 from apps.api.dy_api.ranking_legacy_followup import (
     LEGACY_DEFINITIONS as CLUE_FOLLOWUP_METRIC_DEFINITIONS,
@@ -29,7 +30,7 @@ from apps.api.dy_api.ranking_legacy_followup import (
     bulk_evaluate_legacy_ranking_followup as bulk_evaluate_clue_followup_metrics,
 )
 
-METRIC_VERSION = "douyin-ranking-self-store-v7-period-start-sales-org-" + LEGACY_RANKING_VERSION
+METRIC_VERSION = "douyin-ranking-self-store-v8-historical-owner-" + LEGACY_RANKING_VERSION
 
 
 
@@ -115,7 +116,8 @@ def calculate_snapshot(
             raise ValueError("run ID already used with another configuration")
         return run_id
 
-    history = _limited_rows(session, select(org_history), MAX_ORG_HISTORY_ROWS, mappings=True)
+    from .ranking_area_corrections import effective_roster
+    history = _limited_rows(session, select(effective_roster(session, cutoff)), MAX_ORG_HISTORY_ROWS, mappings=True)
     timeline: dict[str, datetime] = {}
     by_org = {}
     for row in history:
@@ -232,10 +234,10 @@ def calculate_snapshot(
     for poi, store in poi_rows:
         poi_candidates[poi].add(store)
     poi_stores = {poi: next(iter(stores)) for poi, stores in poi_candidates.items() if len(stores) == 1}
-    owner_index = OrderAttributionIndex(
-        accounts=_limited_rows(session, select(DimAwemeAccount), MAX_DIMENSION_ROWS, scalar=True),
-        bindings=_limited_rows(session, select(RawAwemeBinding), MAX_DIMENSION_ROWS, scalar=True),
-        poi_to_store=poi_rows)
+    accounts = _limited_rows(session, select(DimAwemeAccount), MAX_DIMENSION_ROWS, scalar=True)
+    bindings = _limited_rows(session, select(RawAwemeBinding), MAX_DIMENSION_ROWS, scalar=True)
+    owner_index = OrderAttributionIndex(accounts=accounts, bindings=bindings, poi_to_store=poi_rows)
+    confirmed = load_confirmed_aliases(session, accounts, bindings, poi_rows, MAX_DIMENSION_ROWS, cutoff)
     for order in orders:
         at = order.sale_time or order.pay_time
         if not at or not start <= utc(at) < end or utc(at) > cutoff:
@@ -243,6 +245,7 @@ def calculate_snapshot(
         at = utc(at)
         owner = owner_index.resolve(occurred_at=at, owner_account_id=order.owner_account_id,
             owner_douyin_uid=order.owner_douyin_uid, owner_account_name=order.owner_account_name)
+        owner = restore_missing_poi(owner, confirmed, order)
         store = owner.store_id
         # Sales and their eligible-store denominator use the same period-start
         # organization. Lead responsibility remains pinned independently below.
@@ -397,14 +400,16 @@ def read_snapshot_report(
     run = session.execute(query.order_by(runs.c.created_at.desc(), runs.c.run_id.desc()).limit(1)).mappings().first()
     if not run:
         raise ValueError("该期间尚未生成指标快照，请等待数据处理完成或调整日期范围")
-    query = select(snapshots, org_history).join(org_history,
-        (snapshots.c.mapping_version == org_history.c.mapping_version) &
-        (snapshots.c.store_id == org_history.c.store_id)).where(snapshots.c.run_id == run["run_id"])
+    from .ranking_area_corrections import effective_roster
+    roster = effective_roster(session, run["observed_through"])
+    query = select(snapshots, roster).join(roster,
+        (snapshots.c.mapping_version == roster.c.mapping_version) &
+        (snapshots.c.store_id == roster.c.store_id)).where(snapshots.c.run_id == run["run_id"])
     if scope_store_ids is not None:
         query = query.where(snapshots.c.store_id.in_(scope_store_ids))
-    for column, value in [(org_history.c.group_name, group_name), (org_history.c.service_center_name, service_center_name),
-                          (org_history.c.district_name, district_name), (org_history.c.area_name, area_name),
-                          (org_history.c.store_id, store_id)]:
+    for column, value in [(roster.c.group_name, group_name), (roster.c.service_center_name, service_center_name),
+                          (roster.c.district_name, district_name), (roster.c.area_name, area_name),
+                          (roster.c.store_id, store_id)]:
         if value:
             query = query.where(column == value)
     grouped = {}

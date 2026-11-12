@@ -29,7 +29,7 @@ MODULE_SOURCE_TABLES: dict[str, tuple[str, ...]] = {
         "raw_douyin_orders", "raw_douyin_clues", "clue_center_orders", "clue_assignment_rounds",
         "clue_follow_up_records", "raw_douyin_order_coupons", "raw_douyin_verify_records",
         "dim_aweme_accounts", "raw_aweme_bindings", "dim_store_poi_mappings", "dim_sku_product_rules",
-        "ranking_store_org_history", "ranking_store_eligibility", "ranking_lead_org_bindings",
+        "ranking_store_org_history", "ranking_area_corrections", "ranking_store_eligibility", "ranking_lead_org_bindings",
     ),
     "sales": ("settlement_order_details", "dim_stores", "dim_sku_product_rules"),
     "clue-overview": (
@@ -49,8 +49,34 @@ MODULE_SOURCE_TABLES: dict[str, tuple[str, ...]] = {
 }
 SOURCE_TABLES = tuple(sorted({name for names in MODULE_SOURCE_TABLES.values() for name in names}))
 
-# Only changed analytical contracts participate. Independent ranking keeps its
-# original fingerprint payload and finance keeps its immutable amount contract.
+# Snapshot locks cover reads, not only tracked refresh dependencies. Keep this
+# separate from SOURCE_TABLES: adding a read lock is not a tracker migration.
+_SNAPSHOT_COMMON_TABLES = (
+    "job_runs", "dashboard_publication_source_counters",
+    "dashboard_publication_runs", "dashboard_publication_heads",
+)
+_SNAPSHOT_EXTRA_TABLES: dict[str, tuple[str, ...]] = {
+    "douyin-ranking": ("dashboard_ranking_lead_bindings", "dashboard_ranking_info"),
+    "sales": (),
+    "clue-overview": (),
+    "settlement": (
+        "settlement_statement_confirmation", "settlement_dispute", "promotion_invoice_allocation",
+        "invoice_record", "settlement_carryforward_source", "settlement_carryforward_application",
+    ),
+    "finance": ("settlement_fee_result", "settlement_statement_entry", "settlement_statement_line"),
+}
+
+
+def snapshot_source_tables(module: str) -> tuple[str, ...]:
+    """Declare physical relations read by the audited built-in builders.
+
+    ACCESS SHARE protects the MVCC snapshot from TRUNCATE/DDL while allowing
+    normal source DML. Names are code-owned declarations, never request input.
+    """
+    return tuple(sorted(set(MODULE_SOURCE_TABLES[module])
+                        | set(_SNAPSHOT_COMMON_TABLES) | set(_SNAPSHOT_EXTRA_TABLES[module])))
+
+# Only changed analytical contracts participate; finance keeps its immutable amount contract.
 MODULE_CONTRACT_VERSIONS = {
     "sales": "product-type-v2",
     "clue-overview": "product-type-v2",
@@ -100,6 +126,10 @@ def source_fingerprint(session: Session, module: str | None = None, *, now: date
         from . import period_readiness
         time_token["financial_periods"] = period_readiness.fingerprint(period_readiness.capture(session, cutoff))
     payload = {"sources": [tuple(row) for row in rows], "time": time_token}
+    if module == "douyin-ranking":
+        # A rebuild dependency, not a wire-format change: old complete heads
+        # remain readable until a new immutable ranking is ready.
+        payload["order_attribution_version"] = "historical-store-account-v1"
     if module in MODULE_CONTRACT_VERSIONS:
         payload["contract_version"] = MODULE_CONTRACT_VERSIONS[module]
     return hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode()).hexdigest()

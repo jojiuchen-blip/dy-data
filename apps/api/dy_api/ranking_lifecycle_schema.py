@@ -81,6 +81,7 @@ SOURCE_TABLES: tuple[str, ...] = (
     "clue_assignment_rounds",
     "clue_follow_up_records",
     "ranking_store_org_history",
+    "ranking_area_corrections",
     "ranking_store_eligibility",
 )
 

@@ -33,6 +33,7 @@ from apps.api.dy_api.models import (
 )
 from apps.worker.projection_lineage import (
     LineageError,
+    MAX_COMPACT_PROVENANCE_SOURCES,
     MAX_LINEAGE_DEPTH,
     _CompactProvenanceContext,
     _INHERITED_COMPACT_STATES,
@@ -4368,6 +4369,57 @@ def _load_compaction_lineage(
     return rows
 
 
+def _compaction_provenance_rows(
+    session: Session, lineage_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, str]]:
+    """Merge the bounded direct chain with its verified compact provenance.
+
+    Direct rows still define partition selection. The complete closure also
+    records older physical leaves required by the compact manifest FK.
+    """
+    sources = {str(row["generation_id"]): str(row["manifest_checksum"])
+               for row in lineage_rows}
+    if lineage_rows and _as_text(lineage_rows[-1].get("generation_kind")) == "compact":
+        try:
+            closure = _CompactProvenanceContext(session).verified_closure(
+                str(lineage_rows[-1]["generation_id"]), allowed_states=_INHERITED_COMPACT_STATES,
+            )
+        except LineageError as exc:
+            raise LegacyProjectionBootstrapError("compact ancestor provenance is invalid") from exc
+        for source_id, row in closure.source_rows.items():
+            digest = str(row["source_digest"])
+            if source_id in sources and sources[source_id] != digest:
+                raise LegacyProjectionBootstrapError("compact provenance digest conflicts")
+            sources[source_id] = digest
+    if len(sources) > MAX_COMPACT_PROVENANCE_SOURCES:
+        raise LegacyProjectionBootstrapError("compact provenance exceeds maximum source count")
+    return [{"generation_id": source_id, "manifest_checksum": digest}
+            for source_id, digest in sorted(sources.items())]
+
+
+def _load_compaction_provenance(
+    session_factory: Callable[[], Session], lineage_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, str]]:
+    session = _open_session(session_factory)
+    try:
+        return _compaction_provenance_rows(session, lineage_rows)
+    finally:
+        _close_session(session)
+
+
+def _expanded_provenance_checksum(
+    lineage_rows: Sequence[Mapping[str, Any]], closure_rows: Sequence[Mapping[str, Any]],
+) -> str | None:
+    # Single-compaction identities remain byte-for-byte compatible. Only an
+    # expanded closure gets a new deterministic candidate identity, preserving
+    # older incomplete candidates and their durable checkpoints for audit.
+    if len(closure_rows) == len(lineage_rows):
+        return None
+    return _sha256(_canonical_json(sorted(
+        ((str(row["generation_id"]), str(row["manifest_checksum"])) for row in closure_rows),
+    )))
+
+
 def _compaction_key_page(
     session_factory: Callable[[], Session],
     lineage_ids: Sequence[str],
@@ -4721,19 +4773,19 @@ def _compaction_fingerprint(
     base_generation_id: str,
     base_manifest_checksum: str,
     effective_checksum: str,
+    provenance_checksum: str | None = None,
 ) -> str:
-    return _sha256(
-        _canonical_json(
-            {
-                "protocol": COMPACTION_PROTOCOL,
-                "projection": PROJECTION,
-                "operation": COMPACTION_OPERATION,
-                "base_generation_id": base_generation_id,
-                "base_manifest_checksum": base_manifest_checksum,
-                "effective_checksum": effective_checksum,
-            }
-        )
-    )
+    identity = {
+        "protocol": COMPACTION_PROTOCOL,
+        "projection": PROJECTION,
+        "operation": COMPACTION_OPERATION,
+        "base_generation_id": base_generation_id,
+        "base_manifest_checksum": base_manifest_checksum,
+        "effective_checksum": effective_checksum,
+    }
+    if provenance_checksum is not None:
+        identity["provenance_checksum"] = provenance_checksum
+    return _sha256(_canonical_json(identity))
 
 
 def _compaction_checkpoint(
@@ -4930,14 +4982,25 @@ def _verify_compaction_ready(
     plan_summary: _CompactionPlanSummary,
     resource: tuple[int, int, int, int, int],
     batch_size: int,
+    closure_rows: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    closure_rows = lineage_rows if closure_rows is None else closure_rows
+    provenance_checksum = _expanded_provenance_checksum(lineage_rows, closure_rows)
+    expected_fingerprint = _compaction_fingerprint(
+        base_generation_id, str(lineage_rows[0]["manifest_checksum"]),
+        plan_summary.effective_checksum, provenance_checksum,
+    )
+    if (generation.input_fingerprint != expected_fingerprint
+            or generation.generation_id != f"settlement-compact:{expected_fingerprint}"
+            or (generation.source_input_json or {}).get("provenance_checksum") != provenance_checksum):
+        raise LegacyProjectionBootstrapError("compaction provenance identity conflicts")
     checkpoint = _validate_compaction_checkpoint(
         generation,
         base_generation_id=base_generation_id,
         effective_checksum=plan_summary.effective_checksum,
         resource=resource,
         batch_size=batch_size,
-        source_generation_count=len(lineage_rows),
+        source_generation_count=len(closure_rows),
     )
     if (
         checkpoint.get("partition_count") != plan_summary.manifest_rows
@@ -5017,13 +5080,13 @@ def _verify_compaction_ready(
                 select(SettlementProjectionCompactionClosure).where(
                     SettlementProjectionCompactionClosure.compact_generation_id
                     == generation.generation_id
-                )
+                ).limit(MAX_COMPACT_PROVENANCE_SOURCES + 1)
             ).all()
         }
     finally:
         _close_session(session)
     expected_closure = {
-        str(row["generation_id"]): str(row["manifest_checksum"]) for row in lineage_rows
+        str(row["generation_id"]): str(row["manifest_checksum"]) for row in closure_rows
     }
     if closure != expected_closure:
         raise LegacyProjectionBootstrapError("compaction closure verification failed")
@@ -5040,9 +5103,11 @@ def _cleanup_failed_compaction(
     resource: tuple[int, int, int, int, int],
     batch_size: int,
     fingerprint: str,
+    closure_rows: Sequence[Mapping[str, Any]] | None = None,
 ) -> SettlementProjectionGeneration:
     """Delete only failed compact metadata under a fresh state lock."""
 
+    closure_rows = lineage_rows if closure_rows is None else closure_rows
     while True:
         session = _open_session(session_factory)
         try:
@@ -5105,7 +5170,7 @@ def _cleanup_failed_compaction(
                         batch_size=batch_size,
                         batch_count=0,
                         partition_count=0,
-                        source_generation_count=len(lineage_rows),
+                        source_generation_count=len(closure_rows),
                         effective_checksum=effective_checksum,
                         resource=resource,
                     ),
@@ -5127,7 +5192,7 @@ def _cleanup_failed_compaction(
                         source_generation_id=str(row["generation_id"]),
                         source_digest=str(row["manifest_checksum"]),
                     )
-                    for row in lineage_rows
+                    for row in closure_rows
                 ]
             )
             current.state = "staging"
@@ -5143,7 +5208,7 @@ def _cleanup_failed_compaction(
                 batch_size=batch_size,
                 batch_count=0,
                 partition_count=0,
-                source_generation_count=len(lineage_rows),
+                source_generation_count=len(closure_rows),
                 effective_checksum=effective_checksum,
                 resource=resource,
             )
@@ -5158,6 +5223,8 @@ def _cleanup_failed_compaction(
                 "operation": COMPACTION_OPERATION,
                 "base_generation_id": base_generation_id,
                 "effective_checksum": effective_checksum,
+                **({"provenance_checksum": _expanded_provenance_checksum(lineage_rows, closure_rows)}
+                   if len(closure_rows) > len(lineage_rows) else {}),
             }
             session.commit()
             session.refresh(current)
@@ -5216,6 +5283,8 @@ def _compact_projection_metadata_locked(
         or head_depth < threshold_config.minimum_lineage_depth
     ):
         return _compaction_not_needed(base_generation_id)
+    closure_rows = _load_compaction_provenance(session_factory, lineage_rows)
+    provenance_checksum = _expanded_provenance_checksum(lineage_rows, closure_rows)
     plan_summary = _summarize_compaction_plan(
         session_factory,
         base_generation_id,
@@ -5224,13 +5293,13 @@ def _compact_projection_metadata_locked(
     )
     effective_checksum = plan_summary.effective_checksum
     resource, guard_code = _compaction_resource(
-        plan_summary.manifest_rows, len(lineage_rows), resource_limits
+        plan_summary.manifest_rows, len(closure_rows), resource_limits
     )
     if guard_code is not None:
         return _compaction_guard(base_generation_id, guard_code)
     base_manifest_checksum = str(lineage_rows[0]["manifest_checksum"])
     fingerprint = _compaction_fingerprint(
-        base_generation_id, base_manifest_checksum, effective_checksum
+        base_generation_id, base_manifest_checksum, effective_checksum, provenance_checksum
     )
     generation_id = f"settlement-compact:{fingerprint}"
     generation = _load_generation(session_factory, generation_id)
@@ -5259,7 +5328,7 @@ def _compact_projection_metadata_locked(
                         batch_size=threshold_config.batch_size,
                         batch_count=0,
                         partition_count=0,
-                        source_generation_count=len(lineage_rows),
+                        source_generation_count=len(closure_rows),
                         effective_checksum=effective_checksum,
                         resource=resource,
                     ),
@@ -5271,6 +5340,7 @@ def _compact_projection_metadata_locked(
                         "operation": COMPACTION_OPERATION,
                         "base_generation_id": base_generation_id,
                         "effective_checksum": effective_checksum,
+                        **({"provenance_checksum": provenance_checksum} if provenance_checksum else {}),
                     },
                 )
             )
@@ -5282,7 +5352,7 @@ def _compact_projection_metadata_locked(
                         source_generation_id=str(row["generation_id"]),
                         source_digest=str(row["manifest_checksum"]),
                     )
-                    for row in lineage_rows
+                    for row in closure_rows
                 ]
             )
             session.commit()
@@ -5312,6 +5382,7 @@ def _compact_projection_metadata_locked(
             generation,
             base_generation_id=base_generation_id,
             lineage_rows=lineage_rows,
+            closure_rows=closure_rows,
             effective_checksum=effective_checksum,
             resource=resource,
             batch_size=threshold_config.batch_size,
@@ -5327,7 +5398,7 @@ def _compact_projection_metadata_locked(
             effective_checksum=effective_checksum,
             resource=resource,
             batch_size=threshold_config.batch_size,
-            source_generation_count=len(lineage_rows),
+            source_generation_count=len(closure_rows),
         )
     except LegacyProjectionBootstrapError as exc:
         _fail_compaction_generation(
@@ -5344,6 +5415,7 @@ def _compact_projection_metadata_locked(
                 generation,
                 base_generation_id=base_generation_id,
                 lineage_rows=lineage_rows,
+                closure_rows=closure_rows,
                 plan_summary=plan_summary,
                 resource=resource,
                 batch_size=threshold_config.batch_size,
@@ -5364,7 +5436,7 @@ def _compact_projection_metadata_locked(
             base_generation_id=base_generation_id,
             batch_count=int(checkpoint["batch_count"]),
             partition_count=int(checkpoint["partition_count"]),
-            source_generation_count=len(lineage_rows),
+            source_generation_count=len(closure_rows),
             last_key=generation.last_key,
             manifest_checksum=generation.manifest_checksum,
             failure_code=None,
@@ -5409,7 +5481,7 @@ def _compact_projection_metadata_locked(
             batch_size=threshold_config.batch_size,
             batch_count=int(checkpoint["batch_count"]) + 1,
             partition_count=page_end,
-            source_generation_count=len(lineage_rows),
+            source_generation_count=len(closure_rows),
             effective_checksum=effective_checksum,
             resource=resource,
         )
@@ -5439,7 +5511,7 @@ def _compact_projection_metadata_locked(
                     effective_checksum=effective_checksum,
                     resource=resource,
                     batch_size=threshold_config.batch_size,
-                    source_generation_count=len(lineage_rows),
+                    source_generation_count=len(closure_rows),
                 )
                 if (
                     current_checkpoint.get("partition_count")
@@ -5492,6 +5564,7 @@ def _compact_projection_metadata_locked(
             generation,
             base_generation_id=base_generation_id,
             lineage_rows=lineage_rows,
+            closure_rows=closure_rows,
             plan_summary=plan_summary,
             resource=resource,
             batch_size=threshold_config.batch_size,
@@ -5513,7 +5586,7 @@ def _compact_projection_metadata_locked(
             base_generation_id=base_generation_id,
             batch_count=int(checkpoint["batch_count"]),
             partition_count=int(checkpoint["partition_count"]),
-            source_generation_count=len(lineage_rows),
+            source_generation_count=len(closure_rows),
             last_key=generation.last_key,
             manifest_checksum=generation.manifest_checksum,
             failure_code=None,
@@ -5536,7 +5609,7 @@ def _compact_projection_metadata_locked(
             effective_checksum=effective_checksum,
             resource=resource,
             batch_size=threshold_config.batch_size,
-            source_generation_count=len(lineage_rows),
+            source_generation_count=len(closure_rows),
         )
         if current.state == "ready":
             if (
@@ -5581,7 +5654,7 @@ def _compact_projection_metadata_locked(
                 batch_size=threshold_config.batch_size,
                 batch_count=int(checkpoint["batch_count"]),
                 partition_count=plan_summary.manifest_rows,
-                source_generation_count=len(lineage_rows),
+                source_generation_count=len(closure_rows),
                 effective_checksum=effective_checksum,
                 resource=resource,
             )
@@ -5605,7 +5678,7 @@ def _compact_projection_metadata_locked(
         base_generation_id=base_generation_id,
         batch_count=int(checkpoint["batch_count"]),
         partition_count=plan_summary.manifest_rows,
-        source_generation_count=len(lineage_rows),
+        source_generation_count=len(closure_rows),
         last_key=generation.last_key,
         manifest_checksum=effective_checksum,
         failure_code=None,
@@ -5662,6 +5735,7 @@ def reverify_ready_compaction_publication(
     if not isinstance(base_generation_id, str) or not base_generation_id:
         raise LegacyProjectionBootstrapError("reverify compaction base is missing")
     lineage_rows = _load_compaction_lineage(session_factory, base_generation_id)
+    closure_rows = _load_compaction_provenance(session_factory, lineage_rows)
     checkpoint = generation.checkpoint_json
     if not isinstance(checkpoint, Mapping):
         raise LegacyProjectionBootstrapError("reverify compaction checkpoint is malformed")
@@ -5686,6 +5760,7 @@ def reverify_ready_compaction_publication(
         generation,
         base_generation_id=base_generation_id,
         lineage_rows=lineage_rows,
+        closure_rows=closure_rows,
         plan_summary=plan_summary,
         resource=resource,
         batch_size=batch_size,

@@ -449,6 +449,12 @@ def _record_compaction_event(
     payload: dict[str, object],
 ) -> None:
     once_key = f"{SETTLEMENT_COMPACTION_PROTOCOL}:{event_type}:{job.job_id}"
+    if len(once_key) > 128:
+        # Keep legacy short keys replayable while hashing the complete identity
+        # for longer maintenance reasons into the audit column's fixed budget.
+        once_key = "settlement-compaction-event:sha256:" + hashlib.sha256(
+            once_key.encode("utf-8")
+        ).hexdigest()
     existing = session.scalar(
         select(JobEvent).where(
             JobEvent.job_id == job.job_id,

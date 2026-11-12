@@ -4,8 +4,8 @@
 
 ## 1. 摘要
 
-- 文件节点：1456
-- 文件关系：1744
+- 文件节点：1428
+- 文件关系：1712
 - 诊断问题：43
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
@@ -110,23 +110,23 @@
 | AGENTS.md | links_to | project-rules.md | AGENTS.md:83 |
 | AGENTS.md | links_to | RELEASING.md | AGENTS.md:141 |
 | apps/web/README.md | links_to | docs/design-system/README.md | apps/web/README.md:53 |
-| CHANGELOG.md | links_to | docs/devlog/2026-09-10-priority-daily.md | CHANGELOG.md:168 |
-| CHANGELOG.md | links_to | docs/devlog/20260723_refactor_log_Keith_Chen.md | CHANGELOG.md:184 |
-| CHANGELOG.md | links_to | docs/devlog/20260827_dydata-46-production-promotion.md | CHANGELOG.md:184 |
-| CHANGELOG.md | links_to | docs/devlog/20260910_refactor_log_Keith_Chen.md | CHANGELOG.md:168 |
-| CHANGELOG.md | links_to | docs/devlog/20260911_ranking_dashboard_production.md | CHANGELOG.md:152 |
-| CHANGELOG.md | links_to | docs/devlog/20260915_account_org_scope.md | CHANGELOG.md:153 |
-| CHANGELOG.md | links_to | docs/devlog/20260917_account_current_org.md | CHANGELOG.md:153 |
-| CHANGELOG.md | links_to | docs/devlog/20260928_refactor_log_Your_Name.md | CHANGELOG.md:135 |
-| CHANGELOG.md | links_to | docs/devlog/20260929_activation_guide_reminder.md | CHANGELOG.md:136 |
-| CHANGELOG.md | links_to | docs/devlog/20261009_disk_ranking_retention.md | CHANGELOG.md:118 |
-| CHANGELOG.md | links_to | docs/devlog/20261020_dydata-104-followthrough.md | CHANGELOG.md:101 |
-| CHANGELOG.md | links_to | docs/devlog/20261028_refactor_log_Keith_Chen.md | CHANGELOG.md:68 |
-| CHANGELOG.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-46-production-promotion-T2.1-release-uat.md | CHANGELOG.md:184 |
-| CHANGELOG.md | links_to | docs/verification/dydata-104-oct23.md | CHANGELOG.md:84 |
-| CHANGELOG.md | links_to | docs/verification/dydata-104-oct27-delivery.md | CHANGELOG.md:49 |
-| CHANGELOG.md | links_to | docs/verification/dydata-104-oct28-verify-impact.md | CHANGELOG.md:67 |
-| CHANGELOG.md | links_to | docs/verification/dydata-104-oct30-delivery.md | CHANGELOG.md:32 |
+| CHANGELOG.md | links_to | docs/devlog/2026-09-10-priority-daily.md | CHANGELOG.md:176 |
+| CHANGELOG.md | links_to | docs/devlog/20260723_refactor_log_Keith_Chen.md | CHANGELOG.md:192 |
+| CHANGELOG.md | links_to | docs/devlog/20260827_dydata-46-production-promotion.md | CHANGELOG.md:192 |
+| CHANGELOG.md | links_to | docs/devlog/20260910_refactor_log_Keith_Chen.md | CHANGELOG.md:176 |
+| CHANGELOG.md | links_to | docs/devlog/20260911_ranking_dashboard_production.md | CHANGELOG.md:160 |
+| CHANGELOG.md | links_to | docs/devlog/20260915_account_org_scope.md | CHANGELOG.md:161 |
+| CHANGELOG.md | links_to | docs/devlog/20260917_account_current_org.md | CHANGELOG.md:161 |
+| CHANGELOG.md | links_to | docs/devlog/20260928_refactor_log_Your_Name.md | CHANGELOG.md:143 |
+| CHANGELOG.md | links_to | docs/devlog/20260929_activation_guide_reminder.md | CHANGELOG.md:144 |
+| CHANGELOG.md | links_to | docs/devlog/20261009_disk_ranking_retention.md | CHANGELOG.md:126 |
+| CHANGELOG.md | links_to | docs/devlog/20261020_dydata-104-followthrough.md | CHANGELOG.md:109 |
+| CHANGELOG.md | links_to | docs/devlog/20261028_refactor_log_Keith_Chen.md | CHANGELOG.md:76 |
+| CHANGELOG.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-46-production-promotion-T2.1-release-uat.md | CHANGELOG.md:192 |
+| CHANGELOG.md | links_to | docs/verification/20261104-november-recovery-release.md | CHANGELOG.md:27 |
+| CHANGELOG.md | links_to | docs/verification/dydata-104-oct23.md | CHANGELOG.md:92 |
+| CHANGELOG.md | links_to | docs/verification/dydata-104-oct27-delivery.md | CHANGELOG.md:57 |
+| CHANGELOG.md | links_to | docs/verification/dydata-104-oct28-verify-impact.md | CHANGELOG.md:75 |
 | CHANGELOG.md | links_to | README.md | CHANGELOG.md:3 |
 | CHANGELOG.md | links_to | RELEASING.md | CHANGELOG.md:3 |
 | design-system/dy-data/MASTER.md | links_to | docs/design-system/README.md | design-system/dy-data/MASTER.md:15 |
@@ -145,10 +145,8 @@
 | docs/api-contract.md | links_to | docs/api/settlement-scope-rules.md | docs/api-contract.md:230 |
 | docs/api-contract.md | links_to | docs/devlog/20260914_ranking_export.md | docs/api-contract.md:206 |
 | docs/api-contract.md | links_to | docs/prd/foundation/foundation-api-dy-data.md | docs/api-contract.md:3 |
-| docs/api-contract.md | links_to | docs/prd/foundation/foundation-api-dy-data/billing-invoice.md | docs/api-contract.md:245 |
-| docs/api-contract.md | links_to | docs/prd/foundation/foundation-api-dy-data/sku-fee-admin.md | docs/api-contract.md:247 |
-| docs/api-contract.md | links_to | docs/verification/dydata-104-oct30-delivery.md | docs/api-contract.md:247 |
-| docs/api/dashboard-publications.md | links_to | docs/api/product-type-classification.md | docs/api/dashboard-publications.md:93 |
+| docs/api/dashboard-publications.md | links_to | docs/api/product-type-classification.md | docs/api/dashboard-publications.md:103 |
+| docs/api/dashboard-publications.md | links_to | docs/verification/20261104-november-recovery-release.md | docs/api/dashboard-publications.md:3 |
 | docs/api/pdca-event-snapshot.md | links_to | docs/api/pdca-event-manifest.schema.json | docs/api/pdca-event-snapshot.md:83 |
 | docs/api/pdca-event-snapshot.md | links_to | docs/api/pdca-event-page.schema.json | docs/api/pdca-event-snapshot.md:84 |
 | docs/api/pdca-event-snapshot.md | links_to | docs/api/pdca-event-synthetic-example.json | docs/api/pdca-event-snapshot.md:85 |
@@ -219,6 +217,8 @@
 | docs/devlog/20260820_refactor_log_jojiuchen-blip.md | links_to | docs/prd/foundation/foundation-api-dy-data/settlement-reporting.md | docs/devlog/20260820_refactor_log_jojiuchen-blip.md:49 |
 | docs/devlog/20260820_refactor_log_jojiuchen-blip.md | links_to | docs/prd/foundation/foundation-schema-dy-data.md | docs/devlog/20260820_refactor_log_jojiuchen-blip.md:158 |
 | docs/devlog/20260820_refactor_log_jojiuchen-blip.md | links_to | docs/prd/foundation/foundation-schema-dy-data/settlement-reporting.md | docs/devlog/20260820_refactor_log_jojiuchen-blip.md:158 |
+| docs/devlog/20260820_refactor_log_jojiuchen-blip.md | links_to | docs/prd/subprd/03-subprd-order-fee-details.md | docs/devlog/20260820_refactor_log_jojiuchen-blip.md:49 |
+| docs/devlog/20260820_refactor_log_jojiuchen-blip.md | links_to | project-profile.md | docs/devlog/20260820_refactor_log_jojiuchen-blip.md:61 |
 
 ## 4. 诊断问题
 

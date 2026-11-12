@@ -24,7 +24,7 @@ from apps.api.dy_api.dashboard_publications.lifecycle import (
 )
 from apps.api.dy_api.dashboard_publications.schema import metadata
 from apps.api.dy_api.dashboard_publications.sources import (
-    assert_sources_ready, source_fingerprint, writer_lock_keys,
+    assert_sources_ready, snapshot_source_tables, source_fingerprint, writer_lock_keys,
 )
 from apps.api.dy_api.db import get_session_factory
 
@@ -55,6 +55,7 @@ def load_builder(module: str) -> Builder:
 def run_tick(
     factory: SessionFactory, registry: Mapping[str, Builder], *,
     now: datetime | None = None, guarded: bool = True,
+    snapshot: bool = False,
 ) -> dict[str, str]:
     """Run injected modules for CLI/tests; one failure does not hide another.
 
@@ -68,12 +69,15 @@ def run_tick(
         # this build cannot claim a new roster while freezing the old cutoff.
         cutoff = now or datetime.now(UTC)
         try:
+            if snapshot and (not guarded or builder is not load_builder(module)):
+                raise ValueError("snapshot mode requires a guarded built-in builder")
             publication = publish_module(
                 factory, module, builder, now=cutoff,
                 fingerprint=(lambda session, module=module: source_fingerprint(session, module, now=cutoff)) if guarded else None,
                 readiness_check=assert_sources_ready if guarded else None,
                 shared_lock_keys=writer_lock_keys() if guarded else (),
                 refresh_on_interval=module == "douyin-ranking",
+                snapshot_tables=snapshot_source_tables(module) if snapshot else (),
                 statement_timeout_ms=_bounded_int("PUBLICATION_STATEMENT_TIMEOUT_MS", 120000, 1000, 900000),
             )
             result[module] = "published" if publication else "unchanged_or_busy"
@@ -195,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
         if arguments.check_ready:
             return int(failed or not check_ready(factory, modules))
         for module, builder in registry.items():
-            results = run_tick(factory, {module: builder})
+            results = run_tick(factory, {module: builder}, snapshot=True)
             failed = failed or any(value not in {"published", "unchanged_or_busy", "PUBLICATION_SOURCE_BUSY"}
                                    for value in results.values())
         ready = check_ready(factory, modules)

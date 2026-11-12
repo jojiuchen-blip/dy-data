@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import threading
 from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import uvicorn
@@ -111,7 +112,8 @@ def confirm_and_open(page, web):
         page.get_by_role("button", name="确认提交", exact=True).click()
     assert confirmed.value.status == 200, confirmed.value.text()
     page.get_by_role("link", name="进入推广费开票").click()
-    assert "/settlement/invoice" in page.url
+    assert urlsplit(page.url).path == "/settlement/invoice"
+    assert parse_qs(urlsplit(page.url).query)["month"] == ["2026-09"]
     expect(page).to_have_title("抖音经营数据引擎")
     expect(page.get_by_role("heading", name="开票确认", exact=True)).to_be_visible()
     info = page.locator(".store-finance-invoice-info")
@@ -125,6 +127,24 @@ def fill_registration(page, number="00123456789012345678"):
     page.get_by_label("20 位数电专票号码", exact=True).fill(number)
 
 
+def _invoice_statement_response(response, api_url):
+    url = urlsplit(response.url)
+    api = urlsplit(api_url)
+    return (response.request.method == "GET"
+            and (url.scheme, url.netloc, url.path) == (api.scheme, api.netloc, "/api/v1/store-settlements")
+            and parse_qs(url.query) == {"storeId": ["oct23-store"], "month": ["2026-09"],
+                "metricScope": ["MONTH"], "feeDirection": ["PROMOTION"], "pageSize": ["50"]})
+
+
+def _open_invoice_with_statement_data(page, web, api_url):
+    # Bind to the invoice page's real request for the selected promotion bill.
+    with page.expect_response(lambda response: _invoice_statement_response(response, api_url)) as loaded:
+        info = confirm_and_open(page, web)
+    response = loaded.value
+    assert response.status == 200, response.text()
+    return info, response.json()["data"]
+
+
 @pytest.mark.parametrize("width,height", [(390, 844), (768, 1024), (1440, 900)])
 def test_confirmed_bill_displays_server_tax_and_registers_without_manual_amounts(
     browser, invoice_web, invoice_api, tmp_path, width, height,
@@ -134,14 +154,10 @@ def test_confirmed_bill_displays_server_tax_and_registers_without_manual_amounts
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.on("console", lambda message: errors.append(message.text) if message.type == "error" else None)
-    summaries = []
     posts = []
     page.on("request", lambda request: posts.append(request) if request.method == "POST" and request.url.endswith("/promotion-invoices") else None)
-    page.on("response", lambda response: summaries.append(response) if "/store-settlements?" in response.url else None)
     try:
-        info = confirm_and_open(page, invoice_web)
-        assert summaries
-        statement_data = summaries[-1].json()["data"]
+        info, statement_data = _open_invoice_with_statement_data(page, invoice_web, invoice_api[0])
         summary = statement_data["promotionInvoiceSummary"]
         group_id = statement_data["list"][0]["promotionInvoiceGroupId"]
         assert summary == {"invoiceAmountCent": 10601, "netAmountCent": 10001,
@@ -180,6 +196,36 @@ def test_confirmed_bill_displays_server_tax_and_registers_without_manual_amounts
     finally:
         context.close()
 
+
+def test_invoice_confirmation_link_reads_only_the_selected_month(browser, invoice_web, invoice_api):
+    with invoice_api[1].begin() as session:
+        session.add(AggStoreMonthlySettlement(
+            month="2026-10", store_id="oct23-store", product_scope="all", product_type="all",
+        ))
+    with invoice_api[1]() as session:
+        publish_fixture(session, "settlement")
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    promotion_months = []
+
+    def observe_statement_request(request):
+        url = urlsplit(request.url)
+        query = parse_qs(url.query)
+        if (request.method == "GET" and url.path == "/api/v1/store-settlements"
+                and query.get("storeId") == ["oct23-store"] and query.get("feeDirection") == ["PROMOTION"]):
+            promotion_months.extend(query.get("month", []))
+
+    page.on("request", observe_statement_request)
+    try:
+        info, statement_data = _open_invoice_with_statement_data(page, invoice_web, invoice_api[0])
+        assert promotion_months and set(promotion_months) == {"2026-09"}
+        assert statement_data["list"][0]["statementId"] == "oct23-bill"
+        assert statement_data["promotionInvoiceSummary"] == {
+            "invoiceAmountCent": 10601, "netAmountCent": 10001, "taxAmountCent": 600,
+            "taxRatePercent": 6, "requiredStatementIds": ["oct23-bill"]}
+        expect(info).to_contain_text("106.01")
+    finally:
+        context.close()
 
 
 def test_invalid_ascii_numbers_and_real_submit_failures_never_show_success(

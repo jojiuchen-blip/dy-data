@@ -22,6 +22,7 @@ PartitionKey = str
 SourceKind = Literal["overlay", "legacy_root", "tombstone"]
 
 MAX_LINEAGE_DEPTH = 64
+MAX_COMPACT_PROVENANCE_SOURCES = 1024
 MAX_PARTITION_KEYS = 1000
 _ARTIFACTS = {"monthly", "ranking", "score"}
 _LOWER_HEX_64 = re.compile(r"[0-9a-f]{64}\Z")
@@ -341,10 +342,10 @@ def _verify_compact_closure(
     # and every closure/source row come back together via LEFT JOINs.  The
     # head is parsed from the first row; closure rows carry non-NULL
     # ``source_generation_id`` columns from the closure table itself, so a
-    # compact with no closure rows yields a single all-NULL closure side.  The
-    # LIMIT reads at most 66 rows (MAX_LINEAGE_DEPTH + 2) so a closure with
-    # more than 65 sources exceeds the limit and fails closed below instead
-    # of being silently truncated.
+    # compact with no closure rows yields a single all-NULL closure side.
+    # Provenance can include leaves inherited across previous compactions.
+    # Its independent bounded LIMIT reads one extra source so overflow fails
+    # closed instead of being silently truncated.
     try:
         rows_result = session.execute(
             text(
@@ -384,7 +385,7 @@ def _verify_compact_closure(
             ),
             {
                 "compact_generation_id": compact_generation_id,
-                "row_limit": MAX_LINEAGE_DEPTH + 2,
+                "row_limit": MAX_COMPACT_PROVENANCE_SOURCES + 1,
             },
         )
         joined_rows = [dict(row) for row in rows_result.mappings().all()]
@@ -476,7 +477,7 @@ def _verify_compact_closure(
         else:
             ordinary_source_ids.add(source_id)
         source_rows[source_id] = row
-    if len(source_rows) > MAX_LINEAGE_DEPTH + 1:
+    if len(source_rows) > MAX_COMPACT_PROVENANCE_SOURCES:
         raise LineageError("compact provenance exceeds maximum source count")
     return _VerifiedCompactClosure(
         compact_generation_id=compact_generation_id,
@@ -510,6 +511,7 @@ class _CompactProvenanceContext:
         self._presence: dict[tuple[str, str, str], int] = {}
         self._verified: set[tuple[str, str, str]] = set()
         self._opened_compacts: set[str] = set()
+        self._verifying_closures: set[str] = set()
 
     def verified_closure(
         self,
@@ -517,6 +519,8 @@ class _CompactProvenanceContext:
         *,
         allowed_states: frozenset[str],
     ) -> _VerifiedCompactClosure:
+        if compact_generation_id in self._verifying_closures:
+            raise LineageError("compact provenance path contains a cycle")
         cached = self._closures.get(compact_generation_id)
         if cached is not None:
             return cached
@@ -525,11 +529,20 @@ class _CompactProvenanceContext:
             raise LineageError(
                 "compact provenance exceeds maximum compact node count"
             )
-        closure = _verify_compact_closure(
-            self.session,
-            compact_generation_id,
-            allowed_states=frozenset(allowed_states),
-        )
+        self._verifying_closures.add(compact_generation_id)
+        try:
+            closure = _verify_compact_closure(
+                self.session,
+                compact_generation_id,
+                allowed_states=frozenset(allowed_states),
+            )
+            # Expanded closures expose ordinary leaves directly. Still verify
+            # every captured compact anchor, preserving its digest/cycle proof
+            # instead of bypassing history once a leaf becomes a direct member.
+            for source_id in closure.compact_source_ids:
+                self.verified_closure(source_id, allowed_states=_INHERITED_COMPACT_STATES)
+        finally:
+            self._verifying_closures.remove(compact_generation_id)
         self._closures[compact_generation_id] = closure
         return closure
 

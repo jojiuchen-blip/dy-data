@@ -722,9 +722,8 @@ def test_compacted_lineage_supports_consecutive_days_and_second_compaction(
     assert generation(f"{prefix}-l3").base_generation_id == f"{prefix}-l2"
     assert generation(f"{prefix}-l4").base_generation_id == compact2
 
-    # Closure stays bounded: one row per chain member, never accumulated
-    # across compactions (the second compact must not inherit the first
-    # compact's own closure rows).
+    # Closure includes direct chain members and inherited physical sources;
+    # it has a separate bounded provenance budget from the direct chain depth.
     closure1 = {
         row.source_generation_id
         for row in db_session.scalars(
@@ -742,8 +741,8 @@ def test_compacted_lineage_supports_consecutive_days_and_second_compaction(
             )
         )
     }
-    assert closure2 == {f"{prefix}-l3", f"{prefix}-l2", compact1}
-    assert generation(compact2).checkpoint_json["source_generation_count"] == 3
+    assert closure2 == closure1 | {f"{prefix}-l3", f"{prefix}-l2", compact1}
+    assert generation(compact2).checkpoint_json["source_generation_count"] == len(closure2)
 
     # Manifest resolution over the live day-4 chain: legacy months fall back to
     # the legacy root, compact-collapsed months resolve to the newest compact
@@ -1083,10 +1082,7 @@ def test_third_compaction_and_following_day_preserve_real_leaf_history(
     assert compact3_row.base_generation_id is None
     assert compact3_row.compaction_base_generation_id == f"{prefix}-l4"
     assert compact3_row.lineage_depth == 0
-    assert compact3_row.checkpoint_json["source_generation_count"] == 2
-
-    # Each compaction records only its own lineage chain: the third compact's
-    # closure must not inherit the first compact's closure rows.
+    # The third compaction retains the verified physical source closure.
     closure3 = {
         row.source_generation_id
         for row in db_session.scalars(
@@ -1095,7 +1091,9 @@ def test_third_compaction_and_following_day_preserve_real_leaf_history(
             )
         )
     }
-    assert closure3 == {f"{prefix}-l4", ids["compact2"]}
+    assert closure3 == {ids["root"], ids["l1"], ids["compact1"], ids["l2"], ids["l3"],
+                        ids["compact2"], f"{prefix}-l4"}
+    assert compact3_row.checkpoint_json["source_generation_count"] == len(closure3)
 
     # Compaction stays metadata-only: no business overlay rows are copied, and
     # the manifest keeps the real leaf id with the real frozen evidence.
@@ -1211,7 +1209,8 @@ def test_third_compaction_and_following_day_preserve_real_leaf_history(
     # The original leaf amounts (10/20/30/40/50) and every frozen fact must
     # stay untouched across yet another metadata-only compaction.
     compact4 = _publish_compact(
-        db_session, base_generation_id=f"{prefix}-l5", job_suffix="fourth-independent"
+        db_session, base_generation_id=f"{prefix}-l5", job_suffix="fourth-independent",
+        resource_limits=_limits(rows=50, write=200_000, wal=400_000),
     )
     assert db_session.get(SettlementProjectionActive, "settlement").generation_id == compact4
     compact4_row = db_session.get(SettlementProjectionGeneration, compact4)
@@ -1220,7 +1219,6 @@ def test_third_compaction_and_following_day_preserve_real_leaf_history(
     assert compact4_row.base_generation_id is None
     assert compact4_row.compaction_base_generation_id == f"{prefix}-l5"
     assert compact4_row.lineage_depth == 0
-    assert compact4_row.checkpoint_json["source_generation_count"] == 2
     closure4 = {
         row.source_generation_id
         for row in db_session.scalars(
@@ -1229,7 +1227,8 @@ def test_third_compaction_and_following_day_preserve_real_leaf_history(
             )
         )
     }
-    assert closure4 == {f"{prefix}-l5", compact3}
+    assert closure4 == closure3 | {f"{prefix}-l5", compact3}
+    assert compact4_row.checkpoint_json["source_generation_count"] == len(closure4)
     assert (
         db_session.scalar(
             select(func.count())

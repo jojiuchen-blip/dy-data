@@ -24,10 +24,11 @@ from dy_api.models import (
     InvoiceRecord, PromotionInvoice, StoreFinanceProfile,
     DimStore, SettlementStatement, SettlementStatementConfirmation,
     PromotionInvoiceAllocation, PromotionInvoiceLifecycleEvent,
-    SettlementDispute, AggStoreRanking, SapSuggestion,
+    SettlementDispute, AggStoreRanking, AggStoreMonthlySettlement, SapSuggestion,
     SettlementFeeResult, SettlementFeeResultCurrent, SettlementStatementEntry, SettlementStatementLine,
 )
 from publication_fixture_helpers import publish_fixture
+from dy_api.routes.meta import statement_months_with_previous_business_month
 
 # Writes in this acceptance module must not change the session-level fixture
 # consumed by the existing export/visual regressions in a full-suite run.
@@ -254,6 +255,17 @@ def test_dydata105_store_confirm_invoice_lifecycle_and_replacement_real_readback
             sap_code_snapshot="SAP105FLOW", store_snapshot_status="LIVE_CAPTURED",
             created_at=datetime(2026, 9, 30, tzinfo=timezone.utc),
         ))
+        # The invoice selector discovers historical periods from monthly
+        # aggregates. Seed the bill's matching period explicitly: relying on
+        # September also being the wall clock's previous month breaks in November.
+        session.add(AggStoreMonthlySettlement(
+            month="2026-09", store_id=key, product_scope="精诚养车", product_type="养车服务",
+            promotion_base_cent=123450, promotion_original_fee_cent=12345,
+            promotion_adjustment_fee_cent=0, promotion_net_fee_cent=12345,
+            management_base_cent=67890, management_original_fee_cent=6789,
+            management_adjustment_fee_cent=0, management_net_fee_cent=6789,
+            projection_run_id=f"{key}-projection",
+        ))
         # UI confirmation protects this bill for subsequent module tests. Its
         # immutable lines/entries must already explain the unchanged header.
         for direction, amount in ((1, 12345), (2, 6789)):
@@ -291,7 +303,21 @@ def test_dydata105_store_confirm_invoice_lifecycle_and_replacement_real_readback
         publish_fixture(session, "settlement")
     context = browser.new_context(viewport={"width": 1440, "height": 900}, permissions=["clipboard-read", "clipboard-write"])
     page = context.new_page()
+    selector_times = (
+        datetime(2026, 11, 4, 12, tzinfo=timezone.utc),
+        datetime(2027, 1, 5, 12, tzinfo=timezone.utc),
+    )
+    page.clock.install(time=selector_times[int(suffix) - 1])
     try:
+        filters = context.request.get(live_admin_fastapi_base_url + "/api/v1/meta/filters")
+        assert filters.status == 200, filters.text()
+        statement_months = filters.json()["data"]["statementMonths"]
+        assert "2026-09" in statement_months
+        for selector_time, previous_month in zip(selector_times, ("2026-10", "2026-12")):
+            choices = statement_months_with_previous_business_month(
+                statement_months, now=selector_time,
+            )
+            assert {"2026-09", previous_month} <= set(choices)
         page.goto(vite_live_admin_api_base_url + f"/settlement?storeId={key}&month=2026-09")
         for direction in ("推广服务费", "管理服务费"):
             page.get_by_role("button", name="确认" + direction, exact=True).click()

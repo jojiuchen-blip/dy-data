@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 import hashlib
 import json
+import re
 from typing import Any, Iterator
 from uuid import uuid4
 
@@ -171,6 +172,22 @@ def _safe_stats(value: dict[str, Any]) -> dict[str, Any]:
     return clean
 
 
+def _lock_snapshot_sources(session: Session, tables: tuple[str, ...]) -> None:
+    """Lock declared relations before the first repeatable-read snapshot.
+
+    Ordinary DML remains concurrent; TRUNCATE and schema replacement cannot
+    make an as-yet unread relation disappear from this MVCC snapshot.
+    """
+    names = sorted(set(tables))
+    if not names or len(names) > 128 or any(
+        not isinstance(name, str) or re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", name) is None for name in names
+    ):
+        raise ValueError("invalid publication snapshot relations")
+    quote = session.get_bind().dialect.identifier_preparer.quote
+    session.execute(text("LOCK TABLE " + ", ".join(quote(name) for name in names)
+                         + " IN ACCESS SHARE MODE NOWAIT"))
+
+
 def publish_module(
     session_factory: SessionFactory, module: str, builder: Builder, *,
     now: datetime | None = None, data_as_of: datetime | None = None,
@@ -178,6 +195,7 @@ def publish_module(
     readiness_check: Callable[[Session], None] | None = None,
     shared_lock_keys: tuple[int, ...] = (), force: bool = False,
     statement_timeout_ms: int = 120000, refresh_on_interval: bool = False,
+    snapshot_tables: tuple[str, ...] = (),
 ) -> Publication | None:
     """Build in REPEATABLE READ; commit facts, success and head atomically.
 
@@ -185,6 +203,9 @@ def publish_module(
     workers must supply source readiness/fingerprint and shared writer locks.
     A separate committed attempt exposes updating/failure without exposing
     partially written analytical rows. Builder commit/rollback is forbidden.
+    Audited PostgreSQL callers may declare every source relation to publish a
+    complete consistent snapshot as stale when later transactions advance it.
+    Other callers retain the strict observer equality requirement.
     """
     if not module or len(module) > 64 or not 1 <= statement_timeout_ms <= 900000:
         raise ValueError("invalid publication module or timeout")
@@ -193,12 +214,16 @@ def publish_module(
     with _publisher_connection(session_factory, module, shared_lock_keys) as connection:
         if connection is None:
             return None
+        snapshot_mode = bool(snapshot_tables) and connection.dialect.name == "postgresql"
+        if snapshot_mode and (fingerprint is None or readiness_check is None):
+            raise ValueError("snapshot publication requires readiness and fingerprint checks")
         with Session(bind=connection, autoflush=False) as session:
             if readiness_check:
                 readiness_check(session)
             token = fingerprint(session) if fingerprint else None
             current = session.execute(select(runs).join(heads, heads.c.publication_id == runs.c.id)
                                       .where(heads.c.module == module)).mappings().first()
+            expected_head_id = current["id"] if current else None
             latest_status = session.scalar(select(runs.c.status).where(runs.c.module == module)
                                            .order_by(runs.c.created_at.desc(), runs.c.id.desc()).limit(1))
             if (not force and current and fingerprint and current["source_fingerprint"] == token
@@ -224,53 +249,102 @@ def publish_module(
         try:
             with Session(bind=connection, autoflush=False) as session:
                 if connection.dialect.name == "postgresql":
-                    session.execute(text("SELECT set_config('statement_timeout', :value, true)"),
-                                    {"value": str(statement_timeout_ms)})
+                    # SET does not establish a data snapshot. All source locks
+                    # must precede readiness/fingerprint's first SELECT.
+                    session.execute(text(f"SET LOCAL statement_timeout = {statement_timeout_ms}"))
                     session.execute(text("SET LOCAL work_mem = '16MB'"))
+                    if snapshot_mode:
+                        _lock_snapshot_sources(session, snapshot_tables)
                 if readiness_check:
                     readiness_check(session)
                 initial_token = fingerprint(session) if fingerprint else None
                 session.connection()  # Establish a root tx even for an empty/injected builder.
                 build_transaction = session.get_transaction()
+                connection_transaction = connection.get_transaction()
                 session.info["publication_builder"] = True
+                transaction_violation = False
 
                 def prevent_commit(current_session: Session) -> None:
+                    nonlocal transaction_violation
                     if current_session.info.get("publication_builder") and not current_session.in_nested_transaction():
+                        transaction_violation = True
                         raise RuntimeError("publication builders must not commit")
 
+                def prevent_connection_end(current_connection: Connection) -> None:
+                    nonlocal transaction_violation
+                    if session.info.get("publication_builder"):
+                        transaction_violation = True
+                        raise RuntimeError("publication builders must not end their connection transaction")
+
                 event.listen(session, "before_commit", prevent_commit)
-                statistics = builder(session, publication_id, cutoff)
-                if session.get_transaction() is not build_transaction:
-                    raise RuntimeError("publication builders must not end their transaction")
-                session.flush()
-                # A separate observer sees commits after this RR snapshot.
-                # Never publish if a source writer ran during hydration.
+                if snapshot_mode:
+                    event.listen(connection, "commit", prevent_connection_end)
+                    event.listen(connection, "rollback", prevent_connection_end)
+                try:
+                    statistics = builder(session, publication_id, cutoff)
+                    if (transaction_violation or session.get_transaction() is not build_transaction
+                            or connection.get_transaction() is not connection_transaction
+                            or connection_transaction is None or not connection_transaction.is_active):
+                        raise RuntimeError("publication builders must not end their transaction")
+                    session.flush()
+                    if snapshot_mode:
+                        if connection.get_isolation_level() != "REPEATABLE READ":
+                            raise RuntimeError("publication snapshot isolation changed")
+                        if fingerprint(session) != initial_token:
+                            raise PublicationError("PUBLICATION_SOURCE_CHANGED", "构建修改了来源，保留上一完整版本", 503)
+                finally:
+                    session.info["publication_builder"] = False
+                    if snapshot_mode:
+                        event.remove(connection, "commit", prevent_connection_end)
+                        event.remove(connection, "rollback", prevent_connection_end)
+                # The independent observer still rejects incomplete writers or
+                # missing tracking. A later complete commit advances freshness,
+                # while the protected RR snapshot remains internally coherent.
+                source_advanced = False
                 with session_factory() as observer:
+                    if snapshot_mode and (observer.connection().connection.dbapi_connection
+                                          is connection.connection.dbapi_connection):
+                        raise RuntimeError("publication observer must use an independent connection")
                     if readiness_check:
                         readiness_check(observer)
                     if fingerprint and fingerprint(observer) != initial_token:
-                        raise PublicationError("PUBLICATION_SOURCE_CHANGED", "来源正在更新，保留上一完整版本", 503)
+                        if not snapshot_mode:
+                            raise PublicationError("PUBLICATION_SOURCE_CHANGED", "来源正在更新，保留上一完整版本", 503)
+                        source_advanced = True
                 observed = utc(statistics.get("data_as_of", data_as_of))
                 if observed is not None and observed > cutoff:
                     raise ValueError("source coverage must not exceed the observation cutoff")
                 published_at = datetime.now(UTC)
                 if module in MODULE_CONTRACT_VERSIONS:
                     statistics = {**statistics, "contract_version": MODULE_CONTRACT_VERSIONS[module]}
+                if snapshot_mode:
+                    statistics = {**statistics, "source_advanced_during_build": source_advanced}
+                next_refresh_at = published_at if source_advanced else published_at + REFRESH_INTERVAL
                 session.execute(update(runs).where(runs.c.id == publication_id).values(
                     status="success", published_at=published_at, data_as_of=observed,
-                    next_refresh_at=published_at + REFRESH_INTERVAL,
+                    next_refresh_at=next_refresh_at,
                     source_fingerprint=initial_token, stats_json=_safe_stats(statistics),
                 ))
-                existing = session.execute(select(heads.c.module).where(heads.c.module == module)).first()
-                if existing:
-                    session.execute(update(heads).where(heads.c.module == module).values(publication_id=publication_id))
+                if expected_head_id is not None:
+                    switched = session.execute(update(heads).where(
+                        heads.c.module == module, heads.c.publication_id == expected_head_id,
+                    ).values(publication_id=publication_id))
+                    if switched.rowcount != 1:
+                        raise PublicationError("PUBLICATION_HEAD_CHANGED", "分析版本已变化，暂缓更新", 503)
                 else:
                     session.execute(heads.insert().values(module=module, publication_id=publication_id))
                 session.info["publication_builder"] = False
                 session.commit()
-                return Publication(publication_id, module, cutoff, observed, published_at, published_at + REFRESH_INTERVAL)
+                return Publication(publication_id, module, cutoff, observed, published_at, next_refresh_at,
+                                   "stale" if source_advanced else "available")
         except Exception as error:
             connection.rollback()
+            if snapshot_mode:
+                # A rejected Connection.commit()/rollback() deactivates its
+                # SQLAlchemy RootTransaction even though our event prevented
+                # the DBAPI operation. Roll back that physical transaction
+                # before reusing the connection for the failure receipt.
+                connection.connection.rollback()
             code = error.code if isinstance(error, PublicationError) else "PUBLICATION_BUILD_FAILED"
             with Session(bind=connection) as failure_session:
                 failure_session.execute(update(runs).where(runs.c.id == publication_id)
