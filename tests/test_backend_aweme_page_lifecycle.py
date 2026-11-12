@@ -153,6 +153,53 @@ def test_stale_login_page_does_not_block_a_fresh_business_navigation():
     created.close.assert_called_once_with()
 
 
+def test_duplicate_login_popups_keep_existing_and_interactive_pages():
+    login_url = "https://life.douyin.com/p/login"
+    business = Page()
+    existing_login = Page(login_url, "扫码登录")
+    duplicate = Page(login_url, "扫码登录")
+    challenge = Page(login_url, "请完成安全验证")
+    separate_flow = Page(login_url + "?step=continue", "扫码登录")
+    context = SimpleNamespace(pages=[business, existing_login], new_page=Mock())
+
+    with backend_aweme.managed_backend_aweme_page(context, TARGET_URL) as page:
+        for popup in (duplicate, challenge, separate_flow):
+            page.handlers["popup"](popup)
+
+    duplicate.close.assert_called_once_with()
+    for page in (business, existing_login, challenge, separate_flow):
+        page.close.assert_not_called()
+
+
+def test_real_chromium_repeated_login_redirects_retain_one_login_page():
+    from playwright.sync_api import sync_playwright
+
+    login_url = "https://life.douyin.com/p/login"
+    with sync_playwright() as playwright:
+        if not Path(playwright.chromium.executable_path).is_file():
+            pytest.skip("Chromium is not installed")
+        browser = playwright.chromium.launch(headless=True)
+        context = browser.new_context()
+        context.route(TARGET_URL, lambda route: route.fulfill(
+            status=302, headers={"location": login_url},
+        ))
+        context.route(login_url, lambda route: route.fulfill(
+            content_type="text/html", body="<body>扫码登录</body>",
+        ))
+        untouched = context.new_page()
+        retained_login = None
+        for _ in range(4):
+            with pytest.raises(backend_aweme.BrowserExportError, match=backend_aweme.LOGIN_REQUIRED_ERROR):
+                with backend_aweme.managed_backend_aweme_page(context, TARGET_URL) as page:
+                    page.goto(TARGET_URL, wait_until="domcontentloaded")
+                    backend_aweme.raise_if_login_required(page)
+            if retained_login is None:
+                retained_login = page
+            assert retained_login.url == login_url
+            assert context.pages == [untouched, retained_login]
+        browser.close()
+
+
 def test_fallback_never_creates_a_blank_page():
     context = SimpleNamespace(pages=[Page("about:blank")], new_page=Mock())
     with pytest.raises(backend_aweme.BrowserExportError, match="business page is not available"):
