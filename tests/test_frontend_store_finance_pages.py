@@ -342,7 +342,8 @@ def test_store_finance_defaults_use_account_store_and_api_latest_period() -> Non
     assert "meta?.statementMonths[0]" in status
     assert "defaultStatementMonth" not in invoice
     assert "new Date()" not in invoice
-    assert "filterMeta?.statementMonths[0]" in invoice
+    assert "initialStatementMonth(searchParams)" in invoice
+    assert "filterMeta?.statementMonths[0]" not in invoice
 
 
 def test_missing_store_finance_metrics_are_not_rendered_as_real_zero_values() -> None:
@@ -358,8 +359,9 @@ def test_missing_store_finance_metrics_are_not_rendered_as_real_zero_values() ->
     assert 'value={formatCurrency(metrics?.salesAmountCent ?? 0)}' not in settlement
     assert 'formatCurrency(originalAmount ?? 0)' not in settlement
 
-    assert 'displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.invoiceAmountCent) : "尚未生成"' in invoice
-    assert '<div><dt>价税合计（含税总额）</dt><dd>{displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.invoiceAmountCent) : "尚未生成"}</dd></div>' in invoice
+    assert 'displayInvoiceSummary ? formatCurrency(displayInvoiceSummary.invoiceAmountCent) : invoiceAmountPlaceholder' in invoice
+    for text in ("账单金额读取失败，请重试", "所选账期尚无账单", "账单待确认，尚不可开票", "本期金额为0，无需开票"):
+        assert text in invoice
     assert 'promotionAmountCent ?? 0)}' not in invoice
 
 

@@ -68,25 +68,32 @@ def lock_current_bills(session: Session, slots: set[tuple[str, str]]) -> None:
             .with_for_update().execution_options(populate_existing=True)))
 
 
-def protected_entries_relation():
+def protected_entries_relation(*, statements=None):
     """Include every entry of every protected current bill, not a repair cohort."""
     entry = SettlementStatementEntry
-    return select(
+    statement = SettlementStatement if statements is None else statements.c
+    query = select(
         entry.statement_entry_id, entry.statement_id, entry.statement_line_id,
         entry.source_type, entry.source_record_id, entry.original_fee_result_id,
         entry.coupon_id, entry.order_id, entry.fee_direction, entry.original_business_month,
         entry.statement_posting_month, entry.product_scope, entry.product_type,
         entry.base_amount_cent, entry.fee_amount_cent, entry.rule_version,
         *(getattr(entry, f"{field}_snapshot") for field in SNAPSHOT_FIELDS),
-        SettlementStatement.store_id.label("authority_store_id"),
-        SettlementStatement.statement_month.label("authority_month"),
-    ).join(SettlementStatement, SettlementStatement.statement_id == entry.statement_id).where(
-        SettlementStatement.is_current.is_(True), protected_statement_condition(),
-    ).subquery("protected_billing_entries")
+        statement.store_id.label("authority_store_id"),
+        statement.statement_month.label("authority_month"),
+    ).join(SettlementStatement if statements is None else statements,
+           statement.statement_id == entry.statement_id)
+    if statements is None:
+        query = query.where(SettlementStatement.is_current.is_(True), protected_statement_condition())
+    return query.subquery("protected_billing_entries")
 
 
-def protected_slot_condition(store_id, month):
+def protected_slot_condition(store_id, month, *, statements=None):
     """Whether a destination slot must use its entire current bill snapshot."""
+    if statements is not None:
+        return select(statements.c.statement_id).where(
+            statements.c.store_id == store_id, statements.c.statement_month == month,
+        ).exists()
     statement = aliased(SettlementStatement)
     return select(statement.id).where(
         statement.is_current.is_(True), statement.store_id == store_id,
@@ -94,18 +101,18 @@ def protected_slot_condition(store_id, month):
     ).exists()
 
 
-def frozen_primary_chain_condition(result=SettlementFeeResult):
+def frozen_primary_chain_condition(result=SettlementFeeResult, *, entries=None):
     """Suppress primary results on the same chain even after a store/month move."""
-    entries = protected_entries_relation()
+    entries = protected_entries_relation() if entries is None else entries
     return select(entries.c.statement_entry_id).where(
         entries.c.source_type == 1, entries.c.coupon_id == result.coupon_id,
         entries.c.fee_direction == result.fee_direction,
     ).exists()
 
 
-def frozen_authority_rows(months: tuple[str, ...]):
+def frozen_authority_rows(months: tuple[str, ...], *, entries=None):
     """Match the sparse relation schema using frozen core amounts and dimensions."""
-    entry = protected_entries_relation()
+    entry = protected_entries_relation() if entries is None else entries
     original = aliased(SettlementFeeResult)
     return select(
         case((entry.c.source_type == 1, literal("result")), else_=literal("adjustment")).label("source_kind"),

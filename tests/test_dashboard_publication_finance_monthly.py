@@ -16,6 +16,7 @@ from dy_api.routes._data import get_session_dependency
 from apps.api.dy_api.dashboard_publications import finance, period_readiness
 from apps.api.dy_api.dashboard_publications.lifecycle import PublicationError
 from apps.api.dy_api.dashboard_publications.schema import metadata, runs
+from apps.api.dy_api.dashboard_publications.sources import MODULE_CONTRACT_VERSIONS
 from apps.api.dy_api.models import DimStore
 
 
@@ -37,7 +38,8 @@ def seed_frozen_monthly(session):
     """Freeze intentionally nonzero partial cumulative rows and complete September."""
     metadata.create_all(session.bind)
     session.execute(insert(runs).values(id="monthly-frozen", module="settlement", status="success",
-        cutoff=AT, created_at=AT, published_at=AT, stats_json={}))
+        cutoff=AT, created_at=AT, published_at=AT, stats_json={
+            "contract_version": MODULE_CONTRACT_VERSIONS["settlement"]}))
     session.execute(insert(finance.dimensions), [
         {"publication_id": "monthly-frozen", "kind": "period_readiness", "key": "v1", "value": {
             "schema_version": 1, "months": {"2026-08": {"ready": False}, "2026-09": {"ready": True}}}},

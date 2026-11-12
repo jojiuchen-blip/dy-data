@@ -515,6 +515,20 @@ def test_invoice_period_is_locked_and_all_billable_periods_are_presented_without
             )
 
         page.route("**/api/v1/store-settlements?*", fulfill_statements)
+        detail_requests: list[str] = []
+
+        def fulfill_earlier_statement(route) -> None:
+            detail_requests.append("STMT-2026-07")
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=api_payload(statement("2026-07", earlier_is_invoiceable)),
+            )
+
+        page.route(
+            "**/api/v1/store-settlements/STMT-2026-07",
+            fulfill_earlier_statement,
+        )
         page.goto(
             f"{vite_real_api_base_url}/settlement/invoice?storeId=store_001&month=2026-08",
             wait_until="domcontentloaded",
@@ -524,6 +538,9 @@ def test_invoice_period_is_locked_and_all_billable_periods_are_presented_without
         assert page.get_by_label("系统确定开票账期").count() == 0
         expected_amount = "¥20.48" if earlier_is_invoiceable else "¥10.24"
         page.get_by_text(expected_amount, exact=True).wait_for(timeout=10000)
+        assert page.get_by_text("¥19.32" if earlier_is_invoiceable else "¥9.66", exact=True).is_visible()
+        assert page.get_by_text("¥1.16" if earlier_is_invoiceable else "¥0.58", exact=True).is_visible()
+        assert detail_requests == (["STMT-2026-07"] if earlier_is_invoiceable else [])
         assert page.get_by_role("button", name="选择抵扣组", exact=True).count() == 0
     finally:
         context.close()

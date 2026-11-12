@@ -4,19 +4,12 @@ import { useApiResource } from "../hooks/useApiResource";
 import type { FinanceImportPreviewRow, FinanceImportPreviewValue } from "../types/dashboard";
 import { formatCurrency, formatDateTime } from "../utils/format";
 import { userFacingError } from "../utils/userFacingError";
+import { displayFinanceImportField } from "../utils/financeImportLabels";
 import { Button } from "./Button";
 import { DataTable, type Column } from "./DataTable";
 import { ResourcePanel } from "./ResourceState";
 import { TablePagination } from "./TablePagination";
 
-const fieldLabels: Record<string, string> = {
-  storeId: "门店编号", storeName: "门店名称", sapCode: "SAP 编码", importedAt: "导入时间",
-  financeInitialSap: "财务初始 SAP", serviceStoreCode: "服务门店编码", finalSapCode: "最终 SAP 编码",
-  factoryConfirmationResult: "厂家确认结果", confirmedAt: "确认时间", invoiceNumber: "发票号码",
-  reviewResult: "审核结果", rejectionReason: "审核不通过原因", settlementDate: "结算日期",
-  settlementAmountCent: "结算金额", statementMonth: "业务账期", invoiceDate: "开票日期",
-  deductionDate: "扣款日期", deductionAmountCent: "扣款金额", invoiceStatus: "开票状态",
-};
 
 function displayValue(field: string, value: FinanceImportPreviewValue | undefined): string {
   if (value === undefined) return "未提供";
@@ -68,7 +61,7 @@ export function FinanceImportPreviewTable({ batchId, onReadinessChange }: {
       const fields = [...new Set([...Object.keys(before ?? {}), ...Object.keys(after)])];
       const missingBefore = row.preview.targetTombstone ? "原资料已撤销" : "原记录不存在";
       return <div>{before === null ? <p>{missingBefore}（新增有效资料）</p> : null}{fields.map((field) => <div key={field}>
-        <strong>{fieldLabels[field] ?? "其他业务字段"}{before !== null && before[field] === after[field] ? "（未变）" : "（变更）"}</strong>：{before === null ? missingBefore : displayValue(field, before[field])}
+        <strong>{displayFinanceImportField(field)}{before !== null && before[field] === after[field] ? "（未变）" : "（变更）"}</strong>：{before === null ? missingBefore : displayValue(field, before[field])}
         {" → "}{displayValue(field, after[field])}
       </div>)}</div>;
     } },
@@ -89,6 +82,17 @@ export function FinanceImportPreviewTable({ batchId, onReadinessChange }: {
     {resource.error ? <ResourcePanel tone="error">{userFacingError(resource.rawError, "逐行预览读取失败，请重试。")}
       <Button onClick={resource.reload} variant="secondary">重试预览</Button></ResourcePanel> : null}
     {!busy && !resource.error && data && !summary?.frozenAvailable ? <ResourcePanel tone="error">此批次未保存完整字段预览，请重新上传；当前业务数据不能替代上传时原值。</ResourcePanel> : null}
+    {summary ? <div className="finance-import-summary" aria-label="整批处理分类">
+      <span>总输入<strong>{summary.totalRows}</strong></span>
+      <span>新增版本<strong>{summary.createRowCount ?? "—"}</strong></span>
+      <span>更新版本<strong>{summary.updateRowCount ?? "—"}</strong></span>
+      <span>不变<strong>{summary.unchangedRowCount ?? "—"}</strong></span>
+      <span>校验失败<strong>{summary.failedRowCount ?? "—"}</strong></span>
+      <span>预览缺失<strong>{summary.unavailableRowCount ?? "—"}</strong></span>
+      <span>已写入<strong>{summary.writtenRowCount ?? "—"}</strong></span>
+      <span>待处理<strong>{summary.pendingRowCount ?? "—"}</strong></span>
+      <p>新增、更新为本批次计划生成的版本分类；只有“已写入”计入正式提交。任一错误阻止整批写入。</p>
+    </div> : null}
     {summary && summary.blockedRowCount > 0 ? <ResourcePanel tone="error">整批共有 {summary.blockedRowCount} 行被阻断，请修正后重新上传。</ResourcePanel> : null}
     <DataTable columns={columns} rows={busy || resource.error ? [] : data?.list ?? []}
       state={busy ? "loading" : resource.error ? "error" : "ready"}

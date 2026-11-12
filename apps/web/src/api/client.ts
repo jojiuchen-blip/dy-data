@@ -3150,7 +3150,7 @@ export function downloadFinanceInvoices(
 
 export function downloadFinanceImportTemplate(importType: string): Promise<void> {
   return requestDownload(
-    `/admin/finance-imports/templates/${encodeURIComponent(importType)}`,
+    `/admin/finance-imports/templates/${encodeURIComponent(importType)}?format=xlsx`,
   );
 }
 

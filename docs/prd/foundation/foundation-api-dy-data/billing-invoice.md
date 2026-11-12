@@ -152,3 +152,15 @@ multipart 请求：`importType`、`statementMonth`、`file`，并要求 `Idempot
 - 不提供系统内“财务审核任务”接口；推广费厂端审核已在系统外完成，管理员只导入结果。
 - 不提供发票 DELETE；已有系统外生命周期事实与替换来源链按现有模型/路由处理（见 Schema 发票来源），本轮不扩展其状态机。财务批次撤销不是删除或执行真实红冲/作废。
 - 不提供按 SAP 编码、名称、金额、月份的模糊匹配或跨门店合并开票。
+
+## 2026-10-30 中文模板、导入完整更新与逾期确认
+
+既有GET /api/v1/admin/finance-imports/templates/{importType}增加format=xlsx|csv，默认xlsx。四类XLSX均含空白“数据导入”、每类一行虚构“填写示例”和中文“填写说明”；解析固定数据表，不依赖活动sheet。中文表头、枚举、单位/日期说明与原内部字段映射，旧英文CSV/XLSX兼容；同义列重复、未知列、公式及失真长数字ID拒绝。CSV为空中文表头，响应Link提供XLSX说明/示例入口，文件名与Content-Type一致。
+
+BASIC_INFO不要求或写入SAP编码确认状态；旧状态列显式忽略，不重置或绕过独立SAP确认。SAP编码保留，同值/空白及准确更正来源继承见[Schema增量](../foundation-schema-dy-data/billing-invoice.md#2026-10-30-资料来源处理计数与自动确认增量)。基础列表/模板/示例/常规导出不显示该状态列，独立SAP查询仍按正式来源计算。
+
+GET .../{batchId}/rows的previewSummary增加createRowCount/updateRowCount/unchangedRowCount/failedRowCount/unavailableRowCount（互斥合计totalRows）及writtenRowCount/pendingRowCount。它们是整批数据，不是当前页计数。上传只预览，提交仍锁后重验并全批原子；提交后新会话回读、列表刷新/重进、关联查询与导出反映正式允许字段，历史账单/发票快照不回写。
+
+开票页显式URL账期优先，否则使用上海上一完整自然月；先消费服务端promotionInvoiceSummary，再读取requiredStatementIds完整组。无关历史账期失败不使当前组金额消失；所需组不完整、版本/权限冲突继续拒绝，不由前端补算或把未知金额当0。
+
+逾期确认通过独立worker及受控CLI补偿，不新增未鉴权HTTP写接口。BILLING_AUTO_CONFIRM_ENABLED默认false，初次启用前核对待补费/保护范围并登记必要hold。次月7日上海00:00后按当前版本、来源、方向与精确预演hash处理，晚生成可重扫；人工已确认和同集合重放不重复写入。SQL/总事务预算、延迟约束和提交seal、只读replay均保留；不自动登记票据或付款。详见[运行合同](../../../ops/billing-auto-confirmation.md)。

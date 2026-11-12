@@ -68,6 +68,7 @@ def test_browser_profile_and_downloads_are_private_volumes():
     dockerfile = (ROOT / "deploy" / "browser" / "Dockerfile").read_text(encoding="utf-8")
     nginx = (ROOT / "deploy" / "nginx.conf").read_text(encoding="utf-8")
     entrypoint = (ROOT / "deploy" / "browser" / "entrypoint.sh").read_text(encoding="utf-8")
+    runtime = (ROOT / "deploy" / "browser" / "runtime.py").read_text(encoding="utf-8")
 
     assert "browser-profile:/home/browser/.config/chromium" in compose
     assert "browser-downloads:/home/browser/Downloads" in compose
@@ -87,11 +88,13 @@ def test_browser_profile_and_downloads_are_private_volumes():
     assert '"$XDG_CONFIG_HOME/chromium/Crash Reports"' in entrypoint
     assert '"$XDG_CONFIG_HOME/chromium/Crashpad"' in entrypoint
     assert '"$XDG_CACHE_HOME/chromium"' in entrypoint
-    assert "--disable-crash-reporter" in entrypoint
-    assert "--disable-breakpad" in entrypoint
-    assert "--crash-dumps-dir=/tmp/chromium-crashes" in entrypoint
-    assert '--user-data-dir="$XDG_CONFIG_HOME/chromium"' in entrypoint
-    assert '"$XDG_CONFIG_HOME/chromium/SingletonLock"' in entrypoint
+    assert "--disable-crash-reporter" in runtime
+    assert "--disable-breakpad" in runtime
+    assert "--crash-dumps-dir=/tmp/chromium-crashes" in runtime
+    assert "--user-data-dir=" in runtime
+    assert "SingletonLock" in runtime
+    assert 'exec python3 /usr/local/bin/browser-runtime.py serve' in entrypoint
+    assert 'browser-runtime:/run/browser' in browser
     assert "ports:" not in compose.split("  browser:", 1)[1].split("  proxy:", 1)[0]
     assert "location /browser/" in nginx
     assert "auth_request" not in nginx

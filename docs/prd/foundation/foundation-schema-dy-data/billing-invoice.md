@@ -267,3 +267,15 @@
 上传只写批次/逐行校验，不写正式财务目标。`normalized_payload.__preview` 保存 available/schemaVersion/capturedAt、目标类型/ID/版本/tombstone、before/after、stateTransition、allowedChanges/blockedReasons；字段限制为对应模板正式字段。GET 分页读取冻结内容，整批统计不是当前页统计；NULL/空文本/未提供不混同。旧待提交批次缺预览要求重传，已提交批次仍可幂等回放。
 
 commit/correction 锁后重查权限、目标版本、允许状态转换、金额/分配闭合和号码归属；预览不替代写入时校验。推广费已结算、管理费已扣款，以及被账单/SAP 消费的资料不得逆转依赖；撤销追加批次/逐行目标/事件/审计，任一步冲突整批回滚。见 [API 预览/撤销](../foundation-api-dy-data/billing-invoice.md#54-冻结逐行预览与撤销)。
+
+## 2026-10-30 资料来源、处理计数与自动确认增量
+
+不新增表或列，不修改历史已确认账单/发票。基础资料与SAP确认继续使用profile_type=1的版本链。BASIC_INFO同SAP或空白保留既有编码和厂家字段；真实改码不冒充已确认。合法单条SAP更正的确认依据可能仅在SAP_SINGLE_CORRECTION审计中，不能伪造factory_confirmed或confirmed_at来继承。
+
+同值基础资料版本通过成功导入行normalized_payload._previewProfileId回溯准确前档案；正式撤销通过previous_target_record_id回溯。仅允许同店、同type、同SAP、版本严格下降及非tombstone，不能按历史同值猜配。确认时点使用原厂家确认/原确认批次提交时间或原单条更正审计时间，不能使用资料导入、撤销或历史档案gmt_modified时间吞掉后来异议。
+
+行统计从finance_import_row.row_status及冻结__preview派生，不新增持久计数字段。新增/更新/不变/失败/预览不可用互斥合计totalRows，writtenRowCount与pendingRowCount为另一处理维度；上传有效行不等于正式写入。任一错误仍整批正式目标零写入。
+
+自动方向确认复用settlement_statement_confirmation及finance_operation_audit：AUTO_CONFIRM_STATEMENT记录准确方向确认，AUTO_CONFIRM_BATCH记录受审集合与幂等收据。BILLING_CONFIRMATION_HOLD使用target_type=BILLING_CONFIRMATION_SLOT，target_id由门店/月/方向稳定摘要得到；before_snapshot/after_snapshot追加active、范围、理由和依据，解除也追加事件，不删除历史。
+
+自动确认只处理完整且与当前经济来源及版本一致的账单，争议、锁账、待更正和显式hold仍阻断。管理费可确认额为max(净额,0)，推广费保留正式负值抵扣。合法零账单须有全零金额、空分录/来源和正式生成审计共同证明，不把缺数据当零。事务与提交守卫见[操作合同](../../../ops/billing-auto-confirmation.md)。

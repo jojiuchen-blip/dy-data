@@ -184,7 +184,7 @@ def test_import_collects_all_errors_and_downloads_csv_without_business_writes(
     )
     assert downloaded.status_code == 200
     text = downloaded.content.decode("utf-8-sig")
-    assert "rowNumber,businessKey,field,originalValue,reason,suggestion" in text
+    assert "原文件行号,业务唯一键,字段,原始值,错误原因,建议修正方式" in text
     assert "missing-store" in text
     assert db_session.scalar(select(func.count()).select_from(FinanceImportBatch)) == 1
 

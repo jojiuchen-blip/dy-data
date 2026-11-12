@@ -1,11 +1,39 @@
-> **2026-11-04 本会话执行（20:18）**：PR74与PR75均已合并部署；实际应用源码1f02204b于20:14完成三服务切换，无迁移。原维护第二次成功，11月1—3日采集及结算发布链路、当日账号与原失败导出均已恢复。固定快照发布修复通过精确完整CI（5,442 passed），五模块当前完整版本及最新尝试均success；抖音榜单、结算、财务产生新版本，核销与线索来源未变而复用。八服务正常，磁盘61.43 GiB可用。商品SKU、退款单位/范围缺证和完整业务截止时间未知仍保留，104继续进行中。详见[当日开发日志](../devlog/20261104_refactor_log_Keith_Chen.md)与[发布记录](../verification/20261104-november-recovery-release.md)。
+# 当前执行：DYDATA-104 五项交付与采集恢复（2026-11-12）
 
-# 当前执行：DYDATA-104 十一月数据恢复与静态发布（2026-11-04）
+- 当前正式计划：[主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)、[看板](delivery-plans/task-kanban-dydata-104-followthrough.md)及[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。
+- 当前阶段：S4 / T3.1，进行中。
+- 在当前主线上集成 PR73 已确认功能。重新验证商品分类、按账期开票、中文模板、门店基础信息及导入回读，复核报表合同切换和采集浏览器恢复后再发布。
+- 10 月日数据完整、榜单可读。月结资格身份、历史归属、首次补确认暂停范围、SKU 与退款来源仍需协作者确认，见 [104 待裁决清单](https://linear.app/keith-lim/issue/DYDATA-104#comment-276d49af-17ec-4576-aafc-e2bda951a732)。
+- 以实际 CI、应用切换、生产页面和只读对账分别记录交付结果。下方保留历次现场状态。
+
+---
+
+> **2026-11-04 发布记录（20:18）**：PR74与PR75均已合并部署；实际应用源码1f02204b于20:14完成三服务切换，无迁移。原维护第二次成功，11月1—3日采集及结算发布链路、当日账号与原失败导出均已恢复。固定快照发布修复通过精确完整CI（5,442 passed），五模块当前完整版本及最新尝试均success；抖音榜单、结算、财务产生新版本，核销与线索来源未变而复用。八服务正常，磁盘61.43 GiB可用。商品SKU、退款单位/范围缺证和完整业务截止时间未知仍保留，104继续进行中。详见[当日开发日志](../devlog/20261104_refactor_log_Keith_Chen.md)与[发布记录](../verification/20261104-november-recovery-release.md)。
+
+# 历史执行：DYDATA-104 十一月数据恢复与静态发布（2026-11-04）
 
 - 当前正式计划：[DYDATA-104](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)；[任务看板](delivery-plans/task-kanban-dydata-104-followthrough.md)；[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。
 - 当前阶段：S4 / T3.1，进行中；沿用用户已授权的恢复、合入和部署范围。
 - 当前技术工作：固定快照修复的代码、CI、部署及运行验收已完成；保留商品SKU、退款口径及104其他业务证据缺口，普通来源完整性和金额保护保持。
 - 本轮已完成与未完成以顶部实时摘要和发布记录为准；以下保留其他需求与历史交付记录，不将旧状态当作当前验收结果。
+
+# 历史执行：DYDATA-104 十月三十日新增五项
+
+| 字段 | 内容 |
+|---|---|
+| 当前阶段 | S4 |
+| 当前正式计划文件组 | [主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md) / [看板](delivery-plans/task-kanban-dydata-104-followthrough.md) |
+| 当前活跃 Phase / Task | Phase 2 / T3.1，进行中 |
+| 当前子开发计划 | [T3.1](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md) |
+| 当前目标 | 分佣分类、逾期自动确认及开票金额、中文模板/示例、门店资料列调整、导入完整更新 |
+| 进行中任务 | 五项及浏览器监督已集成；批准数据补费和8/9月仅发布已正式执行并独立回读，仍有补证事项；新应用尚未部署 |
+| 下一步任务 | 复验修正后的完整CI及镜像；完成真实页面下载，容量恢复后正式部署，核对待决hold后再补确认 |
+| 完成标准摘要 | 五项代码/数据/测试/目标部署/页面下载证据对应，旧未完成及保护项分别保留 |
+| 当前阻塞与前置依赖 | 生产容量门禁未满足；历史依据与指定保护账务交协作者补证；新代码CI和部署分别验收，原Ops失败审计保留 |
+
+证据见[本轮台账](../verification/dydata-104-oct30-delivery.md)。原授权数据修复和8/9月仅发布已取得实际回读，逐项统计与剩余补证见104受控回执；新增五项部署及全票业务验收仍未完成。下方其他任务和历次入口保留，不覆写其业务状态。
+
+---
 
 # 历史执行：DYDATA-106 线索明细筛选（2026-10-28）
 

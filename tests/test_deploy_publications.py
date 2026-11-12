@@ -107,7 +107,9 @@ def test_after_api_switch_requires_explicit_release_rollback(tmp_path):
 
 def test_migration_warm_and_publisher_health_precede_api_cutover():
     source = DEPLOY.read_text(encoding="utf-8")
-    assert source.index("compose run --rm migrate") < source.index("\nwarm_dashboard_publications\n")
+    pause = source.index("compose stop --timeout 25 publication-worker")
+    assert source.index("compose run --rm migrate") < pause < source.index("\nwarm_dashboard_publications\n")
+    assert source.index("publication_worker_replaced=true\n  log", source.index("compose run --rm migrate")) < pause
     assert source.index("\nwarm_dashboard_publications\n") < source.index("wait_for_healthy_service publication-worker")
     assert source.index("wait_for_healthy_service publication-worker") < source.index("compose up -d --no-deps --force-recreate api")
     assert "for service in api migrate worker publication-worker web" in source

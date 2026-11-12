@@ -80,7 +80,7 @@ def snapshot_source_tables(module: str) -> tuple[str, ...]:
 MODULE_CONTRACT_VERSIONS = {
     "sales": "product-type-v2",
     "clue-overview": "product-type-v2",
-    "settlement": "product-type-v2",
+    "settlement": "commission-product-type-v3",
 }
 
 

@@ -215,23 +215,40 @@ def _same_backend_aweme_route(url: str, target_url: str) -> bool:
     return candidate_origin == target_origin and (candidate.path.rstrip("/") or "/") in paths
 
 
-def _close_owned_backend_aweme_page(page: Any, target_url: str, *, allow_blank: bool = False) -> None:
+def _is_plain_backend_login_redirect(url: str, target_url: str) -> bool:
+    target = urlparse(target_url)
+    return (
+        target.scheme == "https"
+        and target.netloc.lower() in {"life.douyin.com", "life.douyin.com:443"}
+        and url.rstrip("/") == "https://life.douyin.com/p/login"
+    )
+
+
+def _close_owned_backend_aweme_page(
+    page: Any, target_url: str, *, allow_blank: bool = False, duplicate_login: bool = False,
+) -> None:
     from playwright.sync_api import Error as PlaywrightError
 
     try:
         if allow_blank and page.url == "about:blank":
             page.close()
             return
-        if not _same_backend_aweme_route(page.url, target_url):
-            return
-        try:
-            raise_if_login_required(page)
-        except BrowserExportError:
-            return
+        if duplicate_login:
+            if not _is_plain_backend_login_redirect(page.url, target_url):
+                return
+        else:
+            if not _same_backend_aweme_route(page.url, target_url):
+                return
+            try:
+                raise_if_login_required(page)
+            except BrowserExportError:
+                return
         visible_text = page.locator("body").inner_text(timeout=1000)
         if not isinstance(visible_text, str) or re.search(
             r"验证码|安全验证|安全检查|滑块|captcha|verify.{0,30}human|security check", visible_text, re.I,
         ):
+            return
+        if duplicate_login and not _is_plain_backend_login_redirect(page.url, target_url):
             return
         page.close()
     except PlaywrightError:
@@ -263,11 +280,20 @@ def managed_backend_aweme_page(
         completed = True
     finally:
         page.remove_listener("popup", remember_popup)
-        for popup in popups:
-            _close_owned_backend_aweme_page(popup, target_url)
-        if created and (completed or page.url == "about:blank"):
-            _close_owned_backend_aweme_page(page, target_url, allow_blank=True)
-        # A failed primary page remains available to login and API fallback.
+        login_retained = any(
+            _is_plain_backend_login_redirect(existing.url, target_url) for existing in existing_pages
+        )
+        owned_pages = [page, *popups] if created else popups
+        for owned in owned_pages:
+            if _is_plain_backend_login_redirect(owned.url, target_url):
+                # Keep a login page available without accumulating a new tab on
+                # every redirect. Only close a duplicate opened by this export.
+                if login_retained:
+                    _close_owned_backend_aweme_page(owned, target_url, duplicate_login=True)
+                login_retained = True
+            elif owned is not page or completed or owned.url == "about:blank":
+                _close_owned_backend_aweme_page(owned, target_url, allow_blank=owned is page)
+        # Failed business pages remain available for API fallback.
 
 
 def export_workbook_via_browser(

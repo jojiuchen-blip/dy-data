@@ -739,6 +739,7 @@ export interface SettlementStatementLine {
   feeDirection: FeeDirection;
   productScope: string;
   productType: string;
+  snapshotProductType?: string;
   originalEntryCount: number;
   adjustmentEntryCount: number;
   originalBaseCent: number;
@@ -2335,6 +2336,7 @@ export interface FinanceOrderDetailRow {
   skuId: string | null;
   skuName: string | null;
   productType: string | null;
+  snapshotProductType?: string | null;
   saleChannel: string | null;
   saleStoreId: string | null;
   saleStoreName: string | null;
@@ -2540,7 +2542,11 @@ export interface FinanceImportPreviewData {
   total: number;
   page: number;
   pageSize: number;
-  previewSummary: { frozenAvailable: boolean; blockedRowCount: number; totalRows: number };
+  previewSummary: {
+    frozenAvailable: boolean; blockedRowCount: number; totalRows: number;
+    createRowCount?: number; updateRowCount?: number; unchangedRowCount?: number;
+    failedRowCount?: number; unavailableRowCount?: number; writtenRowCount?: number; pendingRowCount?: number;
+  };
 }
 
 export interface FinanceImportBatchRow {

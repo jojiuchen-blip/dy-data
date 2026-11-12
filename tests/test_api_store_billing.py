@@ -3077,11 +3077,11 @@ def test_admin_accepts_dispute_by_creating_a_new_immutable_statement_version(
     db_session: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Keep the test on the confirmed post-cutoff branch instead of depending
-    # on the calendar day when the suite happens to run.
+    # August is already overdue on October 2: use the bill's next-month
+    # Shanghai deadline, rather than the current UTC calendar day (> 6).
     monkeypatch.setattr(
         "dy_api.routes.dashboard.utcnow",
-        lambda: datetime(2026, 8, 10, 16, 0, 0, tzinfo=timezone.utc),
+        lambda: datetime(2026, 10, 2, 16, 0, 0, tzinfo=timezone.utc),
     )
     _login(client)
     db_session.add_all(
@@ -3532,7 +3532,7 @@ def test_finance_import_collects_all_csv_errors_without_business_writes(
     assert "text/csv" in downloaded.headers["content-type"]
     csv_text = downloaded.content.decode("utf-8-sig")
     assert csv_text.startswith(
-        "rowNumber,businessKey,field,originalValue,reason,suggestion"
+        "原文件行号,业务唯一键,字段,原始值,错误原因,建议修正方式"
     )
     assert len(csv_text.strip().splitlines()) == detail_data["errors"]["total"] + 1
 

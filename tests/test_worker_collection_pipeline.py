@@ -1385,6 +1385,10 @@ def test_commit_fence_checks_lease_after_pending_data_is_flushed(db_session, mon
 
 
 def test_watchdog_renews_lease_during_a_slow_stage(tmp_path, monkeypatch):
+    from queue import Empty, Queue
+    from threading import Lock, current_thread
+    from time import monotonic
+
     engine = create_engine(
         f"sqlite+pysqlite:///{tmp_path / 'settlement-watchdog.db'}",
         connect_args={"check_same_thread": False},
@@ -1395,6 +1399,54 @@ def test_watchdog_renews_lease_during_a_slow_stage(tmp_path, monkeypatch):
     with factory() as session:
         queue_job_run(session, "slow-rebuild", "settlement_rebuild")
         session.commit()
+        initial_database_time = settlement_rebuild._database_utcnow(session)
+
+    # Start the short lease only in controlled database time. GC or database
+    # setup before the watchdog starts must not consume the interval being
+    # tested; real expired-claim rejection has separate coverage.
+    clock_lock = Lock()
+    database_elapsed = 0.0
+    persisted_heartbeats = Queue()
+    original_heartbeat = settlement_rebuild.heartbeat_settlement_rebuild_job
+
+    def controlled_database_time(session):
+        del session
+        with clock_lock:
+            return initial_database_time + timedelta(seconds=database_elapsed)
+
+    def record_persisted_heartbeat(factory_arg, **kwargs):
+        active = original_heartbeat(factory_arg, **kwargs)
+        if active:
+            with factory_arg() as observer:
+                job = observer.get(JobRun, "slow-rebuild")
+                persisted_heartbeats.put((
+                    current_thread().name,
+                    settlement_rebuild._as_utc(job.heartbeat_at),
+                    settlement_rebuild._as_utc(job.lease_expires_at),
+                ))
+        return active
+
+    def wait_for_background_renewal(target_time):
+        deadline = monotonic() + 5
+        while (remaining := deadline - monotonic()) > 0:
+            try:
+                thread_name, heartbeat_at, lease_expires_at = persisted_heartbeats.get(
+                    timeout=remaining,
+                )
+            except Empty:
+                break
+            if (
+                thread_name == "settlement-rebuild-heartbeat-slow-rebuild"
+                and heartbeat_at >= target_time
+            ):
+                assert lease_expires_at == heartbeat_at + timedelta(seconds=2)
+                return
+        pytest.fail("background watchdog did not persist the requested renewal")
+
+    monkeypatch.setattr(settlement_rebuild, "_database_utcnow", controlled_database_time)
+    monkeypatch.setattr(
+        settlement_rebuild, "heartbeat_settlement_rebuild_job", record_persisted_heartbeat,
+    )
 
     def slow_rebuild(
         session: Session,
@@ -1402,10 +1454,19 @@ def test_watchdog_renews_lease_during_a_slow_stage(tmp_path, monkeypatch):
         source_run_id: str,
         progress_callback=None,
     ) -> SettlementStats:
+        nonlocal database_elapsed
         del session, source_run_id, progress_callback
         with factory() as observer:
             initial_lease = observer.get(JobRun, "slow-rebuild").lease_expires_at
-        sleep(4.5)
+        # This silent stage spans 4.5 database seconds, beyond its 2s lease.
+        # Each advance waits for a real watchdog-thread write/commit before
+        # advancing again; no progress callback can renew on the stage's behalf.
+        for elapsed in (1.0, 2.0, 3.0, 4.5):
+            with clock_lock:
+                database_elapsed = elapsed
+                target_time = initial_database_time + timedelta(seconds=elapsed)
+            wait_for_background_renewal(target_time)
+        assert controlled_database_time(None) - initial_database_time == timedelta(seconds=4.5)
         with factory() as observer:
             renewed_lease = observer.get(JobRun, "slow-rebuild").lease_expires_at
         assert renewed_lease > initial_lease + timedelta(seconds=2)

@@ -112,7 +112,8 @@ def confirm_and_open(page, web):
         page.get_by_role("button", name="确认提交", exact=True).click()
     assert confirmed.value.status == 200, confirmed.value.text()
     page.get_by_role("link", name="进入推广费开票").click()
-    assert "/settlement/invoice" in page.url
+    assert urlsplit(page.url).path == "/settlement/invoice"
+    assert parse_qs(urlsplit(page.url).query)["month"] == ["2026-09"]
     expect(page).to_have_title("抖音经营数据引擎")
     expect(page.get_by_role("heading", name="开票确认", exact=True)).to_be_visible()
     info = page.locator(".store-finance-invoice-info")
@@ -136,8 +137,7 @@ def _invoice_statement_response(response, api_url):
 
 
 def _open_invoice_with_statement_data(page, web, api_url):
-    # The invoice page fetches several months concurrently. Bind assertions to
-    # this bill's promotion request rather than whichever month finishes last.
+    # Bind to the invoice page's real request for the selected promotion bill.
     with page.expect_response(lambda response: _invoice_statement_response(response, api_url)) as loaded:
         info = confirm_and_open(page, web)
     response = loaded.value
@@ -197,46 +197,28 @@ def test_confirmed_bill_displays_server_tax_and_registers_without_manual_amounts
         context.close()
 
 
-def test_invoice_summary_ignores_later_empty_month_response(browser, invoice_web, invoice_api):
+def test_invoice_confirmation_link_reads_only_the_selected_month(browser, invoice_web, invoice_api):
+    with invoice_api[1].begin() as session:
+        session.add(AggStoreMonthlySettlement(
+            month="2026-10", store_id="oct23-store", product_scope="all", product_type="all",
+        ))
+    with invoice_api[1]() as session:
+        publish_fixture(session, "settlement")
     context = browser.new_context(viewport={"width": 1440, "height": 900})
     page = context.new_page()
-    summaries = []
-    held = []
-    target_seen = False
+    promotion_months = []
 
-    def release_after_target(response):
-        nonlocal target_seen
-        if _invoice_statement_response(response, invoice_api[0]):
-            target_seen = True
-            for route, fetched in held:
-                route.fulfill(response=fetched)
-            held.clear()
+    def observe_statement_request(request):
+        url = urlsplit(request.url)
+        query = parse_qs(url.query)
+        if (request.method == "GET" and url.path == "/api/v1/store-settlements"
+                and query.get("storeId") == ["oct23-store"] and query.get("feeDirection") == ["PROMOTION"]):
+            promotion_months.extend(query.get("month", []))
 
-    def hold_empty_month(route):
-        query = parse_qs(urlsplit(route.request.url).query)
-        if (route.request.method != "GET" or query.get("storeId") != ["oct23-store"]
-                or query.get("feeDirection") != ["PROMOTION"] or query.get("month") == ["2026-09"]):
-            route.continue_()
-            return
-        fetched = route.fetch()
-        assert fetched.status == 200, fetched.text()
-        assert fetched.json()["data"]["list"] == []
-        if target_seen:
-            route.fulfill(response=fetched)
-        else:
-            held.append((route, fetched))
-
-    page.on("response", lambda response: summaries.append(response)
-            if "/store-settlements?" in response.url else None)
-    page.on("response", release_after_target)
-    page.route(f"{invoice_api[0]}/api/v1/store-settlements?*", hold_empty_month)
+    page.on("request", observe_statement_request)
     try:
         info, statement_data = _open_invoice_with_statement_data(page, invoice_web, invoice_api[0])
-        # Preserve real server bodies, but force an unrelated empty month to
-        # complete last. The former summaries[-1] selector then reads no bill.
-        assert target_seen
-        assert summaries[-1].json()["data"]["list"] == []
-        assert not _invoice_statement_response(summaries[-1], invoice_api[0])
+        assert promotion_months and set(promotion_months) == {"2026-09"}
         assert statement_data["list"][0]["statementId"] == "oct23-bill"
         assert statement_data["promotionInvoiceSummary"] == {
             "invoiceAmountCent": 10601, "netAmountCent": 10001, "taxAmountCent": 600,
@@ -244,7 +226,6 @@ def test_invoice_summary_ignores_later_empty_month_response(browser, invoice_web
         expect(info).to_contain_text("106.01")
     finally:
         context.close()
-
 
 
 def test_invalid_ascii_numbers_and_real_submit_failures_never_show_success(

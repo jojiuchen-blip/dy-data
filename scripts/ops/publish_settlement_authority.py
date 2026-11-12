@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 import sys
 import time
@@ -12,11 +13,24 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from apps.api.dy_api.db import get_session_factory
-from apps.ops_agent.resources import ResourceAction
-from apps.worker.resource_monitor import current_resource_decision, start_resource_monitor
+from apps.ops_agent.resources import PressureThresholds, ResourceAction
+from apps.worker.resource_monitor import SAMPLE_SECONDS, current_resource_decision, start_resource_monitor
 from apps.worker.settlement_publication_only import (
     PROTOCOL, apply_settlement_publication, preview_settlement_publication,
 )
+
+
+MAX_ADMISSION_WAIT_SECONDS = 1800
+MIN_DEFAULT_ADMISSION_WAIT_SECONDS = 900
+
+
+def _default_admission_wait_seconds() -> int:
+    """Cover both protected-policy dwell windows and normal sampling overhead."""
+    thresholds = PressureThresholds.from_env()
+    sampling_margin = max(30, 3 * SAMPLE_SECONDS)
+    return max(MIN_DEFAULT_ADMISSION_WAIT_SECONDS, math.ceil(
+        thresholds.recovery_duration_seconds + thresholds.stable_duration_seconds + sampling_margin,
+    ))
 
 
 def main(argv=None):
@@ -24,12 +38,13 @@ def main(argv=None):
     parser.add_argument("--month", action="append", required=True, help="YYYY-MM; repeat for multiple requested months")
     parser.add_argument("--apply", action="store_true", help="Apply only an exact previously reviewed dry-run hash")
     parser.add_argument("--preview-hash", help="Required with --apply; copied from the full-month dry-run")
-    parser.add_argument("--admission-wait-seconds", type=int, default=90, help="Bounded wait for the real resource monitor; admission is never bypassed")
+    parser.add_argument("--admission-wait-seconds", type=int, default=None,
+                        help="Apply observation budget: defaults to the configured recovery and stable windows plus sampling margin (at least 900s); maximum 1800s. Explicit shorter waits may refuse without applying.")
     args = parser.parse_args(argv)
     if args.apply and not args.preview_hash:
         parser.error("--apply requires --preview-hash")
-    if not 0 <= args.admission_wait_seconds <= 600:
-        parser.error("--admission-wait-seconds must be between 0 and 600")
+    if args.admission_wait_seconds is not None and not 0 <= args.admission_wait_seconds <= MAX_ADMISSION_WAIT_SECONDS:
+        parser.error(f"--admission-wait-seconds must be between 0 and {MAX_ADMISSION_WAIT_SECONDS}")
     factory = get_session_factory()
     if factory is None:
         print(json.dumps({"protocol": PROTOCOL, "status": "error", "error_type": "database_not_configured"}))
@@ -37,9 +52,15 @@ def main(argv=None):
     monitor = None
     try:
         if args.apply:
+            admission_wait_seconds = args.admission_wait_seconds
+            if admission_wait_seconds is None:
+                admission_wait_seconds = _default_admission_wait_seconds()
+                if admission_wait_seconds > MAX_ADMISSION_WAIT_SECONDS:
+                    parser.error("configured recovery and stable windows exceed the bounded default observation budget; "
+                                 f"use an explicit --admission-wait-seconds between 0 and {MAX_ADMISSION_WAIT_SECONDS} for a bounded attempt")
             monitor = start_resource_monitor(factory)
             if monitor is not None:
-                deadline = time.monotonic() + args.admission_wait_seconds
+                deadline = time.monotonic() + admission_wait_seconds
                 while True:
                     decision = current_resource_decision()
                     if decision is not None and decision.action == ResourceAction.ALLOW:

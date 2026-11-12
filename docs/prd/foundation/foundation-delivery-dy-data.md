@@ -1,6 +1,6 @@
 # Foundation 交付清单 - dy-data（抖音经营引擎）
 
-> 生成时间: 2026-10-27（S4 技术合同增量回捞，历史记录保留）
+> 生成时间: 2026-10-27；2026-10-31补记10月30日已确认合同（S4增量回捞，历史记录保留）
 > Skill: foundation-builder
 > 模式: 增量更新
 > 范围: 已确认 DYDATA-104 分类/账期、月末资格、精确历史归属/纠错、财务预览/撤销与整账来源权威；同步相关既有发票来源。不修改原业务事实，不新增规则，不代表部署或生产闭环验收。
@@ -18,7 +18,7 @@
 
 | 产物 | 文件路径 | 行数 | 拆分子文件 |
 |---|---|---:|---|
-| 术语表 | docs/prd/foundation/foundation-glossary-dy-data.md | 192 | — |
+| 术语表 | docs/prd/foundation/foundation-glossary-dy-data.md | 203 | — |
 | 数据库 Schema | docs/prd/foundation/foundation-schema-dy-data.md | 154 | docs/prd/foundation/foundation-schema-dy-data/account-qualification.md<br>docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md<br>docs/prd/foundation/foundation-schema-dy-data/existing-read-dependencies.md<br>docs/prd/foundation/foundation-schema-dy-data/historical-sale-attribution.md<br>docs/prd/foundation/foundation-schema-dy-data/invoice-source.md<br>docs/prd/foundation/foundation-schema-dy-data/product-rule-source.md<br>docs/prd/foundation/foundation-schema-dy-data/settlement-reporting.md |
 | API 接口设计 | docs/prd/foundation/foundation-api-dy-data.md | 299 | docs/prd/foundation/foundation-api-dy-data/billing-invoice.md<br>docs/prd/foundation/foundation-api-dy-data/common-contract.md<br>docs/prd/foundation/foundation-api-dy-data/product-sync.md<br>docs/prd/foundation/foundation-api-dy-data/settlement-authority.md<br>docs/prd/foundation/foundation-api-dy-data/settlement-reporting.md<br>docs/prd/foundation/foundation-api-dy-data/sku-fee-admin.md |
 
@@ -144,3 +144,21 @@ C2/C3 核查了本次页面写字段、模板及冻结预览响应到实际 rout
 - `route-check.mjs . --target-stage S2 --json`：foundationReadyForPrd.pass=true、pageStageClosedForPrd.pass=true；整体退出1/canEnter=false，唯一失败子门禁为既有 stageWritebackBeforeRouting（当前S4、阶段回写由主控处理）。不把子门禁通过视为阶段切换。`git diff --check`：退出0，仅既有换行规范提示。
 - 未生产：没有采集、资格冻结、数据库迁移/写入、历史修复、费用重算或发布。月末实际采集、冻结后自动重算/月结链、真实覆盖与部署验收仍由主控验证；不把合同回捞或fixture当作运行闭环完成。
 - 无新增业务规则待确认；004—008及相关001—003的状态由主控根据本提交和运行证据回写。既有项目阶段日志/上游文档的一致性治理超出本次限定写集，保留交主控。
+
+## 2026-10-30 增量回捞
+
+本轮依据用户已确认的五项，回捞展示/原财务分类、中文模板与隔离示例、资料与SAP准确来源继承、正式处理计数、逾期方向确认/hold。未新增数据库表列、业务页或无鉴权HTTP写接口，不改旧冻结事实；实现和生产状态见[交付证据](../../verification/dydata-104-oct30-delivery.md)。
+
+| 一致性 | 核对范围 |
+|---|---|
+| C2/C3 | 财务模板中文字段→规范化键→profile/厂家结果；预览统计从row_status和冻结载荷派生；确认由正式版本与方向记录。 |
+| C4 | productType展示与snapshotProductType原文、校验有效与正式写入、厂家确认与人工更正依据分别定义。 |
+| C5 | 复用既有审计/导入行/档案表，无新孤立表字段；worker hold/恢复入口为有意的非HTTP边界。 |
+| C6/C7 | 保留既有双方向/全组开票/原子导入、权限及版本语义；以10月30日明确用户确认覆盖旧scope和基础列表状态列冲突，不伪造新locked语义。 |
+
+本轮为已确认业务合同的增量记录；新集成CI与生产处理仍独立验收，未据此切换项目阶段或关闭104。
+
+
+## 2026-10-31 仅发布CLI增量一致性
+
+S4-FCR-020仅同步非HTTP运维参数的派生观察预算及显式上限。C2/C3无页面写字段、公开API或Schema变化；C4继续使用正式压力策略的recovery/stable/ALLOW术语；C5无新表列；C6/C7保留原鉴权、实际资源观察、claim/lease和精确来源hash，不将等待时间当准入许可。主入口沿用104既有授权处理技术参数缺口，无新增业务规则待确认；全量基础文件行数/链接及门禁继续按交付检查，阶段保持S4。

@@ -45,7 +45,8 @@ from __future__ import annotations
 
 import csv
 import re
-from io import StringIO
+from io import StringIO, BytesIO
+from openpyxl import load_workbook
 from pathlib import Path
 from urllib.parse import quote
 
@@ -130,20 +131,9 @@ ORDER_DETAIL_EXPORT_FIELDS = [
 ]
 
 STORE_EXPORT_FIELDS = [
-    "store_id",
-    "store_name",
-    "store_maintained_sap_code",
-    "finance_imported_sap_code",
-    "effective_sap_code",
-    "effective_sap_version",
-    "effective_sap_updated_by",
-    "effective_sap_updated_at",
-    "sap_status",
-    "statement_total_cent",
-    "confirmed_amount_cent",
-    "pending_invoice_amount_cent",
-    "issued_amount_cent",
-    "settled_or_deducted_amount_cent",
+    "门店ID", "门店名称", "门店维护SAP编码", "财务导入SAP编码", "有效SAP编码",
+    "有效SAP版本", "最近操作人", "最近更新时间", "账单总额（分）", "已确认金额（分）",
+    "待开票金额（分）", "已开票金额（分）", "已结算或扣款金额（分）",
 ]
 
 SAP_EXPORT_FIELDS = [
@@ -205,43 +195,14 @@ ORDER_FEE_DETAIL_FIELDS = [
     "账单状态",
 ]
 
-ERROR_FILE_FIELDS = [
-    "rowNumber",
-    "businessKey",
-    "field",
-    "originalValue",
-    "reason",
-    "suggestion",
-]
+ERROR_FILE_FIELDS = ["原文件行号", "业务唯一键", "字段", "原始值", "错误原因", "建议修正方式"]
 
 # 四种财务导入模板表头（FINANCE_IMPORT_TEMPLATE_FIELDS）。
 TEMPLATE_FIELDS = {
-    "PROMOTION_FACTORY_RESULT": [
-        "invoiceNumber",
-        "reviewResult",
-        "rejectionReason",
-        "settlementDate",
-        "settlementAmountCent",
-    ],
-    "MANAGEMENT_FACTORY_RESULT": [
-        "storeId",
-        "statementMonth",
-        "storeName",
-        "invoiceNumber",
-        "invoiceDate",
-        "deductionDate",
-        "deductionAmountCent",
-    ],
-    "BASIC_INFO": ["storeId", "storeName", "sapCode", "importedAt"],
-    "SAP_CONFIRMATION": [
-        "storeId",
-        "storeName",
-        "financeInitialSap",
-        "serviceStoreCode",
-        "finalSapCode",
-        "factoryConfirmationResult",
-        "confirmedAt",
-    ],
+    "BASIC_INFO": ["门店ID", "门店名称", "SAP编码", "资料导入时间（含时区）"],
+    "PROMOTION_FACTORY_RESULT": ["发票号码", "厂家审核结果", "审核不通过原因", "结算日期", "结算金额（分）"],
+    "MANAGEMENT_FACTORY_RESULT": ["门店ID", "业务账期（YYYY-MM）", "门店名称", "发票号码", "开票日期", "厂家扣款日期", "厂家扣款金额（分）"],
+    "SAP_CONFIRMATION": ["门店ID", "门店名称", "财务初始SAP编码", "服务门店编码", "最终有效SAP编码", "厂家确认结果", "厂家确认时间（含时区）"],
 }
 
 ERROR_BATCH_ID = "uat-error-import"
@@ -298,6 +259,12 @@ def download_rows(download: Download) -> list[list[str]]:
     assert path is not None, "下载必须落地到磁盘后才能断言"
     raw = Path(path).read_bytes()
     assert raw, "下载文件不得为 0 字节"
+    if download.suggested_filename.endswith(".xlsx"):
+        workbook = load_workbook(BytesIO(raw))
+        assert workbook.sheetnames == ["数据导入", "填写示例", "填写说明"]
+        assert workbook["填写示例"].max_row == 2
+        assert workbook["填写示例"].cell(2, workbook["填写示例"].max_column).value == "全部为虚构示例，请勿提交"
+        return [list(row) for row in workbook["数据导入"].values]
     assert raw.startswith(b"\xef\xbb\xbf"), "服务端 CSV 必须带 UTF-8 BOM"
     text = raw.decode("utf-8-sig")
     assert text.strip(), "下载 CSV 至少应包含表头"
@@ -443,6 +410,10 @@ def test_dydata97_export_finance_store_buttons_download_real_csv(
     try:
         goto(page, vite_live_admin_api_base_url, "/finance/stores?month=2026-08", "门店基础信息")
 
+        expect(page.get_by_role("columnheader", name="SAP确认状态", exact=True)).to_have_count(0)
+        screenshot = Path(".tmp/oct30-finance-store-base-1440.png")
+        screenshot.parent.mkdir(exist_ok=True)
+        page.screenshot(path=str(screenshot), full_page=True)
         # #8 下载基础信息导入模板
         template = click_download(page, "下载基础信息导入模板")
         assert download_rows(template) == [TEMPLATE_FIELDS["BASIC_INFO"]]
@@ -603,7 +574,7 @@ def test_dydata97_export_import_panel_error_file_downloads_real_bytes(
         ).encode("utf-8")
         stores_csv = (
             "storeId,storeName,sapCode,importedAt\n"
-            "store-1,深圳临港认证服务店,,2026-08-08T08:00:00+08:00\n"
+            "store-1,深圳临港认证服务店,,not-an-iso-time\n"
         ).encode("utf-8")
 
         cases = [
@@ -657,7 +628,7 @@ def test_dydata97_export_import_panel_error_file_downloads_real_bytes(
                 rows,
                 detail["errors"],
             )
-            row_number_index = ERROR_FILE_FIELDS.index("rowNumber")
+            row_number_index = ERROR_FILE_FIELDS.index("原文件行号")
             assert len({row[row_number_index] for row in rows[1:]}) == uploaded["errorRows"]
     finally:
         context.close()
@@ -815,7 +786,7 @@ def test_dydata97_export_finance_fee_filenames_match_content_disposition(
     try:
         goto(page, vite_live_admin_api_base_url, "/finance/promotion?month=2026-08", "推广服务费")
         assert click_download(page, "下载推广服务费厂家导入模板").suggested_filename == (
-            "finance-import-promotion_factory_result-template.csv"
+            "推广服务费厂家结果-导入模板.xlsx"
         )
         assert re.fullmatch(
             r"finance-promotion-invoices-\d{4}-\d{2}-\d{2}\.csv",
@@ -824,7 +795,7 @@ def test_dydata97_export_finance_fee_filenames_match_content_disposition(
 
         goto(page, vite_live_admin_api_base_url, "/finance/management?month=2026-08", "管理服务费")
         assert click_download(page, "下载管理服务费厂家导入模板").suggested_filename == (
-            "finance-import-management_factory_result-template.csv"
+            "管理服务费厂家结果-导入模板.xlsx"
         )
         assert re.fullmatch(
             r"finance-management-invoices-\d{4}-\d{2}-\d{2}\.csv",
@@ -867,7 +838,7 @@ def test_dydata97_export_finance_store_filenames_match_content_disposition(
     try:
         goto(page, vite_live_admin_api_base_url, "/finance/stores?month=2026-08", "门店基础信息")
         assert click_download(page, "下载基础信息导入模板").suggested_filename == (
-            "finance-import-basic_info-template.csv"
+            "门店基础信息-导入模板.xlsx"
         )
         assert re.fullmatch(
             r"finance-stores-\d{4}-\d{2}-\d{2}\.csv",
@@ -882,7 +853,7 @@ def test_dydata97_export_finance_store_filenames_match_content_disposition(
             click_download(page, "导出 SAP 编码差异清单").suggested_filename,
         )
         assert click_download(page, "下载 SAP 编码确认模板").suggested_filename == (
-            "finance-import-sap_confirmation-template.csv"
+            "SAP确认-导入模板.xlsx"
         )
     finally:
         context.close()

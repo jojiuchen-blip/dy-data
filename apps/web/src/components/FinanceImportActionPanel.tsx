@@ -129,7 +129,7 @@ export function FinanceImportActionPanel({
       // changed while the independent commit request was in flight.
       onCommittedRef.current();
       if (request !== requestVersion.current) return;
-      setMessage("导入结果已生效；导入时间作为审核通过或结算完成时间。");
+      setMessage("导入已提交，正在重新读取正式数据；厂家结果的导入时间作为审核通过或结算完成时间。");
       setPreview(null);
       setFile(null);
       setCommitKey(crypto.randomUUID());
@@ -238,7 +238,7 @@ export function FinanceImportActionPanel({
         <div className="finance-import-preview">
           <div className="finance-import-summary">
             <span>场景<strong>{displayFinanceImportScenario(preview.scenario)}</strong></span>
-            <span>成功行<strong>{preview.successRows}</strong></span>
+            <span>校验通过行<strong>{preview.successRows}</strong></span>
             <span>错误行<strong>{preview.errorRows}</strong></span>
             <span>读取 / 当前版本<strong>V{preview.readVersion} / V{preview.currentVersion}</strong></span>
           </div>

@@ -237,7 +237,7 @@ def test_frozen_preview_requires_explicit_confirm_and_commits_real_profile(
         with page.expect_response(lambda response: response.request.method == "POST" and response.url.endswith(("/commits", "/corrections"))) as committed:
             confirm.click()
         assert committed.value.status == 200, committed.value.text()
-        expect(panel).to_contain_text("导入结果已生效")
+        expect(panel).to_contain_text("导入已提交，正在重新读取正式数据")
         with preview_stores() as session:
             assert session.scalar(select(StoreFinanceProfile.sap_code).where(StoreFinanceProfile.store_id == STORE_IDS[0], StoreFinanceProfile.is_current.is_(True))) == "SAP-CONFIRMED-000"
     finally:
@@ -305,10 +305,10 @@ def test_inflight_commit_locks_scope_and_releases_after_real_delayed_response(
         assert len(refreshes) > refresh_count  # onCommitted refreshes even after scope change.
         expect(panel.get_by_label("文件", exact=True)).to_be_enabled()
         if switch_month:
-            expect(panel).not_to_contain_text("导入结果已生效")
+            expect(panel).not_to_contain_text("导入已提交，正在重新读取正式数据")
             expect(panel).not_to_contain_text(f"SAP-A-{suffix}-000")
         else:
-            expect(panel).to_contain_text("导入结果已生效")
+            expect(panel).to_contain_text("导入已提交，正在重新读取正式数据")
         page.unroute(commit_pattern)
         panel.get_by_label("文件", exact=True).set_input_files({"name": "commit-b.csv", "mimeType": "text/csv", "buffer": content(1, suffix=f"B-{suffix}")})
         panel.get_by_role("button", name="上传并预览", exact=True).click()
@@ -317,7 +317,7 @@ def test_inflight_commit_locks_scope_and_releases_after_real_delayed_response(
         with page.expect_response(lambda response: response.request.method == "POST" and response.url.endswith(("/commits", "/corrections"))) as committed_b:
             panel.get_by_role("button", name="确认提交", exact=True).click()
         assert committed_b.value.status == 200, committed_b.value.text()
-        expect(panel).to_contain_text("导入结果已生效")
+        expect(panel).to_contain_text("导入已提交，正在重新读取正式数据")
         with preview_stores() as session:
             assert session.scalar(select(StoreFinanceProfile.sap_code).where(StoreFinanceProfile.store_id == STORE_IDS[0], StoreFinanceProfile.is_current.is_(True))) == f"SAP-B-{suffix}-000"
         assert not errors

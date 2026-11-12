@@ -631,7 +631,13 @@ def _active_adjustment_condition() -> Any:
     return or_(~is_versioned, is_current)
 
 
-def _sparse_authority_relation(months: tuple[str, ...]) -> Any:
+def _sparse_authority_source(months: tuple[str, ...], *, protected_statements=None, protected_entries=None) -> Any:
+    """Return exact economic rows before reporting dimension expansion.
+
+    Optional relations must contain all protected current bills/entries, across
+    all months. Reporting can reuse them in one SELECT without changing the
+    default financial query or narrowing frozen-chain suppression.
+    """
     from apps.worker.protected_billing_authority import (
         frozen_authority_rows, frozen_primary_chain_condition,
         protected_entries_relation, protected_slot_condition,
@@ -668,18 +674,18 @@ def _sparse_authority_relation(months: tuple[str, ...]) -> Any:
         )
         .where(
             SettlementFeeResult.original_business_month.in_(months),
-            ~protected_slot_condition(result_store, SettlementFeeResult.original_business_month),
-            ~frozen_primary_chain_condition(),
+            ~protected_slot_condition(result_store, SettlementFeeResult.original_business_month, statements=protected_statements),
+            ~frozen_primary_chain_condition(entries=protected_entries),
         )
     )
     original_store = case(
         (SettlementFeeAdjustment.fee_direction == PROMOTION_FEE, SettlementFeeResult.sale_store_id),
         else_=SettlementFeeResult.verify_store_id,
     )
-    basis = protected_entries_relation()
+    basis = protected_entries_relation() if protected_entries is None else protected_entries.alias("frozen_basis")
     adjustment_store = func.coalesce(basis.c.authority_store_id, original_store)
-    frozen_adjustment = protected_entries_relation()
-    frozen_anchor = protected_entries_relation()
+    frozen_adjustment = protected_entries_relation() if protected_entries is None else protected_entries.alias("frozen_adjustment")
+    frozen_anchor = protected_entries_relation() if protected_entries is None else protected_entries.alias("frozen_anchor")
     adjustment_rows = (
         select(
             literal("adjustment").label("source_kind"),
@@ -713,7 +719,7 @@ def _sparse_authority_relation(months: tuple[str, ...]) -> Any:
         .where(
             SettlementFeeAdjustment.adjustment_posting_month.in_(months),
             _active_adjustment_condition(),
-            ~protected_slot_condition(adjustment_store, SettlementFeeAdjustment.adjustment_posting_month),
+            ~protected_slot_condition(adjustment_store, SettlementFeeAdjustment.adjustment_posting_month, statements=protected_statements),
             ~select(frozen_adjustment.c.statement_entry_id).where(
                 frozen_adjustment.c.source_type == 2,
                 frozen_adjustment.c.source_record_id == SettlementFeeAdjustment.adjustment_id,
@@ -731,7 +737,11 @@ def _sparse_authority_relation(months: tuple[str, ...]) -> Any:
             ),
         )
     )
-    source = union_all(result_rows, adjustment_rows, frozen_authority_rows(months)).subquery("sparse_authority")
+    return union_all(result_rows, adjustment_rows, frozen_authority_rows(months, entries=protected_entries)).subquery("sparse_authority")
+
+
+def _sparse_authority_relation(months: tuple[str, ...]) -> Any:
+    source = _sparse_authority_source(months)
 
     common = (
         source.c.source_kind,

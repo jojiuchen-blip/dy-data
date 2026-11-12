@@ -31,7 +31,8 @@ from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from src.dy_data.product_classification import synced_product_type
+from src.dy_data.product_classification import commission_product_type
+from ..commission_classification import maintained_type, participation_rules
 
 from apps.api.dy_api.models import (
     DimSkuProductRule,
@@ -215,7 +216,7 @@ def bulk_update_sku_products(
         store.session.scalars(
             select(DimSkuProductRule).where(
                 DimSkuProductRule.sku_id.in_(parsed.sku_ids)
-            ).with_for_update()
+            ).order_by(DimSkuProductRule.sku_id).with_for_update()
         )
     )
     rows_by_sku = {row.sku_id: row for row in rows}
@@ -228,9 +229,11 @@ def bulk_update_sku_products(
             f"SKU 不存在：{', '.join(missing_sku_ids[:10])}",
         )
     modified_at = utcnow()
+    classification_rules = participation_rules(store.session, parsed.sku_ids)
     for sku_id in parsed.sku_ids:
         _apply_sku_product_manual_update(
-            rows_by_sku[sku_id], parsed, username=username, modified_at=modified_at
+            rows_by_sku[sku_id], parsed, username=username, modified_at=modified_at,
+            classification_rules=classification_rules
         )
     store.session.commit()
     return _success(
@@ -253,7 +256,7 @@ def update_sku_product(
     store = _require_store(store, request)
     parsed = _validate_model(SkuProductManualUpdateRequest, payload, request)
     row = store.session.scalar(
-        select(DimSkuProductRule).where(DimSkuProductRule.sku_id == sku_id)
+        select(DimSkuProductRule).where(DimSkuProductRule.sku_id == sku_id).with_for_update()
     )
     if row is None:
         raise _error(request, 404, "RESOURCE_NOT_FOUND", "SKU 不存在")
@@ -263,7 +266,8 @@ def update_sku_product(
         "manual_modified_at": modified_at,
     }
     if "product_type" in parsed.model_fields_set:
-        values["product_type"] = synced_product_type(row.product_scope, parsed.product_type or "")
+        values["product_type"] = maintained_type(row, parsed.product_type or "",
+            participation_rules(store.session, (row.sku_id,)))
     if "is_service_product" in parsed.model_fields_set:
         values["is_service_product"] = bool(parsed.is_service_product)
     expected_modified_at = _as_utc(parsed.expected_manual_modified_at)
@@ -355,6 +359,7 @@ async def upload_sku_product_import(
         )
     } if sku_ids else {}
     existing = set(skus)
+    classification_rules = participation_rules(store.session, skus)
     rows: list[SkuProductImportRow] = []
     normalized_type_count = 0
     if template_error:
@@ -386,7 +391,7 @@ async def upload_sku_product_import(
         if type_keep:
             errors.append(_row_error("productType", "NO_CHANGES", "商品类型不能为 KEEP"))
         if not errors and sku_id in skus:
-            normalized_type = synced_product_type(skus[sku_id].product_scope, type_text)
+            normalized_type = maintained_type(skus[sku_id], type_text, classification_rules)
             normalized_type_count += normalized_type != type_text
             type_text = normalized_type
         rows.append(
@@ -417,7 +422,7 @@ async def upload_sku_product_import(
             "hasMoreErrors": len(invalid_rows) > 100,
             "normalizedTypeCount": normalized_type_count,
             "normalizationNotice": (
-                f"{normalized_type_count} 个内部精诚养车范围 SKU 的商品类型已归一为精诚养车；原内部范围保持。"
+                f"{normalized_type_count} 个 SKU 已按分佣商品分类规则归一为精诚养车（售后官方保持）；原内部范围保持。"
                 if normalized_type_count else None
             ),
         },
@@ -477,13 +482,14 @@ def commit_sku_product_import(
         store.session.commit()
         raise _error(request, 409, "IMPORT_DATA_CHANGED", "商品口径在提交前发生变化，整批未写入")
     modified_at = utcnow()
+    classification_rules = participation_rules(store.session, skus)
     for import_row in rows:
         assert import_row.sku_id is not None
         sku = skus[import_row.sku_id]
         if not import_row.keep_product_type:
-            sku.product_type = synced_product_type(sku.product_scope, import_row.product_type or "")
+            sku.product_type = maintained_type(sku, import_row.product_type or "", classification_rules)
         else:
-            sku.product_type = synced_product_type(sku.product_scope, sku.product_type)
+            sku.product_type = maintained_type(sku, sku.product_type, classification_rules)
         sku.manual_modified_by = username
         sku.manual_modified_at = modified_at
         import_row.validation_status = 4
@@ -639,7 +645,7 @@ def create_sku_fee_rule(
         return _success(request, _sku_fee_rule_item(idempotent))
 
     sku = store.session.scalar(
-        select(DimSkuProductRule).where(DimSkuProductRule.sku_id == parsed.sku_id)
+        select(DimSkuProductRule).where(DimSkuProductRule.sku_id == parsed.sku_id).with_for_update()
     )
     if sku is None:
         raise _error(request, 404, "RESOURCE_NOT_FOUND", "SKU 不存在")
@@ -666,6 +672,10 @@ def create_sku_fee_rule(
         .limit(1)
     )
     now = utcnow()
+    if (parsed.rule_status == "ACTIVE" and parsed.effective_date <= now.astimezone(SHANGHAI_TZ).date()
+            and (parsed.promotion_service_fee_rate > 0 or parsed.management_service_fee_rate > 0)):
+        sku.product_type = commission_product_type(maintained_type(sku, sku.product_type,
+            participation_rules(store.session, (sku.sku_id,))), participates=True)
     row = SkuFeeRule(
         rule_version=_new_rule_version("sfr", parsed.effective_date),
         idempotency_key_hash=key_hash,
@@ -1309,7 +1319,7 @@ def commit_sku_fee_rule_import(
     skus = {
         sku.sku_id: sku
         for sku in store.session.scalars(
-            select(DimSkuProductRule).where(DimSkuProductRule.sku_id.in_(sku_ids))
+            select(DimSkuProductRule).where(DimSkuProductRule.sku_id.in_(sku_ids)).order_by(DimSkuProductRule.sku_id).with_for_update()
         )
     }
     if len(skus) != len(set(sku_ids)):
@@ -1319,6 +1329,7 @@ def commit_sku_fee_rule_import(
     batch.commit_payload_sha256 = request_hash
     now = utcnow()
     created_versions: list[str] = []
+    classification_rules = participation_rules(store.session, skus)
     try:
         with store.session.begin_nested():
             for import_row in rows:
@@ -1337,6 +1348,10 @@ def commit_sku_fee_rule_import(
                     .limit(1)
                 )
                 rule_version = _new_rule_version("sfr", batch.effective_date)
+                if (batch.effective_date <= now.astimezone(SHANGHAI_TZ).date()
+                        and (import_row.promotion_service_fee_rate > 0 or import_row.management_service_fee_rate > 0)):
+                    sku.product_type = commission_product_type(
+                        maintained_type(sku, sku.product_type, classification_rules), participates=True)
                 store.session.add(
                     SkuFeeRule(
                         rule_version=rule_version,
@@ -1686,9 +1701,10 @@ def _apply_sku_product_manual_update(
     *,
     username: str,
     modified_at: datetime,
+    classification_rules: dict[str, list[SkuFeeRule]] | None = None,
 ) -> None:
     if "product_type" in payload.model_fields_set:
-        row.product_type = synced_product_type(row.product_scope, payload.product_type or "")
+        row.product_type = maintained_type(row, payload.product_type or "", classification_rules or {})
     if "is_service_product" in payload.model_fields_set:
         row.is_service_product = bool(payload.is_service_product)
     row.manual_modified_by = username

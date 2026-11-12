@@ -640,6 +640,14 @@ fi
 # Do not replace the old API until every new analytical read model is usable.
 # Active legacy work may defer a first publication; fail safely, never bypass
 # writer locks or force-publish a partially materialized source.
+# Exclude the old publisher while candidate heads are prepared. Its old
+# contract fingerprint would otherwise allow it to replace a freshly warmed
+# head. On a warmup failure the existing error trap restores its exact image.
+if [ -n "$previous_publication_image_id" ]; then
+  publication_worker_replaced=true
+  log "stopping previous publication worker before candidate warmup"
+  compose stop --timeout 25 publication-worker
+fi
 log "warming dashboard publications before API replacement"
 warm_dashboard_publications
 

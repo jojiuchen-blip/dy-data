@@ -23,7 +23,9 @@ def publication_read(session, module: str, publication_id: str | None = None):
             "code": "DATABASE_UNAVAILABLE", "message": "数据库暂不可用",
         })
     try:
-        publication = resolve_publication(session, module, publication_id)
+        publication = resolve_publication(
+            session, module, publication_id, allow_previous_deployment=True,
+        )
         yield publication
     except PublicationError as exc:
         raise HTTPException(exc.http_status, detail={

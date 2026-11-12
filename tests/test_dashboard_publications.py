@@ -64,7 +64,7 @@ def test_publish_metadata_and_fixed_version(factory):
             resolve_publication(session, "other", first.id)
 
 
-@pytest.mark.parametrize("module", ["sales", "clue-overview"])
+@pytest.mark.parametrize("module", ["sales", "clue-overview", "settlement"])
 def test_changed_classification_contract_rejects_legacy_rows_without_mutating_them(factory, module):
     from apps.api.dy_api.dashboard_publications.sources import MODULE_CONTRACT_VERSIONS
 
@@ -85,7 +85,7 @@ def test_changed_classification_contract_rejects_legacy_rows_without_mutating_th
             "contract_version"] == MODULE_CONTRACT_VERSIONS[module]
 
 
-@pytest.mark.parametrize("module", ["settlement", "finance", "douyin-ranking"])
+@pytest.mark.parametrize("module", ["finance", "douyin-ranking"])
 def test_legacy_financial_and_independent_ranking_publications_remain_readable(factory, module):
     first = publish_module(factory, module, build)
     with factory.begin() as session:

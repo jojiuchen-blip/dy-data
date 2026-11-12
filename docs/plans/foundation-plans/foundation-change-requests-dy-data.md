@@ -311,3 +311,68 @@
 | 状态 | 用户已确认；S4 实现与验证中，Foundation 正文待同步。 |
 
 裁决边界：先选择最新版本再判断启停，禁止跳过停用记录回退到旧启用。未提交渠道保持其独立时间线；同月唯一和不可变历史版本保持。缺省启用请求继续兼容既有幂等记录，显式停用参与请求指纹。账单确认、开票和付款仍由人工操作。无需结构迁移或规则逐月回填；读取语义随代码发布，回滚代码可恢复旧匹配方式，已生成账单和规则版本不得删除或覆盖。
+
+## S4-FCR-017：参与分佣展示类型与历史财务类型分离
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-017` |
+| 来源 Task | `DYDATA-104 / T3.1 静态首版发布与生产业务验收（2026-10-30 新增要求）` |
+| 分类 | `DRIFT / GAP` |
+| 改动项 | 按准确 SKU 及已发布生效的正费率历史规则确定参与集合，明确售后官方保留、其他参与项精诚养车；区分当前展示 `productType` 与不可变 `snapshotProductType`，统一结算元数据、聚合和明细/导出，保留独立打榜。 |
+| 原因 | 用户已确认的参与集合不限于旧精诚 scope；只改商品档案或下拉名称无法修正旧快照及已发布分析，且会混淆展示分类与历史财务事实。 |
+| 指向代码块 | `apps/api/dy_api/commission_classification.py:28`；`apps/api/dy_api/dashboard_publications/commission_types.py:45`；`apps/api/dy_api/dashboard_publications/sources.py:57`；`tests/test_commission_authority_query_postgres.py:165`。 |
+| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-glossary-dy-data.md` 的 2026-10-30 增量；`docs/prd/foundation/foundation-schema-dy-data/product-rule-source.md §2026-10-30 参与SKU类型与原财务类型`；`docs/prd/foundation/foundation-api-dy-data/sku-fee-admin.md §2026-10-30 分佣展示类型增量`。 |
+| 严重度 | 阻断；旧分类来源及发布版本不一致会使筛选、金额集合与明细不一致。 |
+| 状态 | 已采纳（主入口依据 2026-10-30 用户确认接管增量，候选正文已回捞；最终集成检查、生产预热/部署与业务验收尚未完成）。 |
+
+无正式参与证据的商品单列，不以类型改名纳入分佣。新版分析使用 `commission-product-type-v3`；原金额、账单/发票快照与独立打榜不回写。性能优化只复用同一权威来源，旧默认财务查询 SQL 逐字符保持；该事实及生产只读查询结果见[性能验证](../../verification/dydata-104-oct30-authority-query-performance.md)，不能替代生产发布。
+
+## S4-FCR-018：中文财务模板、正式更新计数与 SAP 确认来源
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-018` |
+| 来源 Task | `DYDATA-104 / T3.1 静态首版发布与生产业务验收（2026-10-30 新增要求）` |
+| 分类 | `DRIFT / GAP` |
+| 改动项 | 四类模板默认中文 XLSX，数据、虚构示例与说明分表并明确解析规则；兼容旧英文列与旧基础资料状态列。补充整批变更/写入计数、提交后正式记录回读及同 SAP 基础资料版本的准确确认来源继承。 |
+| 原因 | 用户要求模板与模块中文化、移除基础资料 SAP 确认状态列且导入完整生效；原基础资料同 SAP 导入会清空确认元信息，新行未 flush 时状态更新遗漏，旧单条 SAP 更正的证据也不能伪造为厂家确认字段。 |
+| 指向代码块 | `apps/api/dy_api/finance_import_templates.py:80`；`apps/api/dy_api/finance_import_templates.py:110`；`apps/api/dy_api/routes/dashboard.py:2199`；`apps/api/dy_api/routes/dashboard.py:7976`；`apps/api/dy_api/routes/dashboard.py:10705`；`tests/test_finance_sap_resolution_lineage.py:98`。 |
+| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-glossary-dy-data.md` 的 2026-10-30 增量；`docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md §2026-10-30 资料来源、处理计数与自动确认增量`；`docs/prd/foundation/foundation-api-dy-data/billing-invoice.md §2026-10-30 中文模板、导入完整更新与逾期确认`。 |
+| 严重度 | 阻断；误导入样例、丢失确认依据或虚报处理成功会改变财务资格或掩盖未写入记录。 |
+| 状态 | 已采纳（主入口依据 2026-10-30 用户确认接管增量，候选正文已回捞；最终集成检查、实际生产下载及业务验收尚未完成）。 |
+
+新增/更新/不变/失败/预览不可用互斥合计 `totalRows`；`writtenRowCount/pendingRowCount` 为另一处理维度，不将上传有效行当正式写入。来源回溯仅沿成功行 `_previewProfileId` 或撤销 `previous_target_record_id`，限定同店、同类型、同 SAP、版本下降且非 tombstone；确认时间取原正式来源而非后来资料导入时间。独立 SAP 确认与历史消费保护保留，不新增表或列。专项证据见[财务导入验证](../../verification/dydata-104-oct30-finance-imports.md)。
+
+## S4-FCR-019：逾期自动确认、显式暂停与开票金额分配组
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-019` |
+| 来源 Task | `DYDATA-104 / T3.1 静态首版发布与生产业务验收（2026-10-30 新增要求）` |
+| 分类 | `DRIFT / GAP` |
+| 改动项 | 补充上海次月 7 日 00:00 起的常规逾期自动确认及晚生成补偿；以当前版本、完整来源、费用方向和精确预演 hash 判定。通过追加审计保存方向暂停/解除及幂等收据；开票页使用显式账期与正式 `promotionInvoiceSummary/requiredStatementIds` 分配组。 |
+| 原因 | 原实现缺常规逾期扫描；开票页忽略 URL 账期且无关历史月失败会牵连当前组金额。仅有未确认账单数量不能证明可补执行资格，亦不能将自动确认扩为登记发票或付款。 |
+| 指向代码块 | `apps/worker/billing_auto_confirmation.py:71`；`apps/worker/billing_auto_confirmation.py:328`；`apps/worker/billing_auto_confirmation.py:435`；`apps/worker/billing_auto_confirmation.py:507`；`apps/web/src/pages/StoreInvoicePage.tsx:167`；`apps/web/src/pages/StoreInvoicePage.tsx:247`。 |
+| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-glossary-dy-data.md` 的 2026-10-30 增量；`docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md §2026-10-30 资料来源、处理计数与自动确认增量`；`docs/prd/foundation/foundation-api-dy-data/billing-invoice.md §2026-10-30 中文模板、导入完整更新与逾期确认`。 |
+| 严重度 | 阻断；关系当前账单确认资格、待决保护及开票金额，不得以时间逾期绕过来源/版本校验。 |
+| 状态 | 已采纳（主入口依据 2026-10-30 用户确认接管增量，候选正文已回捞；最终集成检查、正式逐账单预演/补执行及生产页面验收尚未完成）。 |
+
+本条按最新用户确认补充早期“账单确认均人工”的历史描述，仅适用于满足本条条件的逾期方向。`BILLING_AUTO_CONFIRM_ENABLED` 默认 false，初次启用前核对未补费及保护清单并登记必要 hold；人工已确认、争议、锁账、来源不齐、版本变化和显式暂停均继续保护。重放主动回滚且零写入；正式提交保留 SQL/总事务预算、延迟约束检查及最终 seal。不得补录暂停 22 券或将三组受保护金额视为已批准更正，不自动登记发票/付款。执行与回滚入口见[运行合同](../../ops/billing-auto-confirmation.md)；373 券与 8/9 月发布收尾仍独立未完成。
+
+
+## S4-FCR-020：仅发布CLI完整资源观察预算
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-020` |
+| 来源 Task | `DYDATA-104 / T3.1 8/9月仅发布收尾（2026-10-31实际入口拒绝）` |
+| 分类 | `DRIFT / GAP` |
+| 改动项 | 将CLI默认观察预算推导为覆盖正式recovery+stable及采样裕量、至少900秒；显式范围0..1800，超上限配置明确拒绝；短预算仍可安全拒绝。 |
+| 原因 | 新monitor按既有策略从protected开始，默认180+600秒后才ALLOW，旧CLI默认90/最大600秒不足以覆盖完整观察；重新启动不能跳过保护。 |
+| 指向代码块 | `scripts/ops/publish_settlement_authority.py::_default_admission_wait_seconds/main`；`tests/test_settlement_publication_cli_resource_wait.py`。 |
+| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-api-dy-data/settlement-authority.md §3`；`docs/prd/foundation/foundation-delivery-dy-data.md` 本次增量一致性记录。 |
+| 严重度 | 阻断既有正式运维发布入口的正常资源入场。 |
+| 状态 | 已采纳（主入口在104已授权修复范围接收技术预算缺口，候选参数合同已同步；不新增业务规则或数据库结构，生产仍独立验收）。 |
+
+不更改资源策略、初态、恢复/稳定阈值、采样、心跳归属、正式服务或源hash，不关闭guard或增加自动重试。短预算和持续不健康必须0服务调用。真实策略配受控测试时钟证明完整780秒后才准入；测试时钟不用于生产。证据见[CLI入场验证](../../verification/dydata-104-oct31-publication-cli-admission.md)。
