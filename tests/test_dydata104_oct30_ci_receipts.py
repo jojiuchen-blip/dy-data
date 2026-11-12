@@ -14,7 +14,7 @@ from test_dydata104_ci_coverage import BROWSER_NAME, PG_NAME, RECOVERY_NAME, WOR
         "test_finance_import_chinese_templates": 22,
         "test_finance_sap_resolution_lineage": 11,
         "test_billing_auto_confirmation_postgres": 14,
-        "test_commission_product_types_postgres": 10,
+        "test_commission_product_types_postgres": 12,
         "test_commission_authority_query_postgres": 18,
         "test_commission_authority_import_paths": 4,
         "test_ops_browser_observation": 58,
