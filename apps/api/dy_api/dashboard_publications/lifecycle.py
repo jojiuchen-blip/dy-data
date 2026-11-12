@@ -19,6 +19,7 @@ from .sources import MODULE_CONTRACT_VERSIONS
 
 REFRESH_INTERVAL = timedelta(minutes=5)
 MIN_DELETE_AGE = timedelta(0)
+DEPLOYMENT_PREVIOUS_CONTRACT_PIN_PREFIX = "deployment-previous-contract:"
 Builder = Callable[[Session, str, datetime], dict[str, Any]]
 SessionFactory = Callable[[], Session]
 
@@ -68,12 +69,14 @@ def _publication(row: Mapping[str, Any]) -> Publication:
 
 
 def resolve_publication(
-    session: Session, module: str, publication_id: str | None = None,
+    session: Session, module: str, publication_id: str | None = None, *,
+    allow_previous_deployment: bool = False,
 ) -> Publication:
     """Resolve once, holding a parent SHARE lock until the caller ends its tx.
 
     This is permission-neutral. Routes must apply current authorization to
     every projection query, including exports and requests specifying an ID.
+    Default HTTP reads may opt in to a compatible snapshot pinned for cutover.
     """
     statement = select(runs).where(runs.c.module == module, runs.c.status == "success")
     if publication_id is not None:
@@ -81,7 +84,8 @@ def resolve_publication(
     else:
         statement = statement.where(runs.c.id == select(heads.c.publication_id)
                                     .where(heads.c.module == module).scalar_subquery())
-    if session.get_bind().dialect.name == "postgresql":
+    postgres = session.get_bind().dialect.name == "postgresql"
+    if postgres:
         statement = statement.with_for_update(read=True)
     row = session.execute(statement).mappings().first()
     if row is None:
@@ -95,6 +99,23 @@ def resolve_publication(
     if expected_contract and actual_contract != expected_contract:
         if publication_id is not None:
             raise PublicationError("PUBLICATION_EXPIRED", "指定分析版本使用旧商品分类，请刷新后重试", 410)
+        if (allow_previous_deployment and module == "settlement"
+                and isinstance(actual_contract, str) and actual_contract):
+            # The deployment pin binds a complete snapshot to the incoming
+            # head contract. Only default HTTP reads may use it during cutover.
+            previous = select(runs).where(
+                runs.c.module == module,
+                runs.c.status == "success",
+                runs.c.stats_json["contract_version"].as_string() == expected_contract,
+                runs.c.pinned_at.is_not(None),
+                runs.c.pinned_by.is_not(None),
+                runs.c.pin_reason == DEPLOYMENT_PREVIOUS_CONTRACT_PIN_PREFIX + actual_contract,
+            ).order_by(runs.c.published_at.desc(), runs.c.id.desc()).limit(1)
+            if postgres:
+                previous = previous.with_for_update(read=True)
+            compatible = session.execute(previous).mappings().first()
+            if compatible is not None:
+                return replace(_publication(compatible), status="stale")
         raise PublicationError("PUBLICATION_NOT_READY", "新版商品分类分析尚未发布", 503)
     publication = _publication(row)
     # A historical successful version remains readable even after a failed

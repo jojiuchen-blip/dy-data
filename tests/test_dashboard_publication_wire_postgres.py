@@ -10,6 +10,8 @@ import subprocess
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.orm import sessionmaker
 
 from test_dashboard_publication_sales_postgres import publication_postgres_session
 from test_dashboard_publication_ranking_postgres import seed_frozen
@@ -18,9 +20,11 @@ from test_dashboard_publication_clues import prepare_clues
 from test_dashboard_publication_finance import _seed_finance, _seed_settlement, _run, NOW
 from publication_fixture_helpers import ready_periods_fixture
 from apps.api.dy_api.dashboard_publications import finance
+from apps.api.dy_api.dashboard_publications.lifecycle import pin_publication
 from apps.api.dy_api.dashboard_publications.schema import metadata, runs, heads
 from apps.api.dy_api.dashboard_publications.sources import MODULE_CONTRACT_VERSIONS
 from apps.api.dy_api.access_control import ALL_PAGE_KEYS
+from apps.worker.dashboard_publications import check_ready
 from dy_api.auth import AuthContext, get_current_user
 from dy_api.main import create_app
 from dy_api.routes._data import get_session_dependency
@@ -146,3 +150,81 @@ def test_postgres_financial_http_preserves_integer_cents(publication_postgres_se
     if module == "settlement":
         assert metrics["salesAmountCent"] == 9007199254740993 * 4
     assert session.scalar(select(runs.c.status).where(runs.c.id == "wire")) == "success"
+
+
+def test_postgres_settlement_http_keeps_compatible_pinned_snapshot_during_cutover(
+    publication_postgres_session, http_client, monkeypatch, caplog,
+):
+    session = publication_postgres_session
+    monkeypatch.setattr(finance.period_readiness, "capture", ready_periods_fixture)
+    _seed_settlement(session)
+    module = "settlement"
+    old_contract = "product-type-v2"
+    new_contract = "commission-product-type-v3"
+    cutover_pin = "deployment-previous-contract:commission-product-type-v3"
+    monkeypatch.setitem(MODULE_CONTRACT_VERSIONS, module, old_contract)
+    path, params = "/api/v1/dashboard/store-ranking", {"periodKey": "2026-08"}
+    factory = sessionmaker(bind=session.get_bind())
+    http_client.app.dependency_overrides[get_current_user] = lambda: AuthContext(
+        user_id="bridge-test", username="bridge-test", display_name="bridge-test", role="store",
+        store_ids=("allowed",), store_scope_mode="specified", auth_type="test", page_keys=ALL_PAGE_KEYS)
+
+    def publish(identifier, contract):
+        with monkeypatch.context() as patch:
+            patch.setitem(MODULE_CONTRACT_VERSIONS, module, contract)
+            _run(session, identifier, module)
+            finance.build_settlement(session, identifier, NOW)
+            session.execute(heads.delete().where(heads.c.module == module))
+            _publish(session, identifier, module)
+
+    publish("previous-complete", old_contract)
+    active = http_client.get(path, params=params)
+    assert active.status_code == 200, active.text
+    baseline = active.json()
+    assert baseline["meta"]["publication"]["id"] == "previous-complete"
+    assert [row["storeId"] for row in baseline["data"]["list"]] == ["allowed"]
+    session.rollback()
+
+    publish("unrelated-pin", old_contract)
+    publish("wrong-contract", "product-type-v1")
+    pin_publication(session, "unrelated-pin", reason="monthly-report-archive", actor="bridge-test")
+    pin_publication(session, "wrong-contract", reason=cutover_pin, actor="bridge-test")
+    session.commit()
+    publish("incoming-complete", new_contract)
+    # HTTP and domain imports can register more sidecar tables than the
+    # settlement fixture alone. Exercise the real readiness gate's schema check.
+    metadata.create_all(session.get_bind())
+    with monkeypatch.context() as patch:
+        patch.setitem(MODULE_CONTRACT_VERSIONS, module, old_contract)
+        unavailable = http_client.get(path, params=params)
+        assert unavailable.status_code == 503
+        assert unavailable.json()["detail"]["code"] == "PUBLICATION_NOT_READY"
+        session.rollback()
+
+        pin_publication(session, "previous-complete", reason=cutover_pin, actor="bridge-test")
+        session.commit()
+        rows = session.execute(select(runs).order_by(runs.c.id)).all()
+        assert not check_ready(factory, (module,))
+        assert "publication_ready code=PUBLICATION_NOT_READY" in caplog.text
+        fallback = http_client.get(path, params=params)
+        assert fallback.status_code == 200, fallback.text
+        assert fallback.json()["meta"]["publication"] == {
+            **baseline["meta"]["publication"], "status": "stale",
+        }
+        assert fallback.json()["data"] == baseline["data"]
+        expired = http_client.get(path, params={**params, "publication_id": "incoming-complete"})
+        assert expired.status_code == 410
+        assert expired.json()["detail"]["code"] == "PUBLICATION_EXPIRED"
+        assert session.scalar(select(heads.c.publication_id).where(heads.c.module == module)) == "incoming-complete"
+        assert session.execute(select(runs).order_by(runs.c.id)).all() == rows
+        with factory() as other, pytest.raises(DBAPIError) as locked:
+            other.scalar(select(runs.c.id).where(runs.c.id == "previous-complete").with_for_update(nowait=True))
+        assert locked.value.orig.sqlstate == "55P03"
+        session.rollback()
+
+    with monkeypatch.context() as patch:
+        patch.setitem(MODULE_CONTRACT_VERSIONS, module, new_contract)
+        assert check_ready(factory, (module,))
+        new = http_client.get(path, params=params)
+        assert new.status_code == 200, new.text
+        assert new.json()["meta"]["publication"]["id"] == "incoming-complete"
