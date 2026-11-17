@@ -1058,7 +1058,7 @@ export interface SkuRuleLookupData {
 export interface SkuRuleUpdateResult {
   updated_count: number;
   job_id: string | null;
-  rebuild_status: "queued" | "running" | "success" | "failed" | "not_required";
+  rebuild_status: "queued" | "running" | "success" | "failed" | "not_required" | "scheduled_monthly";
   settlement_detail_count?: number | null;
   settlement_monthly_count?: number | null;
 }
@@ -1173,6 +1173,7 @@ export interface SkuFeeRuleItem {
 
 export interface SkuFeeRuleListData extends CamelPagination {
   list: SkuFeeRuleItem[];
+  settlementCalculationMode?: "monthly";
 }
 
 export interface SkuFeeRuleCreate {
@@ -1191,7 +1192,8 @@ export type SettlementRebuildStatus =
   | "success"
   | "partial"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "scheduled_monthly";
 
 export interface SettlementRebuildResult {
   jobId: string;
@@ -1376,7 +1378,7 @@ export interface NonCommissionOwnerAccountUpdateResult {
   rows: NonCommissionOwnerAccount[];
   updated_count: number;
   job_id: string;
-  rebuild_status: "queued" | "running" | "success" | "failed";
+  rebuild_status: "queued" | "running" | "success" | "failed" | "scheduled_monthly";
 }
 
 export interface CommissionRuleSkuSummary {

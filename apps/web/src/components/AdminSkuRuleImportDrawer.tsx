@@ -44,6 +44,7 @@ function displaySettlementRebuildStatus(value: SettlementRebuildStatus): string 
     failed: "失败",
     cancelled: "已取消",
     retry_wait: "等待重试",
+    scheduled_monthly: "等待月结",
   };
   return labels[value] ?? "状态未知";
 }
@@ -134,14 +135,16 @@ export function AdminSkuRuleImportDrawer({
       );
       setActiveBatch(response.data.batch);
       const rebuild = response.data.settlementRebuild;
-      setNotice(
-        `整批已原子写入 ${formatInteger(response.data.batch.successCount)} 条规则，结算重算任务${displaySettlementRebuildStatus(rebuild.rebuildStatus)}（任务编号：${rebuild.jobId}）。`,
-      );
+      const settlementNotice = rebuild.rebuildStatus === "scheduled_monthly"
+        ? "按账期生效规则参与月结。"
+        : `结算重算任务${displaySettlementRebuildStatus(rebuild.rebuildStatus)}（任务编号：${rebuild.jobId}）。`;
+      const committedNotice = `整批已原子写入 ${formatInteger(response.data.batch.successCount)} 条规则，${settlementNotice}`;
+      setNotice(committedNotice);
       importCommitIntent.current = null;
       try {
         await onChanged();
       } catch (error) {
-        setNotice(`整批已原子写入 ${formatInteger(response.data.batch.successCount)} 条规则，结算重算任务${displaySettlementRebuildStatus(rebuild.rebuildStatus)}（任务编号：${rebuild.jobId}）。批次列表刷新失败。 ${apiErrorText(error, "请稍后读取最新结果。")}`);
+        setNotice(`${committedNotice}批次列表刷新失败。 ${apiErrorText(error, "请稍后读取最新结果。")}`);
       }
     } catch (error) {
       setNotice(apiErrorText(error, "整批原子提交未完成，请检查批次状态后重试。"));

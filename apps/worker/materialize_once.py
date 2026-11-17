@@ -18,6 +18,7 @@ from apps.worker.clue_allocation import (
 from apps.worker.clue_center import refresh_clue_center_projection
 from apps.worker.pipeline import build_douyin_client_from_env
 from apps.worker.settlement import rebuild_settlement
+from src.dy_data.settlement_schedule import monthly_settlement_enabled
 
 
 MATERIALIZATION_STAGES = (
@@ -54,6 +55,8 @@ def run_materialization_stage(
             phone_plain_resolver=resolver if callable(resolver) else None,
         )
     if stage == "settlement":
+        if monthly_settlement_enabled():
+            return rebuild_settlement(session, source_run_id=source_run_id, detail_only=True)
         return rebuild_settlement(session, source_run_id=source_run_id)
     if stage == "store_score_snapshot":
         return refresh_due_store_score_snapshots(session)

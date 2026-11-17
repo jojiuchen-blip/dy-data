@@ -418,7 +418,7 @@ class SkuRuleBulkUpdateRequest(BaseModel):
 class SkuRuleBulkUpdateResult(BaseModel):
     updated_count: int
     job_id: str | None = None
-    rebuild_status: Literal["not_required", "queued", "running", "success", "failed"] = "queued"
+    rebuild_status: Literal["not_required", "queued", "running", "success", "failed", "scheduled_monthly"] = "queued"
     settlement_detail_count: int | None = None
     settlement_monthly_count: int | None = None
 
@@ -451,7 +451,7 @@ class NonCommissionOwnerAccountBulkUpdateResult(BaseModel):
     rows: list[NonCommissionOwnerAccountRow]
     updated_count: int
     job_id: str
-    rebuild_status: Literal["queued", "running", "success", "failed"] = "queued"
+    rebuild_status: Literal["queued", "running", "success", "failed", "scheduled_monthly"] = "queued"
 
 
 class CommissionRuleSkuSummaryRow(BaseModel):

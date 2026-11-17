@@ -31,6 +31,7 @@ from src.dy_data.config import (
 )
 from src.dy_data.douyin_client import DouyinCredentials, DouyinOpenApiClient
 from src.dy_data.douyin_rate_limits import PRODUCTION_APP_ID, build_request_governor
+from src.dy_data.settlement_schedule import monthly_settlement_enabled
 
 
 Collector = Callable[[Session, Any, CollectionWindow, str], PhaseStats]
@@ -250,7 +251,7 @@ def _run_job(
                 settlement_runner(session, source_run_id)
             )
             stats.add_phase(settlement_phase)
-            if settlement_phase.failed == 0:
+            if settlement_phase.failed == 0 and not monthly_settlement_enabled():
                 queue_settlement_publication_job(
                     session,
                     source_run_id=source_run_id,
@@ -302,6 +303,9 @@ def _run_job(
 
 
 def _run_settlement_phase(session: Session, source_run_id: str) -> PhaseStats:
+    if monthly_settlement_enabled():
+        result = rebuild_settlement(session, source_run_id=source_run_id, detail_only=True)
+        return PhaseStats(name="shared_order_details", fetched=0, upserted=result.detail_count)
     result = rebuild_settlement(session, source_run_id=source_run_id)
     return PhaseStats(name="settlement", fetched=0, upserted=result.detail_count)
 

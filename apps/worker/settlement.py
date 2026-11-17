@@ -1877,6 +1877,8 @@ def settle_coupon_local(
     session: Session,
     coupon: RawDouyinOrderCoupon | str,
     calculation_run_id: str,
+    *,
+    detail_only: bool = False,
 ) -> LocalSettlementResult:
     """Lock and rebuild one coupon's local settlement facts.
 
@@ -1894,7 +1896,10 @@ def settle_coupon_local(
     if locked_coupon is None:
         raise ValueError(f"unknown settlement coupon: {coupon_id}")
 
-    previous = _capture_local_coupon_state(session, coupon_id)
+    previous = _capture_local_coupon_state(session, coupon_id, detail_only=detail_only)
+    months: set[str] = set()
+    stores: set[str] = set()
+    _collect_local_affected_checkpoint(previous, months, stores)
     session.info["incremental_dqi_identity"] = True
     invalid = False
     locked = False
@@ -1902,13 +1907,13 @@ def settle_coupon_local(
         order = _raw_order_for_coupon(session, locked_coupon)
         invalid = _is_invalid_or_closed_coupon(locked_coupon, order)
         if invalid:
-            locked = _local_coupon_settlement_locked(session, previous)
+            locked = not detail_only and _local_coupon_settlement_locked(session, previous)
             session.execute(
                 delete(SettlementOrderDetail).where(
                     SettlementOrderDetail.coupon_id == coupon_id
                 )
             )
-            if not locked:
+            if not detail_only and not locked:
                 session.execute(
                     delete(SettlementFeeResultCurrent).where(
                         SettlementFeeResultCurrent.coupon_id == coupon_id
@@ -1917,7 +1922,7 @@ def settle_coupon_local(
             _record_issue(
                 session,
                 issue_type="incremental_invalid_coupon",
-                message="券已失效或关闭，局部结算事实已按锁账状态处理。",
+                message="券已失效或关闭，已更新订单明细。" if detail_only else "券已失效或关闭，局部结算事实已按锁账状态处理。",
                 order_id=locked_coupon.order_id,
                 coupon_id=coupon_id,
                 source_run_id=calculation_run_id,
@@ -1925,7 +1930,7 @@ def settle_coupon_local(
                 raw_context={
                     "coupon_status": locked_coupon.coupon_status_normalized
                     or locked_coupon.coupon_status,
-                    "locked": locked,
+                    **({"fee_processing": "monthly"} if detail_only else {"locked": locked}),
                 },
                 identity_suffix="invalid-or-closed",
             )
@@ -1935,20 +1940,21 @@ def settle_coupon_local(
                     SettlementOrderDetail.coupon_id == coupon_id
                 )
             )
-            _materialize_coupon(session, locked_coupon, source_run_id=calculation_run_id)
-            rebuild_dual_fee_results(
-                session,
-                calculation_run_id=calculation_run_id,
-                coupon_ids=(coupon_id,),
-            )
+            if detail_only:
+                _materialize_coupon(session, locked_coupon, source_run_id=calculation_run_id,
+                                    calculate_commission=False, previous_detail=previous["detail"])
+            else:
+                _materialize_coupon(session, locked_coupon, source_run_id=calculation_run_id)
+                rebuild_dual_fee_results(
+                    session,
+                    calculation_run_id=calculation_run_id,
+                    coupon_ids=(coupon_id,),
+                )
         session.flush()
     finally:
         session.info.pop("incremental_dqi_identity", None)
 
-    current = _capture_local_coupon_state(session, coupon_id)
-    months: set[str] = set()
-    stores: set[str] = set()
-    _collect_local_affected_checkpoint(previous, months, stores)
+    current = _capture_local_coupon_state(session, coupon_id, detail_only=detail_only)
     _collect_local_affected_checkpoint(current, months, stores)
     return LocalSettlementResult(
         coupon_id=coupon_id,
@@ -1977,6 +1983,8 @@ def settle_impacted_coupons(
     page_fence: Any,
     impact_batch_size: int,
     coupon_batch_size: int,
+    *,
+    detail_only: bool = False,
 ) -> dict[str, Any]:
     """Settle only coupons selected by one source run's impact stream.
 
@@ -2114,6 +2122,7 @@ def settle_impacted_coupons(
                 coupon_ids=coupon_ids,
                 source_run_id=str(source_run_id),
                 page_fence=page_fence,
+                **({"detail_only": True} if detail_only else {}),
             )
             if batch_result is None:
                 # Once any batch from this impact page committed, report the
@@ -2640,6 +2649,7 @@ def _settle_coupon_batch(
     coupon_ids: list[str],
     source_run_id: str,
     page_fence: Any,
+    detail_only: bool = False,
 ) -> dict[str, Any] | None:
     session = session_factory()
     batch_totals = {
@@ -2652,7 +2662,10 @@ def _settle_coupon_batch(
     try:
         session.begin()
         for coupon_id in coupon_ids:
-            result = settle_coupon_local(session, coupon_id, source_run_id)
+            result = settle_coupon_local(
+                session, coupon_id, source_run_id,
+                **({"detail_only": True} if detail_only else {}),
+            )
             batch_totals["detail_count"] += int(result.get("detail_count", 0) or 0)
             batch_totals["result_count"] += int(result.get("result_count", 0) or 0)
             batch_totals["adjustment_count"] += int(result.get("adjustment_count", 0) or 0)
@@ -2700,17 +2713,12 @@ def _settlement_fence_only(session_factory: Any, page_fence: Any) -> bool:
         session.close()
 
 
-def _capture_local_coupon_state(session: Session, coupon_id: str) -> dict[str, Any]:
+def _capture_local_coupon_state(
+    session: Session, coupon_id: str, *, detail_only: bool = False,
+) -> dict[str, Any]:
     detail = session.scalar(
         select(SettlementOrderDetail).where(
             SettlementOrderDetail.coupon_id == coupon_id
-        )
-    )
-    current = list(
-        session.scalars(
-            select(SettlementFeeResultCurrent)
-            .where(SettlementFeeResultCurrent.coupon_id == coupon_id)
-            .order_by(SettlementFeeResultCurrent.fee_direction)
         )
     )
     results = list(
@@ -2718,6 +2726,17 @@ def _capture_local_coupon_state(session: Session, coupon_id: str) -> dict[str, A
             select(SettlementFeeResult)
             .where(SettlementFeeResult.coupon_id == coupon_id)
             .order_by(SettlementFeeResult.fee_direction, SettlementFeeResult.result_version)
+        )
+    )
+    # Existing fee rows can identify a previously affected store even when
+    # today's raw fact does not resolve that store. Keep that score scope.
+    if detail_only:
+        return {"detail": detail, "current": [], "results": results, "adjustments": []}
+    current = list(
+        session.scalars(
+            select(SettlementFeeResultCurrent)
+            .where(SettlementFeeResultCurrent.coupon_id == coupon_id)
+            .order_by(SettlementFeeResultCurrent.fee_direction)
         )
     )
     adjustments = list(
@@ -2837,6 +2856,10 @@ def _local_coupon_settlement_locked(
 
 
 def run_settlement_job(session: Session, *, job_id: str, source_run_id: str) -> SettlementStats:
+    from src.dy_data.settlement_schedule import monthly_settlement_enabled
+
+    if monthly_settlement_enabled():
+        raise RuntimeError("unscoped settlement rebuild is disabled in monthly mode")
     start_job_run(session, job_id, "settlement_rebuild", metadata_json={"source_run_id": source_run_id})
     try:
         stats = rebuild_settlement(session, source_run_id=source_run_id)
@@ -2881,10 +2904,29 @@ def rebuild_settlement(
     *,
     source_run_id: str,
     progress_callback: Callable[[str, int, int | None], None] | None = None,
+    detail_only: bool = False,
 ) -> SettlementStats:
     def report(stage: str, current: int = 0, total: int | None = None) -> None:
         if progress_callback is not None:
             progress_callback(stage, current, total)
+
+    if detail_only:
+        report("refresh_shared_order_details")
+        session.execute(delete(SettlementOrderDetail).where(~select(RawDouyinOrderCoupon.coupon_id)
+            .where(RawDouyinOrderCoupon.coupon_id == SettlementOrderDetail.coupon_id).exists()))
+        coupons = session.scalars(select(RawDouyinOrderCoupon).order_by(RawDouyinOrderCoupon.coupon_id))
+        for coupon in coupons:
+            detail = session.get(SettlementOrderDetail, coupon.coupon_id)
+            _materialize_coupon(session, coupon, source_run_id=source_run_id,
+                                calculate_commission=False, previous_detail=detail)
+        session.flush()
+        return SettlementStats(
+            detail_count=_model_count(session, SettlementOrderDetail),
+            issue_count=session.scalar(select(func.count()).select_from(DataQualityIssue)
+                                       .where(DataQualityIssue.source_run_id == source_run_id)) or 0,
+            ranking_count=_model_count(session, AggStoreRanking),
+            monthly_count=_model_count(session, AggStoreMonthlySettlement),
+        )
 
     report("clear_legacy_projection")
     session.execute(delete(SettlementOrderDetail))
@@ -2946,9 +2988,14 @@ def rebuild_settlement(
     )
 
 
-def _materialize_coupon(session: Session, coupon: RawDouyinOrderCoupon, *, source_run_id: str) -> None:
+def _materialize_coupon(
+    session: Session, coupon: RawDouyinOrderCoupon, *, source_run_id: str,
+    calculate_commission: bool = True, previous_detail: SettlementOrderDetail | None = None,
+) -> None:
     order = _raw_order_for_coupon(session, coupon)
     if order is None:
+        if previous_detail is not None and previous_detail in session:
+            session.delete(previous_detail)
         _record_issue(
             session,
             issue_type="raw_order_internal_reference_mismatch",
@@ -3021,48 +3068,61 @@ def _materialize_coupon(session: Session, coupon: RawDouyinOrderCoupon, *, sourc
     relation_type = _relation_type(sale_store, verify_store, verify is not None)
     refund_excluded = _is_refund_excluded(order, coupon)
     paid_amount_cent = _paid_amount_cent(order, verify)
-    # DYDATA-97: commission uses a separate receipt basis. The paid amount above
-    # stays a verbatim fact on the detail and is never the fee basis.
-    receipt_amount_cent = resolve_coupon_receipt_cent(session, order, coupon)
-    configured_commission_rate = (
-        Decimal(sku_rule.commission_rate) if sku_rule else Decimal("0")
-    )
-    is_service_product = bool(sku_rule.is_service_product) if sku_rule else False
-    forced_non_commission = _is_non_commission_owner_account(
-        session, order.owner_account_name
-    )
-    commission_eligible = (
-        relation_type == "cross_store"
-        and not refund_excluded
-        and not forced_non_commission
-        and is_service_product
-        and sku_rule is not None
-        and sale_store is not None
-        and verify_store is not None
-    )
-    is_commissionable = commission_eligible and receipt_amount_cent is not None
-    if commission_eligible and receipt_amount_cent is None:
-        # DYDATA-97: never fall back to paid for the legacy commission chain.
-        # Record the unprovable receipt as a data-quality fact instead of
-        # silently turning commission off.
-        _record_issue(
-            session,
-            issue_type="legacy_missing_receipt_amount",
-            message="订单/券缺少可证明的实收金额，legacy 佣金按 0 处理；实付不作为基数。",
-            order_id=order.order_id,
-            coupon_id=coupon.coupon_id,
-            source_run_id=source_run_id,
-            severity="error",
-            raw_context={"basis": "receipt_amount", "coupon_id": coupon.coupon_id},
+    if calculate_commission:
+        # DYDATA-97: commission uses a separate receipt basis. The paid amount above
+        # stays a verbatim fact on the detail and is never the fee basis.
+        receipt_amount_cent = resolve_coupon_receipt_cent(session, order, coupon)
+        configured_commission_rate = (
+            Decimal(sku_rule.commission_rate) if sku_rule else Decimal("0")
         )
-    commission_rate = (
-        configured_commission_rate if is_commissionable else Decimal("0")
-    )
-    commission_cent = (
-        _commission_cent(receipt_amount_cent, commission_rate)
-        if is_commissionable and receipt_amount_cent is not None
-        else 0
-    )
+        is_service_product = bool(sku_rule.is_service_product) if sku_rule else False
+        forced_non_commission = _is_non_commission_owner_account(
+            session, order.owner_account_name
+        )
+        commission_eligible = (
+            relation_type == "cross_store"
+            and not refund_excluded
+            and not forced_non_commission
+            and is_service_product
+            and sku_rule is not None
+            and sale_store is not None
+            and verify_store is not None
+        )
+        is_commissionable = commission_eligible and receipt_amount_cent is not None
+        if commission_eligible and receipt_amount_cent is None:
+            # DYDATA-97: never fall back to paid for the legacy commission chain.
+            # Record the unprovable receipt as a data-quality fact instead of
+            # silently turning commission off.
+            _record_issue(
+                session,
+                issue_type="legacy_missing_receipt_amount",
+                message="订单/券缺少可证明的实收金额，legacy 佣金按 0 处理；实付不作为基数。",
+                order_id=order.order_id,
+                coupon_id=coupon.coupon_id,
+                source_run_id=source_run_id,
+                severity="error",
+                raw_context={"basis": "receipt_amount", "coupon_id": coupon.coupon_id},
+            )
+        commission_rate = (
+            configured_commission_rate if is_commissionable else Decimal("0")
+        )
+        commission_cent = (
+            _commission_cent(receipt_amount_cent, commission_rate)
+            if is_commissionable and receipt_amount_cent is not None
+            else 0
+        )
+        receivable_commission_cent = commission_cent
+        payable_commission_cent = commission_cent
+    elif previous_detail is not None:
+        is_commissionable = previous_detail.is_commissionable
+        commission_rate = previous_detail.commission_rate
+        receivable_commission_cent = previous_detail.receivable_commission_cent
+        payable_commission_cent = previous_detail.payable_commission_cent
+    else:
+        is_commissionable = False
+        commission_rate = Decimal(0)
+        receivable_commission_cent = 0
+        payable_commission_cent = 0
 
     detail = SettlementOrderDetail(
         coupon_id=coupon.coupon_id,
@@ -3088,8 +3148,8 @@ def _materialize_coupon(session: Session, coupon: RawDouyinOrderCoupon, *, sourc
         is_refund_excluded=refund_excluded,
         paid_amount_cent=paid_amount_cent,
         commission_rate=commission_rate,
-        receivable_commission_cent=commission_cent,
-        payable_commission_cent=commission_cent,
+        receivable_commission_cent=receivable_commission_cent,
+        payable_commission_cent=payable_commission_cent,
         source_run_id=source_run_id,
     )
     session.merge(detail)

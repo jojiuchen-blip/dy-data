@@ -20,6 +20,7 @@ from apps.api.dy_api.models import (
     JobStageRun,
 )
 from apps.worker.stage_runner import StageHandlerOutput, is_daily_execution_lease_live
+from src.dy_data.settlement_schedule import MONTHLY_FEE_DEFERRED, monthly_settlement_enabled
 
 
 _HEX_64 = re.compile(r"[0-9a-f]{64}\Z")
@@ -171,6 +172,7 @@ class FinalizeInput:
     closure_policy_hash: str
     settle_stage_fences: tuple[StageFence, ...]
     checkpoint_payload: Mapping[str, Any]
+    fee_projection_deferred: bool = False
 
 
 def _assert_live_fence(session: Session, fence_token: FenceToken, *, lock: bool) -> None:
@@ -357,6 +359,10 @@ def validate_finalize_input(
         )
         if not published_rule_ids or len(published_rule_ids) > _MAX_RULES:
             raise RuntimeError("finalize published rule closure is unavailable")
+    fee_projection_deferred = monthly_settlement_enabled() or any(
+        item["settlement_summary"].get("mode") == MONTHLY_FEE_DEFERRED
+        for item in child_payloads
+    )
     checkpoint_payload = _canonical_value(
         {
             "protocol": "settlement-finalize-v1",
@@ -365,6 +371,7 @@ def validate_finalize_input(
             "window_start": parent.window_start,
             "window_end": parent.window_end,
             "children": child_payloads,
+            **({"fee_projection_deferred": True} if fee_projection_deferred else {}),
         }
     )
     input_fingerprint = _digest(checkpoint_payload)
@@ -385,6 +392,7 @@ def validate_finalize_input(
         closure_policy_hash=closure_policy_hash,
         settle_stage_fences=observed,
         checkpoint_payload=checkpoint_payload,
+        fee_projection_deferred=fee_projection_deferred,
     )
 
 
@@ -567,7 +575,7 @@ def run_finalize_stage(
     _ensure_staging_generation(operation_factory, value)
     _validate_same_input(session_factory, value, fence_token)
 
-    if value.affected_months:
+    if value.affected_months and not value.fee_projection_deferred:
         if settlement_builder is None:
             from apps.worker.settlement import build_settlement_sparse_overlay
 
@@ -624,6 +632,7 @@ def run_finalize_stage(
             "row_count": row_count,
             "affected_months": list(value.affected_months),
             "affected_store_ids": list(value.affected_store_ids),
+            **({"fee_projection_deferred": True} if value.fee_projection_deferred else {}),
         },
         before_success_commit=mutation,
     )
