@@ -140,7 +140,11 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
           disabled: cumulativeUnavailable && option.value !== "PROMOTION_FEE_MONTH",
         }))} />
       </FilterBar>
-      {availability?.monthlyReady && cumulativeUnavailable ? <ResourcePanel>本月数据已完整；累计数据{incompleteMonths ? `因 ${incompleteMonths} 尚未完成` : "尚未完成"}，暂不可用。</ResourcePanel> : null}
+      {availability?.monthlyClose?.status === "partial" ? (
+        <ResourcePanel>当前显示已出账的门店。其余门店的账单仍在核对，累计金额暂不可用。</ResourcePanel>
+      ) : availability?.monthlyReady && cumulativeUnavailable ? (
+        <ResourcePanel>本月数据已完整，累计数据{incompleteMonths ? `因 ${incompleteMonths} 尚未完成` : "尚未完成"}，暂不可用。</ResourcePanel>
+      ) : null}
       {!ranking && rankingResource.loading ? <ResourcePanel>正在加载榜单…</ResourcePanel> : !ranking ? <ResourcePanel tone="error">榜单暂不可用，请稍后重试。</ResourcePanel> : (
         <>
           <section className="metric-grid store-summary-metrics">

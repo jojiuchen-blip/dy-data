@@ -190,7 +190,7 @@ def _source_context(session, cutoff):
     return store, months, sorted(selectable_months, reverse=True)
 
 
-def _build_dimensions(session, publication_id, store, statement_months, cutoff, *, product_types=None):
+def _build_dimensions(session, publication_id, store, statement_months, cutoff, *, product_types=None, readiness=None):
     rows = [{"publication_id": publication_id, "kind": "store",
              "key": item["store_id"], "value": item}
             for item in store.list_stores(scope_store_ids=None)]
@@ -213,7 +213,8 @@ def _build_dimensions(session, publication_id, store, statement_months, cutoff, 
                  "value": values})
     rows.append({"publication_id": publication_id, "kind": "source", "key": "settlement",
                  "value": {"has_generation": store._pinned_aggregate_generation() is not None}})
-    readiness = period_readiness.capture(session, cutoff)
+    if readiness is None:
+        readiness = period_readiness.capture(session, cutoff)
     rows.append({"publication_id": publication_id, "kind": "period_readiness", "key": "v1",
                  "value": readiness})
     _write(session, dimensions, rows)
@@ -302,6 +303,7 @@ def _monthly_lines(session, store, month):
 def build_settlement(session: Session, publication_id: str, cutoff: datetime) -> dict:
     """Freeze resolved ranking partitions and monthly display facts; never commit."""
     store, months, selectable_months = _source_context(session, cutoff)
+    readiness = period_readiness.capture(session, cutoff)
     ranking_count = monthly_count = 0
     uncovered_ranking_rows = uncovered_monthly_rows = 0
     preserved_store_months = 0
@@ -309,6 +311,8 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
     classify_types = commission_types.has_changes(session, months)
     store_names = {row["store_id"]: row["store_name"] for row in store.list_stores(scope_store_ids=None)} if classify_types else {}
     for month in months:
+        close_entry = period_readiness.monthly_close_entry(readiness, month)
+        published_stores = set(close_entry["published_store_ids"]) if close_entry is not None else None
         if store._pinned_aggregate_generation() is None:
             source, condition, params = ("agg_store_monthly_settlement AS source",
                 "source.month = :month", {"month": month})
@@ -318,14 +322,18 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
             (row["store_id"], row["product_scope"], row["product_type"]): dict(row)
             for row in session.execute(text("SELECT source.* "
                 f"FROM {source} WHERE {condition}"), params).mappings()}
-        monthly_classified = commission_types.partitions(session, (month,)) if classify_types else []
+        classify_month = classify_types and close_entry is None
+        monthly_classified = commission_types.partitions(session, (month,)) if classify_month else []
+        if published_stores is not None:
+            source_rows = {key: value for key, value in source_rows.items() if key[0] in published_stores}
+            monthly_classified = [row for row in monthly_classified if row["store_id"] in published_stores]
         monthly_totals = _commission_totals_by_store(monthly_classified)
         # A known SKU on one row does not establish complete store coverage.
         # Keep the whole original partition when the exact rows cannot explain
         # its totals. For cumulative ranks, every contributing month must pass.
         preserve_month = {store_id for store_id, _, _ in source_rows
             if not _same_commission_totals(source_rows.get((store_id, "all", "all")),
-                monthly_totals.get(store_id), MONTH_METRICS[:-1])} if classify_types else set()
+            monthly_totals.get(store_id), MONTH_METRICS[:-1])} if classify_month else set()
         if month >= FORMAL_START:
             preserve_cumulative.update(preserve_month)
         for period_type in (1, 2):
@@ -353,6 +361,8 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
             batch = []
             for store_id, group in groupby(rows, key=lambda row: row["store_id"]):
                 old_rows = list(group)
+                if period_type == 1 and published_stores is not None and store_id not in published_stores:
+                    continue
                 if classify_types:
                     baseline = next((row for row in old_rows
                         if (row["product_scope"], row["product_type"]) == ("all", "all")), None)
@@ -397,6 +407,9 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
             lines_by_store.update({store_id: lines
                 for store_id, lines in commission_types.lines(session, month, store).items()
                 if store_id in classified_stores})
+        if published_stores is not None:
+            headers = {key: value for key, value in headers.items() if key in published_stores}
+            lines_by_store = {key: value for key, value in lines_by_store.items() if key in published_stores}
         from apps.worker.protected_billing_authority import protected_statement_condition
         from ..models import SettlementStatement
         protected_statement_ids = set(session.scalars(select(SettlementStatement.statement_id).where(
@@ -438,7 +451,7 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
         reporting_types = ["all", *sorted(set(session.scalars(select(monthly.c.product_type).where(
             monthly.c.publication_id == publication_id, monthly.c.product_type != "all"))))]
     dimension_count, period_stats = _build_dimensions(session, publication_id, store, selectable_months, cutoff,
-        product_types=reporting_types)
+        product_types=reporting_types, readiness=readiness)
     return {"row_count": ranking_count + monthly_count + dimension_count,
             "commission_types_reclassified": classify_types,
             "commission_type_coverage": commission_types.coverage(session, months),
@@ -520,14 +533,23 @@ def build_finance(session: Session, publication_id: str, cutoff: datetime) -> di
     """Freeze finance display rows and pre-evaluated carry-forward amounts."""
     from ..models import (
         InvoiceRecord, PromotionInvoice, PromotionInvoiceAllocation,
-        SettlementStatement, SettlementStatementConfirmation,
+        SettlementStatement, SettlementStatementConfirmation, SettlementStatementVisibility,
     )
     from ..routes import dashboard as source
 
     store, months, selectable_months = _source_context(session, cutoff)
+    readiness = period_readiness.capture(session, cutoff)
     final_month = months[-1]
     statement_rows = list(session.scalars(select(SettlementStatement).where(
         SettlementStatement.is_current.is_(True))))
+    close_statements = {row.statement_id for row in statement_rows
+        if period_readiness.monthly_close_entry(readiness, row.statement_month) is not None}
+    if close_statements:
+        visible = set(session.scalars(select(SettlementStatementVisibility.statement_id).where(
+            SettlementStatementVisibility.statement_id.in_(close_statements))))
+        statement_rows = [row for row in statement_rows
+            if row.statement_id not in close_statements
+            or (row.monthly_close_input_sha256 is not None and row.statement_id in visible)]
     confirmations = {(row.statement_id, row.fee_direction): row for row in session.scalars(
         select(SettlementStatementConfirmation).where(
             SettlementStatementConfirmation.confirmation_status == 1))}
@@ -643,7 +665,8 @@ def build_finance(session: Session, publication_id: str, cutoff: datetime) -> di
                 "statement_id": period["statement_id"]})
     _write(session, pending, pending_rows)
     _write(session, pending_members, member_rows)
-    dimension_count, period_stats = _build_dimensions(session, publication_id, store, selectable_months, cutoff)
+    dimension_count, period_stats = _build_dimensions(session, publication_id, store, selectable_months, cutoff,
+        readiness=readiness)
     return {"row_count": len(totals) + len(collection_rows) + len(pending_rows) + dimension_count,
             "invoice_rows": len(collection_rows), "statement_rows": len(totals),
             "pending_rows": len(pending_rows), "data_as_of": None, **period_stats}
@@ -658,11 +681,28 @@ def _scope(table, scope_store_ids):
     return [] if scope_store_ids is None else [table.c.store_id.in_(tuple(scope_store_ids))]
 
 
-def _require_period(session, publication_id, month, *, cumulative=False):
-    snapshot = session.scalar(select(dimensions.c.value).where(
+def _period_snapshot(session, publication_id):
+    return session.scalar(select(dimensions.c.value).where(
         dimensions.c.publication_id == publication_id,
         dimensions.c.kind == "period_readiness", dimensions.c.key == "v1"))
-    return period_readiness.require(snapshot, month, cumulative=cumulative)
+
+
+def _require_period(session, publication_id, month, *, cumulative=False, store_id=None, scope_store_ids=None):
+    return period_readiness.require(_period_snapshot(session, publication_id), month, cumulative=cumulative,
+                                    store_id=store_id, scope_store_ids=scope_store_ids)
+
+
+def monthly_detail_statement_ids(session, publication_id: str, month: str, *,
+                                  store_id: str | None, scope_store_ids: tuple[str, ...] | None) -> tuple[str, ...]:
+    """Pin all detail/export rows to the same certified bill versions as amounts."""
+    _require_period(session, publication_id, month, store_id=store_id, scope_store_ids=scope_store_ids)
+    statement_id = monthly.c.statement["statement_id"].as_string()
+    conditions = [monthly.c.publication_id == publication_id, monthly.c.month == month,
+        monthly.c.product_scope == "all", monthly.c.product_type == "all",
+        statement_id.is_not(None), *_scope(monthly, scope_store_ids)]
+    if store_id is not None:
+        conditions.append(monthly.c.store_id == store_id)
+    return tuple(session.scalars(select(statement_id).where(*conditions).order_by(statement_id)))
 
 
 def read_filters(session: Session, publication_id: str, module: str = "settlement",
@@ -675,13 +715,11 @@ def read_filters(session: Session, publication_id: str, module: str = "settlemen
     if scope_store_ids is not None:
         conditions.append(dimensions.c.key.in_(scope_store_ids))
     stores = list(session.scalars(select(dimensions.c.value).where(*conditions)))
-    readiness = session.scalar(select(dimensions.c.value).where(
-        dimensions.c.publication_id == publication_id,
-        dimensions.c.kind == "period_readiness", dimensions.c.key == "v1"))
+    readiness = _period_snapshot(session, publication_id)
     return {**values, "product_scopes": ["all"], "product_scope_type_map": {},
         "product_types": _published_product_types(session, publication_id,
             values.get("product_types", []), scope_store_ids=scope_store_ids),
-        "period_readiness": readiness,
+        "period_readiness": period_readiness.public_period_snapshot(readiness, scope_store_ids),
         "stores": sorted(stores, key=lambda item: (item["store_name"], item["store_id"]))}
 
 
@@ -723,7 +761,8 @@ def read_store_ranking(session: Session, publication_id: str, filters: dict[str,
     basis = filters.get("ranking_basis")
     availability = _require_period(session, publication_id, month,
         cumulative=period_type == "CUMULATIVE" or basis in {
-            "SALES_AMOUNT_CUMULATIVE", "VERIFIED_AMOUNT_CUMULATIVE", "PROMOTION_FEE_CUMULATIVE"})
+            "SALES_AMOUNT_CUMULATIVE", "VERIFIED_AMOUNT_CUMULATIVE", "PROMOTION_FEE_CUMULATIVE"},
+        scope_store_ids=filters.get("scope_store_ids"))
     conditions = _ranking_conditions(publication_id, filters)
     page, page_size = filters.get("page", 1), filters.get("page_size", 20)
     extra = {}
@@ -809,8 +848,8 @@ def read_store_ranking(session: Session, publication_id: str, filters: dict[str,
 def read_monthly_settlement(session: Session, publication_id: str, filters: dict[str, Any]) -> dict:
     """Return frozen operating amounts; routes populate the live statement head."""
     store_id, month = filters["store_id"], filters["month"]
-    availability = _require_period(session, publication_id, month)
     scope = filters.get("scope_store_ids")
+    availability = _require_period(session, publication_id, month, store_id=store_id, scope_store_ids=scope)
     allowed = scope is None or store_id in scope
     row = session.execute(select(monthly).where(monthly.c.publication_id == publication_id,
         monthly.c.store_id == store_id, monthly.c.month == month,
@@ -819,9 +858,11 @@ def read_monthly_settlement(session: Session, publication_id: str, filters: dict
     store = session.scalar(select(dimensions.c.value).where(
         dimensions.c.publication_id == publication_id, dimensions.c.kind == "store",
         dimensions.c.key == store_id, allowed)) or {"store_id": store_id, "store_name": store_id}
+    # Cumulative country/region ranking still requires a published full prefix.
+    rank_availability = period_readiness.availability(_period_snapshot(session, publication_id), month)
     cumulative = read_store_ranking(session, publication_id, {**filters,
         "period_type": "CUMULATIVE", "period_key": month,
-        "scope_store_ids": (store_id,) if allowed else ()}) if availability["cumulative_ready"] else None
+        "scope_store_ids": (store_id,) if allowed else ()}) if rank_availability["cumulative_ready"] else None
     has_generation = _has_source_generation(session, publication_id)
     return {"store": store, "month": month, "period_availability": availability,
         "product_scope": "all",
@@ -866,7 +907,8 @@ def read_finance_invoices(session: Session, publication_id: str, *, page: int = 
                           page_size: int = 20, **filters: Any) -> dict:
     """Return a page from precisely the same frozen row set used by export."""
     _require_period(session, publication_id, filters["month"],
-        cumulative=filters.get("metric_scope", "MONTH") == "CUMULATIVE")
+        cumulative=filters.get("metric_scope", "MONTH") == "CUMULATIVE",
+        store_id=filters.get("store_id"), scope_store_ids=filters.get("scope_store_ids"))
     conditions = _invoice_conditions(publication_id, **filters)
     total = session.scalar(select(func.count()).select_from(invoices).where(*conditions)) or 0
     items = list(session.scalars(select(invoices.c.item).where(*conditions).order_by(
@@ -878,7 +920,8 @@ def export_finance_invoices(session: Session, publication_id: str, *,
                             limit: int | None = None, **filters: Any) -> list[dict]:
     """Materialize the list's frozen rows; callers retain export size/audit policy."""
     _require_period(session, publication_id, filters["month"],
-        cumulative=filters.get("metric_scope", "MONTH") == "CUMULATIVE")
+        cumulative=filters.get("metric_scope", "MONTH") == "CUMULATIVE",
+        store_id=filters.get("store_id"), scope_store_ids=filters.get("scope_store_ids"))
     query = select(invoices.c.item).where(*_invoice_conditions(publication_id, **filters)).order_by(
         invoices.c.position)
     if limit is not None:
@@ -892,7 +935,8 @@ def read_finance_summary(session: Session, publication_id: str, *, month: str,
                          invoice_status: int | None = None,
                          scope_store_ids: tuple[str, ...] | None = None) -> dict:
     """Sum frozen statement facts and pre-evaluated balances after row filtering."""
-    _require_period(session, publication_id, month, cumulative=metric_scope == "CUMULATIVE")
+    _require_period(session, publication_id, month, cumulative=metric_scope == "CUMULATIVE",
+                    store_id=store_id, scope_store_ids=scope_store_ids)
     row_filters = bool((q or "").strip()) or invoice_status is not None or scope_store_ids is not None
     filters = dict(month=month, fee_direction=fee_direction, metric_scope=metric_scope,
         store_id=store_id, q=q, invoice_status=invoice_status, scope_store_ids=scope_store_ids)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import contextmanager
 from csv import DictReader, DictWriter
 from base64 import urlsafe_b64encode
 from datetime import date, datetime, time, timedelta, timezone
@@ -695,6 +696,7 @@ def list_store_settlements(
         SettlementStatement.store_id == store_id,
         SettlementStatement.statement_month == month,
         SettlementStatement.is_current.is_(True),
+        _visible_billing_statement_condition(),
     ]
     total = session.scalar(
         select(func.count()).select_from(SettlementStatement).where(*conditions)
@@ -6090,6 +6092,7 @@ def monthly_settlement(
             SettlementStatement.store_id == store_id,
             SettlementStatement.statement_month == month,
             SettlementStatement.is_current.is_(True),
+            _visible_billing_statement_condition(),
         ))
         data["statement"] = None if statement is None else {
             "statement_id": statement.statement_id,
@@ -6122,6 +6125,7 @@ def order_fee_details(
     q: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100, alias="pageSize"),
+    publication_id: str | None = Query(default=None, max_length=64),
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
@@ -6145,8 +6149,10 @@ def order_fee_details(
         page=page,
         page_size=page_size,
     )
-    data = _call_reporting_store(request, store.order_fee_details, filters)
-    return _reporting_success(request, data)
+    with _monthly_order_fee_scope(request, store, filters, publication_id) as publication:
+        data = _call_reporting_store(request, store.order_fee_details, filters)
+    result = _reporting_success(request, data)
+    return attach_publication(result, publication) if publication is not None else result
 
 
 @router.get("/order-fee-details/export")
@@ -6167,6 +6173,7 @@ def order_fee_details_export(
     q: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100, alias="pageSize"),
+    publication_id: str | None = Query(default=None, max_length=64),
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
@@ -6190,9 +6197,10 @@ def order_fee_details_export(
         page=page,
         page_size=page_size,
     )
-    csv_text = _call_reporting_store(
-        request, store.order_fee_details_export_csv, filters
-    )
+    with _monthly_order_fee_scope(request, store, filters, publication_id) as publication:
+        csv_text = _call_reporting_store(
+            request, store.order_fee_details_export_csv, filters
+        )
     if not csv_text:
         _raise_reporting_error(
             request,
@@ -6211,6 +6219,7 @@ def order_fee_details_export(
             "X-Export-Generated-At": generated,
             "X-Export-Filters": store.export_filter_header(filters),
             "X-Request-ID": current_request_id,
+            **({"X-Publication-ID": publication.id} if publication is not None else {}),
         },
     )
 
@@ -6431,7 +6440,8 @@ def _normalize_billing_direction(value: str | None, request: Request) -> str | N
 def _get_billing_statement(
     session, statement_id: str, request: Request, *, for_update: bool = False,
 ) -> SettlementStatement:
-    query = select(SettlementStatement).where(SettlementStatement.statement_id == statement_id)
+    query = select(SettlementStatement).where(SettlementStatement.statement_id == statement_id,
+                                              _visible_billing_statement_condition())
     if for_update:
         # Serialize confirmation with pending-version publication and reload an
         # identity-map instance that may have been read before waiting for it.
@@ -6446,6 +6456,22 @@ def _get_billing_statement(
             field="statementId",
         )
     return statement
+
+
+def _visible_billing_statement_condition():
+    from sqlalchemy import true
+    from apps.api.dy_api.models import SettlementStatementVisibility
+    from apps.worker.account_qualification import FIRST_MONTH
+    from src.dy_data.settlement_schedule import monthly_settlement_enabled
+
+    if not monthly_settlement_enabled():
+        return true()
+    return or_(SettlementStatement.statement_month < FIRST_MONTH, and_(
+        SettlementStatement.monthly_close_input_sha256.is_not(None),
+        select(SettlementStatementVisibility.statement_id).where(
+            SettlementStatementVisibility.statement_id == SettlementStatement.statement_id,
+        ).exists(),
+    ))
 
 
 def _promotion_invoice_carryforward_projection(
@@ -6653,6 +6679,7 @@ def _statement_metrics(session, store_id: str, month: str, metric_scope: str) ->
         SettlementStatement.store_id == store_id,
         SettlementStatement.statement_month == month,
         SettlementStatement.is_current.is_(True),
+        _visible_billing_statement_condition(),
     ]
     monthly = session.execute(
         select(
@@ -6686,6 +6713,7 @@ def _statement_metrics(session, store_id: str, month: str, metric_scope: str) ->
                 SettlementStatement.statement_month >= FORMAL_PERIOD_START_MONTH,
                 SettlementStatement.statement_month <= month,
                 SettlementStatement.is_current.is_(True),
+                _visible_billing_statement_condition(),
             )
         ).one()
         data["cumulative"] = {
@@ -12263,10 +12291,20 @@ def _order_fee_filters(
             )
     if store_id:
         _require_store_scope(current_user, store_id)
+    from apps.worker.account_qualification import FIRST_MONTH
+    from apps.worker.month_close import previous_business_month
+    from src.dy_data.settlement_schedule import monthly_settlement_enabled
+
+    monthly_mode = monthly_settlement_enabled()
+    if monthly_mode and month is None and statement_id is None:
+        month = previous_business_month()
     if month:
         _validate_month(month, "month", request)
     if store_id and month:
-        _validate_monthly_context(store, store_id, month, request)
+        if monthly_mode and month >= FIRST_MONTH:
+            _require_known_store(store, store_id, request)
+        else:
+            _validate_monthly_context(store, store_id, month, request)
     if sale_month:
         _validate_month(sale_month, "saleMonth", request)
     if verify_month:
@@ -12300,6 +12338,24 @@ def _order_fee_filters(
             None if current_user.has_global_data_access else current_user.store_ids
         ),
     }
+
+
+@contextmanager
+def _monthly_order_fee_scope(request, store, filters, publication_id):
+    from apps.api.dy_api.dashboard_publications.finance import monthly_detail_statement_ids
+    from apps.worker.account_qualification import FIRST_MONTH
+    from src.dy_data.settlement_schedule import monthly_settlement_enabled
+
+    month = filters.get("month")
+    if not monthly_settlement_enabled() or month is None or month < FIRST_MONTH:
+        yield None
+        return
+    session = _billing_session(store, request)
+    with publication_read(session, "settlement", publication_id) as publication:
+        filters["_monthly_statement_ids"] = monthly_detail_statement_ids(
+            session, publication.id, month, store_id=filters["store_id"], scope_store_ids=filters["scope_store_ids"],
+        )
+        yield publication
 
 
 def _require_store_scope(current_user: AuthContext, store_id: str) -> None:

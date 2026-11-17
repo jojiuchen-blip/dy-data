@@ -7,6 +7,7 @@ revision = "20261117_0068"
 down_revision = "20261105_0067"
 branch_labels = None
 depends_on = None
+SOURCE_TABLES = ("settlement_month_close", "settlement_statement_balance", "settlement_statement_visibility")
 
 
 def upgrade():
@@ -45,6 +46,19 @@ def upgrade():
         sa.CheckConstraint("closing_balance_cent = CASE WHEN net_due_cent < 0 THEN net_due_cent ELSE 0 END",
                            name="ck_statement_balance_closing"),
     )
+    dialect = op.get_bind().dialect.name
+    for table in SOURCE_TABLES:
+        op.execute(sa.text(
+            "INSERT INTO dashboard_publication_source_counters(source_name, generation, changed_at) "
+            "VALUES (:name, 0, CURRENT_TIMESTAMP)").bindparams(name=table))
+        if dialect == "postgresql":
+            op.execute(f"CREATE TRIGGER dashboard_publication_change AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON "
+                       f"{table} FOR EACH STATEMENT EXECUTE FUNCTION dashboard_publication_track_change()")
+        elif dialect == "sqlite":
+            for event in ("INSERT", "UPDATE", "DELETE"):
+                op.execute(f"CREATE TRIGGER publication_{table}_{event.lower()} AFTER {event} ON {table} BEGIN "
+                           "UPDATE dashboard_publication_source_counters SET generation=generation+1, "
+                           f"changed_at=CURRENT_TIMESTAMP WHERE source_name='{table}'; END")
 
 
 def downgrade():
@@ -54,4 +68,7 @@ def downgrade():
             raise RuntimeError("Preserve observed billing history; use a forward migration.")
     for table in ("settlement_statement_balance", "settlement_statement_visibility", "settlement_month_close"):
         op.drop_table(table)
+    for table in SOURCE_TABLES:
+        op.execute(sa.text("DELETE FROM dashboard_publication_source_counters WHERE source_name=:name")
+                   .bindparams(name=table))
     op.drop_column("settlement_statement", "monthly_close_input_sha256")

@@ -616,6 +616,12 @@ export interface SettlementPeriodAvailability {
   monthlyReady: boolean;
   cumulativeReady: boolean;
   incompleteMonths: string[];
+  monthlyClose?: {
+    status: "waiting" | "partial" | "complete";
+    publishedStoreCount: number;
+    blockedStoreCount: number;
+    scopeUnresolved: boolean;
+  };
 }
 
 export interface SettlementStoreRankingRow {

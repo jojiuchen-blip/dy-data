@@ -27,7 +27,7 @@ def export_filter_header(filters: Mapping[str, Any]) -> str:
     public_filters = {
         key: {"count": len(value)} if isinstance(value, (list, tuple, set)) else value
         for key, value in filters.items()
-        if key not in _PRIVATE_FILTER_KEYS and value not in (None, "", "all")
+        if key not in _PRIVATE_FILTER_KEYS and not key.startswith("_") and value not in (None, "", "all")
     }
     encoded = json.dumps(public_filters, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     if len(encoded) <= MAX_EXPORT_FILTER_HEADER_BYTES:
