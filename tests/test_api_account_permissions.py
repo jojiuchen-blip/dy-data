@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import csv
 import sys
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from io import StringIO
 from pathlib import Path
 
 import pytest
@@ -643,6 +645,100 @@ def test_direct_order_fee_details_uses_sql_pagination_and_batched_adjustments(
         "WHERE a.original_fee_result_id = :fee_result_id" in sql
         for sql in executed_sql
     )
+
+
+def test_monthly_order_fee_details_and_export_use_booked_version_and_posting_month(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SETTLEMENT_MONTHLY_MODE", "true")
+    _seed(db_session)
+    db_session.add_all([
+        SettlementStatement(statement_id="october-certified", store_id="store-1",
+                            statement_month="2026-10", statement_status=2),
+        SettlementStatement(statement_id="november-certified", store_id="store-1",
+                            statement_month="2026-11", statement_status=2),
+        SettlementStatement(statement_id="october-other", store_id="store-2",
+                            statement_month="2026-10", statement_status=2),
+    ])
+
+    def entry(bill_id, month, record, *, source_type, base_cent, fee_cent, store="store-1"):
+        suffix = "own" if store == "store-1" else "other"
+        return SettlementStatementEntry(
+            statement_entry_id=f"{bill_id}-{record}", statement_id=bill_id, statement_line_id=f"{bill_id}-line",
+            source_type=source_type, source_record_id=record, original_fee_result_id=f"fee-{suffix}",
+            coupon_id=f"coupon-fee-{suffix}", order_id=f"order-fee-{suffix}", fee_direction=1,
+            original_business_month="2026-10", statement_posting_month=month, product_type="all",
+            base_amount_cent=base_cent, fee_amount_cent=fee_cent, rule_version="certified-rule-v8",
+            sku_id_snapshot="certified-sku", sku_name_snapshot="历史商品", sale_store_id_snapshot=store,
+            sale_store_snapshot="已出账门店名称", received_amount_cent_snapshot=1200, fee_rate_snapshot=Decimal("0.15"),
+            sale_time_snapshot=datetime(2026, 10, 7, 3, tzinfo=timezone.utc),
+            verify_time_snapshot=datetime(2026, 10, 9, 3, tzinfo=timezone.utc),
+            adjustment_type_snapshot={"refund-nov": 1, "correction-nov": 4}.get(record),
+        )
+
+    db_session.add_all([
+        entry("october-certified", "2026-10", "fee-own", source_type=1, base_cent=1200, fee_cent=180),
+        entry("october-other", "2026-10", "fee-other", source_type=1, base_cent=1000, fee_cent=999, store="store-2"),
+        entry("november-certified", "2026-11", "refund-nov", source_type=2, base_cent=-300, fee_cent=-45),
+        entry("november-certified", "2026-11", "correction-nov", source_type=2, base_cent=200, fee_cent=30),
+        entry("october-certified", "2026-11", "wrong-posting-month", source_type=2, base_cent=-900, fee_cent=-135),
+        SettlementFeeAdjustment(
+            adjustment_id="unbooked-live", original_fee_result_id="fee-own", coupon_id="coupon-fee-own",
+            order_id="order-fee-own", fee_direction=1, original_business_month="2026-10",
+            adjustment_posting_month="2026-10", adjustment_type=1, adjustment_base_cent=-600,
+            adjustment_fee_cent=-90, rule_version="current-rule", adjustment_reason="Late raw adjustment",
+            occurred_at=datetime(2026, 10, 30, tzinfo=timezone.utc), created_by="fixture",
+        ),
+    ])
+    db_session.commit()
+    store = DashboardDataStore(db_session)
+    filters = {"month": "2026-10", "fee_direction": "PROMOTION", "scope_store_ids": ("store-1",),
+               "_monthly_statement_ids": ("october-certified", "october-other"), "page_size": 1}
+    october = store.order_fee_details(filters)
+    assert october["total"] == 1
+    original, = october["list"]
+    assert (original["order_id"], original["sku_id"], original["source_amount_cent"]) == (
+        "order-fee-own", "certified-sku", 1200,
+    )
+    assert original["rule_version"] == "certified-rule-v8"
+    assert original["statement_status"] == "PENDING_CONFIRMATION"
+    assert original["sale_month"] == original["verify_month"] == "2026-10"
+    assert original["original_fee_cent"] == original["adjusted_net_fee_cent"] == 180
+    assert original["adjustments"] == []
+    assert store.order_fee_details({**filters, "page": 2})["list"] == []
+    assert store.order_fee_details({**filters, "scope_store_ids": ()})["total"] == 0
+    assert store.order_fee_details({**filters, "_monthly_statement_ids": ()})["total"] == 0
+    assert store.order_fee_details({**filters, "data_status": "ADJUSTED"})["total"] == 0
+
+    november_filters = {**filters, "month": "2026-11", "_monthly_statement_ids": ("november-certified",),
+                        "data_status": "ADJUSTED"}
+    november = store.order_fee_details(november_filters)
+    assert november["total"] == 1
+    adjusted, = november["list"]
+    assert adjusted["original_business_month"] == "2026-10"
+    assert adjusted["original_fee_cent"] == 0
+    assert adjusted["adjusted_net_fee_cent"] == -15
+    assert {item["adjustment_id"]: item["adjustment_type"] for item in adjusted["adjustments"]} == {
+        "refund-nov": "PARTIAL_REFUND", "correction-nov": "MANUAL_CORRECTION",
+    }
+    exported, = csv.DictReader(StringIO(store.order_fee_details_export_csv(november_filters)))
+    assert exported["SKU ID"] == adjusted["sku_id"]
+    assert int(exported["调整后净额"]) == adjusted["adjusted_net_fee_cent"]
+    assert exported["调整入账月份"] == "2026-11"
+
+    db_session.query(SettlementStatement).filter_by(statement_id="november-certified").update({"statement_status": 4})
+    db_session.add(SettlementStatementLine(statement_id="november-certified", statement_line_id="november-certified-line",
+                                           fee_direction=1, product_scope="all", product_type="all"))
+    db_session.commit()
+    monthly_locked = store.order_fee_details({"statement_id": "november-certified", "statement_line_id": "november-certified-line",
+                                             "fee_direction": "PROMOTION", "scope_store_ids": ("store-1",)})
+    assert monthly_locked["context"]["statement_status"] == "LOCKED"
+    assert monthly_locked["list"][0]["adjusted_net_fee_cent"] == -15
+
+    historical = store.order_fee_details({"statement_id": "statement-own", "statement_line_id": "line-own",
+                                          "fee_direction": "PROMOTION", "scope_store_ids": ("store-1",)})
+    assert historical["context"]["statement_status"] == "LOCKED"
+    assert historical["total"] == 1
 
 
 def test_direct_order_fee_details_respects_empty_store_scope(

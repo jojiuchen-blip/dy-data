@@ -50,6 +50,7 @@ from apps.worker.clue_follow_up_state import (
 )
 from src.dy_data.clue_access import can_access_clue_store
 from src.dy_data.phones import normalize_phone, mask_phone, is_online_cipher, phone_source_fingerprint
+from src.dy_data.settlement_schedule import monthly_settlement_enabled
 from ..clue_phone_cache import get_phone, put_phone
 from ..clue_phone_filters import matching_phone_order_ids
 from ..clue_verification_facts import enrich_verification_facts, verification_exists_sql
@@ -3165,7 +3166,7 @@ class DashboardDataStore:
                 self._clean_order_fee_row(
                     row,
                     statement_status,
-                    adjustments_by_result.get(_to_str(row.get("fee_result_id")), []),
+                    adjustments_by_result.get(self._order_fee_row_key(row), []),
                 )
                 for row in rows
             ]
@@ -3186,7 +3187,7 @@ class DashboardDataStore:
                 self._clean_order_fee_row(
                     row,
                     statement_status,
-                    adjustments_by_result.get(_to_str(row.get("fee_result_id")), []),
+                    adjustments_by_result.get(self._order_fee_row_key(row), []),
                 )
                 for row in rows
             ]
@@ -3230,7 +3231,12 @@ class DashboardDataStore:
     def _order_fee_source_rows(
         self, filters: dict[str, Any]
     ) -> tuple[list[dict[str, Any]], str | None]:
+        from apps.worker.account_qualification import FIRST_MONTH
+
         statement_id = filters.get("statement_id")
+        monthly_mode = monthly_settlement_enabled()
+        if monthly_mode and not statement_id and (not filters.get("month") or filters["month"] >= FIRST_MONTH):
+            return self._certified_order_fee_source_rows(filters)
         statement_line_id = filters.get("statement_line_id")
         params: dict[str, Any] = {
             "fee_direction": FEE_DIRECTION_TO_DB[filters["fee_direction"]],
@@ -3241,7 +3247,7 @@ class DashboardDataStore:
         if statement_id:
             statement_rows = self._execute(
                 """
-                SELECT store_id, statement_status
+                SELECT store_id, statement_status, statement_month
                 FROM settlement_statement
                 WHERE statement_id = :statement_id
                 LIMIT 1
@@ -3283,6 +3289,11 @@ class DashboardDataStore:
                 raise ReportingValidationError(
                     "statementLineId 不属于 statementId", field="statementLineId"
                 )
+            if monthly_mode and statement_row["statement_month"] >= FIRST_MONTH:
+                return self._certified_order_fee_source_rows({
+                    **filters, "month": statement_row["statement_month"],
+                    "_monthly_statement_ids": (statement_id,),
+                })
             params.update(
                 {
                     "statement_id": statement_id,
@@ -3481,9 +3492,139 @@ class DashboardDataStore:
         )
         return rows, statement_status
 
+    def _certified_order_fee_source_rows(
+        self, filters: dict[str, Any],
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        # Accept only statement identities from the route's pinned publication.
+        # A ready raw-source month may still have no certified store statement.
+        month = filters.get("month")
+        statement_ids = tuple(filters.get("_monthly_statement_ids") or ())
+        if not month or not statement_ids:
+            return [], None
+        statement_sql, params = _in_clause_params("monthly_fee_bill", statement_ids)
+        params.update(month=month, fee_direction=FEE_DIRECTION_TO_DB[filters["fee_direction"]])
+        statement_clauses = [
+            f"s.statement_id IN ({statement_sql})", "s.statement_month = :month",
+            "s.statement_status IN (2, 3, 4)",
+        ]
+        statement_line_id = filters.get("statement_line_id") if filters.get("statement_id") else None
+        if statement_line_id:
+            params["statement_line_id"] = statement_line_id
+            statement_clauses.append("e.statement_line_id = :statement_line_id")
+        if store_id := filters.get("store_id"):
+            params["store_id"] = store_id
+            statement_clauses.append("s.store_id = :store_id")
+        if (scope_stores := filters.get("scope_store_ids")) is not None:
+            if not scope_stores:
+                return [], None
+            store_sql, store_params = _in_clause_params("monthly_fee_store", tuple(scope_stores))
+            params.update(store_params)
+            statement_clauses.append(f"s.store_id IN ({store_sql})")
+
+        # Use only the certified entries posted in this month. One result can
+        # appear in an older original bill and in a later adjustment-only bill.
+        source_sql = f"""
+            (
+                SELECT e.statement_id, e.original_fee_result_id,
+                       COALESCE(MIN(CASE WHEN e.source_type = 1 THEN e.statement_entry_id END),
+                                MIN(e.statement_entry_id)) AS entry_id,
+                       SUM(CASE WHEN e.source_type = 1 THEN e.base_amount_cent ELSE 0 END) AS base_cent,
+                       SUM(CASE WHEN e.source_type = 1 THEN e.fee_amount_cent ELSE 0 END) AS fee_cent,
+                       SUM(CASE WHEN e.source_type = 2 THEN 1 ELSE 0 END) AS adjustment_count
+                FROM settlement_statement_entry e
+                JOIN settlement_statement s ON s.statement_id = e.statement_id
+                WHERE {' AND '.join(statement_clauses)}
+                  AND e.statement_posting_month = :month
+                  AND e.fee_direction = :fee_direction
+                GROUP BY e.statement_id, e.original_fee_result_id
+            ) economic
+            JOIN settlement_statement_entry entry ON entry.statement_entry_id = economic.entry_id
+            JOIN settlement_statement s ON s.statement_id = economic.statement_id
+            JOIN settlement_fee_result r ON r.fee_result_id = economic.original_fee_result_id
+        """
+        sku = "COALESCE(NULLIF(entry.sku_id_snapshot, ''), r.sku_id)"
+        fee_rate = "COALESCE(entry.fee_rate_snapshot, r.fee_rate)"
+        product_type = "entry.product_type"
+        clauses = []
+        requested_type = filters.get("product_type", "all")
+        if requested_type != "all":
+            params["product_type"] = requested_type
+            clauses.append(f"{product_type} = :product_type")
+        elif (visible_types := self._visible_product_types()) is not None:
+            if not visible_types:
+                return [], None
+            type_sql, type_params = _in_clause_params("monthly_fee_visible_type", visible_types)
+            params.update(type_params)
+            clauses.append(f"{product_type} IN ({type_sql})")
+        for name, column in (("sale_month", "entry.sale_time_snapshot"),
+                             ("verify_month", "entry.verify_time_snapshot")):
+            if value := filters.get(name):
+                params[name] = value
+                clauses.append(f"{self._month_expr(column)} = :{name}")
+        if keyword := _to_str(filters.get("q")).strip():
+            params["q"] = f"%{keyword.lower()}%"
+            clauses.append(f"(LOWER(entry.order_id) LIKE :q OR LOWER(entry.coupon_id) LIKE :q "
+                           f"OR LOWER({sku}) LIKE :q OR LOWER(COALESCE(entry.product_name_snapshot, '')) LIKE :q)")
+        if data_status := filters.get("data_status"):
+            clauses.append({
+                "LOCKED": "s.statement_status = 4",
+                "BLOCKED": "1 = 0",
+                "ADJUSTED": "s.statement_status <> 4 AND economic.adjustment_count > 0",
+                "VALID": "s.statement_status <> 4 AND economic.adjustment_count = 0",
+            }.get(data_status, "1 = 0"))
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        select_mode = filters.get("_select_mode")
+        if select_mode == "context":
+            rows = self._execute(f"""
+                SELECT DISTINCT {fee_rate} AS fee_rate, entry.rule_version, s.statement_status
+                FROM {source_sql} {where_sql}
+            """, params)
+            statuses = {row["statement_status"] for row in rows}
+            status = STATEMENT_STATUS_FROM_DB.get(statuses.pop()) if len(statuses) == 1 else None
+            return rows, status
+        if select_mode == "count":
+            return self._execute(f"SELECT COUNT(*) AS total FROM {source_sql} {where_sql}", params), None
+        pagination_sql = ""
+        if filters.get("_limit") is not None:
+            params["order_fee_limit"] = _to_int(filters["_limit"], 50)
+            params["order_fee_offset"] = _to_int(filters.get("_offset"), 0)
+            pagination_sql = "LIMIT :order_fee_limit OFFSET :order_fee_offset"
+        line_scope_sql = "entry.statement_line_id" if statement_line_id else "NULL"
+        return self._execute(f"""
+            SELECT entry.statement_entry_id, entry.statement_id, entry.statement_line_id,
+                   {line_scope_sql} AS certified_line_scope,
+                   entry.statement_posting_month AS certified_posting_month,
+                   s.statement_status AS certified_statement_status,
+                   r.fee_result_id, entry.order_id, entry.coupon_id,
+                   entry.order_status_snapshot AS order_status,
+                   entry.coupon_status_snapshot AS coupon_status,
+                   entry.fee_direction, entry.original_business_month, r.rule_match_date,
+                   entry.sale_time_snapshot AS sale_time, entry.verify_time_snapshot AS verify_time,
+                   entry.sale_store_id_snapshot AS sale_store_id, entry.sale_store_snapshot AS sale_store_name,
+                   entry.verify_store_id_snapshot AS verify_store_id, entry.verify_store_snapshot AS verify_store_name,
+                   {sku} AS sku_id, entry.sku_name_snapshot AS sku_name,
+                   entry.product_name_snapshot AS product_name,
+                   entry.product_scope, {product_type} AS product_type,
+                   entry.product_type AS snapshot_product_type,
+                   entry.sale_channel_snapshot AS sale_channel_normalized,
+                   COALESCE(entry.received_amount_cent_snapshot, r.source_amount_cent) AS source_amount_cent,
+                   r.refunded_amount_cent, economic.base_cent AS fee_base_cent,
+                   {fee_rate} AS fee_rate, economic.fee_cent AS fee_amount_cent,
+                   entry.rule_version, 1 AS result_status
+            FROM {source_sql} {where_sql}
+            ORDER BY entry.sale_time_snapshot DESC, entry.order_id, entry.coupon_id, r.fee_result_id, entry.statement_id
+            {pagination_sql}
+        """, params), None
+
+    @staticmethod
+    def _order_fee_row_key(row: dict[str, Any]) -> tuple[str | None, str]:
+        return row.get("statement_id"), _to_str(row.get("fee_result_id"))
+
     def _order_fee_adjustments_by_result(
         self, rows: list[dict[str, Any]]
-    ) -> dict[str, list[dict[str, Any]]]:
+    ) -> dict[tuple[str | None, str], list[dict[str, Any]]]:
+        if rows and rows[0].get("certified_posting_month"):
+            return self._certified_order_fee_adjustments(rows)
         fee_result_ids = sorted(
             {
                 _to_str(row.get("fee_result_id"))
@@ -3491,9 +3632,7 @@ class DashboardDataStore:
                 if row.get("fee_result_id")
             }
         )
-        grouped: dict[str, list[dict[str, Any]]] = {
-            fee_result_id: [] for fee_result_id in fee_result_ids
-        }
+        grouped: dict[tuple[str | None, str], list[dict[str, Any]]] = {}
         if not fee_result_ids:
             return grouped
         statement_id = rows[0].get("statement_id")
@@ -3543,8 +3682,42 @@ class DashboardDataStore:
                 )
             for adjustment in adjustment_rows:
                 grouped.setdefault(
-                    _to_str(adjustment.get("original_fee_result_id")), []
+                    (statement_id, _to_str(adjustment.get("original_fee_result_id"))), []
                 ).append(adjustment)
+        return grouped
+
+    def _certified_order_fee_adjustments(
+        self, rows: list[dict[str, Any]],
+    ) -> dict[tuple[str | None, str], list[dict[str, Any]]]:
+        grouped = {self._order_fee_row_key(row): [] for row in rows}
+        for start in range(0, len(rows), 500):
+            chunk = rows[start : start + 500]
+            bill_sql, params = _in_clause_params("certified_fee_bill", tuple(sorted({row["statement_id"] for row in chunk})))
+            result_sql, result_params = _in_clause_params("certified_fee_result", tuple(sorted({row["fee_result_id"] for row in chunk})))
+            params.update(result_params, posting_month=chunk[0]["certified_posting_month"])
+            line_sql = ""
+            if line_scope := chunk[0]["certified_line_scope"]:
+                params["certified_line_scope"] = line_scope
+                line_sql = "AND e.statement_line_id = :certified_line_scope"
+            adjustments = self._execute(f"""
+                SELECT e.statement_id, e.original_fee_result_id, e.source_record_id AS adjustment_id,
+                       e.statement_posting_month AS adjustment_posting_month,
+                       COALESCE(e.adjustment_type_snapshot, a.adjustment_type) AS adjustment_type,
+                       e.base_amount_cent AS adjustment_base_cent, e.fee_amount_cent AS adjustment_fee_cent,
+                       e.rule_version, a.adjustment_reason,
+                       COALESCE(e.refund_at_snapshot, a.occurred_at) AS occurred_at
+                FROM settlement_statement_entry e
+                LEFT JOIN settlement_fee_adjustment a ON a.adjustment_id = e.source_record_id
+                WHERE e.source_type = 2 AND e.statement_posting_month = :posting_month
+                  AND e.statement_id IN ({bill_sql}) AND e.original_fee_result_id IN ({result_sql})
+                  {line_sql}
+                ORDER BY e.statement_id, e.original_fee_result_id, occurred_at, e.source_record_id
+            """, params)
+            chunk_keys = {self._order_fee_row_key(row) for row in chunk}
+            for adjustment in adjustments:
+                key = (adjustment["statement_id"], adjustment["original_fee_result_id"])
+                if key in chunk_keys:
+                    grouped[key].append(adjustment)
         return grouped
 
     def _clean_order_fee_row(
@@ -3553,6 +3726,8 @@ class DashboardDataStore:
         statement_status: str | None,
         adjustment_rows: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
+        if row.get("certified_posting_month"):
+            statement_status = STATEMENT_STATUS_FROM_DB.get(_to_int(row.get("certified_statement_status")))
         if adjustment_rows is None and row.get("statement_id"):
             adjustment_rows = self._execute(
                 """
