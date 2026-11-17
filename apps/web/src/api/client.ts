@@ -1488,6 +1488,7 @@ export function fetchSettlementMonthly({
 }
 
 export interface OrderFeeDetailsQuery {
+  publication_id?: string;
   statementId?: string;
   statementLineId?: string;
   storeId?: string;

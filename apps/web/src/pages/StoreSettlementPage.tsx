@@ -139,17 +139,20 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
     [activeStoreId, activeMonth],
     { enabled: Boolean(meta && activeStoreId && activeMonth), clearOnReload: true },
   );
+  const settlementPublicationId = settlementResource.data?.meta.publication?.id;
+  const orderDetailsEnabled = Boolean(settlementResource.data && activeStoreId && activeMonth);
   const promotionOrderResource = useApiResource(
     () => fetchOrderFeeDetails({
       storeId: activeStoreId,
       month: activeMonth,
       feeDirection: "PROMOTION",
       productType: activeProductType,
+      publication_id: settlementPublicationId,
       page: 1,
       pageSize: 50,
     }),
-    [activeStoreId, activeMonth, activeProductType],
-    { enabled: Boolean(meta && activeStoreId && activeMonth), clearOnReload: true },
+    [activeStoreId, activeMonth, activeProductType, settlementPublicationId],
+    { enabled: orderDetailsEnabled, clearOnReload: true },
   );
   const managementOrderResource = useApiResource(
     () => fetchOrderFeeDetails({
@@ -157,11 +160,12 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
       month: activeMonth,
       feeDirection: "MANAGEMENT",
       productType: activeProductType,
+      publication_id: settlementPublicationId,
       page: 1,
       pageSize: 50,
     }),
-    [activeStoreId, activeMonth, activeProductType],
-    { enabled: Boolean(meta && activeStoreId && activeMonth), clearOnReload: true },
+    [activeStoreId, activeMonth, activeProductType, settlementPublicationId],
+    { enabled: orderDetailsEnabled, clearOnReload: true },
   );
 
   const view = settlementResource.data?.data;
@@ -306,7 +310,9 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
   const activeOrderResource = activeFeeDirection === "PROMOTION"
     ? promotionOrderResource
     : managementOrderResource;
-  const activeOrders = activeOrderResource.data?.data.list ?? [];
+  const activeOrderPublicationId = activeOrderResource.data?.meta.publication?.id;
+  const activeOrders = activeOrderPublicationId && activeOrderPublicationId !== settlementPublicationId
+    ? [] : activeOrderResource.data?.data.list ?? [];
 
   return (
     <div className="page-stack finance-page">

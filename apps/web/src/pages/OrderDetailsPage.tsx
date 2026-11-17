@@ -28,6 +28,7 @@ function errorText(error: unknown, hasSourceContext = true): string {
   return apiErrorText(error, "明细服务暂不可用，请稍后重试。", {
     403: "当前账号没有查看或导出该门店明细的权限。",
     409: "当前筛选没有可导出的记录。",
+    410: "原结果版本已过期，请重新读取最新结果。",
     422: hasSourceContext
       ? "来源上下文已变化，请返回单店分账重新进入。"
       : "筛选条件无效，请检查后重试。",
@@ -82,24 +83,28 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
   const [page, setPage] = useState(1);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  const metaResource = useApiResource(() => fetchSettlementFilterMeta("settlement"), []);
-  const meta = metaResource.data?.data;
-
   const statementId = searchParams.get("statementId") ?? undefined;
   const statementLineId = searchParams.get("statementLineId") ?? undefined;
+  const hasStatementSource = Boolean(statementId && statementLineId);
+  const sourcePublicationId = hasStatementSource ? undefined : searchParams.get("publication_id") || undefined;
+  const metaResource = useApiResource(
+    () => fetchSettlementFilterMeta("settlement", sourcePublicationId), [sourcePublicationId],
+  );
+  const meta = metaResource.data?.data;
+  const publicationId = hasStatementSource ? undefined : sourcePublicationId ?? metaResource.data?.meta.publication?.id;
   const storeId = searchParams.get("storeId") ?? searchParams.get("store_id") ?? undefined;
   const [month, setMonth] = useState(() => initialStatementMonth(searchParams));
   const feeRates = searchParams.getAll("feeRates");
   const ruleVersions = searchParams.getAll("ruleVersions");
   const [requestedProductType, setProductType] = useState(searchParams.get("productType") ?? searchParams.get("product_type") ?? "");
   const productType = requestedProductType || meta?.defaultProductType || "all";
-  const hasStatementSource = Boolean(statementId && statementLineId);
   const hasPreviewSource = Boolean(storeId && month);
   const hasSourceContext = hasStatementSource || hasPreviewSource;
   const directionIsFrozen = hasSourceContext && Boolean(statementLineId || feeRates.length || ruleVersions.length);
   useEffect(() => replaceBusinessFiltersInUrl({ month: hasStatementSource ? undefined : month, periodKey: undefined, productType: requestedProductType || undefined, product_type: undefined }), [hasStatementSource, month, requestedProductType]);
 
   const requestQuery = useMemo<OrderFeeDetailsQuery>(() => ({
+    publication_id: publicationId,
     statementId: hasStatementSource ? statementId : undefined,
     statementLineId: hasStatementSource ? statementLineId : undefined,
     storeId: hasPreviewSource && !hasStatementSource ? storeId : undefined,
@@ -114,7 +119,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
     q: queryText || undefined,
     page,
     pageSize: PAGE_SIZE,
-  }), [hasStatementSource, hasPreviewSource, statementId, statementLineId, storeId, month, saleMonth, verifyMonth, feeDirection, productType, feeRates.join("|"), ruleVersions.join("|"), dataStatus, queryText, page]);
+  }), [publicationId, hasStatementSource, hasPreviewSource, statementId, statementLineId, storeId, month, saleMonth, verifyMonth, feeDirection, productType, feeRates.join("|"), ruleVersions.join("|"), dataStatus, queryText, page]);
   const detailsResource = useApiResource(
     () => fetchOrderFeeDetails(requestQuery),
     [requestQuery],
@@ -146,12 +151,17 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
     try {
       await exportOrderFeeDetails({
         ...requestQuery,
+        publication_id: detailsResource.data?.meta.publication?.id ?? requestQuery.publication_id,
         statementId: context.statementId ?? undefined,
         statementLineId: context.statementLineId ?? undefined,
         storeId: context.statementId ? undefined : context.storeId ?? undefined,
         month: context.statementId ? undefined : context.month ?? undefined,
         feeDirection: context.feeDirection,
         productType: context.productType,
+        saleMonth: context.saleMonth ?? undefined,
+        verifyMonth: context.verifyMonth ?? undefined,
+        dataStatus: context.dataStatus ?? undefined,
+        q: context.q ?? undefined,
         feeRates: exportHasSourceContext ? context.feeRates : [],
         ruleVersions: exportHasSourceContext ? context.ruleVersions : [],
       });

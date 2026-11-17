@@ -3070,6 +3070,7 @@ def test_order_details_direct_export_omits_source_rate_context(
 ) -> None:
     context = browser.new_context(viewport={"width": 1440, "height": 900})
     page = context.new_page()
+    list_requests: list[str] = []
     export_requests: list[str] = []
     try:
         install_settlement_user_route(page, "admin")
@@ -3078,7 +3079,7 @@ def test_order_details_direct_export_omits_source_rate_context(
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
-                body=api_payload(settlement_filter_meta()),
+                body=api_payload(settlement_filter_meta(), publication_module="settlement"),
             ),
         )
 
@@ -3093,6 +3094,7 @@ def test_order_details_direct_export_omits_source_rate_context(
             )
 
         def fulfill_details(route: object) -> None:
+            list_requests.append(str(getattr(route, "request").url))
             payload = order_fee_details_data()
             payload["context"] = {
                 **payload["context"],
@@ -3102,7 +3104,7 @@ def test_order_details_direct_export_omits_source_rate_context(
             getattr(route, "fulfill")(
                 status=200,
                 content_type="application/json",
-                body=api_payload(payload),
+                body=api_payload(payload, publication_module="settlement"),
             )
 
         page.route("**/api/v1/order-fee-details/export*", fulfill_export)
@@ -3114,6 +3116,8 @@ def test_order_details_direct_export_omits_source_rate_context(
             page.get_by_role("button", name="导出", exact=True).click()
 
         assert len(export_requests) == 1
+        assert list_requests and all("publication_id=visual-settlement" in url for url in list_requests)
+        assert "publication_id=visual-settlement" in export_requests[0]
         assert "storeId=" not in export_requests[0]
         assert "month=" not in export_requests[0]
         assert "feeRates=" not in export_requests[0]

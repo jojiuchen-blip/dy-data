@@ -415,8 +415,16 @@ def test_order_fee_details_export_reuses_the_same_month_as_the_list_query() -> N
     assert "feeDirection: context.feeDirection" in export_body
     assert "productScope" not in export_body
     assert "productType: context.productType" in export_body
+    assert "publication_id: detailsResource.data?.meta.publication?.id" in export_body
     # The list query builds its month the same way, so both ask for one month.
     assert "month: !hasStatementSource ? month : undefined" in page
+
+
+def test_store_settlement_order_previews_use_the_summary_publication() -> None:
+    page = read_source("pages/StoreSettlementPage.tsx")
+    assert "const settlementPublicationId = settlementResource.data?.meta.publication?.id" in page
+    assert page.count("publication_id: settlementPublicationId") == 2
+    assert page.count("[activeStoreId, activeMonth, activeProductType, settlementPublicationId]") == 2
 
 
 def test_store_finance_pages_do_not_publish_developer_issue_copy() -> None:
