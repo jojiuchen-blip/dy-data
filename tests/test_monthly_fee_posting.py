@@ -14,7 +14,8 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from apps.api.dy_api.models import (
-    Base, DimStore, DouyinRefundEvent, FinanceOperationAudit, RawDouyinOrderCoupon, SettlementDispute,
+    Base, DataQualityIssue, DimStore, DouyinRefundEvent, FinanceOperationAudit, RawDouyinOrderCoupon,
+    RawDouyinVerifyRecord, SettlementDispute,
     SettlementFeeResultCurrent,
     SettlementFeeAdjustment, SettlementStatement, SettlementStatementBalance,
     SettlementStatementConfirmation, SettlementStatementEntry, SettlementStatementVisibility,
@@ -27,9 +28,11 @@ from apps.worker.monthly_fee_corrections import (
 from apps.worker.monthly_statement_balances import (
     MonthlyBalanceNotReady, carryforward_store_ids, freeze_statement_balances,
 )
+from apps.worker.repositories import upsert_verify_record
 from apps.worker.settlement import (
     _effective_adjustment_totals, lock_settlement_statement, materialize_deferred_monthly_adjustments,
-    rebuild_dual_fee_results, select_coupon_ids_for_monthly_refunds,
+    rebuild_dual_fee_results, select_coupon_ids_by_verify_business_month,
+    select_coupon_ids_for_monthly_cancellations, select_coupon_ids_for_monthly_refunds,
 )
 from test_api_store_billing import _login, client, dashboard_routes
 from test_data_settlement import _fee_result, _load_dual_fee_fixture
@@ -103,6 +106,98 @@ def test_late_verified_event_reuses_immutable_source_once(db_session):
         )
     audits = list(db_session.scalars(select(FinanceOperationAudit).where(
         FinanceOperationAudit.operation_type == "POST_DEFERRED_MONTHLY_REFUND",
+    )))
+    assert len(audits) == 2
+    assert {(audit.after_snapshot["event_month"], audit.after_snapshot["posting_month"])
+            for audit in audits} == {("2026-10", "2026-11")}
+
+
+def _cancel_prior_verify(session, *, occurred, observed):
+    upsert_verify_record(
+        session, "verify-coupon-dual", coupon_id="coupon-dual", verify_status="cancelled",
+        cancel_time=occurred, source_observed_at=observed, source_run_id="cancel-observation",
+        raw_payload={"verify_status": "cancelled", "cancel_time": occurred.isoformat()},
+    )
+
+
+def test_known_future_cancel_keeps_first_positive_bill_and_reverses_in_event_month(db_session):
+    _load_dual_fee_fixture(db_session, amount_cent=10000)
+    event_at = datetime(2026, 10, 31, 16, tzinfo=timezone.utc)  # Nov 1 in Shanghai.
+    _cancel_prior_verify(db_session, occurred=event_at, observed=event_at)
+    ids = select_coupon_ids_by_verify_business_month(db_session, "2026-09", monthly=True)
+    assert ids == ("coupon-dual",)
+    assert select_coupon_ids_by_verify_business_month(db_session, "2026-09") == ()
+    result = rebuild_dual_fee_results(
+        db_session, calculation_run_id="september-close", coupon_ids=ids, accounting_month="2026-09",
+    )
+    assert (result.result_count, result.adjustment_count, result.blocked_count) == (2, 0, 0)
+    for store_id in ("store-sale", "store-verify"):
+        lock_settlement_statement(db_session, store_id=store_id, statement_month="2026-09",
+                                  lock_run_id=f"frozen-september-{store_id}")
+    db_session.add(_event("after-cancellation", occurred=datetime(2026, 11, 2, tzinfo=timezone.utc), amount=1000))
+    db_session.flush()
+    ids = select_coupon_ids_for_monthly_cancellations(db_session, "2026-11")
+    assert ids == ("coupon-dual",)
+    for attempt in ("initial", "retry"):
+        rebuild_dual_fee_results(
+            db_session, calculation_run_id=f"november-close-{attempt}", coupon_ids=ids,
+            accounting_month="2026-11",
+        )
+    deltas = list(db_session.scalars(select(SettlementFeeAdjustment).order_by(SettlementFeeAdjustment.fee_direction)))
+    assert [(row.adjustment_posting_month, row.adjustment_type, row.adjustment_fee_cent) for row in deltas] == [
+        ("2026-11", 3, -3000), ("2026-11", 3, -2000),
+    ]
+    assert [_fee_result(db_session, "coupon-dual", direction).fee_amount_cent for direction in (1, 2)] == [3000, 2000]
+
+
+def test_first_observed_cancel_state_does_not_certify_zero_without_original_proof(db_session):
+    _load_dual_fee_fixture(db_session, amount_cent=10000, with_verify=False)
+    db_session.add(RawDouyinVerifyRecord(
+        verify_id="first-observed-cancel", coupon_id="coupon-dual", verify_status="cancelled",
+        verify_time=datetime(2026, 9, 5, tzinfo=timezone.utc),
+        cancel_time=datetime(2026, 10, 7, tzinfo=timezone.utc), poi_id="poi-verify",
+    ))
+    db_session.flush()
+    ids = select_coupon_ids_by_verify_business_month(db_session, "2026-09", monthly=True)
+    result = rebuild_dual_fee_results(
+        db_session, calculation_run_id="cancel-unknown", coupon_ids=ids, accounting_month="2026-09",
+    )
+    assert (result.result_count, result.adjustment_count, result.blocked_count) == (0, 0, 2)
+    issues = list(db_session.scalars(select(DataQualityIssue).where(
+        DataQualityIssue.issue_type == "dual_fee_cancelled_verify_basis_unproven",
+    )))
+    assert {issue.raw_context_json["fee_direction"] for issue in issues} == {1, 2}
+    assert {issue.raw_context_json["verify_poi_id"] for issue in issues} == {"poi-verify"}
+
+
+def test_late_cancellation_keeps_event_month_and_cannot_replay_as_second_posting(db_session):
+    _load_dual_fee_fixture(db_session, amount_cent=10000)
+    rebuild_dual_fee_results(db_session, calculation_run_id="initial-calc")
+    for store_id in ("store-sale", "store-verify"):
+        lock_settlement_statement(db_session, store_id=store_id, statement_month="2026-10",
+                                  lock_run_id=f"locked-october-{store_id}")
+    _cancel_prior_verify(
+        db_session, occurred=datetime(2026, 10, 5, tzinfo=timezone.utc),
+        observed=datetime(2026, 11, 4, tzinfo=timezone.utc),
+    )
+    ids = select_coupon_ids_for_monthly_cancellations(db_session, "2026-11")
+    assert ids == ("coupon-dual",)
+    stats = rebuild_dual_fee_results(
+        db_session, calculation_run_id="late-cancel", coupon_ids=ids, accounting_month="2026-11",
+    )
+    assert stats.blocked_count == 0
+    assert not list(db_session.scalars(select(SettlementFeeAdjustment)))
+    assert materialize_deferred_monthly_adjustments(db_session, month="2026-11") == set()
+    assert materialize_deferred_monthly_adjustments(db_session, month="2026-11") == set()
+    for store_id in ("store-sale", "store-verify"):
+        lock_settlement_statement(db_session, store_id=store_id, statement_month="2026-12",
+                                  lock_run_id=f"existing-legacy-december-{store_id}")
+    rows = list(db_session.scalars(select(SettlementFeeAdjustment).order_by(SettlementFeeAdjustment.fee_direction)))
+    assert [(row.adjustment_posting_month, row.adjustment_type, row.adjustment_fee_cent) for row in rows] == [
+        ("2026-11", 3, -3000), ("2026-11", 3, -2000),
+    ]
+    audits = list(db_session.scalars(select(FinanceOperationAudit).where(
+        FinanceOperationAudit.operation_type == "POST_DEFERRED_MONTHLY_CANCELLATION",
     )))
     assert len(audits) == 2
     assert {(audit.after_snapshot["event_month"], audit.after_snapshot["posting_month"])

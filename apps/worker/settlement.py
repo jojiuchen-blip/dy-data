@@ -119,6 +119,7 @@ ACTIVE_FEE_RESULT = 1
 SUPERSEDED_FEE_RESULT = 2
 SUCCESSFUL_REFUND = 2
 MONTHLY_DEFERRED_REFUND = "POST_DEFERRED_MONTHLY_REFUND"
+MONTHLY_DEFERRED_CANCELLATION = "POST_DEFERRED_MONTHLY_CANCELLATION"
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 # Keep each captured closure and SQL page bounded independently.
 MAX_SETTLEMENT_CLOSURE_VALUES = 64
@@ -3242,15 +3243,28 @@ def rebuild_dual_fee_results(
                 },
             )
             continue
+        monthly_verify = None
         if accounting_month is not None:
-            verify = _select_valid_verify_record(session, coupon.coupon_id)
+            verify, unproven_verify = _monthly_verify_for_close(session, coupon.coupon_id, accounting_month)
+            if unproven_verify is not None and _business_month(unproven_verify.verify_time) == accounting_month:
+                blocked_count += _block_dual_fee(
+                    session, calculation_run_id, coupon, order, "dual_fee_cancelled_verify_basis_unproven",
+                    "撤销核销记录缺少原核销状态或撤销时间的权威证据，暂不冻结该门店金额。",
+                    directions=(PROMOTION_FEE, MANAGEMENT_FEE),
+                    context={"verify_id": unproven_verify.verify_id, "verify_poi_id": unproven_verify.poi_id},
+                )
+                continue
             if verify is None or _business_month(verify.verify_time) != accounting_month:
                 # A prior coupon included for an event must not be repriced.
                 blocked_count += _materialize_refund_adjustments(
                     session, coupon=coupon, calculation_run_id=calculation_run_id,
                     accounting_month=accounting_month,
                 )
+                blocked_count += _materialize_verify_cancellation_adjustment(
+                    session, coupon=coupon, calculation_run_id=calculation_run_id, accounting_month=accounting_month,
+                )
                 continue
+            monthly_verify = verify
         order_status = _dual_order_status(order)
         if order_status == "closed":
             manual_directions = []
@@ -3271,9 +3285,9 @@ def rebuild_dual_fee_results(
                     directions=tuple(manual_directions), accounting_month=accounting_month,
                 )
                 for direction in manual_directions:
-                    _materialize_direction_verify_cancellation(
+                    blocked_count += _materialize_direction_verify_cancellation(
                         session, coupon=coupon, calculation_run_id=calculation_run_id,
-                        direction=direction,
+                        direction=direction, accounting_month=accounting_month,
                     )
             continue
         if order_status == "unknown":
@@ -3307,6 +3321,7 @@ def rebuild_dual_fee_results(
                     current=current,
                     force_recalculate=force_recalculate,
                     accounting_month=accounting_month,
+                    monthly_verify=monthly_verify,
                 )
             )
 
@@ -3316,10 +3331,11 @@ def rebuild_dual_fee_results(
             calculation_run_id=calculation_run_id,
             accounting_month=accounting_month,
         )
-        _materialize_verify_cancellation_adjustment(
+        blocked_count += _materialize_verify_cancellation_adjustment(
             session,
             coupon=coupon,
             calculation_run_id=calculation_run_id,
+            accounting_month=accounting_month,
         )
     session.flush()
     if bounded_coupon_ids is None:
@@ -3352,6 +3368,7 @@ def _materialize_dual_fee_direction(
     force_recalculate: bool = False,
     quote_only: bool = False,
     accounting_month: str | None = None,
+    monthly_verify: RawDouyinVerifyRecord | None = None,
 ) -> bool | NewFeeQuote:
     # Import lazily to keep the existing worker initialization graph unchanged.
     from apps.worker.missing_fee_repair import NewFeeQuote, NewFeeQuoteError
@@ -3442,7 +3459,11 @@ def _materialize_dual_fee_direction(
         return False
 
     sale_owner_account_id = _first_text(order.owner_account_id)
-    verify = _select_valid_verify_record(session, coupon.coupon_id)
+    if quote_only and accounting_month is not None:
+        monthly_verify, unproven_verify = _monthly_verify_for_close(session, coupon.coupon_id, accounting_month)
+        if unproven_verify is not None:
+            raise NewFeeQuoteError("correction quote has unproven verification evidence")
+    verify = monthly_verify if accounting_month is not None else _select_valid_verify_record(session, coupon.coupon_id)
     try:
         attribution_decision = resolve_historical_sale_attribution(
             session, order=order, coupon=coupon, verify=verify, current_result=current,
@@ -3812,7 +3833,7 @@ def _materialize_dual_fee_direction(
         elif current is not None and current.qualifying_verify_id is not None:
             _materialize_direction_verify_cancellation(
                 session, coupon=coupon, calculation_run_id=calculation_run_id,
-                direction=direction,
+                direction=direction, accounting_month=accounting_month,
             )
             _, prior_delta = _effective_adjustment_totals(
                 session, original_fee_result_id=current.fee_result_id,
@@ -3954,6 +3975,7 @@ def _materialize_refund_adjustments(
             # Cancellation already zeroed this direction. A later refund
             # must not append another reduction and make the net amount negative.
             continue
+        cancellation = _matching_verify_cancellation(session, original) if accounting_month is not None else None
         manual_basis = _has_historical_fee_correction(session, original.fee_result_id)
         if accounting_month is not None and not manual_basis and not reviewed_missed_basis:
             from apps.worker.monthly_fee_corrections import has_processing_month_correction
@@ -3967,6 +3989,12 @@ def _materialize_refund_adjustments(
         applied_base_adjustment = 0
         applied_fee_adjustment = 0
         for event in events:
+            if cancellation is not None and cancellation.cancel_time is not None and (
+                _as_utc(event.occurred_at) > _as_utc(cancellation.cancel_time)
+            ):
+                # Revocation reverses the remaining charge. A later refund
+                # cannot reduce the same basis once again.
+                continue
             if event.refund_type == 2:
                 event_refund_total = original.source_amount_cent
             else:
@@ -4287,12 +4315,14 @@ def _materialize_verify_cancellation_adjustment(
     *,
     coupon: RawDouyinOrderCoupon,
     calculation_run_id: str,
-) -> None:
-    for direction in (PROMOTION_FEE, MANAGEMENT_FEE):
+    accounting_month: str | None = None,
+) -> int:
+    return sum(
         _materialize_direction_verify_cancellation(
             session, coupon=coupon, calculation_run_id=calculation_run_id,
-            direction=direction,
-        )
+            direction=direction, accounting_month=accounting_month,
+        ) for direction in (PROMOTION_FEE, MANAGEMENT_FEE)
+    )
 
 
 def _same_qualifying_verification(result: SettlementFeeResult, verify: RawDouyinVerifyRecord) -> bool:
@@ -4368,13 +4398,39 @@ def _materialize_direction_verify_cancellation(
     coupon: RawDouyinOrderCoupon,
     calculation_run_id: str,
     direction: int,
-) -> None:
+    accounting_month: str | None = None,
+) -> int:
     original = _current_fee_result(session, coupon.coupon_id, direction)
+    if original is None and accounting_month is not None:
+        from apps.worker.monthly_fee_corrections import missed_coupon_correction_basis
+
+        original = missed_coupon_correction_basis(session, coupon_id=coupon.coupon_id, direction=direction)
+    cancelled = _matching_verify_cancellation(session, original) if original is not None else None
+    if accounting_month is not None:
+        if cancelled is None:
+            query = select(RawDouyinVerifyRecord).where(
+                RawDouyinVerifyRecord.coupon_id == coupon.coupon_id,
+                _monthly_cancellation_condition(accounting_month),
+            )
+            if original is not None and original.qualifying_verify_id:
+                query = query.where(RawDouyinVerifyRecord.verify_id == original.qualifying_verify_id)
+            cancelled = session.scalar(query.order_by(RawDouyinVerifyRecord.verify_time.desc()).limit(1))
+        if cancelled is not None:
+            if cancelled.cancel_time and _business_month(cancelled.cancel_time) > accounting_month:
+                return 0
+            if (original is None or not _same_qualifying_verification(original, cancelled)
+                    or cancelled.cancel_time is None or cancelled.verify_time is None
+                    or _as_utc(cancelled.cancel_time) < _as_utc(cancelled.verify_time)):
+                return _block_dual_fee(
+                    session, calculation_run_id, coupon, None, "dual_fee_cancelled_verify_event_unproven",
+                    "撤销核销记录缺少可核验的原费用依据或撤销日期，无法入账。",
+                    directions=(direction,),
+                    context={"verify_id": cancelled.verify_id, "verify_poi_id": cancelled.poi_id},
+                )
     if original is None:
-        return
-    cancelled = _matching_verify_cancellation(session, original)
+        return 0
     if cancelled is None or cancelled.cancel_time is None:
-        return
+        return 0
     responsible_store_id = original.sale_store_id if direction == PROMOTION_FEE else original.verify_store_id
     if not responsible_store_id:
         raise ValueError(
@@ -4391,7 +4447,7 @@ def _materialize_direction_verify_cancellation(
             SettlementFeeAdjustment.adjustment_id == adjustment_id
         )
     ):
-        return
+        return 0
     source_event_key = (
         "verify-cancellation:"
         f"{cancelled.verify_id}:"
@@ -4417,7 +4473,7 @@ def _materialize_direction_verify_cancellation(
             },
             identity_suffix=existing_source.carryforward_source_id,
         )
-        return
+        return 0
     existing_base, existing_fee = _effective_adjustment_totals(
         session,
         original_fee_result_id=original.fee_result_id,
@@ -4464,7 +4520,7 @@ def _materialize_direction_verify_cancellation(
             },
             identity_suffix=f"{cancelled.verify_id}:{direction}",
         )
-        return
+        return 0
     session.add(
         SettlementFeeAdjustment(
             adjustment_id=adjustment_id,
@@ -4485,6 +4541,7 @@ def _materialize_direction_verify_cancellation(
         )
     )
     session.flush()
+    return 0
 
 
 def _carryforward_source(
@@ -4538,10 +4595,7 @@ def _effective_adjustment_totals(
         if source_ids
         else set()
     )
-    materialized_adjustment_ids.update(
-        _stable_business_id("deferred-monthly-refund", source.carryforward_source_id)
-        for source in sources if source.source_event_type == 1
-    )
+    materialized_adjustment_ids.update(_monthly_deferral_identity(source)[0] for source in sources)
     ordinary_adjustments = [
         adjustment
         for adjustment in session.scalars(
@@ -5289,6 +5343,18 @@ def lock_settlement_statement(
     return statement
 
 
+def _monthly_deferral_identity(source: SettlementCarryforwardSource) -> tuple[str, str, str]:
+    if source.source_event_type == 1:
+        prefix, operation = "deferred-monthly-refund", MONTHLY_DEFERRED_REFUND
+    else:
+        prefix, operation = "deferred-monthly-cancellation", MONTHLY_DEFERRED_CANCELLATION
+    return (
+        _stable_business_id(prefix, source.carryforward_source_id),
+        _stable_business_id(f"{prefix}-audit", source.carryforward_source_id),
+        operation,
+    )
+
+
 def _apply_carryforward_sources(
     session: Session,
     *,
@@ -5310,9 +5376,10 @@ def _apply_carryforward_sources(
         )
     )
     for source in candidates:
+        _, audit_id, operation = _monthly_deferral_identity(source)
         if session.scalar(select(FinanceOperationAudit.id).where(
-            FinanceOperationAudit.audit_id == _stable_business_id("deferred-monthly-refund-audit", source.carryforward_source_id),
-            FinanceOperationAudit.operation_type == MONTHLY_DEFERRED_REFUND,
+            FinanceOperationAudit.audit_id == audit_id,
+            FinanceOperationAudit.operation_type == operation,
             FinanceOperationAudit.result_status == 1,
         )) is not None:
             continue
@@ -5466,7 +5533,7 @@ def _apply_carryforward_sources(
 def materialize_deferred_monthly_adjustments(
     session: Session, *, month: str, store_ids: Iterable[str] | None = None,
 ) -> set[str]:
-    """Apply verified refunds from sealed event months to the next open month.
+    """Apply verified refunds and cancellations to the next open month.
 
     A store awaiting an earlier open month remains unresolved. The source keeps
     the actual event month and the adjustment/audit identify the posting month.
@@ -5481,7 +5548,11 @@ def materialize_deferred_monthly_adjustments(
         SettlementCarryforwardApplication.carryforward_source_id == source_model.carryforward_source_id,
         SettlementCarryforwardApplication.is_current.is_(True),
     ).exists()
-    conditions = [source_model.event_month < month, source_model.source_event_type == 1, ~applied]
+    conditions = [
+        source_model.event_month < month, ~applied,
+        or_(source_model.source_event_type == 1,
+            and_(source_model.source_event_type == 2, source_model.adjustment_type == 3)),
+    ]
     if store_ids is not None:
         conditions.append(source_model.store_id.in_(store_ids))
     candidates = list(session.scalars(select(source_model).where(*conditions).order_by(
@@ -5491,7 +5562,7 @@ def materialize_deferred_monthly_adjustments(
     for source in candidates:
         _lock_settlement_slot(session, source.store_id, month)
         session.scalar(select(source_model.id).where(source_model.id == source.id).with_for_update())
-        audit_id = _stable_business_id("deferred-monthly-refund-audit", source.carryforward_source_id)
+        adjustment_id, audit_id, operation = _monthly_deferral_identity(source)
         if session.scalar(select(FinanceOperationAudit.id).where(FinanceOperationAudit.audit_id == audit_id)) is not None:
             continue
         if session.scalar(select(SettlementCarryforwardApplication.id).where(
@@ -5505,18 +5576,17 @@ def materialize_deferred_monthly_adjustments(
                 )):
             unresolved.add(source.store_id)
             continue
-        adjustment_id = _stable_business_id("deferred-monthly-refund", source.carryforward_source_id)
         session.add(SettlementFeeAdjustment(
             adjustment_id=adjustment_id, original_fee_result_id=source.original_fee_result_id,
             refund_event_id=source.refund_event_id, coupon_id=source.coupon_id, order_id=source.order_id,
             fee_direction=source.fee_direction, original_business_month=source.original_business_month,
             adjustment_posting_month=month, adjustment_type=source.adjustment_type,
             adjustment_base_cent=source.adjustment_base_cent, adjustment_fee_cent=source.adjustment_fee_cent,
-            rule_version=source.rule_version, adjustment_reason="退款发生月已冻结，沿原事件结转至首个可入账月份。",
+            rule_version=source.rule_version, adjustment_reason=source.carryforward_reason,
             occurred_at=source.occurred_at, created_by="settlement-worker",
         ))
         session.add(FinanceOperationAudit(
-            audit_id=audit_id, operation_type=MONTHLY_DEFERRED_REFUND,
+            audit_id=audit_id, operation_type=operation,
             target_type="SETTLEMENT_FEE_ADJUSTMENT", target_id=adjustment_id,
             operator_id="settlement-worker", operator_role=1,
             result_status=1, request_id=source.carryforward_source_id,
@@ -6900,8 +6970,91 @@ def _select_valid_verify_record(
     return None
 
 
+def _accounting_month_bounds(month: str) -> tuple[datetime, datetime]:
+    return tuple(
+        datetime.fromisoformat(f"{key}-01").replace(tzinfo=SHANGHAI).astimezone(timezone.utc)
+        for key in (month, _next_month_key(month))
+    )
+
+
+def _verification_status_expression():
+    return func.lower(func.trim(func.coalesce(RawDouyinVerifyRecord.verify_status, "")))
+
+
+def _monthly_cancellation_condition(month: str):
+    """Known occurrence or a recently observed prior cancellation."""
+    start, end = _accounting_month_bounds(month)
+    record = RawDouyinVerifyRecord
+    observed_change = select(JobImpact.entity_key).where(
+        JobImpact.entity_type == "verify", JobImpact.created_at >= start,
+        JobImpact.new_values_json["verify_status_normalized"].as_string() == "cancelled",
+    )
+    recent = or_(record.source_observed_at >= start, record.verify_id.in_(observed_change))
+    return or_(
+        and_(record.cancel_time < end, or_(record.cancel_time >= start, recent)),
+        and_(record.cancel_time.is_(None), _verification_status_expression().in_(sorted(CANCELLED_VERIFY_STATUSES)),
+             record.verify_time < end, recent),
+    )
+
+
+def select_coupon_ids_for_monthly_cancellations(session: Session, month: str) -> tuple[str, ...]:
+    return tuple(session.scalars(select(RawDouyinVerifyRecord.coupon_id).where(
+        RawDouyinVerifyRecord.coupon_id.is_not(None), _monthly_cancellation_condition(month),
+    ).distinct().order_by(RawDouyinVerifyRecord.coupon_id)))
+
+
+def _cancelled_record_has_verified_basis(session: Session, record: RawDouyinVerifyRecord) -> bool:
+    if record.verify_time is None or record.cancel_time is None or (
+        _as_utc(record.cancel_time) < _as_utc(record.verify_time)
+    ):
+        return False
+    if _normalized(record.verify_status) in VALID_VERIFY_STATUSES:
+        return True
+    # The current raw record may replace its prior state. Exact source impact
+    # snapshots prove the same coupon, POI and timestamp was already verified.
+    impacts = session.execute(select(JobImpact.old_values_json, JobImpact.new_values_json).where(
+        JobImpact.entity_type == "verify", JobImpact.entity_key == record.verify_id,
+        or_(JobImpact.old_values_json["verify_status_normalized"].as_string() == "verified",
+            JobImpact.new_values_json["verify_status_normalized"].as_string() == "verified"),
+    ).order_by(JobImpact.id.desc()).limit(64))
+    for old, new in impacts:
+        for snapshot in (old, new):
+            if (snapshot.get("verify_status_normalized") != "verified" or snapshot.get("cancel_time") is not None
+                    or snapshot.get("coupon_id") != record.coupon_id or snapshot.get("poi_id") != record.poi_id):
+                continue
+            value = snapshot.get("verify_time")
+            if not isinstance(value, str):
+                continue
+            try:
+                observed_verify = _as_utc(datetime.fromisoformat(value))
+            except ValueError:
+                continue
+            if observed_verify == _as_utc(record.verify_time):
+                return True
+    return False
+
+
+def _monthly_verify_for_close(
+    session: Session, coupon_id: str, month: str,
+) -> tuple[RawDouyinVerifyRecord | None, RawDouyinVerifyRecord | None]:
+    """Read a dated qualifying verify and any later closure evidence separately."""
+    _, end = _accounting_month_bounds(month)
+    record = RawDouyinVerifyRecord
+    for candidate in session.scalars(select(record).where(
+        record.coupon_id == coupon_id, record.verify_time < end,
+    ).order_by(record.verify_time.desc(), record.verify_id.desc())):
+        status = _normalized(candidate.verify_status)
+        if candidate.cancel_time is None and status in VALID_VERIFY_STATUSES:
+            return candidate, None
+        if candidate.cancel_time is not None or status in CANCELLED_VERIFY_STATUSES:
+            if _cancelled_record_has_verified_basis(session, candidate):
+                return candidate, None
+            return None, candidate
+    return None, None
+
+
 def select_coupon_ids_by_verify_business_month(
-    session: Session, business_month: str
+    session: Session, business_month: str, *, monthly: bool = False,
 ) -> tuple[str, ...]:
     """Coupons whose latest valid verify lands in one Shanghai business month.
 
@@ -6912,7 +7065,22 @@ def select_coupon_ids_by_verify_business_month(
     recomputed.
     """
 
-    status = func.lower(func.trim(func.coalesce(RawDouyinVerifyRecord.verify_status, "")))
+    status = _verification_status_expression()
+    conditions = [
+        status.in_(sorted(VALID_VERIFY_STATUSES)),
+        RawDouyinVerifyRecord.cancel_time.is_(None),
+        RawDouyinVerifyRecord.verify_time.is_not(None),
+    ]
+    if monthly:
+        _, end = _accounting_month_bounds(business_month)
+        records = RawDouyinVerifyRecord
+        # Include ambiguities as candidates. An unresolved cancellation can
+        # never certify zero primary fees by disappearing from the work set.
+        conditions = [
+            records.verify_time < end,
+            or_(status.in_(sorted(VALID_VERIFY_STATUSES | CANCELLED_VERIFY_STATUSES)),
+                records.cancel_time.is_not(None)),
+        ]
     ranked = (
         select(
             RawDouyinVerifyRecord.coupon_id.label("coupon_id"),
@@ -6927,11 +7095,7 @@ def select_coupon_ids_by_verify_business_month(
             )
             .label("recency"),
         )
-        .where(
-            status.in_(sorted(VALID_VERIFY_STATUSES)),
-            RawDouyinVerifyRecord.cancel_time.is_(None),
-            RawDouyinVerifyRecord.verify_time.is_not(None),
-        )
+        .where(*conditions)
         .subquery("ranked_verify_month")
     )
     if session.get_bind().dialect.name == "postgresql":
@@ -6951,8 +7115,7 @@ def select_coupon_ids_by_verify_business_month(
 
 def select_coupon_ids_for_monthly_refunds(session: Session, month: str) -> tuple[str, ...]:
     """Collect coupon candidates for this month's and newly observed prior refunds."""
-    start = datetime.fromisoformat(f"{month}-01").replace(tzinfo=SHANGHAI)
-    end = datetime.fromisoformat(f"{_next_month_key(month)}-01").replace(tzinfo=SHANGHAI)
+    start, end = _accounting_month_bounds(month)
     event = DouyinRefundEvent
     return tuple(session.scalars(
         select(RawDouyinOrderCoupon.coupon_id)
@@ -6962,10 +7125,10 @@ def select_coupon_ids_for_monthly_refunds(session: Session, month: str) -> tuple
         ))
         .where(
             event.refund_status == SUCCESSFUL_REFUND,
-            event.occurred_at < end.astimezone(timezone.utc),
+            event.occurred_at < end,
             or_(
-                event.occurred_at >= start.astimezone(timezone.utc),
-                event.successful_observed_at >= start.astimezone(timezone.utc),
+                event.occurred_at >= start,
+                event.successful_observed_at >= start,
             ),
         )
         .distinct().order_by(RawDouyinOrderCoupon.coupon_id)
