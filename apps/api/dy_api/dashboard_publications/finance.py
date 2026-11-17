@@ -550,6 +550,10 @@ def build_finance(session: Session, publication_id: str, cutoff: datetime) -> di
         statement_rows = [row for row in statement_rows
             if row.statement_id not in close_statements
             or (row.monthly_close_input_sha256 is not None and row.statement_id in visible)]
+    visible_current_ids = {row.statement_id for row in statement_rows}
+
+    def approved_visible(statement_id, month):
+        return period_readiness.monthly_close_entry(readiness, month) is None or statement_id in visible_current_ids
     confirmations = {(row.statement_id, row.fee_direction): row for row in session.scalars(
         select(SettlementStatementConfirmation).where(
             SettlementStatementConfirmation.confirmation_status == 1))}
@@ -571,7 +575,7 @@ def build_finance(session: Session, publication_id: str, cutoff: datetime) -> di
     ).where(PromotionInvoiceAllocation.is_current.is_(True),
             PromotionInvoice.is_current.is_(True), PromotionInvoice.is_tombstone.is_(False)))
     for allocation, invoice in allocations:
-        if invoice.invoice_status in (2, 3):
+        if invoice.invoice_status in (2, 3) and approved_visible(allocation.statement_id, allocation.statement_month):
             # An effective store/month allocation can outlive the statement
             # version it references. Retain that identity for row-filter parity,
             # while current statements alone contribute statement/confirmed fees.
@@ -599,6 +603,8 @@ def build_finance(session: Session, publication_id: str, cutoff: datetime) -> di
             metric_scope="CUMULATIVE", store_id=None, q=None,
             invoice_status=None, scope_store_ids=None)
         for row in session.execute(query):
+            if period_readiness.monthly_close_entry(readiness, row.month) is not None:
+                continue
             item = {"invoice_id": None, "statement_id": None, "store_id": row.store_id,
                 "store_name": row.store_name or row.store_id, "statement_month": row.month,
                 "fee_direction": direction, "processing_status": "PENDING_STATEMENT",
@@ -631,6 +637,8 @@ def build_finance(session: Session, publication_id: str, cutoff: datetime) -> di
                 else:
                     invoice, statement = row
                     allocation = None
+                if not approved_visible(statement.statement_id, statement.statement_month):
+                    continue
                 item = _formal_invoice_item(source, direction, invoice, allocation, statement,
                     confirmations, display_context)
                 position += 1
@@ -646,6 +654,9 @@ def build_finance(session: Session, publication_id: str, cutoff: datetime) -> di
     pending_rows, member_rows = [], []
     _, groups = source._promotion_invoice_carryforward_projection(session)
     for group in groups:
+        if (period_readiness.monthly_close_entry(readiness, group["closing_month"]) is not None
+                and not set(group["required_statement_ids"]).issubset(visible_current_ids)):
+            continue
         position += 1
         pending_rows.append({"publication_id": publication_id, "position": position,
             "fee_direction": "PROMOTION", "store_id": group["store_id"],
@@ -656,6 +667,8 @@ def build_finance(session: Session, publication_id: str, cutoff: datetime) -> di
     for month in months:
         periods, _ = source._management_invoiceable_projection(session, through_month=month)
         for period in periods:
+            if not approved_visible(period["statement_id"], period["statement_month"]):
+                continue
             position += 1
             pending_rows.append({"publication_id": publication_id, "position": position,
                 "fee_direction": "MANAGEMENT", "store_id": period["store_id"],
@@ -860,6 +873,9 @@ def read_monthly_settlement(session: Session, publication_id: str, filters: dict
         dimensions.c.key == store_id, allowed)) or {"store_id": store_id, "store_name": store_id}
     # Cumulative country/region ranking still requires a published full prefix.
     rank_availability = period_readiness.availability(_period_snapshot(session, publication_id), month)
+    availability["cumulative_ready"] = rank_availability["cumulative_ready"]
+    availability["incomplete_months"] = sorted(set(availability["incomplete_months"])
+                                               | set(rank_availability["incomplete_months"]))
     cumulative = read_store_ranking(session, publication_id, {**filters,
         "period_type": "CUMULATIVE", "period_key": month,
         "scope_store_ids": (store_id,) if allowed else ()}) if rank_availability["cumulative_ready"] else None

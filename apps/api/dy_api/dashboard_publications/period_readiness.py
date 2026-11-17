@@ -81,11 +81,11 @@ def fingerprint(snapshot: dict) -> str:
     return hashlib.sha256(json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def monthly_close_entry(snapshot: dict | None, month: str) -> dict | None:
+def monthly_close_entry(snapshot: dict | None, month: str | None) -> dict | None:
     from apps.worker.account_qualification import FIRST_MONTH
     from src.dy_data.settlement_schedule import monthly_settlement_enabled
 
-    if not monthly_settlement_enabled() or month < FIRST_MONTH:
+    if not monthly_settlement_enabled() or month is None or month < FIRST_MONTH:
         return None
     periods = (snapshot.get("months") or {}) if isinstance(snapshot, dict) else {}
     return (periods.get(month) or {}).get("monthly_close") or {

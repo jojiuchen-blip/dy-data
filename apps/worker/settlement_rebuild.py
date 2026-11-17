@@ -1597,6 +1597,7 @@ def _run_certified_month_close(
                 metadata["monthly_close_outcome"] = {
                     "complete": scope.complete, "blocked_store_count": len(scope.blocked_store_ids),
                     "unscoped_issue_count": scope.unscoped_issue_count,
+                    "preceding_scope_unresolved": scope.preceding_scope_unresolved,
                 }
                 job.metadata_json = metadata
                 _fence_settlement_rebuild_commit(session, job_id=job_id, claim_id=claim_id,
@@ -1625,7 +1626,7 @@ def _certify_monthly_balance_inputs(session, scope):
     from apps.worker.account_qualification import FIRST_MONTH
     from apps.worker.monthly_close_scope import current_frozen_stores, preceding_period_has_no_statement
     from apps.worker.monthly_statement_balances import (
-        MonthlyBalanceNotReady, carryforward_store_ids, preceding_statement_for_balance,
+        MonthlyBalanceNotReady, carryforward_store_ids, preceding_statement_for_balance, previous_month,
     )
     from apps.worker.settlement import materialize_deferred_monthly_adjustments
 
@@ -1634,6 +1635,13 @@ def _certify_monthly_balance_inputs(session, scope):
     carried = carryforward_store_ids(session, month=scope.month)
     frozen = current_frozen_stores(session, scope.month)
     blocked = set(scope.blocked_store_ids)
+    preceding_unresolved = False
+    if scope.month > FIRST_MONTH:
+        earlier_month = previous_month(scope.month)
+        preceding_scope = session.get(SettlementMonthClose, earlier_month)
+        preceding_unresolved = preceding_scope is None or preceding_scope.unscoped_issue_count > 0
+        if preceding_scope is not None:
+            blocked.update(set(preceding_scope.blocked_store_ids) - current_frozen_stores(session, earlier_month))
     blocked.update(materialize_deferred_monthly_adjustments(session, month=scope.month))
     relation = _sparse_authority_relation((scope.month,), monthly_scope=scope)
     stores = set(session.scalars(select(relation.c.store_id).distinct())) | carried
@@ -1650,7 +1658,8 @@ def _certify_monthly_balance_inputs(session, scope):
                 ))
         except MonthlyBalanceNotReady:
             blocked.add(store_id)
-    return replace(scope, blocked_store_ids=frozenset(blocked)), tuple(sorted(carried - blocked))
+    return replace(scope, blocked_store_ids=frozenset(blocked), preceding_scope_unresolved=preceding_unresolved
+                  ), tuple(sorted(carried - blocked))
 
 
 def settlement_month_scope_metadata(business_month: str) -> dict[str, str]:

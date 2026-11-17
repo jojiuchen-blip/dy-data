@@ -302,6 +302,8 @@ def _calculation_inputs_digest(
                        SettlementFeeResult.original_business_month == business_month)).subquery("month_close_orders")
     orders = select(order_scope.c.order_id)
     if monthly:
+        from apps.worker.monthly_fee_corrections import approved_month_correction_condition
+
         # A refund can belong to this close even though the original coupon
         # was verified and billed in a previous month.
         earlier_refund_orders = select(DouyinRefundEvent.order_id).where(
@@ -393,7 +395,7 @@ def _calculation_inputs_digest(
             digest.update(json.dumps([prior.source_input_sha256, prior.is_complete,
                 prior.blocked_store_ids, prior.unscoped_issue_count], separators=(",", ":")).encode())
         feed(SettlementFeeAdjustment, (SettlementFeeAdjustment.adjustment_posting_month == business_month)
-             & (SettlementFeeAdjustment.adjustment_type == 4),
+             & approved_month_correction_condition(SettlementFeeAdjustment.adjustment_id),
              ("adjustment_id", "original_fee_result_id", "coupon_id", "fee_direction",
               "adjustment_fee_cent", "rule_version"))
     return digest.hexdigest()

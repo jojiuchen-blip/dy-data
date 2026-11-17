@@ -3194,6 +3194,16 @@ def rebuild_dual_fee_results(
             RawDouyinOrderCoupon.coupon_id.in_(bounded_coupon_ids)
         )
     coupons = list(session.scalars(coupon_query))
+    frozen_directions = defaultdict(set)
+    if accounting_month is not None:
+        for coupon_id, fee_direction in session.execute(select(
+            SettlementStatementEntry.coupon_id, SettlementStatementEntry.fee_direction,
+        ).join(SettlementStatement, SettlementStatement.statement_id == SettlementStatementEntry.statement_id)
+          .where(SettlementStatement.statement_month == accounting_month,
+                 SettlementStatement.is_current.is_(True),
+                 SettlementStatement.monthly_close_input_sha256.is_not(None),
+                 SettlementStatementEntry.source_type == 1)):
+            frozen_directions[coupon_id].add(fee_direction)
     coupon_count = len(coupons)
     if progress_callback is not None:
         progress_callback("rebuild_dual_fee_results", 0, coupon_count)
@@ -3212,6 +3222,8 @@ def rebuild_dual_fee_results(
         )
         if locked_coupon is not None:
             coupon = locked_coupon
+        directions = tuple(direction for direction in (PROMOTION_FEE, MANAGEMENT_FEE)
+                           if direction not in frozen_directions[coupon.coupon_id])
         order = _raw_order_for_coupon(session, coupon)
         if order is None:
             blocked_count += _block_dual_fee(
@@ -3221,7 +3233,7 @@ def rebuild_dual_fee_results(
                 None,
                 "raw_order_internal_reference_mismatch",
                 "券的内部订单引用不存在，或与平台订单 ID 不一致。",
-                directions=(PROMOTION_FEE, MANAGEMENT_FEE),
+                directions=directions,
                 context={
                     "raw_order_id": coupon.raw_order_id,
                     "referenced_order_id": _referenced_order_business_id(
@@ -3242,7 +3254,7 @@ def rebuild_dual_fee_results(
         order_status = _dual_order_status(order)
         if order_status == "closed":
             manual_directions = []
-            for direction in (PROMOTION_FEE, MANAGEMENT_FEE):
+            for direction in directions:
                 current = _current_fee_result(session, coupon.coupon_id, direction)
                 if current is not None:
                     if _has_historical_fee_correction(session, current.fee_result_id) or (
@@ -3272,11 +3284,11 @@ def rebuild_dual_fee_results(
                 order,
                 "dual_fee_unknown_order_status",
                 "订单状态无法标准化，双费用方向均已阻断。",
-                directions=(PROMOTION_FEE, MANAGEMENT_FEE),
+                directions=directions,
             )
             continue
 
-        for direction in (PROMOTION_FEE, MANAGEMENT_FEE):
+        for direction in directions:
             current = _current_fee_result(session, coupon.coupon_id, direction)
             run_result = _calculation_run_result(
                 session, coupon.coupon_id, direction, calculation_run_id
@@ -3480,7 +3492,7 @@ def _materialize_dual_fee_direction(
             store_id=attribution_decision.store_id,
             match_source="historical_sale_attribution",
         )
-    elif (current is not None and qualification_version_id is not None
+    elif (accounting_month is None and current is not None and qualification_version_id is not None
           and current.account_qualification_version_id == qualification_version_id
           and current.original_business_month == verify_month
           and _same_qualifying_verification(current, verify)):
@@ -3496,7 +3508,8 @@ def _materialize_dual_fee_direction(
         sale_diagnostic = _diagnose_dual_fee_sale_account(
             session, order, ignore_proven_personal_aliases=monthend_rows is not None,
         )
-        sale_account = sale_diagnostic.match
+        sale_account = (_exact_monthly_sale_match(session, order, sale_diagnostic)
+                        if accounting_month is not None else sale_diagnostic.match)
     if sale_account is None:
         reject_or_block(
             session,
@@ -6666,6 +6679,27 @@ def _openapi_source_identifier(value: Any) -> str | None:
     if isinstance(value, bool) or not isinstance(value, (str, int)):
         return None
     return str(value).strip() or None
+
+
+def _exact_monthly_sale_match(
+    session: Session, order: RawDouyinOrder, diagnostic: DualFeeSaleAccountDiagnostic,
+) -> OwnerAccountMatch | None:
+    """A selected nickname can corroborate an exact ID or interval, never replace it."""
+    match = diagnostic.match
+    if match is None:
+        return None
+    if match.match_source == "dim_aweme_accounts" and match.account_id == order.owner_account_id:
+        payload = order.raw_payload or {}
+        for field in ("sale_info", "order_sale_info"):
+            sale = payload.get(field)
+            if isinstance(sale, dict) and sale.get("transfer_uid") and not payload.get("owner_account_id"):
+                return None
+        return match
+    exact = _diagnose_openapi_interval_sale_account(session, order, legacy=diagnostic).match
+    if (exact is not None and exact.match_source == "openapi_binding_interval"
+            and exact.store_id == match.store_id):
+        return exact
+    return None
 
 
 def _openapi_binding_epoch(value: Any) -> datetime | None:

@@ -13,7 +13,7 @@ from apps.api.dy_api.models import (
 )
 from apps.worker.historical_sale_attribution import HistoricalAttributionError, resolve_historical_sale_attribution
 from apps.worker.settlement import (
-    MANAGEMENT_FEE, PROMOTION_FEE, _diagnose_openapi_interval_sale_account, _diagnose_dual_fee_sale_account,
+    MANAGEMENT_FEE, PROMOTION_FEE, _exact_monthly_sale_match, _diagnose_dual_fee_sale_account,
     _find_poi_mapping, _raw_order_for_coupon, _select_valid_verify_record,
 )
 
@@ -24,10 +24,11 @@ class MonthlyCloseScope:
     qualification_version_id: str
     blocked_store_ids: frozenset[str]
     unscoped_issue_count: int
+    preceding_scope_unresolved: bool = False
 
     @property
     def complete(self) -> bool:
-        return not self.blocked_store_ids and not self.unscoped_issue_count
+        return not (self.blocked_store_ids or self.unscoped_issue_count or self.preceding_scope_unresolved)
 
 
 def _is_confirmed_exclusion(issue: DataQualityIssue) -> bool:
@@ -61,22 +62,8 @@ def _exact_issue_store(session: Session, coupon_id: str, direction: int) -> str 
     if decision is not None:
         return decision.store_id
     diagnostic = _diagnose_dual_fee_sale_account(session, order, ignore_proven_personal_aliases=True)
-    match = diagnostic.match
-    # The size of an exact-nickname result never proves an alias belongs to
-    # this order's account. A verified historical ID interval can prove it.
-    if match is None:
-        return None
-    if match.match_source == "dim_aweme_accounts":
-        payload = order.raw_payload or {}
-        for field in ("sale_info", "order_sale_info"):
-            sale = payload.get(field)
-            if isinstance(sale, dict) and sale.get("transfer_uid") and not payload.get("owner_account_id"):
-                return None
-        return match.store_id if match.account_id == order.owner_account_id else None
-    exact = _diagnose_openapi_interval_sale_account(session, order, legacy=diagnostic)
-    if exact.match is not None and exact.match == match and exact.match.match_source == "openapi_binding_interval":
-        return match.store_id
-    return None
+    match = _exact_monthly_sale_match(session, order, diagnostic)
+    return match.store_id if match is not None else None
 
 
 def inspect_month_close_scope(
@@ -153,6 +140,7 @@ def record_month_close(session: Session, scope: MonthlyCloseScope, *, job_id: st
     session.merge(SettlementMonthClose(
         business_month=scope.month, source_input_sha256=input_sha256, source_job_id=job_id,
         qualification_version_id=scope.qualification_version_id, is_complete=scope.complete,
-        blocked_store_ids=sorted(scope.blocked_store_ids), unscoped_issue_count=scope.unscoped_issue_count,
+        blocked_store_ids=sorted(scope.blocked_store_ids),
+        unscoped_issue_count=scope.unscoped_issue_count + int(scope.preceding_scope_unresolved),
         updated_at=utcnow(),
     ))

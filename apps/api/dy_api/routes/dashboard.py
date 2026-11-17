@@ -694,6 +694,18 @@ def list_store_settlements(
     _validate_enum(metric_scope, METRIC_SCOPES, "metricScope", request)
     direction = _normalize_billing_direction(fee_direction, request)
     _require_billing_store(session, store_id, request)
+    from apps.api.dy_api.dashboard_publications.finance import _require_period
+    from apps.worker.account_qualification import FIRST_MONTH
+    from src.dy_data.settlement_schedule import monthly_settlement_enabled
+
+    selected_metric_scope = metric_scope
+    publication = None
+    if monthly_settlement_enabled() and month >= FIRST_MONTH:
+        with publication_read(session, "settlement") as publication:
+            availability = _require_period(session, publication.id, month, store_id=store_id,
+                                           scope_store_ids=(store_id,))
+        if not availability["cumulative_ready"]:
+            selected_metric_scope = "MONTH"
 
     conditions = [
         SettlementStatement.store_id == store_id,
@@ -741,10 +753,11 @@ def list_store_settlements(
         "page": page,
         "page_size": page_size,
         "metric_scope": metric_scope,
-        "metrics": _statement_metrics(session, store_id, month, metric_scope),
+        "metrics": _statement_metrics(session, store_id, month, selected_metric_scope),
         "promotion_invoice_summary": invoice_summary,
     }
-    return _reporting_success(request, data)
+    result = _reporting_success(request, data)
+    return attach_publication(result, publication) if publication is not None else result
 
 
 @router.get("/store-settlements/{statement_id}")
@@ -6128,6 +6141,7 @@ def monthly_settlement(
         data = read_monthly_settlement(session, publication.id, {
             "store_id": store_id,
             "month": month,
+            "scope_store_ids": (store_id,),
             "product_scope": "all",
             "product_type": product_type,
         })
