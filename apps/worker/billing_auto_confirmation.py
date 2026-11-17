@@ -20,24 +20,30 @@ from uuid import uuid4
 from sqlalchemy import event, func, select, text, tuple_
 from sqlalchemy.orm import Session, sessionmaker
 
+from apps.api.dy_api.dashboard_publications.period_readiness import FORMAL_START, formal_months
 from apps.api.dy_api.models import (
-    FinanceOperationAudit, InvoiceRecord, JobRun, PromotionInvoiceAllocation,
-    SettlementDispute, SettlementMonthlyOverlay, SettlementProjectionActive,
+    AccountQualificationVersion, FinanceOperationAudit, InvoiceRecord, JobRun,
+    PromotionInvoiceAllocation, SettlementBillingSourceBundle, SettlementDispute,
+    SettlementFeeResult, SettlementMonthlyOverlay, SettlementProjectionActive,
     SettlementProjectionGeneration,
     SettlementStatement, SettlementStatementConfirmation, SettlementStatementEntry,
+    SettlementStatementVisibility,
 )
-from apps.worker.month_close import published_days_revisions, require_current_month_qualification
-from apps.worker.account_qualification import AccountQualificationError
+from apps.worker.month_close import MONTHLY_CLOSE_POLICY, published_days_revisions, require_current_month_qualification
+from apps.worker.account_qualification import FIRST_MONTH, AccountQualificationError
 from apps.worker.priority_scheduler import _live_heavy_job
 from apps.worker.projection_lineage import LineageError, resolve_projection_partitions
 from apps.worker.repositories import HEAVY_SYNC_CLAIM_LOCK_KEY
 from apps.worker.settlement import _lock_settlement_slot, _sparse_authority_relation
-from src.dy_data.billing_dates import confirmation_due_at
+from src.dy_data.billing_dates import SHANGHAI, confirmation_due_at
 from src.dy_data.billing_amounts import statement_confirmable_amounts
+from src.dy_data.settlement_schedule import monthly_settlement_enabled
 
-PROTOCOL = "billing-auto-confirmation-v1"
+PROTOCOL = "billing-auto-confirmation-v2"
 HOLD_OPERATION = "BILLING_CONFIRMATION_HOLD"
 HOLD_TARGET = "BILLING_CONFIRMATION_SLOT"
+FREEZE_OPERATION = "FREEZE_MONTHLY_BILLING"
+GENERATION_OPERATION = "GENERATE_PENDING_STATEMENT"
 LOGGER = logging.getLogger(__name__)
 MAX_BATCH_SOURCE_ROWS = 50000
 TRANSACTION_WALL_SECONDS = 30
@@ -53,6 +59,18 @@ class AutoConfirmationConflict(ValueError):
 def auto_confirmation_enabled() -> bool:
     """Read the explicit rollout switch; an unset setting never writes bills."""
     return os.getenv("BILLING_AUTO_CONFIRM_ENABLED", "false").strip().lower() in ("true", "1", "yes", "on")
+
+
+def scheduler_start_month() -> str | None:
+    """The first month covered by the unattended policy, excluding earlier bills."""
+    month = os.getenv("BILLING_AUTO_CONFIRM_START_MONTH", "").strip()
+    if month < FORMAL_START:
+        return None
+    try:
+        confirmation_due_at(month)
+    except (ValueError, OverflowError):
+        return None
+    return month
 
 
 def _hash(value: object) -> str:
@@ -325,6 +343,176 @@ def _batch_economic_proofs(session: Session, bills: list[SettlementStatement], g
     return output
 
 
+_FROZEN_ENTRY_FIELDS = (
+    "source_type", "source_record_id", "original_fee_result_id", "coupon_id", "order_id",
+    "fee_direction", "original_business_month", "posting_month", "product_scope",
+    "product_type", "base_amount_cent", "fee_amount_cent", "rule_version",
+)
+_FROZEN_ENTRY_COLUMNS = tuple(
+    SettlementStatementEntry.statement_posting_month if field == "posting_month"
+    else getattr(SettlementStatementEntry, field) for field in _FROZEN_ENTRY_FIELDS
+)
+
+
+def _frozen_bill_receipts(session, bills):
+    """Require both the capture publication and the original immutable bill receipt."""
+    audits = defaultdict(list)
+    for (row,) in _bounded_rows(session, select(FinanceOperationAudit).where(
+        FinanceOperationAudit.target_type == "SETTLEMENT_STATEMENT",
+        FinanceOperationAudit.target_id.in_([bill.statement_id for bill in bills]),
+        FinanceOperationAudit.operation_type.in_((FREEZE_OPERATION, GENERATION_OPERATION)),
+        FinanceOperationAudit.result_status == 1,
+    )):
+        audits[row.target_id, row.operation_type].append(row)
+    receipts = {}
+    for bill in bills:
+        freezes = audits[bill.statement_id, FREEZE_OPERATION]
+        generations = audits[bill.statement_id, GENERATION_OPERATION]
+        if len(freezes) != 1 or len(generations) != 1:
+            continue
+        freeze, generated = freezes[0], generations[0]
+        basis, capture = freeze.after_snapshot, generated.after_snapshot
+        if not isinstance(basis, dict) or not isinstance(capture, dict):
+            continue
+        if freeze.request_payload_sha256 != bill.monthly_close_input_sha256 or any(
+            receipt.get("versionNo") != bill.version_no for receipt in (basis, capture)
+        ):
+            continue
+        if not all(isinstance(basis.get(key), str) and basis[key] for key in (
+            "generationId", "sourceJobId", "qualificationVersionId",
+        )):
+            continue
+        count = capture.get("sourceCount")
+        if type(count) is not int or count < 0 or capture.get("status") != "COMPUTED":
+            continue
+        receipts[bill.statement_id] = (basis, capture, generated.request_payload_sha256)
+    if sum(capture["sourceCount"] for _, capture, _ in receipts.values()) > MAX_BATCH_SOURCE_ROWS:
+        raise AutoConfirmationConflict("confirmation frozen source row limit exceeded")
+    return receipts
+
+
+def _frozen_bill_sources(session, bills, receipts):
+    bundle_ids = {
+        (receipts[bill.statement_id][0]["generationId"], bill.store_id, bill.statement_month)
+        for bill in bills if bill.statement_id in receipts
+    }
+    generations = {
+        generation.generation_id: (generation, job)
+        for generation, job in _bounded_rows(session, select(SettlementProjectionGeneration, JobRun)
+            .join(JobRun, JobRun.job_id == SettlementProjectionGeneration.source_job_id)
+            .where(SettlementProjectionGeneration.generation_id.in_({key[0] for key in bundle_ids})))
+    }
+    qualifications = {
+        version.version_id: version for (version,) in _bounded_rows(session, select(AccountQualificationVersion)
+            .where(AccountQualificationVersion.version_id.in_({
+                basis["qualificationVersionId"] for basis, _, _ in receipts.values()
+            })))
+    }
+    bundles = {
+        (bundle.generation_id, bundle.store_id, bundle.statement_month): bundle
+        for (bundle,) in _bounded_rows(session, select(SettlementBillingSourceBundle).where(
+            tuple_(SettlementBillingSourceBundle.generation_id, SettlementBillingSourceBundle.store_id,
+                   SettlementBillingSourceBundle.statement_month).in_(bundle_ids),
+        ))
+    }
+    return generations, qualifications, bundles
+
+
+def _frozen_store_proof(bill, receipt, generation_job, qualification, bundle, billed_rows):
+    basis, capture, source_hash = receipt
+    if generation_job is None or qualification is None or bundle is None:
+        return "FROZEN_BILL_SOURCE_EVIDENCE_MISSING", None
+    generation, job = generation_job
+    metadata = job.metadata_json or {}
+    if not isinstance(metadata, dict) or not isinstance(metadata.get("settlement_projection"), dict):
+        return "FROZEN_BILL_SOURCE_EVIDENCE_MISSING", None
+    projection = metadata["settlement_projection"]
+    if (
+        generation.state != "published" or generation.published_at is None
+        or job.job_id != basis["sourceJobId"] or bundle.source_job_id != job.job_id
+        or job.job_name != "settlement_rebuild" or job.status != "success"
+        or metadata.get("monthly_close_policy") != MONTHLY_CLOSE_POLICY
+        or metadata.get("business_month") != bill.statement_month
+        or metadata.get("calculation_input_sha256") != bill.monthly_close_input_sha256
+        or metadata.get("account_qualification_version_id") != qualification.version_id
+        or qualification.business_month != bill.statement_month
+        or projection.get("status") != "published"
+        or projection.get("generation_id") != generation.generation_id
+    ):
+        return "FROZEN_BILL_VERSION_MISMATCH", None
+    payload = bundle.sources_json
+    if (not isinstance(payload, list) or len(payload) != capture["sourceCount"]
+            or bundle.source_fingerprint != source_hash or _hash(payload) != source_hash):
+        return "FROZEN_BILL_SOURCE_VERSION_MISMATCH", None
+
+    expected = []
+    for row in payload:
+        if (not isinstance(row, dict) or row.get("store_id") != bill.store_id
+                or row.get("posting_month") != bill.statement_month):
+            return "FROZEN_BILL_SOURCE_SLOT_MISMATCH", None
+        if any(field not in row for field in _FROZEN_ENTRY_FIELDS):
+            return "FROZEN_BILL_SOURCE_EVIDENCE_MISSING", None
+        expected.append(tuple(row[field] for field in _FROZEN_ENTRY_FIELDS))
+    entries = [tuple(row[:len(_FROZEN_ENTRY_FIELDS)]) for row in billed_rows]
+    if sorted(expected) != sorted(entries):
+        return "FROZEN_BILL_SOURCE_VERSION_MISMATCH", None
+    totals = defaultdict(int)
+    for row in billed_rows:
+        (source_type, source_id, original_id, coupon_id, order_id, direction, original_month,
+         _, _, _, _, fee_amount, _) = row[:len(_FROZEN_ENTRY_FIELDS)]
+        found_id, result_coupon, result_order, result_direction, result_month, qualification_id = row[-6:]
+        if (found_id, result_coupon, result_order, result_direction, result_month) != (
+            original_id, coupon_id, order_id, direction, original_month,
+        ):
+            return "FROZEN_BILL_SOURCE_EVIDENCE_MISSING", None
+        if source_type == 1 and (source_id != original_id or original_month != bill.statement_month):
+            return "FROZEN_BILL_SOURCE_SLOT_MISMATCH", None
+        if original_month == bill.statement_month and qualification_id != qualification.version_id:
+            return "FROZEN_BILL_QUALIFICATION_MISMATCH", None
+        totals[direction, source_type] += fee_amount
+    for direction, prefix in ((1, "promotion"), (2, "management")):
+        original, adjustment = totals[direction, 1], totals[direction, 2]
+        if (original, adjustment, original + adjustment) != tuple(
+            getattr(bill, f"{prefix}_{kind}_fee_cent") for kind in ("original", "adjustment", "net")
+        ):
+            return "BILL_PUBLICATION_MISMATCH", None
+    return None, _hash([
+        bill.monthly_close_input_sha256, generation.generation_id, job.job_id,
+        qualification.version_id, qualification.content_sha256, source_hash, entries,
+    ])
+
+
+def _batch_frozen_economic_proofs(session: Session, bills: list[SettlementStatement]) -> dict:
+    """Validate certified store facts without consulting now-mutable month inputs."""
+    if not bills:
+        return {}
+    output = {bill.statement_id: ("FROZEN_BILL_SOURCE_EVIDENCE_MISSING", None) for bill in bills}
+    receipts = _frozen_bill_receipts(session, bills)
+    if not receipts:
+        return output
+    generations, qualifications, bundles = _frozen_bill_sources(session, bills, receipts)
+    entries = defaultdict(list)
+    for row in _bounded_rows(session, select(
+        SettlementStatementEntry.statement_id, *_FROZEN_ENTRY_COLUMNS,
+        SettlementFeeResult.fee_result_id, SettlementFeeResult.coupon_id, SettlementFeeResult.order_id,
+        SettlementFeeResult.fee_direction, SettlementFeeResult.original_business_month,
+        SettlementFeeResult.account_qualification_version_id,
+    ).outerjoin(SettlementFeeResult, SettlementFeeResult.fee_result_id == SettlementStatementEntry.original_fee_result_id)
+      .where(SettlementStatementEntry.statement_id.in_(receipts))
+      .order_by(SettlementStatementEntry.statement_id, SettlementStatementEntry.source_type,
+                SettlementStatementEntry.source_record_id)):
+        entries[row[0]].append(tuple(row[1:]))
+    for bill in bills:
+        if receipt := receipts.get(bill.statement_id):
+            basis = receipt[0]
+            generation_id = basis["generationId"]
+            output[bill.statement_id] = _frozen_store_proof(
+                bill, receipt, generations.get(generation_id), qualifications.get(basis["qualificationVersionId"]),
+                bundles.get((generation_id, bill.store_id, bill.statement_month)), entries[bill.statement_id],
+            )
+    return output
+
+
 def _preview(session: Session, *, now: datetime, months: tuple[str, ...] = (),
              store_ids: tuple[str, ...] = (), after_id: int = 0, limit: int = 50,
              lock: bool = False) -> dict:
@@ -343,7 +531,6 @@ def _preview(session: Session, *, now: datetime, months: tuple[str, ...] = (),
     if lock:
         active_query = active_query.with_for_update()
     active = session.scalar(active_query.execution_options(populate_existing=True))
-    generation_id = active.generation_id if active else None
     bills = list(session.scalars(select(SettlementStatement).where(*conditions)
         .order_by(SettlementStatement.id).limit(limit + 1)))
     has_more = len(bills) > limit
@@ -354,10 +541,20 @@ def _preview(session: Session, *, now: datetime, months: tuple[str, ...] = (),
         ids = [row.statement_id for row in bills]
         bills = list(session.scalars(select(SettlementStatement).where(SettlementStatement.statement_id.in_(ids))
             .order_by(SettlementStatement.id).with_for_update().execution_options(populate_existing=True))) if ids else []
-    busy = _live_heavy_job(session, now) or session.scalar(select(JobRun).where(
+    has_legacy = any(bill.monthly_close_input_sha256 is None for bill in bills)
+    generation_id = active.generation_id if active and has_legacy else None
+    busy = (_live_heavy_job(session, now) or session.scalar(select(JobRun).where(
         JobRun.job_name == "settlement_rebuild", JobRun.status.in_(("queued", "pending", "retry_wait")))
-        .order_by(JobRun.job_id).limit(1))
+        .order_by(JobRun.job_id).limit(1))) if has_legacy else None
+    monthly_mode = monthly_settlement_enabled()
     dependencies = _batch_dependencies(session, bills)
+    bill_ids = [bill.statement_id for bill in bills]
+    visibility = {
+        row.statement_id: row for (row,) in _bounded_rows(
+            session,
+            select(SettlementStatementVisibility).where(SettlementStatementVisibility.statement_id.in_(bill_ids)),
+        )
+    } if bill_ids else {}
     rows = []
     for bill in bills:
         _check_budget(session)
@@ -368,6 +565,11 @@ def _preview(session: Session, *, now: datetime, months: tuple[str, ...] = (),
             if row.fee_direction == direction and row.status in (1, 2, 3)) for direction in (1, 2)}
         confirmable = statement_confirmable_amounts(promotion_net_fee_cent=bill.promotion_net_fee_cent,
             management_net_fee_cent=bill.management_net_fee_cent, frozen_by_direction=frozen)
+        visible = visibility.get(bill.statement_id)
+        first_visible_at = _utc(visible.first_visible_at) if visible is not None else None
+        due_at = confirmation_due_at(
+            bill.statement_month, first_visible_at=first_visible_at,
+        ) if first_visible_at is not None else None
         for direction, prefix in ((1, "promotion"), (2, "management")):
             existing = confirmations.get(direction)
             hold = dependencies["holds"].get(_hold_target(*slot, direction))
@@ -376,13 +578,13 @@ def _preview(session: Session, *, now: datetime, months: tuple[str, ...] = (),
             if existing is not None:
                 state = "already_confirmed" if existing.confirmation_status == 1 else "blocked"
                 reason = None if state == "already_confirmed" else "EXISTING_CONFIRMATION_PROTECTED"
-            elif now < confirmation_due_at(bill.statement_month):
+            elif due_at is not None and now < due_at:
                 state, reason = "not_due", "CONFIRMATION_WINDOW_OPEN"
             elif not bill.is_current:
                 reason = "STATEMENT_VERSION_CHANGED"
             elif bill.locked_at is not None or bill.lock_version is not None or bill.statement_status == 4:
                 reason = "STATEMENT_LOCKED"
-            elif bill.statement_status not in (1, 2):
+            elif bill.statement_status != 2:
                 reason = "STATEMENT_STATE_PROTECTED"
             elif hold:
                 reason = "EXPLICIT_REVIEW_HOLD"
@@ -390,7 +592,11 @@ def _preview(session: Session, *, now: datetime, months: tuple[str, ...] = (),
                 reason = "DISPUTE_PROTECTED"
             elif (*slot, direction) in dependencies["invoices"] or (direction == 1 and slot in dependencies["allocations"]):
                 reason = "INVOICE_FACT_PROTECTED"
-            elif busy is not None:
+            elif monthly_mode and bill.statement_month >= FIRST_MONTH and bill.monthly_close_input_sha256 is None:
+                reason = "FROZEN_BILL_SOURCE_EVIDENCE_MISSING"
+            elif due_at is None:
+                reason = "BILL_VISIBILITY_EVIDENCE_MISSING"
+            elif busy is not None and bill.monthly_close_input_sha256 is None:
                 reason = "SOURCE_JOB_ACTIVE"
             if reason and state == "candidate":
                 state = "blocked"
@@ -398,7 +604,9 @@ def _preview(session: Session, *, now: datetime, months: tuple[str, ...] = (),
                 "month": bill.statement_month, "version": bill.version_no, "direction": direction,
                 "amount_cent": confirmable["PROMOTION" if direction == 1 else "MANAGEMENT"],
                 "statement_amount_cent": getattr(bill, f"{prefix}_net_fee_cent"), "state": state, "reason": reason,
-                "due_at": confirmation_due_at(bill.statement_month).isoformat(),
+                "due_at": due_at.isoformat() if due_at is not None else None,
+                "first_visible_at": first_visible_at.isoformat() if first_visible_at is not None else None,
+                "first_publication_id": visible.publication_id if visible is not None else None,
                 "confirmation_id": existing.confirmation_id if existing else None,
                 "confirmed_at": existing.confirmed_at.isoformat() if existing else None,
                 "confirmed_by": existing.confirmed_by if existing else None,
@@ -407,14 +615,22 @@ def _preview(session: Session, *, now: datetime, months: tuple[str, ...] = (),
                 "disputes": sorted((row.dispute_id, row.fee_direction, row.status) for row in disputes),
             })
     candidate_ids = {row["statement_id"] for row in rows if row["state"] == "candidate"}
-    proofs = _batch_economic_proofs(session, [bill for bill in bills if bill.statement_id in candidate_ids], generation_id)
+    candidates = [bill for bill in bills if bill.statement_id in candidate_ids]
+    proofs = _batch_economic_proofs(
+        session, [bill for bill in candidates if bill.monthly_close_input_sha256 is None], generation_id,
+    )
+    proofs.update(_batch_frozen_economic_proofs(
+        session, [bill for bill in candidates if bill.monthly_close_input_sha256 is not None],
+    ))
     for row in rows:
         if row["state"] == "candidate":
             reason, proof = proofs[row["statement_id"]]
             row["source_proof"] = proof
             if reason:
                 row["state"], row["reason"] = "blocked", reason
-    result = {"protocol": PROTOCOL, "scheduler_enabled": auto_confirmation_enabled(),
+    start_month = scheduler_start_month()
+    result = {"protocol": PROTOCOL, "scheduler_enabled": auto_confirmation_enabled() and start_month is not None,
+        "scheduler_start_month": start_month,
         "months": list(months), "store_ids": list(store_ids),
         "after_id": after_id, "limit": limit, "has_more": has_more,
         "next_after_id": bills[-1].id if bills else after_id, "generation_id": generation_id,
@@ -478,7 +694,9 @@ def apply_auto_confirmation(factory: sessionmaker, *, preview_hash: str,
                 target_id=confirmation.confirmation_id, operator_id="system:auto-confirmation", operator_role=1,
                 before_snapshot={"statementId": row["statement_id"], "version": row["version"], "direction": row["direction"]},
                 after_snapshot={"confirmationId": confirmation.confirmation_id, "amountCent": row["amount_cent"],
-                    "sourceProof": row["source_proof"], "previewHash": preview_hash},
+                    "sourceProof": row["source_proof"], "previewHash": preview_hash,
+                    "firstPublicationId": row["first_publication_id"], "firstVisibleAt": row["first_visible_at"],
+                    "dueAt": row["due_at"]},
                 result_status=1, request_id="auto-confirm-" + preview_hash[:40], request_payload_sha256=_hash(row))
             session.add(audit)
             written.append({**row, "confirmation_id": confirmation.confirmation_id,
@@ -506,9 +724,14 @@ def apply_auto_confirmation(factory: sessionmaker, *, preview_hash: str,
 
 def process_due_auto_confirmations(factory: sessionmaker) -> bool:
     """Opt-in hourly scan, one bounded batch per tick; late bills remain retryable."""
-    if not auto_confirmation_enabled():
+    start_month = scheduler_start_month()
+    if not auto_confirmation_enabled() or start_month is None:
         return False
     now = datetime.now(timezone.utc)
+    last_complete = (now.astimezone(SHANGHAI).date().replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+    if start_month > last_complete:
+        return False
+    months = tuple(month for month in formal_months(last_complete) if month >= start_month)
     hour = now.strftime("%Y%m%d%H")
     with factory() as session:
         attempt = session.scalar(select(JobRun).where(JobRun.job_name == "billing_auto_confirmation")
@@ -518,16 +741,20 @@ def process_due_auto_confirmations(factory: sessionmaker) -> bool:
         last = session.scalar(select(JobRun).where(JobRun.job_name == "billing_auto_confirmation",
             JobRun.status == "success", JobRun.job_id.like(f"billing-auto-confirm-{hour}-%"))
             .order_by(JobRun.finished_at.desc()).limit(1))
+        if last and (last.metadata_json or {}).get("scheduler_start_month") != start_month:
+            last = None
         if last and not (last.metadata_json or {}).get("has_more"):
             return False
         cursor = int((last.metadata_json or {}).get("next_after_id", 0)) if last else 0
     try:
-        preview = preview_auto_confirmation(factory, now=now, after_id=cursor)
-        result = apply_auto_confirmation(factory, now=now, preview_hash=preview["preview_hash"], after_id=cursor)
+        preview = preview_auto_confirmation(factory, now=now, months=months, after_id=cursor)
+        result = apply_auto_confirmation(factory, now=now, months=months,
+            preview_hash=preview["preview_hash"], after_id=cursor)
         with factory.begin() as session:
             session.add(JobRun(job_id=f"billing-auto-confirm-{hour}-{uuid4().hex[:12]}",
                 job_name="billing_auto_confirmation", status="success", started_at=now, finished_at=datetime.now(timezone.utc),
-                metadata_json={"protocol": PROTOCOL, "enabled": True, "counts": preview["counts"],
+                metadata_json={"protocol": PROTOCOL, "enabled": True,
+                    "scheduler_start_month": start_month, "counts": preview["counts"],
                     "blocked_reasons": dict(Counter(row["reason"] for row in preview["rows"] if row["state"] == "blocked")),
                     "confirmed_count": result["confirmed_count"], "preview_hash": preview["preview_hash"],
                     "next_after_id": preview["next_after_id"], "has_more": preview["has_more"]}))

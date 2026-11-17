@@ -11,11 +11,22 @@ from apps.api.dy_api.models import FinanceOperationAudit, SettlementStatement, S
 from apps.worker import billing_auto_confirmation as service
 from test_billing_auto_confirmation import (
     NOW, seed_ready_bills, seed_negative_adjustments, seed_many_bills, seed_zero_bill,
-    assert_replay_read_only_with_commit_hook,
+    assert_replay_read_only_with_commit_hook, assert_statement_publication_visibility,
+    seed_frozen_confirmation_store, assert_frozen_store_can_confirm_without_waiting_for_peer,
 )
 from test_dashboard_publication_finance_postgres import POSTGRES_URL, postgres_session
 
 pytestmark = pytest.mark.skipif(not POSTGRES_URL, reason="dedicated PostgreSQL test URL not configured")
+
+
+def test_postgres_visibility_is_atomic_with_publication(postgres_session, monkeypatch):
+    factory = seed_ready_bills(postgres_session, monkeypatch)
+    assert_statement_publication_visibility(postgres_session, factory, monkeypatch)
+
+
+def test_postgres_frozen_store_confirmation_ignores_peer_retry(postgres_session, monkeypatch):
+    factory = seed_frozen_confirmation_store(postgres_session, monkeypatch, adopt=True)
+    assert_frozen_store_can_confirm_without_waiting_for_peer(factory)
 
 
 @pytest.mark.parametrize("mode", ["orm", "sql"])

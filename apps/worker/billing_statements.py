@@ -34,6 +34,8 @@ def generate_pending_statements(
     session: Session, *, generation_id: str, source_job_id: str | None = None,
     sources: Sequence[StatementSource] | None = None,
     slots: Sequence[tuple[str, str]] = (),
+    monthly_input_sha256: str | None = None,
+    qualification_version_id: str | None = None,
 ) -> dict[str, int]:
     """Generate immutable pending bills, without commits or automatic confirmations.
 
@@ -131,6 +133,9 @@ def generate_pending_statements(
                     FinanceOperationAudit.request_payload_sha256 == payload_hash,
                 ))
                 if audit is not None:
+                    if monthly_input_sha256 is not None:
+                        _freeze_amount_basis(session, current, monthly_input_sha256, qualification_version_id,
+                                             source_job_id, generation_id)
                     stats["unchanged"] += 1
                     stats["skipped"] += 1
                     continue
@@ -159,6 +164,9 @@ def generate_pending_statements(
             _write_sources(session, statement, rows)
             session.flush()
             _apply_and_validate_statement_totals(session, statement)
+            if monthly_input_sha256 is not None:
+                _freeze_amount_basis(session, statement, monthly_input_sha256, qualification_version_id,
+                                     source_job_id, generation_id)
             if current is not None:
                 current.is_current = False
                 session.flush()
@@ -178,6 +186,29 @@ def generate_pending_statements(
             stats["created"] += 1
         session.flush()
     return stats
+
+
+def _freeze_amount_basis(
+    session: Session, statement: SettlementStatement, input_sha256: str, qualification_version_id: str | None,
+    source_job_id: str | None, generation_id: str,
+) -> None:
+    from apps.worker.account_qualification import FIRST_MONTH
+    from apps.worker.monthly_close_scope import preceding_period_has_no_statement
+    from apps.worker.monthly_statement_balances import freeze_statement_balances
+
+    statement.monthly_close_input_sha256 = input_sha256
+    freeze_statement_balances(session, statement, first_month=FIRST_MONTH,
+        preceding_period_has_no_statement=preceding_period_has_no_statement(
+            session, store_id=statement.store_id, month=statement.statement_month,
+        ))
+    session.add(FinanceOperationAudit(
+        audit_id=_stable_business_id("freeze-monthly-billing", statement.statement_id),
+        operation_type="FREEZE_MONTHLY_BILLING", target_type="SETTLEMENT_STATEMENT",
+        target_id=statement.statement_id, operator_id="settlement-worker", operator_role=1,
+        after_snapshot={"generationId": generation_id, "sourceJobId": source_job_id,
+                        "qualificationVersionId": qualification_version_id, "versionNo": statement.version_no},
+        result_status=1, request_id=source_job_id or generation_id, request_payload_sha256=input_sha256,
+    ))
 
 
 def _audit_outcome(session: Session, generation_id: str, source_job_id: str | None,

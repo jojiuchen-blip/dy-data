@@ -75,7 +75,12 @@ def _login_rule_operator(client: TestClient, session: Session, role: str = "admi
 
 
 @pytest.mark.parametrize("mode", ["single", "import"])
-def test_authorized_admin_can_publish_fee_rules(client: TestClient, db_session: Session, mode: str) -> None:
+@pytest.mark.parametrize("monthly_mode", [False, True])
+def test_authorized_admin_can_publish_fee_rules(
+    client: TestClient, db_session: Session, mode: str, monthly_mode: bool, monkeypatch,
+) -> None:
+    if monthly_mode:
+        monkeypatch.setenv("SETTLEMENT_MONTHLY_MODE", "true")
     _seed_sku(db_session, "permission-sku", "权限测试")
     operator = _login_rule_operator(client, db_session)
     if mode == "single":
@@ -105,7 +110,15 @@ def test_authorized_admin_can_publish_fee_rules(client: TestClient, db_session: 
     assert detail.json()["data"]["ruleVersion"] == rules[0].rule_version
     assert detail.json()["data"]["createdBy"] == operator.username
     assert detail.json()["data"]["promotionServiceFeeRate"] == "0.100000"
-    assert db_session.scalar(select(func.count()).select_from(JobRun)) == 1
+    job, = list(db_session.scalars(select(JobRun)))
+    assert job.job_name == ("settlement_rule_change" if monthly_mode else "settlement_rebuild")
+    assert job.status == ("success" if monthly_mode else "queued")
+    if monthly_mode:
+        assert job.metadata_json["effective_month"] == "2026-08"
+        assert job.metadata_json["settlement_calculation"] == "month_close"
+        assert client.get("/api/v1/admin/sku-fee-rules").json()["data"]["settlementCalculationMode"] == "monthly"
+        if mode == "import":
+            assert response.json()["data"]["settlementRebuild"]["rebuildStatus"] == "scheduled_monthly"
     assert operator.role == "admin"
 
 
@@ -741,6 +754,19 @@ def test_fee_rule_rebuild_trigger_is_durable_and_idempotent(
     )
     assert reused.status_code == 409
     assert reused.json()["detail"]["code"] == "IDEMPOTENCY_KEY_REUSED"
+
+
+def test_monthly_mode_rejects_unscoped_manual_fee_rebuild(client, db_session, monkeypatch) -> None:
+    monkeypatch.setenv("SETTLEMENT_MONTHLY_MODE", "true")
+    _login(client)
+    response = client.post(
+        "/api/v1/admin/sku-fee-rules/rebuild",
+        headers={"Idempotency-Key": "fee-rebuild-monthly-test"},
+        json={"updatedRuleCount": 10},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "MONTHLY_SETTLEMENT_REBUILD_REQUIRES_SCOPED_RECOVERY"
+    assert db_session.scalar(select(func.count()).select_from(JobRun)) == 0
 
 
 def test_settlement_scope_publish_is_channel_scoped_and_idempotent(

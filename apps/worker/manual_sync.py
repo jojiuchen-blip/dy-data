@@ -15,6 +15,7 @@ from apps.worker.collectors.verify_records import collect_shop_pois, collect_ver
 from apps.worker.pipeline import build_douyin_client_from_env, run_collect_and_settle
 from apps.worker.repositories import finish_job_run, start_job_run
 from apps.worker.settlement import rebuild_settlement, run_settlement_job
+from src.dy_data.settlement_schedule import monthly_settlement_enabled
 
 
 ManualSyncTarget = Literal[
@@ -77,8 +78,9 @@ def run_manual_sync_job(
             )
             try:
                 stats.add_phase(run_backend_aweme_export(session, source_run_id=job_id))
-                settlement_stats = rebuild_settlement(session, source_run_id=job_id)
-                stats.add_phase(PhaseStats(name="settlement", upserted=settlement_stats.detail_count))
+                if not monthly_settlement_enabled():
+                    settlement_stats = rebuild_settlement(session, source_run_id=job_id)
+                    stats.add_phase(PhaseStats(name="settlement", upserted=settlement_stats.detail_count))
                 job = session.get(JobRun, job_id)
                 if job is not None:
                     job.metadata_json = stats.as_metadata()

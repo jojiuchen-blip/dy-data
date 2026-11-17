@@ -354,6 +354,10 @@ def publish_module(
                         raise PublicationError("PUBLICATION_HEAD_CHANGED", "分析版本已变化，暂缓更新", 503)
                 else:
                     session.execute(heads.insert().values(module=module, publication_id=publication_id))
+                if module == "settlement" and "ready_periods" in statistics:
+                    from .statement_visibility import record_statement_visibility
+
+                    record_statement_visibility(session, publication_id, published_at, cutoff)
                 session.info["publication_builder"] = False
                 session.commit()
                 return Publication(publication_id, module, cutoff, observed, published_at, next_refresh_at,

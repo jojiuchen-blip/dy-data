@@ -151,6 +151,7 @@ export function AdminSkuRulesPage() {
   const [activeStep, setActiveStep] = useState(1);
   const [rows, setRows] = useState<SkuRow[]>([]);
   const [feeRules, setFeeRules] = useState<SkuFeeRuleItem[]>([]);
+  const [monthlyFeeMode, setMonthlyFeeMode] = useState(false);
   const [batches, setBatches] = useState<ImportBatchItem[]>([]);
   const [selectedSkuMap, setSelectedSkuMap] = useState<Map<string, SkuRow>>(new Map());
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
@@ -190,6 +191,7 @@ export function AdminSkuRulesPage() {
       fetchSkuFeeRuleImports({ page: 1, pageSize: 200 }),
     ]);
     setFeeRules(rulesResponse.data.list);
+    setMonthlyFeeMode(rulesResponse.data.settlementCalculationMode === "monthly");
     setBatches(batchesResponse.data.list);
     return rulesResponse.data.list;
   };
@@ -376,7 +378,7 @@ export function AdminSkuRulesPage() {
   };
 
   const rebuildSettlementProjection = async () => {
-    if (!canManageGlobalSettings) return;
+    if (!canManageGlobalSettings || monthlyFeeMode) return;
     const updatedRuleCount = effectiveRuleMap.size;
     if (!updatedRuleCount) return;
     const fingerprint = JSON.stringify(
@@ -453,7 +455,7 @@ export function AdminSkuRulesPage() {
     setChangeReason("");
     publishIntent.current.clear();
     setPublishProgress(null);
-    const publishedMessage = `已发布 ${completed} 个 SKU 的双费率版本，结算重算任务已自动排队。`;
+    const publishedMessage = `已发布 ${completed} 个 SKU 的双费率版本，${monthlyFeeMode ? "按账期生效规则参与月结。" : "结算重算任务已自动排队。"}`;
     setNotice(publishedMessage);
     try {
       await refreshFeeDataAndRows();
@@ -471,7 +473,9 @@ export function AdminSkuRulesPage() {
     try {
       const response = await saveNonCommissionOwnerAccounts(accounts);
       setNonCommissionAccountCount(response.data.rows.length);
-      setNotice(`已保存 ${response.data.updated_count} 个例外账号，结算重建任务已启动。`);
+      const scheduleNotice = response.data.rebuild_status === "scheduled_monthly"
+        ? "规则将参与月结。" : "结算重建任务已启动。";
+      setNotice(`已保存 ${response.data.updated_count} 个例外账号，${scheduleNotice}`);
     } catch (error) {
       if (!handleAuthError(error)) setNotice("例外账号保存失败，请稍后重试。");
     } finally {
@@ -579,7 +583,19 @@ export function AdminSkuRulesPage() {
               </section>
 
               <section className="content-section commission-step-card" data-step="4" ref={registerStep(4)}>
-                <div className="section-title"><div><h2>4. 发布确认</h2><p>手工多 SKU 发布会逐个创建不可变版本；文件批量导入才使用原子提交。</p><p className="admin-muted">正常规则发布成功后系统自动安排重算；手动重新计算仅限全国范围管理员。不补采数据、不确认账单、不执行付款。</p></div><div className="section-title-actions"><Button disabled={!canManageGlobalSettings || !effectiveRuleMap.size || working} onClick={openRebuildConfirmation} type="button">重新计算结算结果</Button><Button disabled={!canManageGlobalSettings || !rateApplied || working} onClick={openPublishConfirmation} type="button" variant="primary">确认发布</Button></div></div>
+                <div className="section-title">
+                  <div>
+                    <h2>4. 发布确认</h2>
+                    <p>手工多 SKU 发布会逐个创建不可变版本；文件批量导入才使用原子提交。</p>
+                    <p className="admin-muted">{monthlyFeeMode
+                      ? "分佣按月结计算。已出账的原账金额保持冻结，更正通过对应账期处理。"
+                      : "正常规则发布成功后系统自动安排重算；手动重新计算仅限全国范围管理员。不补采数据、不确认账单、不执行付款。"}</p>
+                  </div>
+                  <div className="section-title-actions">
+                    {!monthlyFeeMode && <Button disabled={!canManageGlobalSettings || !effectiveRuleMap.size || working} onClick={openRebuildConfirmation} type="button">重新计算结算结果</Button>}
+                    <Button disabled={!canManageGlobalSettings || !rateApplied || working} onClick={openPublishConfirmation} type="button" variant="primary">确认发布</Button>
+                  </div>
+                </div>
               </section>
             </main>
             <aside className="content-section commission-preselection"><h2>预选窗口</h2><p className="admin-muted">持续汇总当前选择。</p><strong>{selectedRows.length} 个 SKU</strong><span>推广 {promotionRate}%</span><span>管理 {managementRate}%</span></aside>
@@ -610,7 +626,7 @@ export function AdminSkuRulesPage() {
         {publishFeedback ? <p aria-live="assertive" className="resource-notice resource-notice--error" role="alert">{publishFeedback}</p> : null}
         <dl className="commission-confirmation-list"><div><dt>SKU 数量</dt><dd>{selectedRows.length} 个</dd></div><div><dt>推广服务费比例</dt><dd>{promotionRate}%</dd></div><div><dt>管理服务费比例</dt><dd>{managementRate}%</dd></div><div><dt>生效日期</dt><dd>{effectiveDate}</dd></div><div><dt>规则状态</dt><dd>{ruleStatus === "ACTIVE" ? "启用" : "停用"}</dd></div><div><dt>变更原因</dt><dd>{changeReason}</dd></div></dl>
       </Dialog>
-      <Dialog actions={<><Button disabled={working} onClick={closeRebuildConfirmation} type="button">返回</Button><Button disabled={working || !canManageGlobalSettings} onClick={() => void rebuildSettlementProjection()} type="button" variant="primary">{working ? "正在提交..." : "确认重新计算"}</Button></>} closeDisabled={working} description="规则发布后系统会自动排队重算。手动操作仅重新计算已生效规则的结算结果，不补采数据、不确认账单、不执行付款。" onClose={closeRebuildConfirmation} open={rebuildConfirmOpen} title="重新计算结算结果确认">
+      <Dialog actions={<><Button disabled={working} onClick={closeRebuildConfirmation} type="button">返回</Button><Button disabled={working || !canManageGlobalSettings} onClick={() => void rebuildSettlementProjection()} type="button" variant="primary">{working ? "正在提交..." : "确认重新计算"}</Button></>} closeDisabled={working} description="规则发布后系统会自动排队重算。手动操作仅重新计算已生效规则的结算结果，不补采数据、不确认账单、不执行付款。" onClose={closeRebuildConfirmation} open={rebuildConfirmOpen && !monthlyFeeMode} title="重新计算结算结果确认">
         <p>当前将重算 {effectiveRuleMap.size} 个已生效 SKU。重算完成后，符合正式订单资格的数据才会进入门店榜单和结算页面。</p>
         {rebuildFeedback ? <p aria-live="assertive" className="resource-notice resource-notice--error" role="alert">{rebuildFeedback}</p> : null}
       </Dialog>

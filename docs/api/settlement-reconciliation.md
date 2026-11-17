@@ -82,3 +82,19 @@ git diff --check
 ```
 
 测试只使用合成资料，覆盖大文本 ID 和前导零、浮点尾差、负数、汇总行排除、九月夹带八月、多券与重复键、金额费率差异、未知字段、不同粒度拒绝、门店重名冲突和私密输出路径保护。
+
+## 正式月账调整与结转
+
+月账用核销月确定原费用。退款使用已核实事件的发生月和原费用版本，晚取得的退款若遇发生月已冻结，留下发生月及来源，按最早未冻结的账期记录入账。券和方向的退款重复采集只入账一次。已核实为零的退款不产生负费用。
+
+每个已发布账单版本保存两份独立余额，分别对应推广服务费与管理服务费。抵扣后净额等于当期净费用加上上期结转。仍为负数时结转下月。即使下月没有新费用，该门店也要延续余额。开票金额取抵扣后净额中的正额。旧账如果存在尚未证实已抵扣的负额，暂停该店接入新余额链，保留原历史记录待核对。
+
+`GET /store-settlements/{statement_id}` 的 `promotionMonthlyBalance` 与 `managementMonthlyBalance` 提供前版凭证、当期净费用、上期结转、抵扣后净额及转下期余额，金额单位为分。已可查看的新月账单可从 `GET /store-settlements/{statement_id}/balances/export` 下载两行中文抵扣明细，字段明确以元计。读取与下载校验同一门店范围和账单版本。
+
+## 已核准的处理月更正
+
+运维可用 `scripts/ops/post_monthly_fee_corrections.py` 预览漏单和原费用误差的确切更正。清单版本为 1，含 `request_id`、当时上海日期所属的 `processing_month` 和最多 100 行 `rows`。每行写明 `case_id`、`coupon_id`、`order_id`、`store_id`、`fee_direction`（1 推广，2 管理）、`original_statement_id`、`original_statement_version`、`original_business_month`、`original_entry_id`、`expected_fee_cent`、`corrected_fee_cent`、`evidence_sha256`。漏单把原账条目留空，仍须从系统核实原月、门店、券实收和费率。
+
+预览传入 `--manifest`、各份 `--evidence` 和私密的新 `--output` 文件。经对应清单批准后，在同一处理月传入 `--apply --expected-preview-sha256 … --approved-by … --approval-reference …` 并另选输出文件。应用只追加差额及关联审计，保留原账金额、处理人、批准引用和证据摘要。原版本、证据或处理月变化须重新预览。
+
+关联待处理异议时，在清单中提供 `dispute_id`。更正后仍须等待实际处理月账单发布，管理员可在原异议按已入账合计核准处理结果。正式处理账单、原账与异议的状态和引用均可回读。

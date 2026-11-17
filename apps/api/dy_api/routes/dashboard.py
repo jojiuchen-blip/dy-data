@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import contextmanager
 from csv import DictReader, DictWriter
 from base64 import urlsafe_b64encode
 from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal
 from hashlib import sha256
 from io import StringIO, TextIOWrapper
 from urllib.parse import quote
@@ -85,9 +87,11 @@ from apps.api.dy_api.models import (
     SettlementFeeAdjustment,
     SettlementFeeResult,
     SettlementStatement,
+    SettlementStatementBalance,
     SettlementStatementConfirmation,
     SettlementStatementEntry,
     SettlementStatementLine,
+    SettlementStatementVisibility,
     StoreFinanceProfile,
     utcnow,
 )
@@ -690,11 +694,24 @@ def list_store_settlements(
     _validate_enum(metric_scope, METRIC_SCOPES, "metricScope", request)
     direction = _normalize_billing_direction(fee_direction, request)
     _require_billing_store(session, store_id, request)
+    from apps.api.dy_api.dashboard_publications.finance import _require_period
+    from apps.worker.account_qualification import FIRST_MONTH
+    from src.dy_data.settlement_schedule import monthly_settlement_enabled
+
+    selected_metric_scope = metric_scope
+    publication = None
+    if monthly_settlement_enabled() and month >= FIRST_MONTH:
+        with publication_read(session, "settlement") as publication:
+            availability = _require_period(session, publication.id, month, store_id=store_id,
+                                           scope_store_ids=(store_id,))
+        if not availability["cumulative_ready"]:
+            selected_metric_scope = "MONTH"
 
     conditions = [
         SettlementStatement.store_id == store_id,
         SettlementStatement.statement_month == month,
         SettlementStatement.is_current.is_(True),
+        _visible_billing_statement_condition(),
     ]
     total = session.scalar(
         select(func.count()).select_from(SettlementStatement).where(*conditions)
@@ -736,10 +753,11 @@ def list_store_settlements(
         "page": page,
         "page_size": page_size,
         "metric_scope": metric_scope,
-        "metrics": _statement_metrics(session, store_id, month, metric_scope),
+        "metrics": _statement_metrics(session, store_id, month, selected_metric_scope),
         "promotion_invoice_summary": invoice_summary,
     }
-    return _reporting_success(request, data)
+    result = _reporting_success(request, data)
+    return attach_publication(result, publication) if publication is not None else result
 
 
 @router.get("/store-settlements/{statement_id}")
@@ -805,6 +823,46 @@ def get_store_settlement_detail(
         ],
     }
     return _reporting_success(request, data)
+
+
+@router.get("/store-settlements/{statement_id}/balances/export")
+def export_store_settlement_balances(
+    statement_id: str,
+    request: Request,
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    session = _billing_session(store, request)
+    statement = _get_billing_statement(session, statement_id, request)
+    _require_billing_store_scope(current_user, statement.store_id, request)
+    balances = list(session.scalars(select(SettlementStatementBalance).where(
+        SettlementStatementBalance.statement_id == statement_id,
+    ).order_by(SettlementStatementBalance.fee_direction)))
+    if len(balances) != 2 or session.get(SettlementStatementVisibility, statement_id) is None:
+        _raise_reporting_error(request, status.HTTP_404_NOT_FOUND, "RESOURCE_NOT_FOUND", "账单抵扣明细尚未发布")
+    fields = {
+        "month": "账期", "version": "账单版本", "direction": "费用方向",
+        "original": "原始费用（元）", "adjustment": "本期调整（元）", "period_net": "本期净费用（元）",
+        "opening": "上期结转（元）", "net_due": "抵扣后净额（元）", "closing": "转下期余额（元）",
+    }
+    rows = []
+    for balance in balances:
+        prefix = "promotion" if balance.fee_direction == 1 else "management"
+        amounts = {
+            "original": getattr(statement, f"{prefix}_original_fee_cent"),
+            "adjustment": getattr(statement, f"{prefix}_adjustment_fee_cent"),
+            "period_net": balance.period_net_fee_cent, "opening": balance.opening_balance_cent,
+            "net_due": balance.net_due_cent, "closing": balance.closing_balance_cent,
+        }
+        rows.append({
+            "month": statement.statement_month, "version": statement.version_no,
+            "direction": "推广服务费" if balance.fee_direction == 1 else "管理服务费",
+            **{key: f"{Decimal(value) / 100:.2f}" for key, value in amounts.items()},
+        })
+    return _finance_csv_download(
+        request=request, filename_prefix=f"门店账单抵扣明细-{statement.statement_month}-v{statement.version_no}",
+        fieldnames=list(fields), header_labels=fields, rows=rows,
+    )
 
 
 @router.post("/store-settlements/{statement_id}/confirmations")
@@ -3906,7 +3964,9 @@ def register_promotion_invoice(
         ))
         if occupied is not None:
             _raise_reporting_error(request, status.HTTP_409_CONFLICT, "PROMOTION_INVOICE_PERIOD_OCCUPIED", "账期已存在当前有效推广费发票分配", field="allocations")
-        allocations.append((statement, {**item, "allocated_amount_cent": confirmed.confirmed_amount_cent}))
+        allocations.append((statement, {
+            **item, "allocated_amount_cent": projected_group["allocated_amount_cent"],
+        }))
     for group_id, selected_statement_ids in selected_statement_ids_by_group.items():
         required_statement_ids = set(
             groups_by_id[group_id]["required_statement_ids"]
@@ -6068,6 +6128,7 @@ def monthly_settlement(
     # a not-found here; an empty period resolves to a real empty payload.
     _require_known_store(store, store_id, request)
     from apps.api.dy_api.dashboard_publications.finance import read_monthly_settlement, read_filters
+    from apps.api.dy_api.dashboard_publications.statement_visibility import bill_confirmation_window
     from dy_api.routes._data import STATEMENT_STATUS_FROM_DB
     session = _billing_session(store, request)
     with publication_read(session, "settlement", publication_id) as publication:
@@ -6080,6 +6141,7 @@ def monthly_settlement(
         data = read_monthly_settlement(session, publication.id, {
             "store_id": store_id,
             "month": month,
+            "scope_store_ids": (store_id,),
             "product_scope": "all",
             "product_type": product_type,
         })
@@ -6089,6 +6151,7 @@ def monthly_settlement(
             SettlementStatement.store_id == store_id,
             SettlementStatement.statement_month == month,
             SettlementStatement.is_current.is_(True),
+            _visible_billing_statement_condition(),
         ))
         data["statement"] = None if statement is None else {
             "statement_id": statement.statement_id,
@@ -6096,6 +6159,7 @@ def monthly_settlement(
             "confirmed_at": statement.confirmed_at,
             "locked_at": statement.locked_at,
             "lock_version": statement.lock_version,
+            **bill_confirmation_window(session, statement),
         }
     return attach_publication(
         _reporting_success(request, data, definitions=MONTHLY_SETTLEMENT_DEFINITIONS), publication,
@@ -6120,6 +6184,7 @@ def order_fee_details(
     q: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100, alias="pageSize"),
+    publication_id: str | None = Query(default=None, max_length=64),
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
@@ -6143,8 +6208,10 @@ def order_fee_details(
         page=page,
         page_size=page_size,
     )
-    data = _call_reporting_store(request, store.order_fee_details, filters)
-    return _reporting_success(request, data)
+    with _monthly_order_fee_scope(request, store, filters, publication_id) as publication:
+        data = _call_reporting_store(request, store.order_fee_details, filters)
+    result = _reporting_success(request, data)
+    return attach_publication(result, publication) if publication is not None else result
 
 
 @router.get("/order-fee-details/export")
@@ -6165,6 +6232,7 @@ def order_fee_details_export(
     q: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100, alias="pageSize"),
+    publication_id: str | None = Query(default=None, max_length=64),
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
@@ -6188,9 +6256,10 @@ def order_fee_details_export(
         page=page,
         page_size=page_size,
     )
-    csv_text = _call_reporting_store(
-        request, store.order_fee_details_export_csv, filters
-    )
+    with _monthly_order_fee_scope(request, store, filters, publication_id) as publication:
+        csv_text = _call_reporting_store(
+            request, store.order_fee_details_export_csv, filters
+        )
     if not csv_text:
         _raise_reporting_error(
             request,
@@ -6209,6 +6278,7 @@ def order_fee_details_export(
             "X-Export-Generated-At": generated,
             "X-Export-Filters": store.export_filter_header(filters),
             "X-Request-ID": current_request_id,
+            **({"X-Publication-ID": publication.id} if publication is not None else {}),
         },
     )
 
@@ -6429,7 +6499,8 @@ def _normalize_billing_direction(value: str | None, request: Request) -> str | N
 def _get_billing_statement(
     session, statement_id: str, request: Request, *, for_update: bool = False,
 ) -> SettlementStatement:
-    query = select(SettlementStatement).where(SettlementStatement.statement_id == statement_id)
+    query = select(SettlementStatement).where(SettlementStatement.statement_id == statement_id,
+                                              _visible_billing_statement_condition())
     if for_update:
         # Serialize confirmation with pending-version publication and reload an
         # identity-map instance that may have been read before waiting for it.
@@ -6444,6 +6515,24 @@ def _get_billing_statement(
             field="statementId",
         )
     return statement
+
+
+def _visible_billing_statement_condition():
+    from sqlalchemy import true
+    from apps.api.dy_api.dashboard_publications.period_readiness import signed_legacy_statement_condition
+    from apps.api.dy_api.models import SettlementStatementVisibility
+    from apps.worker.account_qualification import FIRST_MONTH
+    from src.dy_data.settlement_schedule import monthly_settlement_enabled
+
+    if not monthly_settlement_enabled():
+        return true()
+    return or_(SettlementStatement.statement_month < FIRST_MONTH,
+               signed_legacy_statement_condition(SettlementStatement), and_(
+        SettlementStatement.monthly_close_input_sha256.is_not(None),
+        select(SettlementStatementVisibility.statement_id).where(
+            SettlementStatementVisibility.statement_id == SettlementStatement.statement_id,
+        ).exists(),
+    ))
 
 
 def _promotion_invoice_carryforward_projection(
@@ -6489,12 +6578,16 @@ def _promotion_invoice_carryforward_projection(
         conditions.append(SettlementStatement.statement_id.in_(statement_ids))
     rows = list(
         session.execute(
-            select(SettlementStatement, SettlementStatementConfirmation)
+            select(SettlementStatement, SettlementStatementConfirmation, SettlementStatementBalance)
             .join(
                 SettlementStatementConfirmation,
                 SettlementStatementConfirmation.statement_id
                 == SettlementStatement.statement_id,
             )
+            .outerjoin(SettlementStatementBalance, and_(
+                SettlementStatementBalance.statement_id == SettlementStatement.statement_id,
+                SettlementStatementBalance.fee_direction == 1,
+            ))
             .where(*conditions)
             .order_by(
                 SettlementStatement.store_id,
@@ -6507,10 +6600,6 @@ def _promotion_invoice_carryforward_projection(
         str,
         list[tuple[SettlementStatement, SettlementStatementConfirmation]],
     ] = {}
-    for statement, confirmation in rows:
-        rows_by_store.setdefault(statement.store_id, []).append(
-            (statement, confirmation)
-        )
 
     projection: dict[str, dict] = {}
     groups: list[dict] = []
@@ -6521,6 +6610,7 @@ def _promotion_invoice_carryforward_projection(
         ],
         *,
         invoiceable_amount_cent: int,
+        balance: SettlementStatementBalance | None = None,
     ) -> None:
         ordered_members = sorted(
             member_rows,
@@ -6560,11 +6650,11 @@ def _promotion_invoice_carryforward_projection(
             "store_id": ordered_members[0][0].store_id,
             "required_statement_ids": required_statement_ids,
             "invoiceable_amount_cent": invoiceable_amount_cent,
-            "positive_amount_cent": sum(
+            "positive_amount_cent": max(balance.period_net_fee_cent, 0) if balance else sum(
                 max(confirmation.confirmed_amount_cent, 0)
                 for _, confirmation in ordered_members
             ),
-            "negative_amount_cent": sum(
+            "negative_amount_cent": balance.opening_balance_cent + min(balance.period_net_fee_cent, 0) if balance else sum(
                 min(confirmation.confirmed_amount_cent, 0)
                 for _, confirmation in ordered_members
             ),
@@ -6581,8 +6671,18 @@ def _promotion_invoice_carryforward_projection(
                 "statement_version": statement.version_no,
                 "confirmation_id": confirmation.confirmation_id,
                 "confirmed_amount_cent": confirmation.confirmed_amount_cent,
-                "carryforward_balance_cent": min(chronological_total, 0),
+                "allocated_amount_cent": invoiceable_amount_cent if balance else confirmation.confirmed_amount_cent,
+                "carryforward_balance_cent": balance.closing_balance_cent if balance else min(chronological_total, 0),
             }
+
+    for statement, confirmation, balance in rows:
+        if balance is None:
+            rows_by_store.setdefault(statement.store_id, []).append((statement, confirmation))
+        else:
+            if confirmation.confirmed_amount_cent != balance.period_net_fee_cent:
+                continue
+            add_group([(statement, confirmation)], invoiceable_amount_cent=max(balance.net_due_cent, 0),
+                      balance=balance)
 
     for store_rows in rows_by_store.values():
         negative_rows = [
@@ -6651,6 +6751,7 @@ def _statement_metrics(session, store_id: str, month: str, metric_scope: str) ->
         SettlementStatement.store_id == store_id,
         SettlementStatement.statement_month == month,
         SettlementStatement.is_current.is_(True),
+        _visible_billing_statement_condition(),
     ]
     monthly = session.execute(
         select(
@@ -6684,6 +6785,7 @@ def _statement_metrics(session, store_id: str, month: str, metric_scope: str) ->
                 SettlementStatement.statement_month >= FORMAL_PERIOD_START_MONTH,
                 SettlementStatement.statement_month <= month,
                 SettlementStatement.is_current.is_(True),
+                _visible_billing_statement_condition(),
             )
         ).one()
         data["cumulative"] = {
@@ -8906,12 +9008,16 @@ def _management_invoiceable_projection(
         conditions.append(SettlementStatement.statement_id.in_(statement_ids))
     statement_rows = list(
         session.execute(
-            select(SettlementStatement, SettlementStatementConfirmation)
+            select(SettlementStatement, SettlementStatementConfirmation, SettlementStatementBalance)
             .join(
                 SettlementStatementConfirmation,
                 SettlementStatementConfirmation.statement_id
                 == SettlementStatement.statement_id,
             )
+            .outerjoin(SettlementStatementBalance, and_(
+                SettlementStatementBalance.statement_id == SettlementStatement.statement_id,
+                SettlementStatementBalance.fee_direction == 2,
+            ))
             .where(*conditions)
             .order_by(
                 SettlementStatement.store_id,
@@ -8923,7 +9029,7 @@ def _management_invoiceable_projection(
     if not statement_rows:
         return [], []
 
-    statement_ids = [statement.statement_id for statement, _ in statement_rows]
+    statement_ids = [statement.statement_id for statement, _, _ in statement_rows]
     invoice_conditions = [
         InvoiceRecord.statement_id.in_(statement_ids),
         InvoiceRecord.fee_direction == 2,
@@ -8983,7 +9089,7 @@ def _management_invoiceable_projection(
     pending_positives: list[dict] = []
     pending_negatives: list[dict] = []
 
-    for statement, confirmation in statement_rows:
+    for statement, confirmation, balance in statement_rows:
         if statement.store_id != current_store_id:
             current_store_id = statement.store_id
             pending_positives = []
@@ -9003,6 +9109,13 @@ def _management_invoiceable_projection(
         }
         periods.append(period)
         period_by_statement[statement.statement_id] = period
+
+        if balance is not None:
+            if confirmed_amount == balance.period_net_fee_cent:
+                period["carryforward_balance_cent"] = balance.closing_balance_cent
+                if current_invoice is None:
+                    period["invoiceable_amount_cent"] = max(balance.net_due_cent, 0)
+            continue
 
         if confirmed_amount > 0:
             if current_invoice is not None:
@@ -9613,6 +9726,8 @@ def _statement_header_item(
     *,
     promotion_projection: dict[str, dict] | None = None,
 ) -> dict:
+    from apps.api.dy_api.dashboard_publications.statement_visibility import bill_confirmation_window
+
     confirmations = {
         row.fee_direction: row
         for row in session.scalars(
@@ -9653,6 +9768,18 @@ def _statement_header_item(
         )
     projected_group = promotion_projection.get(statement.statement_id)
     confirmable_amounts = _statement_confirmable_amounts(session, statement)
+    balances = {
+        balance.fee_direction: {
+            "previous_statement_id": balance.previous_statement_id,
+            "opening_balance_cent": balance.opening_balance_cent,
+            "period_net_fee_cent": balance.period_net_fee_cent,
+            "net_due_cent": balance.net_due_cent,
+            "closing_balance_cent": balance.closing_balance_cent,
+        }
+        for balance in session.scalars(select(SettlementStatementBalance).where(
+            SettlementStatementBalance.statement_id == statement.statement_id,
+        ))
+    }
     return {
         "statement_id": statement.statement_id,
         "store_id": statement.store_id,
@@ -9662,8 +9789,11 @@ def _statement_header_item(
         "is_current": statement.is_current,
         "supersedes_statement_id": statement.supersedes_statement_id,
         "status": STATEMENT_STATUS_NAMES[statement.statement_status],
+        **bill_confirmation_window(session, statement),
         "promotion_amount_cent": statement.promotion_net_fee_cent,
         "management_amount_cent": statement.management_net_fee_cent,
+        "promotion_monthly_balance": balances.get(1),
+        "management_monthly_balance": balances.get(2),
         "promotion_confirmable_amount_cent": confirmable_amounts["PROMOTION"],
         "management_confirmable_amount_cent": confirmable_amounts["MANAGEMENT"],
         "promotion_confirmation": _confirmation_summary(confirmations.get(1)),
@@ -10113,6 +10243,18 @@ def _create_dispute_statement_version(
     operator: str,
     request: Request,
 ) -> SettlementStatement:
+    if session.get(SettlementStatementBalance, (current_statement.statement_id, dispute.fee_direction)) is not None:
+        from apps.worker.monthly_fee_corrections import posted_monthly_dispute_statement
+
+        posted = posted_monthly_dispute_statement(
+            session, dispute=dispute, adjustment_amount_cent=adjustment_amount_cent,
+        )
+        if posted is not None:
+            return posted
+        _raise_reporting_error(
+            request, status.HTTP_409_CONFLICT, "PROCESSING_MONTH_CORRECTION_REQUIRED",
+            "原账单金额已冻结。需复核券、方向及差额清单，按处理月入账后处理本项异议。",
+        )
     current_lines = list(
         session.scalars(
             select(SettlementStatementLine).where(
@@ -12258,10 +12400,20 @@ def _order_fee_filters(
             )
     if store_id:
         _require_store_scope(current_user, store_id)
+    from apps.worker.account_qualification import FIRST_MONTH
+    from apps.worker.month_close import previous_business_month
+    from src.dy_data.settlement_schedule import monthly_settlement_enabled
+
+    monthly_mode = monthly_settlement_enabled()
+    if monthly_mode and month is None and statement_id is None:
+        month = previous_business_month()
     if month:
         _validate_month(month, "month", request)
     if store_id and month:
-        _validate_monthly_context(store, store_id, month, request)
+        if monthly_mode and month >= FIRST_MONTH:
+            _require_known_store(store, store_id, request)
+        else:
+            _validate_monthly_context(store, store_id, month, request)
     if sale_month:
         _validate_month(sale_month, "saleMonth", request)
     if verify_month:
@@ -12295,6 +12447,24 @@ def _order_fee_filters(
             None if current_user.has_global_data_access else current_user.store_ids
         ),
     }
+
+
+@contextmanager
+def _monthly_order_fee_scope(request, store, filters, publication_id):
+    from apps.api.dy_api.dashboard_publications.finance import monthly_detail_statement_ids
+    from apps.worker.account_qualification import FIRST_MONTH
+    from src.dy_data.settlement_schedule import monthly_settlement_enabled
+
+    month = filters.get("month")
+    if not monthly_settlement_enabled() or month is None or month < FIRST_MONTH:
+        yield None
+        return
+    session = _billing_session(store, request)
+    with publication_read(session, "settlement", publication_id) as publication:
+        filters["_monthly_statement_ids"] = monthly_detail_statement_ids(
+            session, publication.id, month, store_id=filters["store_id"], scope_store_ids=filters["scope_store_ids"],
+        )
+        yield publication
 
 
 def _require_store_scope(current_user: AuthContext, store_id: str) -> None:

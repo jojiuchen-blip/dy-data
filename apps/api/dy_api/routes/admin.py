@@ -1189,28 +1189,31 @@ def update_sku_rules(
     _username: str = Depends(get_current_global_admin),
     store=Depends(get_data_store),
 ):
+    from apps.worker.settlement_rule_schedule import rule_change_status, schedule_rule_change
+
     store = _require_available_store(store)
     rules = [dump_model(rule) for rule in payload.rules]
     updated_count, requires_rebuild = store.upsert_sku_rules(rules, updated_by=_username)
     job_id = None
+    rebuild_status = "not_required"
     if requires_rebuild:
         job_id = f"admin-sku-rules-{uuid4().hex[:12]}"
-        queue_job_run(
+        job = schedule_rule_change(
             store.session,
             job_id,
-            "settlement_rebuild",
-            metadata_json={
+            {
                 "source_run_id": job_id,
                 "trigger": "admin_sku_rules",
                 "updated_rule_count": updated_count,
             },
         )
+        rebuild_status = rule_change_status(job)
     # Make both the rule and its durable queue record visible to the worker.
     store.session.commit()
     data = SkuRuleBulkUpdateResult(
         updated_count=updated_count,
         job_id=job_id,
-        rebuild_status="queued" if requires_rebuild else "not_required",
+        rebuild_status=rebuild_status,
     )
     return {
         "data": dump_model(data),
@@ -1239,17 +1242,18 @@ def update_non_commission_owner_accounts(
     username: str = Depends(get_current_global_admin),
     store=Depends(get_data_store),
 ):
+    from apps.worker.settlement_rule_schedule import rule_change_status, schedule_rule_change
+
     store = _require_available_store(store)
     result = store.replace_non_commission_owner_accounts(
         [account.owner_account_name for account in payload.accounts],
         updated_by=username,
     )
     job_id = f"admin-non-commission-accounts-{uuid4().hex[:12]}"
-    queue_job_run(
+    job = schedule_rule_change(
         store.session,
         job_id,
-        "settlement_rebuild",
-        metadata_json={
+        {
             "source_run_id": job_id,
             "trigger": "admin_non_commission_owner_accounts",
             "updated_rule_count": result["updated_count"],
@@ -1260,7 +1264,7 @@ def update_non_commission_owner_accounts(
         rows=result["rows"],
         updated_count=result["updated_count"],
         job_id=job_id,
-        rebuild_status="queued",
+        rebuild_status=rule_change_status(job),
     )
     return {
         "data": dump_model(data),

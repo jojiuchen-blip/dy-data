@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ApiRequestError,
   confirmStoreBillingStatement,
+  downloadStoreSettlementBalances,
   fetchOrderFeeDetails,
   fetchSettlementFilterMeta,
   fetchSettlementMonthly,
@@ -20,6 +21,7 @@ import { MetricCard } from "../components/MetricCard";
 import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
 import { useApiResource } from "../hooks/useApiResource";
+import { useDownloadFeedback } from "../hooks/useDownloadFeedback";
 import type {
   AdminUser,
   BillingConfirmationSummary,
@@ -72,6 +74,7 @@ function confirmationLabel(confirmation: BillingConfirmationSummary | null): str
 }
 
 export function StoreSettlementPage({ currentUser, searchParams }: StoreSettlementPageProps) {
+  const balanceDownload = useDownloadFeedback();
   const [month, setMonth] = useState(() => initialStatementMonth(searchParams));
   const requestedStoreId = searchParams.get("storeId") ?? searchParams.get("store_id") ?? "";
   const [storeId, setStoreId] = useState(requestedStoreId);
@@ -125,6 +128,10 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
     : storeId || storeOptions[0]?.storeId || "";
   const activeProductType = requestedProductType || meta?.defaultProductType || "all";
   useEffect(() => replaceBusinessFiltersInUrl({ month, periodKey: undefined, productType: requestedProductType || undefined, product_type: undefined }), [month, requestedProductType]);
+  const settlementPublicationId = settlementResource.data?.meta.publication?.id;
+  const monthlyClose = meta?.periodReadiness?.months[activeMonth]?.monthlyClose
+    ?? settlementResource.data?.data.periodAvailability?.monthlyClose;
+  const feePublicationId = monthlyClose ? settlementPublicationId : undefined;
   const billingResource = useApiResource(
     () => fetchStoreBillingStatements({
       storeId: activeStoreId,
@@ -133,20 +140,22 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
       page: 1,
       pageSize: 1,
     }),
-    [activeStoreId, activeMonth],
+    [activeStoreId, activeMonth, settlementPublicationId],
     { enabled: Boolean(meta && activeStoreId && activeMonth), clearOnReload: true },
   );
+  const orderDetailsEnabled = Boolean(meta && activeStoreId && activeMonth && (!monthlyClose || feePublicationId));
   const promotionOrderResource = useApiResource(
     () => fetchOrderFeeDetails({
       storeId: activeStoreId,
       month: activeMonth,
       feeDirection: "PROMOTION",
       productType: activeProductType,
+      publication_id: feePublicationId,
       page: 1,
       pageSize: 50,
     }),
-    [activeStoreId, activeMonth, activeProductType],
-    { enabled: Boolean(meta && activeStoreId && activeMonth), clearOnReload: true },
+    [activeStoreId, activeMonth, activeProductType, feePublicationId],
+    { enabled: orderDetailsEnabled, clearOnReload: true },
   );
   const managementOrderResource = useApiResource(
     () => fetchOrderFeeDetails({
@@ -154,11 +163,12 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
       month: activeMonth,
       feeDirection: "MANAGEMENT",
       productType: activeProductType,
+      publication_id: feePublicationId,
       page: 1,
       pageSize: 50,
     }),
-    [activeStoreId, activeMonth, activeProductType],
-    { enabled: Boolean(meta && activeStoreId && activeMonth), clearOnReload: true },
+    [activeStoreId, activeMonth, activeProductType, feePublicationId],
+    { enabled: orderDetailsEnabled, clearOnReload: true },
   );
 
   const view = settlementResource.data?.data;
@@ -303,7 +313,9 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
   const activeOrderResource = activeFeeDirection === "PROMOTION"
     ? promotionOrderResource
     : managementOrderResource;
-  const activeOrders = activeOrderResource.data?.data.list ?? [];
+  const activeOrderPublicationId = activeOrderResource.data?.meta.publication?.id;
+  const activeOrders = activeOrderPublicationId && activeOrderPublicationId !== settlementPublicationId
+    ? [] : activeOrderResource.data?.data.list ?? [];
 
   return (
     <div className="page-stack finance-page">
@@ -354,12 +366,26 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
               <div>
                 <h2>当前账单确认</h2>
                 <p>推广服务费和管理服务费分别确认；金额与版本以正式账单接口为准。</p>
+                {statement?.firstVisibleAt && statement.confirmationDueAt ? (
+                  <p>
+                    版本 {statement.versionNo} · {formatDateTime(statement.firstVisibleAt)} 起可核对 · 最早 {formatDateTime(statement.confirmationDueAt)} 自动确认
+                  </p>
+                ) : null}
               </div>
+              {statement?.promotionMonthlyBalance && statement.managementMonthlyBalance ? (
+                <Button
+                  loading={balanceDownload.busy}
+                  onClick={() => balanceDownload.run(() => downloadStoreSettlementBalances(statement.statementId), "抵扣明细已下载。")}
+                  variant="secondary"
+                  size="sm"
+                >下载抵扣明细</Button>
+              ) : null}
             </div>
             <div className="store-finance-confirmation-grid">
               {FEE_DIRECTIONS.map((direction) => {
                 const confirmation = direction === "PROMOTION" ? statement?.promotionConfirmation : statement?.managementConfirmation;
                 const amount = direction === "PROMOTION" ? statement?.promotionConfirmableAmountCent : statement?.managementConfirmableAmountCent;
+                const balance = direction === "PROMOTION" ? statement?.promotionMonthlyBalance : statement?.managementMonthlyBalance;
                 const canConfirm = Boolean(statement?.isCurrent && amount !== undefined && !confirmation);
                 return (
                   <article className="store-finance-direction-card" key={direction}>
@@ -368,6 +394,13 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
                       <h3>{feeDirectionLabel(direction)}确认</h3>
                       <p className="store-finance-direction-card__status">{statement ? confirmationLabel(confirmation ?? null) : "尚未生成"}</p>
                       <strong>{amount === undefined ? "尚未生成" : formatCurrency(amount)}</strong>
+                      {balance ? (
+                        <p>
+                          上期结转 {formatCurrency(balance.openingBalanceCent)} ·
+                          抵扣后净额 {formatCurrency(balance.netDueCent)} ·
+                          转下期余额 {formatCurrency(balance.closingBalanceCent)}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="store-finance-direction-card__actions">
                       {confirmation ? <span className="status-badge status-badge--success">已确认</span> : (
@@ -391,6 +424,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
                 );
               })}
             </div>
+            {balanceDownload.message ? <p role={balanceDownload.isError ? "alert" : "status"}>{balanceDownload.message}</p> : null}
             {confirmationMessage ? <p className="store-finance-action-message" role={confirmationState === "error" ? "alert" : "status"}>{confirmationMessage}</p> : null}
       </section>
 

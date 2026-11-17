@@ -22,7 +22,7 @@ _FINANCE_SHARED = (
     "agg_store_monthly_settlement", "settlement_ranking_overlay", "settlement_monthly_overlay",
     "settlement_projection_active", "settlement_projection_generation",
     "settlement_projection_partition_manifest", "settlement_projection_compaction_closure",
-    "settlement_statement",
+    "settlement_statement", "settlement_month_close", "settlement_statement_balance",
 )
 MODULE_SOURCE_TABLES: dict[str, tuple[str, ...]] = {
     "douyin-ranking": (
@@ -45,6 +45,7 @@ MODULE_SOURCE_TABLES: dict[str, tuple[str, ...]] = {
         "settlement_statement_confirmation", "promotion_invoice", "promotion_invoice_allocation",
         "invoice_record", "invoice_status_event", "store_finance_profile",
         "management_carryforward_application", "sap_suggestion", "finance_operation_audit", "finance_import_batch",
+        "settlement_statement_visibility",
     ),
 }
 SOURCE_TABLES = tuple(sorted({name for names in MODULE_SOURCE_TABLES.values() for name in names}))
@@ -126,6 +127,10 @@ def source_fingerprint(session: Session, module: str | None = None, *, now: date
         from . import period_readiness
         time_token["financial_periods"] = period_readiness.fingerprint(period_readiness.capture(session, cutoff))
     payload = {"sources": [tuple(row) for row in rows], "time": time_token}
+    if module == "settlement":
+        # Observe the first successful post-rollout head even if its sources
+        # stayed unchanged. Earlier availability has no durable timestamp.
+        payload["statement_visibility"] = "v1"
     if module == "douyin-ranking":
         # A rebuild dependency, not a wire-format change: old complete heads
         # remain readable until a new immutable ranking is ready.

@@ -1,4 +1,5 @@
 """Overdue confirmation uses bill month, exact source state and durable holds."""
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -6,17 +7,20 @@ from sqlalchemy import delete, event, func, select, insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.dy_api.models import (
-    FinanceOperationAudit, JobRun, SettlementDispute, SettlementFeeResult,
+    AccountQualificationObservation, AccountQualificationSnapshot, AccountQualificationVersion,
+    FinanceOperationAudit, JobRun, SettlementBillingSourceBundle, SettlementDispute, SettlementFeeResult,
     SettlementFeeResultCurrent, SettlementMonthlyOverlay, SettlementStatement,
     SettlementProjectionGeneration,
     SettlementStatementConfirmation, SettlementFeeAdjustment, SettlementStatementEntry,
-    SettlementStatementLine,
+    SettlementStatementLine, SettlementStatementVisibility,
     DimStore, SettlementProjectionActive, SettlementProjectionPartitionManifest,
 )
 from apps.worker import billing_auto_confirmation as service
 from test_billing_statement_generation import _seed, _module
 
 NOW = datetime(2026, 10, 30, tzinfo=timezone.utc)
+NORMAL_PUBLICATION = datetime(2026, 9, 1, tzinfo=timezone.utc)
+MONTHLY_CONFIRMATION_NOW = datetime(2026, 11, 17, tzinfo=timezone.utc)
 
 
 @pytest.fixture()
@@ -43,11 +47,174 @@ def seed_ready_bills(db_session, monkeypatch):
             fee_result_id=source.source_record_id))
     db_session.commit()
     _module().generate_pending_statements(db_session, generation_id="billing-g1", sources=sources)
+    certify_test_bill_visibility(db_session)
     db_session.commit()
     # The real collection verifier is tested separately below. These cases
     # freeze only that independent signal, while exercising all financial SQL.
     monkeypatch.setattr(service, "published_days_revisions", lambda session, month: [month + "@synthetic-finalize"])
     return sessionmaker(bind=db_session.get_bind(), autoflush=False, expire_on_commit=False)
+
+
+def certify_test_bill_visibility(session, *, first_visible_at=NORMAL_PUBLICATION):
+    ids = session.scalars(select(SettlementStatement.statement_id).where(
+        SettlementStatement.is_current.is_(True),
+        ~select(SettlementStatementVisibility.statement_id).where(
+            SettlementStatementVisibility.statement_id == SettlementStatement.statement_id,
+        ).exists(),
+    ))
+    session.add_all(SettlementStatementVisibility(
+        statement_id=statement_id, first_visible_at=first_visible_at, publication_id="synthetic-head",
+    ) for statement_id in ids)
+
+
+def seed_frozen_confirmation_store(session, monkeypatch, *, adopt=False, empty=False):
+    """Freeze a valid October bill while another store lacks source evidence."""
+    from apps.worker.billing_source_capture import freeze_billing_sources, load_billing_sources
+
+    month = "2026-10"
+    basis_id, source_job, input_sha = "october-basis", "october-close", "a" * 64
+    frozen = datetime(2026, 11, 1, tzinfo=timezone.utc)
+    seed_sources = _seed(session)
+    sources = () if empty else tuple(
+        replace(row, original_business_month=month, posting_month=month) for row in seed_sources
+    )
+    slots = (("billing-store", month),)
+    monkeypatch.setenv("SETTLEMENT_MONTHLY_MODE", "true")
+    monkeypatch.setattr(service, "published_days_revisions", lambda *_: None)
+    content_sha = "b" * 64
+    session.add(AccountQualificationSnapshot(content_sha256=content_sha, records_json=[],
+        record_count=0, policy_version="synthetic-policy"))
+    session.flush()
+    session.add(AccountQualificationObservation(observation_id="october-observation", source_run_id="source-run",
+        source_type="backend", started_at=frozen, ended_at=frozen, state="success",
+        complete=True, content_sha256=content_sha))
+    session.flush()
+    session.add(AccountQualificationVersion(version_id=basis_id, business_month=month,
+        cutoff_at=frozen, observation_id="october-observation", content_sha256=content_sha,
+        policy_version="synthetic-policy", frozen_at=frozen))
+    session.flush()
+    for row in session.scalars(select(SettlementMonthlyOverlay)):
+        row.month = row.partition_key = month
+        if empty:
+            for prefix in ("promotion", "management"):
+                for field in ("base_cent", "original_fee_cent", "net_fee_cent"):
+                    setattr(row, f"{prefix}_{field}", 0)
+    session.scalar(select(SettlementProjectionPartitionManifest)).partition_key = month
+    for source in sources:
+        session.add(SettlementFeeResult(fee_result_id=source.source_record_id,
+            coupon_id=source.coupon_id, order_id=source.order_id, fee_direction=source.fee_direction,
+            original_business_month=month, rule_match_date=date(2026, 10, 1), sale_store_id=source.store_id,
+            verify_store_id=source.store_id, sku_id="synthetic-sku", product_scope=source.product_scope,
+            product_type=source.product_type, sale_channel_normalized="live", source_amount_cent=10000,
+            fee_base_cent=10000, fee_amount_cent=1000, fee_rate="0.1", rule_version="v1",
+            scope_rule_version="scope1", calculation_run_id=source_job, calculated_at=frozen,
+            account_qualification_version_id=basis_id))
+    session.add(DimStore(store_id="unready-peer", store_name="Unready Synthetic Peer"))
+    session.add(SettlementStatement(statement_id="unready-peer-draft", store_id="unready-peer",
+        statement_month=month, statement_status=2))
+    session.add(SettlementFeeResult(fee_result_id="unready-peer-result", coupon_id="unready-peer-coupon",
+        order_id="unready-peer-order", fee_direction=1, original_business_month=month,
+        rule_match_date=date(2026, 10, 1), sale_store_id="unready-peer", sku_id="synthetic-sku",
+        product_scope="scope", product_type="type", sale_channel_normalized="live",
+        source_amount_cent=10000, fee_base_cent=10000, fee_amount_cent=1000, fee_rate="0.1",
+        rule_version="v1", scope_rule_version="scope1", calculation_run_id="pending-peer", calculated_at=frozen))
+    session.add(SettlementFeeResultCurrent(coupon_id="unready-peer-coupon", fee_direction=1,
+        fee_result_id="unready-peer-result"))
+    generation_id = "billing-g2" if adopt else "billing-g1"
+    session.add_all([
+        JobRun(job_id=source_job, job_name="settlement_rebuild", status="success", metadata_json={
+            "business_month": month, "monthly_close_policy": service.MONTHLY_CLOSE_POLICY,
+            "calculation_input_sha256": input_sha, "account_qualification_version_id": basis_id,
+            "settlement_projection": {"status": "published", "generation_id": generation_id},
+        }),
+        JobRun(job_id="pending-peer", job_name="settlement_rebuild", status="queued"),
+    ])
+    session.flush()
+    if adopt:
+        session.get(SettlementProjectionGeneration, "billing-g1").published_at = frozen
+        _module().generate_pending_statements(session, generation_id="billing-g1", sources=sources, slots=slots)
+        certify_test_bill_visibility(session, first_visible_at=frozen)
+        session.add(SettlementProjectionGeneration(generation_id=generation_id, state="published",
+            input_fingerprint=generation_id, base_generation_id="billing-g1", lineage_depth=1,
+            source_job_id=source_job, published_at=frozen + timedelta(days=10)))
+        session.flush()
+        session.get(SettlementProjectionActive, "settlement").generation_id = generation_id
+    else:
+        generation = session.get(SettlementProjectionGeneration, generation_id)
+        generation.source_job_id = source_job
+        generation.published_at = frozen
+    session.flush()
+    freeze_billing_sources(session, generation_id=generation_id, job_id=source_job, sources=sources, slots=slots)
+    generated = _module().generate_pending_statements(session, generation_id=generation_id, source_job_id=source_job,
+        sources=load_billing_sources(session, generation_id=generation_id, job_id=source_job),
+        slots=slots, monthly_input_sha256=input_sha, qualification_version_id=basis_id)
+    assert generated["unchanged" if adopt else "created"] == 1
+    certify_test_bill_visibility(session, first_visible_at=frozen)
+    session.commit()
+    return sessionmaker(bind=session.get_bind(), autoflush=False, expire_on_commit=False)
+
+
+def assert_frozen_store_can_confirm_without_waiting_for_peer(factory):
+    report = service.preview_auto_confirmation(factory, now=MONTHLY_CONFIRMATION_NOW)
+    assert report["counts"] == {"candidate": 2, "blocked": 2}
+    assert {(row["store_id"], row["reason"]) for row in report["rows"]} == {
+        ("billing-store", None), ("unready-peer", "FROZEN_BILL_SOURCE_EVIDENCE_MISSING"),
+    }
+    options = {"store_ids": ("billing-store",)}
+    first = service.preview_auto_confirmation(factory, now=MONTHLY_CONFIRMATION_NOW, **options)
+    with factory.begin() as session:
+        session.add(SettlementProjectionGeneration(generation_id="other-head", state="published",
+            input_fingerprint="other-head", published_at=MONTHLY_CONFIRMATION_NOW))
+        session.flush()
+        session.get(SettlementProjectionActive, "settlement").generation_id = "other-head"
+    result = service.apply_auto_confirmation(
+        factory, now=MONTHLY_CONFIRMATION_NOW, preview_hash=first["preview_hash"], **options,
+    )
+    assert result["confirmed_count"] == 2
+    assert all(row["source_proof"] for row in result["confirmed"])
+
+
+@pytest.mark.parametrize("adopt", [False, True])
+def test_frozen_confirmation_ignores_unrelated_retries_and_head_changes(db_session, monkeypatch, adopt):
+    factory = seed_frozen_confirmation_store(db_session, monkeypatch, adopt=adopt)
+    assert_frozen_store_can_confirm_without_waiting_for_peer(factory)
+
+
+@pytest.mark.parametrize("changed,reason", [
+    ("job", "FROZEN_BILL_VERSION_MISMATCH"),
+    ("result_qualification", "FROZEN_BILL_QUALIFICATION_MISMATCH"),
+    ("entry", "FROZEN_BILL_SOURCE_VERSION_MISMATCH"),
+    ("bundle", "FROZEN_BILL_SOURCE_VERSION_MISMATCH"),
+])
+def test_frozen_confirmation_refuses_missing_or_changed_basis(db_session, monkeypatch, changed, reason):
+    factory = seed_frozen_confirmation_store(db_session, monkeypatch)
+    with factory.begin() as session:
+        if changed == "job":
+            session.get(JobRun, "october-close").status = "retry_wait"
+        elif changed == "result_qualification":
+            session.scalar(select(SettlementFeeResult).where(
+                SettlementFeeResult.fee_result_id == "fee-1",
+            )).account_qualification_version_id = None
+        elif changed == "entry":
+            session.scalar(select(SettlementStatementEntry).where(
+                SettlementStatementEntry.source_record_id == "fee-1",
+            )).fee_amount_cent = 999
+        else:
+            session.scalar(select(SettlementBillingSourceBundle)).sources_json = []
+    report = service.preview_auto_confirmation(factory, now=MONTHLY_CONFIRMATION_NOW, store_ids=("billing-store",))
+    assert {row["reason"] for row in report["rows"]} == {reason}
+
+
+def test_frozen_confirmation_zero_requires_exact_empty_bundle(db_session, monkeypatch):
+    factory = seed_frozen_confirmation_store(db_session, monkeypatch, empty=True)
+    options = {"store_ids": ("billing-store",), "now": MONTHLY_CONFIRMATION_NOW}
+    with_evidence = service.preview_auto_confirmation(factory, **options)
+    assert with_evidence["counts"] == {"candidate": 2}
+    assert all(row["amount_cent"] == 0 and row["source_proof"] for row in with_evidence["rows"])
+    with factory.begin() as session:
+        session.execute(delete(SettlementBillingSourceBundle))
+    without_evidence = service.preview_auto_confirmation(factory, **options)
+    assert {row["reason"] for row in without_evidence["rows"]} == {"FROZEN_BILL_SOURCE_EVIDENCE_MISSING"}
 
 
 @pytest.mark.parametrize("month,expected", [
@@ -179,16 +346,113 @@ def test_negative_management_and_signed_promotion_use_same_manual_contract(ready
     assert replay["replayed"] is True and replay["confirmed_count"] == 0
 
 
-def test_deadline_before_and_after_and_late_generated_bill(ready_bills):
+def test_deadline_before_and_after_normal_cutoff(ready_bills):
     due = service.confirmation_due_at("2026-08")
     before = service.preview_auto_confirmation(ready_bills, now=due - timedelta(microseconds=1))
     assert before["counts"] == {"not_due": 2}
     at_boundary = service.preview_auto_confirmation(ready_bills, now=due)
     assert at_boundary["counts"] == {"candidate": 2}
+
+
+@pytest.mark.parametrize("month,first_visible_at,expected", [
+    ("2026-10", "2026-11-03T15:59:59+00:00", "2026-11-06T16:00:00+00:00"),
+    ("2026-10", "2026-11-10T15:59:59+00:00", "2026-11-12T16:00:00+00:00"),
+    ("2026-10", "2026-11-10T16:00:00+00:00", "2026-11-13T16:00:00+00:00"),
+    ("2026-11", "2026-12-31T15:59:59+00:00", "2027-01-02T16:00:00+00:00"),
+])
+def test_two_full_shanghai_days_after_visibility(month, first_visible_at, expected):
+    first_visible_at = datetime.fromisoformat(first_visible_at)
+    assert service.confirmation_due_at(month, first_visible_at=first_visible_at).isoformat() == expected
+
+
+def test_late_bill_starts_window_only_on_publication(ready_bills):
+    first_visible_at = datetime(2026, 10, 30, 16, tzinfo=timezone.utc)
+    due = datetime(2026, 11, 2, 16, tzinfo=timezone.utc)
     with ready_bills.begin() as session:
-        session.scalar(select(SettlementStatement)).created_at = NOW
-    # Late generation does not reopen the already elapsed original window.
-    assert service.preview_auto_confirmation(ready_bills, now=NOW)["counts"] == {"candidate": 2}
+        session.execute(delete(SettlementStatementVisibility))
+        session.scalar(select(SettlementStatement)).created_at = NORMAL_PUBLICATION
+    unknown = service.preview_auto_confirmation(ready_bills, now=NOW)
+    assert {row["reason"] for row in unknown["rows"]} == {"BILL_VISIBILITY_EVIDENCE_MISSING"}
+    assert all(row["due_at"] is None for row in unknown["rows"])
+    with ready_bills.begin() as session:
+        certify_test_bill_visibility(session, first_visible_at=first_visible_at)
+    early = service.preview_auto_confirmation(ready_bills, now=due - timedelta(microseconds=1))
+    assert early["counts"] == {"not_due": 2}
+    assert {row["due_at"] for row in early["rows"]} == {due.isoformat()}
+    assert service.apply_auto_confirmation(
+        ready_bills, now=due - timedelta(microseconds=1), preview_hash=early["preview_hash"],
+    )["confirmed_count"] == 0
+    eligible = service.preview_auto_confirmation(ready_bills, now=due)
+    assert eligible["counts"] == {"candidate": 2}
+    assert service.apply_auto_confirmation(
+        ready_bills, now=due, preview_hash=eligible["preview_hash"],
+    )["confirmed_count"] == 2
+
+
+def test_failed_and_incomplete_publication_does_not_start_bill_window(db_session, ready_bills, monkeypatch):
+    assert_statement_publication_visibility(db_session, ready_bills, monkeypatch)
+
+
+def assert_statement_publication_visibility(db_session, ready_bills, monkeypatch):
+    from apps.api.dy_api.dashboard_publications import finance, statement_visibility
+    from apps.api.dy_api.dashboard_publications.lifecycle import PublicationError, publish_module
+    from apps.api.dy_api.dashboard_publications.schema import metadata
+    from publication_fixture_helpers import ready_periods_fixture
+
+    metadata.create_all(db_session.get_bind())
+    seed_many_bills(ready_bills, 2)
+    with ready_bills.begin() as session:
+        session.execute(delete(SettlementStatementVisibility))
+        delayed = session.scalar(select(SettlementStatement).where(
+            SettlementStatement.store_id == "batch-store-1",
+        ))
+        delayed.statement_status = 1
+        delayed_id = delayed.statement_id
+        ready_id = session.scalar(select(SettlementStatement.statement_id).where(
+            SettlementStatement.store_id == "billing-store",
+        ))
+
+    monkeypatch.setattr(finance.period_readiness, "capture", lambda *_: {
+        "schema_version": 1, "months": {"2026-08": {"ready": False}},
+    })
+    assert publish_module(ready_bills, "settlement", finance.build_settlement, now=NOW)
+    with ready_bills() as session:
+        assert session.scalar(select(func.count()).select_from(SettlementStatementVisibility)) == 0
+
+    monkeypatch.setattr(finance.period_readiness, "capture", ready_periods_fixture)
+    record = statement_visibility.record_statement_visibility
+    with monkeypatch.context() as scoped:
+        def fail_after_receipt(*args):
+            record(*args)
+            raise RuntimeError("synthetic publish failure")
+
+        scoped.setattr(statement_visibility, "record_statement_visibility", fail_after_receipt)
+        with pytest.raises(PublicationError, match="分析版本更新未完成"):
+            publish_module(ready_bills, "settlement", finance.build_settlement, now=NOW)
+    with ready_bills() as session:
+        assert session.scalar(select(func.count()).select_from(SettlementStatementVisibility)) == 0
+
+    first = publish_module(ready_bills, "settlement", finance.build_settlement, now=NOW)
+    with ready_bills.begin() as session:
+        evidence = session.get(SettlementStatementVisibility, ready_id)
+        assert evidence.publication_id == first.id
+        assert service._utc(evidence.first_visible_at) == first.published_at
+        assert session.get(SettlementStatementVisibility, delayed_id) is None
+        session.scalar(select(SettlementStatement).where(
+            SettlementStatement.statement_id == delayed_id,
+        )).statement_status = 2
+
+    second = publish_module(ready_bills, "settlement", finance.build_settlement, now=NOW)
+    with ready_bills() as session:
+        assert session.get(SettlementStatementVisibility, ready_id).publication_id == first.id
+        assert session.get(SettlementStatementVisibility, delayed_id).publication_id == second.id
+        from dy_api.routes.dashboard import _statement_header_item
+        bill = session.scalar(select(SettlementStatement).where(SettlementStatement.statement_id == delayed_id))
+        header = _statement_header_item(session, bill)
+        assert header["first_visible_at"] == second.published_at
+        assert header["confirmation_due_at"] == service.confirmation_due_at(
+            bill.statement_month, first_visible_at=second.published_at,
+        )
 
 
 def test_incomplete_real_collection_signal_blocks(ready_bills, monkeypatch):
@@ -288,6 +552,9 @@ def test_scheduler_default_off_and_enabled_compensation_is_observable(ready_bill
     monkeypatch.delenv("BILLING_AUTO_CONFIRM_ENABLED", raising=False)
     assert service.process_due_auto_confirmations(object()) is False
     monkeypatch.setenv("BILLING_AUTO_CONFIRM_ENABLED", "true")
+    monkeypatch.delenv("BILLING_AUTO_CONFIRM_START_MONTH", raising=False)
+    assert service.process_due_auto_confirmations(object()) is False
+    monkeypatch.setenv("BILLING_AUTO_CONFIRM_START_MONTH", "2026-08")
     assert service.process_due_auto_confirmations(ready_bills) is True
     assert service.process_due_auto_confirmations(ready_bills) is False
     with ready_bills() as session:
@@ -297,6 +564,7 @@ def test_scheduler_default_off_and_enabled_compensation_is_observable(ready_bill
 
 def test_scheduler_failure_is_recorded_and_retried_with_backoff(ready_bills, monkeypatch):
     monkeypatch.setenv("BILLING_AUTO_CONFIRM_ENABLED", "true")
+    monkeypatch.setenv("BILLING_AUTO_CONFIRM_START_MONTH", "2026-08")
     def fail(*args, **kwargs):
         raise service.AutoConfirmationConflict("synthetic source change")
     monkeypatch.setattr(service, "apply_auto_confirmation", fail)
@@ -306,6 +574,20 @@ def test_scheduler_failure_is_recorded_and_retried_with_backoff(ready_bills, mon
         job = session.scalar(select(JobRun).where(JobRun.job_name == "billing_auto_confirmation"))
         assert job.status == "failed" and job.metadata_json["error_type"] == "AutoConfirmationConflict"
         assert session.scalar(select(func.count()).select_from(SettlementStatementConfirmation)) == 0
+
+
+def test_scheduler_excludes_history_but_explicit_review_can_confirm_it(ready_bills, monkeypatch):
+    monkeypatch.setenv("BILLING_AUTO_CONFIRM_ENABLED", "true")
+    monkeypatch.setenv("BILLING_AUTO_CONFIRM_START_MONTH", "2026-09")
+    assert service.process_due_auto_confirmations(ready_bills) is True
+    with ready_bills() as session:
+        assert session.scalar(select(func.count()).select_from(SettlementStatementConfirmation)) == 0
+    scope = {"months": ("2026-08",), "store_ids": ("billing-store",)}
+    preview = service.preview_auto_confirmation(ready_bills, now=NOW, **scope)
+    assert preview["counts"] == {"candidate": 2}
+    assert service.apply_auto_confirmation(
+        ready_bills, now=NOW, preview_hash=preview["preview_hash"], **scope,
+    )["confirmed_count"] == 2
 
 
 def seed_many_bills(factory, count):
@@ -336,6 +618,7 @@ def seed_many_bills(factory, count):
                     base_amount_cent=10000, fee_amount_cent=1000, source_amount_cent=10000, rule_version="v1"))
         session.flush()
         _module().generate_pending_statements(session, generation_id="billing-g1", sources=sources)
+        certify_test_bill_visibility(session)
 
 
 def test_one_five_fifty_bill_queries_are_bounded_and_authority_is_read_once(ready_bills, monkeypatch):
@@ -414,6 +697,7 @@ def seed_zero_bill(factory, *, keep_audit=True):
         result = _module().generate_pending_statements(session, generation_id="billing-g2", sources=(),
             slots=(("billing-store", "2026-08"),))
         assert result["generated"] == 1 and result["blocked"] == 0
+        certify_test_bill_visibility(session)
         if not keep_audit:
             current_id = session.scalar(select(SettlementStatement.statement_id).where(
                 SettlementStatement.store_id == "billing-store", SettlementStatement.is_current.is_(True)))

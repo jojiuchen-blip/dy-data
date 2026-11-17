@@ -245,3 +245,5 @@ DYDATA-104 的账号、渠道生效月延续及显式停用接口见 [结算范�
 财务模板默认中文XLSX，数据、虚构示例与说明隔离；中文/旧英文解析及整批原子提交、正式回读契约见[财务API](prd/foundation/foundation-api-dy-data/billing-invoice.md#2026-10-30-中文模板导入完整更新与逾期确认)。基础资料同SAP/空白保留及人工更正确认来源按准确版本链继承，不以资料更新时间冒充确认。
 
 分佣展示productType与原财务snapshotProductType分离，新结算分析commission-product-type-v3须真实预热，旧版本不能只换标签；定义见[SKU API](prd/foundation/foundation-api-dy-data/sku-fee-admin.md#2026-10-30-分佣展示类型增量)。自动确认默认关闭，使用受控预演及正式服务，不新增公开写入口；部署、数据应用和业务验收分别记录，见[本轮证据](verification/dydata-104-oct30-delivery.md)。
+
+单店分账的正式账单以及月度分账的当前账单头返回可空的 `first_visible_at` 和 `confirmation_due_at`。两者均为带时区时间，分别表示当前版本首次可供门店核对的结算发布时间及最早自动确认时点。截止时间取正常次月 7 日 00:00 与首次可核对日期之后第三日 00:00 的较晚者，按上海自然日计算。缺少首次可核对凭据时两项为空。门店仍按原权限核对和主动确认。

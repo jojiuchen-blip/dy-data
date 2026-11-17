@@ -483,6 +483,66 @@ def _coupon_local_snapshot(session, coupon_id: str) -> dict[str, tuple]:
     }
 
 
+def test_monthly_daily_stage_materializes_facts_without_calculating_fees(db_session, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from apps.worker import daily_task
+
+    existing = _seed_local_coupon(db_session)
+    new = _seed_local_coupon(db_session, "coupon-new", seed_dimensions=False)
+    settlement_worker.settle_coupon_local(db_session, existing, "original-close")
+    original_detail = db_session.get(SettlementOrderDetail, existing.coupon_id)
+    original_detail.is_commissionable = True
+    original_detail.commission_rate = Decimal("0.1")
+    original_detail.receivable_commission_cent = 1000
+    original_detail.payable_commission_cent = 1000
+    updated_at = datetime(2026, 9, 1, 10, tzinfo=timezone.utc)
+    verify = db_session.get(RawDouyinVerifyRecord, f"verify-{existing.coupon_id}")
+    verify.verify_time = updated_at
+    for coupon in (existing, new):
+        db_session.add(JobImpact(
+            impact_key=f"monthly-mode-{coupon.coupon_id}", entity_type="coupon",
+            entity_key=coupon.coupon_id, source_run_id="monthly-mode-day",
+            affected_closure_json={"coupon_ids": [coupon.coupon_id]},
+        ))
+    db_session.commit()
+    original = _coupon_local_snapshot(db_session, existing.coupon_id)
+    assert original["results"]
+
+    def fail_if_fee_calculated(*_args, **_kwargs):
+        pytest.fail("daily detail refresh attempted a fee calculation")
+
+    def check_clue_projection_sees_live_detail(factory, *_args, **_kwargs):
+        with factory() as session:
+            detail = session.get(SettlementOrderDetail, existing.coupon_id)
+            assert detail.verify_time.replace(tzinfo=timezone.utc) == updated_at
+            assert detail.receivable_commission_cent == 1000
+        return {"mode": "feature-on verification delta"}
+
+    monkeypatch.setenv("SETTLEMENT_MONTHLY_MODE", "true")
+    monkeypatch.setattr(settlement_worker, "rebuild_dual_fee_results", fail_if_fee_calculated)
+    monkeypatch.setattr(settlement_worker, "resolve_coupon_receipt_cent", fail_if_fee_calculated)
+    monkeypatch.setattr(daily_task, "_daily_page_fence", lambda *_args: lambda _session: True)
+    monkeypatch.setattr(daily_task, "_run_verification_projection_delta_batched", check_clue_projection_sees_live_detail)
+    job = SimpleNamespace(job_id="monthly-mode-day", config_version="legacy-daily-v1",
+                          metadata_json={"settlement_mode": "incremental", "target": "all"})
+    result = daily_task.default_stage_handlers(client=object())["settle"](db_session, job)
+    db_session.expire_all()
+    current = _coupon_local_snapshot(db_session, existing.coupon_id)
+
+    assert result["settlement_summary"]["mode"] == "monthly_fee_deferred"
+    assert result["settlement_summary"]["result_count"] == 0
+    assert result["settlement_summary"]["adjustment_count"] == 0
+    assert result["settlement_summary"]["affected_months"] == ["2026-08", "2026-09"]
+    assert result["store_score_snapshot"]["affected_store_ids"] == ["store-sale", "store-verify"]
+    assert result["verification_projection_delta"]["mode"] == "feature-on verification delta"
+    assert current["results"] == original["results"]
+    assert current["current"] == original["current"]
+    assert current["adjustments"] == original["adjustments"]
+    assert db_session.get(SettlementOrderDetail, new.coupon_id).is_verified
+    assert _coupon_local_snapshot(db_session, new.coupon_id)["results"] == ()
+
+
 def test_local_kernel_isolates_coupon_a_from_coupon_b(db_session) -> None:
     coupon_a = _seed_local_coupon(db_session, "coupon-a")
     coupon_b = _seed_local_coupon(db_session, "coupon-b", seed_dimensions=False)

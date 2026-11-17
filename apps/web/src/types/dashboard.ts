@@ -598,6 +598,9 @@ export type StoreFinanceRankingBasis =
   | "PROMOTION_FEE_CUMULATIVE";
 
 export interface SettlementFilterMetaData {
+  periodReadiness?: {
+    months: Record<string, { monthlyClose?: SettlementPeriodAvailability["monthlyClose"] }>;
+  };
   stores: Array<{ storeId: string; storeName: string }>;
   productScopes: string[];
   productScopeTypeMap: Record<string, string[]>;
@@ -616,6 +619,12 @@ export interface SettlementPeriodAvailability {
   monthlyReady: boolean;
   cumulativeReady: boolean;
   incompleteMonths: string[];
+  monthlyClose?: {
+    status: "waiting" | "partial" | "complete";
+    publishedStoreCount: number;
+    blockedStoreCount: number;
+    scopeUnresolved: boolean;
+  };
 }
 
 export interface SettlementStoreRankingRow {
@@ -732,6 +741,8 @@ export interface SettlementStatementSummary {
   confirmedAt?: string | null;
   lockedAt?: string | null;
   lockVersion?: string | null;
+  firstVisibleAt?: string | null;
+  confirmationDueAt?: string | null;
 }
 
 export interface SettlementStatementLine {
@@ -1058,7 +1069,7 @@ export interface SkuRuleLookupData {
 export interface SkuRuleUpdateResult {
   updated_count: number;
   job_id: string | null;
-  rebuild_status: "queued" | "running" | "success" | "failed" | "not_required";
+  rebuild_status: "queued" | "running" | "success" | "failed" | "not_required" | "scheduled_monthly";
   settlement_detail_count?: number | null;
   settlement_monthly_count?: number | null;
 }
@@ -1173,6 +1184,7 @@ export interface SkuFeeRuleItem {
 
 export interface SkuFeeRuleListData extends CamelPagination {
   list: SkuFeeRuleItem[];
+  settlementCalculationMode?: "monthly";
 }
 
 export interface SkuFeeRuleCreate {
@@ -1191,7 +1203,8 @@ export type SettlementRebuildStatus =
   | "success"
   | "partial"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "scheduled_monthly";
 
 export interface SettlementRebuildResult {
   jobId: string;
@@ -1376,7 +1389,7 @@ export interface NonCommissionOwnerAccountUpdateResult {
   rows: NonCommissionOwnerAccount[];
   updated_count: number;
   job_id: string;
-  rebuild_status: "queued" | "running" | "success" | "failed";
+  rebuild_status: "queued" | "running" | "success" | "failed" | "scheduled_monthly";
 }
 
 export interface CommissionRuleSkuSummary {
@@ -1976,6 +1989,14 @@ export interface StoreSettlementDisputeListData {
   list: FinanceDisputeRow[];
 }
 
+export interface StatementMonthlyBalance {
+  previousStatementId: string | null;
+  openingBalanceCent: number;
+  periodNetFeeCent: number;
+  netDueCent: number;
+  closingBalanceCent: number;
+}
+
 export interface StoreBillingStatement {
   statementId: string;
   storeId: string;
@@ -1985,8 +2006,12 @@ export interface StoreBillingStatement {
   isCurrent: boolean;
   supersedesStatementId: string | null;
   status: string;
+  firstVisibleAt?: string | null;
+  confirmationDueAt?: string | null;
   promotionAmountCent: number;
   managementAmountCent: number;
+  promotionMonthlyBalance?: StatementMonthlyBalance | null;
+  managementMonthlyBalance?: StatementMonthlyBalance | null;
   promotionConfirmableAmountCent: number;
   managementConfirmableAmountCent: number;
   promotionConfirmation: BillingConfirmationSummary | null;

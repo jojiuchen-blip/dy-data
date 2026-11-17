@@ -29,6 +29,7 @@ from apps.worker.stage_runner import (
     is_daily_execution_lease_live,
     run_daily_stages,
 )
+from src.dy_data.settlement_schedule import MONTHLY_FEE_DEFERRED, monthly_settlement_enabled
 
 VERIFICATION_ORDER_BATCH_SIZE = 64
 VERIFICATION_IMPACT_BATCH_SIZE = 64
@@ -245,6 +246,7 @@ def default_stage_handlers(*, client: Any | None = None) -> dict[str, Callable[.
         return {"master": master, "center": center}
 
     def settle(session: Session, job) -> dict[str, Any]:
+        monthly_mode = monthly_settlement_enabled()
         incremental = _incremental_settlement_enabled(job)
         if incremental:
             from apps.worker.settlement import settle_impacted_coupons
@@ -255,6 +257,7 @@ def default_stage_handlers(*, client: Any | None = None) -> dict[str, Callable[.
                 page_fence=_daily_page_fence(session, job),
                 impact_batch_size=SETTLEMENT_IMPACT_BATCH_SIZE,
                 coupon_batch_size=SETTLEMENT_COUPON_BATCH_SIZE,
+                **({"detail_only": True} if monthly_mode else {}),
             )
             if not kernel_summary.get("completed"):
                 raise RuntimeError("incremental settlement did not complete")
@@ -275,13 +278,16 @@ def default_stage_handlers(*, client: Any | None = None) -> dict[str, Callable[.
                 )
             settlement_summary = {
                 **normalized_settlement_summary,
-                "mode": "incremental",
+                "mode": MONTHLY_FEE_DEFERRED if monthly_mode else "incremental",
                 "completed": True,
             }
         else:
-            stats = rebuild_settlement(session, source_run_id=job.job_id)
+            stats = rebuild_settlement(
+                session, source_run_id=job.job_id,
+                **({"detail_only": True} if monthly_mode else {}),
+            )
             settlement_summary = {
-                "mode": "legacy",
+                "mode": MONTHLY_FEE_DEFERRED if monthly_mode else "legacy",
                 "completed": True,
                 "detail_count": int(stats.detail_count),
             }

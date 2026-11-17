@@ -29,6 +29,7 @@ class ProtectedBillingAuthorityError(ValueError):
 def protected_statement_condition(statement=SettlementStatement) -> Any:
     """Use the complete existing generator predicate, including either direction."""
     return or_(
+        statement.monthly_close_input_sha256.is_not(None),
         statement.statement_status.in_((3, 4)), statement.confirmed_at.is_not(None),
         statement.locked_at.is_not(None),
         select(SettlementStatementConfirmation.id).where(

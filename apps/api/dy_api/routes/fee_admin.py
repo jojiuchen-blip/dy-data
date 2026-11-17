@@ -45,7 +45,7 @@ from apps.api.dy_api.models import (
     SkuProductImportRow,
     utcnow,
 )
-from apps.worker.repositories import queue_job_run
+from apps.worker.settlement_rule_schedule import rule_change_status, schedule_rule_change
 from dy_api.auth import get_current_admin, get_current_super_admin, get_current_global_admin
 from dy_api.routes._data import generated_at, get_data_store
 from dy_api.schemas import (
@@ -56,6 +56,7 @@ from dy_api.schemas import (
     SkuProductBulkUpdateRequest,
     SkuProductManualUpdateRequest,
 )
+from src.dy_data.settlement_schedule import monthly_settlement_enabled
 
 
 router = APIRouter()
@@ -71,7 +72,6 @@ LEGACY_PRODUCT_IMPORT_HEADERS = ("skuId", "productScope", "productType")
 MAX_IMPORT_BYTES = 10 * 1024 * 1024
 MAX_IMPORT_ROWS = 5000
 FORMAL_EFFECTIVE_START_DATE = date(2026, 8, 1)
-SETTLEMENT_REBUILD_JOB_NAME = "settlement_rebuild"
 MANUAL_REBUILD_TRIGGER = "admin_sku_fee_rules"
 IMPORT_REBUILD_TRIGGER = "admin_sku_fee_rule_import"
 SINGLE_RULE_REBUILD_TRIGGER = "admin_sku_fee_rule"
@@ -571,6 +571,7 @@ def list_sku_fee_rules(
             "total": total,
             "page": page,
             "pageSize": page_size,
+            **({"settlementCalculationMode": "monthly"} if monthly_settlement_enabled() else {}),
         },
     )
 
@@ -640,6 +641,7 @@ def create_sku_fee_rule(
             updated_rule_count=1,
             trigger=SINGLE_RULE_REBUILD_TRIGGER,
             requested_by=username,
+            effective_month=parsed.effective_date.strftime("%Y-%m"),
         )
         store.session.commit()
         return _success(request, _sku_fee_rule_item(idempotent))
@@ -704,6 +706,7 @@ def create_sku_fee_rule(
             updated_rule_count=1,
             trigger=SINGLE_RULE_REBUILD_TRIGGER,
             requested_by=username,
+            effective_month=parsed.effective_date.strftime("%Y-%m"),
         )
         store.session.commit()
     except IntegrityError as exc:
@@ -727,6 +730,11 @@ def trigger_sku_fee_rule_rebuild(
     store=Depends(get_data_store),
 ):
     store = _require_store(store, request)
+    if monthly_settlement_enabled():
+        raise _error(
+            request, 409, "MONTHLY_SETTLEMENT_REBUILD_REQUIRES_SCOPED_RECOVERY",
+            "分佣按月结计算。恢复或更正须指定账期和经核准的范围。",
+        )
     parsed = _validate_model(SkuFeeRuleRebuildRequest, payload, request)
     key_hash = _idempotency_key_hash(idempotency_key, request)
     request_hash = _canonical_sha256(
@@ -854,6 +862,7 @@ def create_settlement_scope_rules(
             updated_rule_count=len(existing_key_rows),
             trigger=SETTLEMENT_SCOPE_REBUILD_TRIGGER,
             requested_by=username,
+            effective_month=parsed.effective_month,
         )
         store.session.commit()
         return _success(
@@ -919,6 +928,7 @@ def create_settlement_scope_rules(
             updated_rule_count=len(rows),
             trigger=SETTLEMENT_SCOPE_REBUILD_TRIGGER,
             requested_by=username,
+            effective_month=parsed.effective_month,
         )
         store.session.commit()
     except IntegrityError as exc:
@@ -1239,6 +1249,7 @@ def commit_sku_fee_rule_import(
                 updated_rule_count=batch.success_count,
                 trigger=IMPORT_REBUILD_TRIGGER,
                 requested_by=username,
+                effective_month=batch.effective_date.strftime("%Y-%m"),
             )
             store.session.commit()
             return _success(
@@ -1410,6 +1421,7 @@ def commit_sku_fee_rule_import(
         updated_rule_count=batch.success_count,
         trigger=IMPORT_REBUILD_TRIGGER,
         requested_by=username,
+        effective_month=batch.effective_date.strftime("%Y-%m"),
     )
     store.session.commit()
     return _success(
@@ -1465,6 +1477,7 @@ def _queue_settlement_rebuild(
     updated_rule_count: int,
     trigger: str,
     requested_by: str,
+    effective_month: str | None = None,
 ) -> tuple[str, str, bool]:
     job_id = f"{trigger}-{idempotency_key_hash[:24]}"
     existing = session.get(JobRun, job_id)
@@ -1480,20 +1493,20 @@ def _queue_settlement_rebuild(
                 "IDEMPOTENCY_KEY_REUSED",
                 "Idempotency-Key 已用于不同重算请求",
             )
-        return existing.job_id, existing.status, False
+        return existing.job_id, rule_change_status(existing), False
 
     try:
         with session.begin_nested():
-            job = queue_job_run(
+            job = schedule_rule_change(
                 session,
                 job_id,
-                SETTLEMENT_REBUILD_JOB_NAME,
-                metadata_json={
+                {
                     "trigger": trigger,
                     "requested_by": requested_by,
                     "updated_rule_count": updated_rule_count,
                     "request_payload_sha256": request_hash,
                     "source_run_id": job_id,
+                    **({"effective_month": effective_month} if effective_month is not None else {}),
                 },
             )
             job.idempotency_key_hash = idempotency_key_hash
@@ -1513,8 +1526,8 @@ def _queue_settlement_rebuild(
                 "IDEMPOTENCY_KEY_REUSED",
                 "Idempotency-Key 已用于不同重算请求",
             )
-        return existing.job_id, existing.status, False
-    return job_id, "queued", True
+        return existing.job_id, rule_change_status(existing), False
+    return job_id, rule_change_status(job), True
 
 
 def _require_store(store, request: Request):

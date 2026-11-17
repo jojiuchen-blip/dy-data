@@ -225,7 +225,8 @@ def _state_json(state: dict) -> dict:
 
 def _assert_unprotected(state: dict) -> None:
     for bill in state["bills"]:
-        if (bill.statement_status != 2 or bill.confirmed_at or bill.locked_at
+        if (bill.monthly_close_input_sha256 is not None
+                or bill.statement_status != 2 or bill.confirmed_at or bill.locked_at
                 or bill.confirmed_by or bill.locked_by or bill.lock_version):
             _fail("PROTECTED_STATEMENT_SLOT")
     for key in ("confirmations", "allocations", "invoices", "disputes"):

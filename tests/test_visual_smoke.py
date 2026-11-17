@@ -354,11 +354,15 @@ class LiveSettlementStore:
                 "statement_line_id": filters.get("statement_line_id"),
                 "store_id": filters.get("store_id"),
                 "month": filters.get("month"),
+                "sale_month": filters.get("sale_month"),
+                "verify_month": filters.get("verify_month"),
                 "fee_direction": filters["fee_direction"],
                 "product_scope": filters["product_scope"],
                 "product_type": filters["product_type"],
                 "fee_rates": filters.get("fee_rates", []),
                 "rule_versions": filters.get("rule_versions", []),
+                "data_status": filters.get("data_status"),
+                "q": filters.get("q"),
                 "statement_status": None,
             },
             "list": rows,
@@ -3070,6 +3074,7 @@ def test_order_details_direct_export_omits_source_rate_context(
 ) -> None:
     context = browser.new_context(viewport={"width": 1440, "height": 900})
     page = context.new_page()
+    list_requests: list[str] = []
     export_requests: list[str] = []
     try:
         install_settlement_user_route(page, "admin")
@@ -3078,7 +3083,7 @@ def test_order_details_direct_export_omits_source_rate_context(
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
-                body=api_payload(settlement_filter_meta()),
+                body=api_payload(settlement_filter_meta(), publication_module="settlement"),
             ),
         )
 
@@ -3093,6 +3098,7 @@ def test_order_details_direct_export_omits_source_rate_context(
             )
 
         def fulfill_details(route: object) -> None:
+            list_requests.append(str(getattr(route, "request").url))
             payload = order_fee_details_data()
             payload["context"] = {
                 **payload["context"],
@@ -3102,7 +3108,7 @@ def test_order_details_direct_export_omits_source_rate_context(
             getattr(route, "fulfill")(
                 status=200,
                 content_type="application/json",
-                body=api_payload(payload),
+                body=api_payload(payload, publication_module="settlement"),
             )
 
         page.route("**/api/v1/order-fee-details/export*", fulfill_export)
@@ -3114,6 +3120,8 @@ def test_order_details_direct_export_omits_source_rate_context(
             page.get_by_role("button", name="导出", exact=True).click()
 
         assert len(export_requests) == 1
+        assert list_requests and all("publication_id=visual-settlement" in url for url in list_requests)
+        assert "publication_id=visual-settlement" in export_requests[0]
         assert "storeId=" not in export_requests[0]
         assert "month=" not in export_requests[0]
         assert "feeRates=" not in export_requests[0]
@@ -3386,7 +3394,12 @@ def test_settlement_pages_connect_to_live_fastapi_for_roles_and_error_states(
 
         page.goto(f"{details_url}&q=export-empty", wait_until="domcontentloaded")
         page.get_by_text("ORDER-LIVE-001", exact=True).first.wait_for(timeout=10000)
-        page.get_by_role("button", name="导出", exact=True).click()
+        with page.expect_response(
+            lambda response: response.url.split("?", 1)[0].endswith("/api/v1/order-fee-details/export"),
+            timeout=10000,
+        ) as export_response:
+            page.get_by_role("button", name="导出", exact=True).click()
+        assert export_response.value.status == 409
         page.get_by_text("当前筛选没有可导出的记录。", exact=False).first.wait_for(timeout=10000)
     finally:
         store_context.close()

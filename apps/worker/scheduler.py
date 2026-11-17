@@ -44,6 +44,7 @@ from apps.worker.subprocess_supervisor import (
     SubprocessSupervisor,
 )
 from src.dy_data.config import douyin_account_id, douyin_app_id, douyin_app_secret
+from src.dy_data.settlement_schedule import monthly_settlement_enabled
 
 
 _STOP = False
@@ -154,7 +155,8 @@ def run_once() -> None:
         return
     with session_scope(factory) as session:
         if mode == "settlement_only":
-            run_settlement_job(session, job_id=_job_id("settlement"), source_run_id=source_run_id)
+            if not monthly_settlement_enabled():
+                run_settlement_job(session, job_id=_job_id("settlement"), source_run_id=source_run_id)
             return
     plan = _plan_legacy_sources(factory, mode)
     child = execute_ready_daily_child(factory, plan)

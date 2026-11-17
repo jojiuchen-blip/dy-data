@@ -1488,6 +1488,7 @@ export function fetchSettlementMonthly({
 }
 
 export interface OrderFeeDetailsQuery {
+  publication_id?: string;
   statementId?: string;
   statementLineId?: string;
   storeId?: string;
@@ -2972,6 +2973,10 @@ export interface StoreBillingQuery extends QueryParams {
   feeDirection?: FeeDirection;
   page?: number;
   pageSize?: number;
+}
+
+export function downloadStoreSettlementBalances(statementId: string): Promise<void> {
+  return requestDownload(`/store-settlements/${encodeURIComponent(statementId)}/balances/export`);
 }
 
 export function fetchStoreBillingStatements(

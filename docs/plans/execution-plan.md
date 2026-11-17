@@ -1,4 +1,10 @@
-# 当前执行：DYDATA-104 五项交付与采集恢复（2026-11-12）
+# 当前执行：DYDATA-104 四项月度结算规则（2026-11-17）
+
+- S4 / T3.1 延续。依据 104 最新确认实施月度分佣、按店出账、补差和结转、晚账核对期。
+- 10 月来源 31/31 天，月末名单冻结 3,112 条。11 月 17 日 14:01 只读核查仍有 523 张券、515 笔订单、115 个订单侧编号缺资格对应，正式账单为零。历史核准及采集登录继续在 104 跟踪。
+- 本轮目标环境实施证据与范围见 [T3.1 本轮增量](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md#2026-11-17-月度结算实施与验收)。
+
+# 历史执行：DYDATA-104 五项交付与采集恢复（2026-11-12）
 
 - 当前正式计划：[主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)、[看板](delivery-plans/task-kanban-dydata-104-followthrough.md)及[当前子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。
 - 当前阶段：S4 / T3.1，进行中。

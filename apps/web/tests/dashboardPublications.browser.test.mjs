@@ -161,16 +161,21 @@ test("finance first summary pins list and export to same version", async () => w
   assert.equal(requests.find((url) => url.pathname.endsWith("/finance/invoices/export")).searchParams.get("publication_id"), "f1");
 }));
 
-test("settlement analysis pins metadata while billing and fee-detail operations stay live", async () => withPage(async ({ page, requests, handle }) => {
+test("settlement pins certified monthly fee details and preserves live billing and legacy details", async () => withPage(async ({ page, requests, handle }) => {
+  const monthlyClose = { status: "partial", publishedStoreCount: 1, blockedStoreCount: 0, scopeUnresolved: false };
   handle(async (route, url) => {
     if (url.pathname.endsWith("/publications/settlement/filters")) {
-      await route.fulfill({ json: payload(filterMeta, "settlement", "st1") }); return true;
+      await route.fulfill({ json: payload({
+        ...filterMeta, periodReadiness: { months: { "2026-10": { monthlyClose } } },
+      }, "settlement", "st1") }); return true;
     }
     if (url.pathname.endsWith("/dashboard/store-ranking")) {
       await route.fulfill({ json: payload({ list: [], totals: {}, total: 0, page: 1, pageSize: 20 }, "settlement", url.searchParams.get("publication_id")) }); return true;
     }
     if (url.pathname.endsWith("/monthly-settlement")) {
-      await route.fulfill({ json: payload({ store: { storeId: "s1", storeName: "门店一" }, month: "2026-09", isFormalPeriod: true, metrics: {}, computedCumulative: {}, lines: [] }, "settlement", url.searchParams.get("publication_id")) }); return true;
+      const month = url.searchParams.get("month");
+      const periodAvailability = month === "2026-10" ? { monthlyReady: true, cumulativeReady: false, incompleteMonths: [month], monthlyClose } : undefined;
+      await route.fulfill({ json: payload({ store: { storeId: "s1", storeName: "门店一" }, month, isFormalPeriod: true, metrics: {}, computedCumulative: {}, lines: [], periodAvailability }, "settlement", url.searchParams.get("publication_id")) }); return true;
     }
     if (url.pathname.endsWith("/store-settlements") || url.pathname.endsWith("/order-fee-details")) {
       await route.fulfill({ json: payload({ list: [], total: 0, page: 1, pageSize: 50 }) }); return true;
@@ -188,6 +193,13 @@ test("settlement analysis pins metadata while billing and fee-detail operations 
   await page.locator(".publication-time").waitFor();
   assert.equal(requests.find((url) => url.pathname.endsWith("/monthly-settlement")).searchParams.get("publication_id"), "st1");
   for (const url of requests.filter((url) => url.pathname.endsWith("/store-settlements") || url.pathname.endsWith("/order-fee-details"))) {
+    assert.equal(url.searchParams.has("publication_id"), false);
+  }
+  const publishedFeeDetails = page.waitForResponse((response) => response.url().includes("/order-fee-details?")
+    && response.url().includes("month=2026-10") && response.url().includes("publication_id=st1"));
+  await page.goto(`${baseUrl}/settlement?storeId=s1&month=2026-10`);
+  await publishedFeeDetails;
+  for (const url of requests.filter((url) => url.pathname.endsWith("/store-settlements"))) {
     assert.equal(url.searchParams.has("publication_id"), false);
   }
 }));

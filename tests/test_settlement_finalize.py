@@ -191,11 +191,16 @@ def test_finalize_matrix_and_required_stages(
     ) == 0
 
 
+@pytest.mark.parametrize("monthly_mode", [False, True])
 def test_fence_token_uses_only_committed_settlement_summary_and_store_score_snapshot(
     db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    monthly_mode: bool,
 ) -> None:
     from apps.worker import finalize
 
+    if monthly_mode:
+        monkeypatch.setenv("SETTLEMENT_MONTHLY_MODE", "true")
     _seed_base(db_session, "validate-finalize")
     db_session.add(
         ClueAllocationRule(
@@ -244,6 +249,24 @@ def test_fence_token_uses_only_committed_settlement_summary_and_store_score_snap
     assert result.affected_store_ids == ("store-2026-08-01", "store-2026-08-02")
     assert result.snapshot_date == date(2026, 8, 2)
     assert len(result.input_fingerprint) == 64
+    assert result.fee_projection_deferred is monthly_mode
+
+    if monthly_mode:
+        def unexpected_settlement_builder(*_args, **_kwargs):
+            pytest.fail("daily finalize may not build a monthly fee/ranking partition")
+
+        score_calls = []
+        stage_output = finalize.run_finalize_stage(
+            _factory(db_session),
+            parent_job_id=plan.parent_job_id,
+            fence_token=fence,
+            settlement_builder=unexpected_settlement_builder,
+            score_builder=lambda _factory, **kwargs: score_calls.append(kwargs),
+        )
+        assert [call["affected_store_ids"] for call in score_calls] == [result.affected_store_ids]
+        assert stage_output.checkpoint["fee_projection_deferred"] is True
+        assert stage_output.checkpoint["affected_months"] == ["2026-08"]
+        assert stage_output.before_success_commit is not None
 
     settle = db_session.scalar(
         select(JobStageRun)
