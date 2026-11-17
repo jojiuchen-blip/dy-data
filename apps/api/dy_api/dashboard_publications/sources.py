@@ -126,6 +126,10 @@ def source_fingerprint(session: Session, module: str | None = None, *, now: date
         from . import period_readiness
         time_token["financial_periods"] = period_readiness.fingerprint(period_readiness.capture(session, cutoff))
     payload = {"sources": [tuple(row) for row in rows], "time": time_token}
+    if module == "settlement":
+        # Observe the first successful post-rollout head even if its sources
+        # stayed unchanged. Earlier availability has no durable timestamp.
+        payload["statement_visibility"] = "v1"
     if module == "douyin-ranking":
         # A rebuild dependency, not a wire-format change: old complete heads
         # remain readable until a new immutable ranking is ready.

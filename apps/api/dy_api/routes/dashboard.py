@@ -6068,6 +6068,7 @@ def monthly_settlement(
     # a not-found here; an empty period resolves to a real empty payload.
     _require_known_store(store, store_id, request)
     from apps.api.dy_api.dashboard_publications.finance import read_monthly_settlement, read_filters
+    from apps.api.dy_api.dashboard_publications.statement_visibility import bill_confirmation_window
     from dy_api.routes._data import STATEMENT_STATUS_FROM_DB
     session = _billing_session(store, request)
     with publication_read(session, "settlement", publication_id) as publication:
@@ -6096,6 +6097,7 @@ def monthly_settlement(
             "confirmed_at": statement.confirmed_at,
             "locked_at": statement.locked_at,
             "lock_version": statement.lock_version,
+            **bill_confirmation_window(session, statement),
         }
     return attach_publication(
         _reporting_success(request, data, definitions=MONTHLY_SETTLEMENT_DEFINITIONS), publication,
@@ -9613,6 +9615,8 @@ def _statement_header_item(
     *,
     promotion_projection: dict[str, dict] | None = None,
 ) -> dict:
+    from apps.api.dy_api.dashboard_publications.statement_visibility import bill_confirmation_window
+
     confirmations = {
         row.fee_direction: row
         for row in session.scalars(
@@ -9662,6 +9666,7 @@ def _statement_header_item(
         "is_current": statement.is_current,
         "supersedes_statement_id": statement.supersedes_statement_id,
         "status": STATEMENT_STATUS_NAMES[statement.statement_status],
+        **bill_confirmation_window(session, statement),
         "promotion_amount_cent": statement.promotion_net_fee_cent,
         "management_amount_cent": statement.management_net_fee_cent,
         "promotion_confirmable_amount_cent": confirmable_amounts["PROMOTION"],

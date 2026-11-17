@@ -354,6 +354,11 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
               <div>
                 <h2>当前账单确认</h2>
                 <p>推广服务费和管理服务费分别确认；金额与版本以正式账单接口为准。</p>
+                {statement?.firstVisibleAt && statement.confirmationDueAt ? (
+                  <p>
+                    版本 {statement.versionNo} · {formatDateTime(statement.firstVisibleAt)} 起可核对 · 最早 {formatDateTime(statement.confirmationDueAt)} 自动确认
+                  </p>
+                ) : null}
               </div>
             </div>
             <div className="store-finance-confirmation-grid">

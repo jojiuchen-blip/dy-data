@@ -20,11 +20,13 @@ from uuid import uuid4
 from sqlalchemy import event, func, select, text, tuple_
 from sqlalchemy.orm import Session, sessionmaker
 
+from apps.api.dy_api.dashboard_publications.period_readiness import FORMAL_START, formal_months
 from apps.api.dy_api.models import (
     FinanceOperationAudit, InvoiceRecord, JobRun, PromotionInvoiceAllocation,
     SettlementDispute, SettlementMonthlyOverlay, SettlementProjectionActive,
     SettlementProjectionGeneration,
     SettlementStatement, SettlementStatementConfirmation, SettlementStatementEntry,
+    SettlementStatementVisibility,
 )
 from apps.worker.month_close import published_days_revisions, require_current_month_qualification
 from apps.worker.account_qualification import AccountQualificationError
@@ -32,10 +34,10 @@ from apps.worker.priority_scheduler import _live_heavy_job
 from apps.worker.projection_lineage import LineageError, resolve_projection_partitions
 from apps.worker.repositories import HEAVY_SYNC_CLAIM_LOCK_KEY
 from apps.worker.settlement import _lock_settlement_slot, _sparse_authority_relation
-from src.dy_data.billing_dates import confirmation_due_at
+from src.dy_data.billing_dates import SHANGHAI, confirmation_due_at
 from src.dy_data.billing_amounts import statement_confirmable_amounts
 
-PROTOCOL = "billing-auto-confirmation-v1"
+PROTOCOL = "billing-auto-confirmation-v2"
 HOLD_OPERATION = "BILLING_CONFIRMATION_HOLD"
 HOLD_TARGET = "BILLING_CONFIRMATION_SLOT"
 LOGGER = logging.getLogger(__name__)
@@ -53,6 +55,18 @@ class AutoConfirmationConflict(ValueError):
 def auto_confirmation_enabled() -> bool:
     """Read the explicit rollout switch; an unset setting never writes bills."""
     return os.getenv("BILLING_AUTO_CONFIRM_ENABLED", "false").strip().lower() in ("true", "1", "yes", "on")
+
+
+def scheduler_start_month() -> str | None:
+    """The first month covered by the unattended policy, excluding earlier bills."""
+    month = os.getenv("BILLING_AUTO_CONFIRM_START_MONTH", "").strip()
+    if month < FORMAL_START:
+        return None
+    try:
+        confirmation_due_at(month)
+    except (ValueError, OverflowError):
+        return None
+    return month
 
 
 def _hash(value: object) -> str:
@@ -358,6 +372,13 @@ def _preview(session: Session, *, now: datetime, months: tuple[str, ...] = (),
         JobRun.job_name == "settlement_rebuild", JobRun.status.in_(("queued", "pending", "retry_wait")))
         .order_by(JobRun.job_id).limit(1))
     dependencies = _batch_dependencies(session, bills)
+    bill_ids = [bill.statement_id for bill in bills]
+    visibility = {
+        row.statement_id: row for (row,) in _bounded_rows(
+            session,
+            select(SettlementStatementVisibility).where(SettlementStatementVisibility.statement_id.in_(bill_ids)),
+        )
+    } if bill_ids else {}
     rows = []
     for bill in bills:
         _check_budget(session)
@@ -368,6 +389,11 @@ def _preview(session: Session, *, now: datetime, months: tuple[str, ...] = (),
             if row.fee_direction == direction and row.status in (1, 2, 3)) for direction in (1, 2)}
         confirmable = statement_confirmable_amounts(promotion_net_fee_cent=bill.promotion_net_fee_cent,
             management_net_fee_cent=bill.management_net_fee_cent, frozen_by_direction=frozen)
+        visible = visibility.get(bill.statement_id)
+        first_visible_at = _utc(visible.first_visible_at) if visible is not None else None
+        due_at = confirmation_due_at(
+            bill.statement_month, first_visible_at=first_visible_at,
+        ) if first_visible_at is not None else None
         for direction, prefix in ((1, "promotion"), (2, "management")):
             existing = confirmations.get(direction)
             hold = dependencies["holds"].get(_hold_target(*slot, direction))
@@ -376,13 +402,13 @@ def _preview(session: Session, *, now: datetime, months: tuple[str, ...] = (),
             if existing is not None:
                 state = "already_confirmed" if existing.confirmation_status == 1 else "blocked"
                 reason = None if state == "already_confirmed" else "EXISTING_CONFIRMATION_PROTECTED"
-            elif now < confirmation_due_at(bill.statement_month):
+            elif due_at is not None and now < due_at:
                 state, reason = "not_due", "CONFIRMATION_WINDOW_OPEN"
             elif not bill.is_current:
                 reason = "STATEMENT_VERSION_CHANGED"
             elif bill.locked_at is not None or bill.lock_version is not None or bill.statement_status == 4:
                 reason = "STATEMENT_LOCKED"
-            elif bill.statement_status not in (1, 2):
+            elif bill.statement_status != 2:
                 reason = "STATEMENT_STATE_PROTECTED"
             elif hold:
                 reason = "EXPLICIT_REVIEW_HOLD"
@@ -390,6 +416,8 @@ def _preview(session: Session, *, now: datetime, months: tuple[str, ...] = (),
                 reason = "DISPUTE_PROTECTED"
             elif (*slot, direction) in dependencies["invoices"] or (direction == 1 and slot in dependencies["allocations"]):
                 reason = "INVOICE_FACT_PROTECTED"
+            elif due_at is None:
+                reason = "BILL_VISIBILITY_EVIDENCE_MISSING"
             elif busy is not None:
                 reason = "SOURCE_JOB_ACTIVE"
             if reason and state == "candidate":
@@ -398,7 +426,9 @@ def _preview(session: Session, *, now: datetime, months: tuple[str, ...] = (),
                 "month": bill.statement_month, "version": bill.version_no, "direction": direction,
                 "amount_cent": confirmable["PROMOTION" if direction == 1 else "MANAGEMENT"],
                 "statement_amount_cent": getattr(bill, f"{prefix}_net_fee_cent"), "state": state, "reason": reason,
-                "due_at": confirmation_due_at(bill.statement_month).isoformat(),
+                "due_at": due_at.isoformat() if due_at is not None else None,
+                "first_visible_at": first_visible_at.isoformat() if first_visible_at is not None else None,
+                "first_publication_id": visible.publication_id if visible is not None else None,
                 "confirmation_id": existing.confirmation_id if existing else None,
                 "confirmed_at": existing.confirmed_at.isoformat() if existing else None,
                 "confirmed_by": existing.confirmed_by if existing else None,
@@ -414,7 +444,9 @@ def _preview(session: Session, *, now: datetime, months: tuple[str, ...] = (),
             row["source_proof"] = proof
             if reason:
                 row["state"], row["reason"] = "blocked", reason
-    result = {"protocol": PROTOCOL, "scheduler_enabled": auto_confirmation_enabled(),
+    start_month = scheduler_start_month()
+    result = {"protocol": PROTOCOL, "scheduler_enabled": auto_confirmation_enabled() and start_month is not None,
+        "scheduler_start_month": start_month,
         "months": list(months), "store_ids": list(store_ids),
         "after_id": after_id, "limit": limit, "has_more": has_more,
         "next_after_id": bills[-1].id if bills else after_id, "generation_id": generation_id,
@@ -478,7 +510,9 @@ def apply_auto_confirmation(factory: sessionmaker, *, preview_hash: str,
                 target_id=confirmation.confirmation_id, operator_id="system:auto-confirmation", operator_role=1,
                 before_snapshot={"statementId": row["statement_id"], "version": row["version"], "direction": row["direction"]},
                 after_snapshot={"confirmationId": confirmation.confirmation_id, "amountCent": row["amount_cent"],
-                    "sourceProof": row["source_proof"], "previewHash": preview_hash},
+                    "sourceProof": row["source_proof"], "previewHash": preview_hash,
+                    "firstPublicationId": row["first_publication_id"], "firstVisibleAt": row["first_visible_at"],
+                    "dueAt": row["due_at"]},
                 result_status=1, request_id="auto-confirm-" + preview_hash[:40], request_payload_sha256=_hash(row))
             session.add(audit)
             written.append({**row, "confirmation_id": confirmation.confirmation_id,
@@ -506,9 +540,14 @@ def apply_auto_confirmation(factory: sessionmaker, *, preview_hash: str,
 
 def process_due_auto_confirmations(factory: sessionmaker) -> bool:
     """Opt-in hourly scan, one bounded batch per tick; late bills remain retryable."""
-    if not auto_confirmation_enabled():
+    start_month = scheduler_start_month()
+    if not auto_confirmation_enabled() or start_month is None:
         return False
     now = datetime.now(timezone.utc)
+    last_complete = (now.astimezone(SHANGHAI).date().replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+    if start_month > last_complete:
+        return False
+    months = tuple(month for month in formal_months(last_complete) if month >= start_month)
     hour = now.strftime("%Y%m%d%H")
     with factory() as session:
         attempt = session.scalar(select(JobRun).where(JobRun.job_name == "billing_auto_confirmation")
@@ -518,16 +557,20 @@ def process_due_auto_confirmations(factory: sessionmaker) -> bool:
         last = session.scalar(select(JobRun).where(JobRun.job_name == "billing_auto_confirmation",
             JobRun.status == "success", JobRun.job_id.like(f"billing-auto-confirm-{hour}-%"))
             .order_by(JobRun.finished_at.desc()).limit(1))
+        if last and (last.metadata_json or {}).get("scheduler_start_month") != start_month:
+            last = None
         if last and not (last.metadata_json or {}).get("has_more"):
             return False
         cursor = int((last.metadata_json or {}).get("next_after_id", 0)) if last else 0
     try:
-        preview = preview_auto_confirmation(factory, now=now, after_id=cursor)
-        result = apply_auto_confirmation(factory, now=now, preview_hash=preview["preview_hash"], after_id=cursor)
+        preview = preview_auto_confirmation(factory, now=now, months=months, after_id=cursor)
+        result = apply_auto_confirmation(factory, now=now, months=months,
+            preview_hash=preview["preview_hash"], after_id=cursor)
         with factory.begin() as session:
             session.add(JobRun(job_id=f"billing-auto-confirm-{hour}-{uuid4().hex[:12]}",
                 job_name="billing_auto_confirmation", status="success", started_at=now, finished_at=datetime.now(timezone.utc),
-                metadata_json={"protocol": PROTOCOL, "enabled": True, "counts": preview["counts"],
+                metadata_json={"protocol": PROTOCOL, "enabled": True,
+                    "scheduler_start_month": start_month, "counts": preview["counts"],
                     "blocked_reasons": dict(Counter(row["reason"] for row in preview["rows"] if row["state"] == "blocked")),
                     "confirmed_count": result["confirmed_count"], "preview_hash": preview["preview_hash"],
                     "next_after_id": preview["next_after_id"], "has_more": preview["has_more"]}))

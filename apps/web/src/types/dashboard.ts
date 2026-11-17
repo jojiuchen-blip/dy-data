@@ -732,6 +732,8 @@ export interface SettlementStatementSummary {
   confirmedAt?: string | null;
   lockedAt?: string | null;
   lockVersion?: string | null;
+  firstVisibleAt?: string | null;
+  confirmationDueAt?: string | null;
 }
 
 export interface SettlementStatementLine {
@@ -1987,6 +1989,8 @@ export interface StoreBillingStatement {
   isCurrent: boolean;
   supersedesStatementId: string | null;
   status: string;
+  firstVisibleAt?: string | null;
+  confirmationDueAt?: string | null;
   promotionAmountCent: number;
   managementAmountCent: number;
   promotionConfirmableAmountCent: number;

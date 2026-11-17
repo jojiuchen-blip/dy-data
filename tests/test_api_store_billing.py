@@ -466,6 +466,8 @@ def test_store_settlement_reads_current_list_and_version_history(
     assert row["managementAmountCent"] == 2200
     assert row["promotionConfirmableAmountCent"] == 1100
     assert row["managementConfirmableAmountCent"] == 2200
+    assert row["firstVisibleAt"] is None
+    assert row["confirmationDueAt"] is None
     assert listed.json()["data"]["metrics"]["month"] == {
         "promotionAmountCent": 1100,
         "managementAmountCent": 2200,
@@ -549,12 +551,25 @@ def _seed_frozen_monthly_report_sources(session: Session) -> None:
 
 
 def test_monthly_report_references_current_statement_not_historical_version(client: TestClient, db_session: Session) -> None:
+    from src.dy_data.billing_dates import confirmation_due_at
+
     _seed_frozen_monthly_report_sources(db_session)
     _login(client)
-    publish_fixture(db_session, "settlement")
+    publication = publish_fixture(db_session, "settlement")
     response = client.get("/api/v1/stores/store-1/monthly-settlement", params={"month": "2026-08"})
     assert response.status_code == 200, response.text
-    assert response.json()["data"]["statement"]["statementId"] == "statement-1-v2"
+    statement = response.json()["data"]["statement"]
+    assert statement["statementId"] == "statement-1-v2"
+    assert datetime.fromisoformat(statement["firstVisibleAt"]) == publication.published_at
+    assert datetime.fromisoformat(statement["confirmationDueAt"]) == confirmation_due_at(
+        "2026-08", first_visible_at=publication.published_at,
+    )
+    current_detail = client.get("/api/v1/store-settlements/statement-1-v2")
+    assert current_detail.status_code == 200, current_detail.text
+    assert current_detail.json()["data"]["confirmationDueAt"] == statement["confirmationDueAt"]
+    previous_detail = client.get("/api/v1/store-settlements/statement-1-v1")
+    assert previous_detail.status_code == 200, previous_detail.text
+    assert previous_detail.json()["data"]["firstVisibleAt"] is None
 
 
 def test_store_to_finance_both_directions_complete_api_flow(
