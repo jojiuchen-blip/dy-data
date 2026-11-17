@@ -43,7 +43,10 @@ def test_frozen_migration_has_no_runtime_import_and_matches_final_schema():
     frozen = migration().frozen_metadata_0063()
     assert set(frozen.tables) == set(metadata.tables)
     # Later additive migrations own these counters; the 0063 DDL stays frozen.
-    later_sources = {"historical_sale_attribution_decisions", "account_qualification_version", "ranking_area_corrections"}
+    later_sources = {
+        "historical_sale_attribution_decisions", "account_qualification_version", "ranking_area_corrections",
+        "settlement_month_close", "settlement_statement_balance", "settlement_statement_visibility",
+    }
     assert later_sources <= set(SOURCE_TABLES)
     assert set(migration().SOURCE_TABLES_0063) == set(SOURCE_TABLES) - later_sources
     cycle_sort = frozen.tables["dashboard_publication_sales_coupons"].c.cycle_sort_days
