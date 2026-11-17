@@ -10,7 +10,9 @@ from __future__ import annotations
 import os
 import threading
 import csv
+from datetime import datetime
 from io import StringIO
+from zoneinfo import ZoneInfo
 
 import pytest
 import uvicorn
@@ -30,7 +32,7 @@ from dy_api.db import Base
 from dy_api.main import create_app
 from dy_api.models import (
     DimStore, SettlementProjectionActive, SettlementProjectionGeneration,
-    SettlementProjectionPartitionManifest, SettlementMonthlyOverlay,
+    SettlementProjectionPartitionManifest, SettlementMonthlyOverlay, SettlementStatement,
 )
 from dy_api.routes._data import get_session_dependency
 
@@ -53,6 +55,8 @@ def dy104_api(tmp_path_factory):
             session.add(SettlementMonthlyOverlay(generation_id="ui104-source", partition_key=month,
                 month=month, store_id="ui104-store", product_scope="all", product_type="all",
                 promotion_net_fee_cent=amount, management_net_fee_cent=amount))
+        session.add(SettlementStatement(statement_id="ui104-bill-september", store_id="ui104-store",
+            statement_month="2026-09", version_no=1, is_current=True, statement_status=2))
         session.commit()
         publish_fixture(session, "settlement")
     previous = os.environ.get("DY_API_CORS_ORIGINS")
@@ -160,6 +164,31 @@ def test_dy104_default_previous_month_and_real_month_switches(browser, dy104_web
         expect(month_control).to_contain_text("2026-10")
         expect(page.locator(".metric-card").filter(has_text="当期推广服务费")).to_contain_text("456.00")
         page.screenshot(path=str(tmp_path / "explicit-october.png"))
+    finally:
+        context.close()
+
+
+def test_dydata104_store_page_displays_published_bill_window(browser, dy104_web):
+    context = browser.new_context(viewport={"width": 1440, "height": 1000})
+    page = context.new_page()
+    try:
+        with page.expect_response(lambda response: "/store-settlements?" in response.url
+                                  and "month=2026-09" in response.url) as received:
+            open_surface(page, dy104_web, "settlement")
+        response = received.value
+        assert response.ok, response.text()
+        statement = response.json()["data"]["list"][0]
+        first = datetime.fromisoformat(statement["firstVisibleAt"])
+        due = datetime.fromisoformat(statement["confirmationDueAt"])
+        shanghai = ZoneInfo("Asia/Shanghai")
+        window = page.get_by_text("版本 1 ·", exact=False)
+        expect(window).to_contain_text(first.astimezone(shanghai).strftime("%Y-%m-%d %H:%M") + " 起可核对")
+        expect(window).to_contain_text("最早 " + due.astimezone(shanghai).strftime("%Y-%m-%d %H:%M") + " 自动确认")
+        page.get_by_role("button", name="账期", exact=True).click()
+        with page.expect_response(lambda response: "/store-settlements?" in response.url
+                                  and "month=2026-08" in response.url):
+            page.get_by_role("option", name="2026-08", exact=True).click()
+        expect(window).to_have_count(0)
     finally:
         context.close()
 
