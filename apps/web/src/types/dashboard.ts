@@ -1986,6 +1986,14 @@ export interface StoreSettlementDisputeListData {
   list: FinanceDisputeRow[];
 }
 
+export interface StatementMonthlyBalance {
+  previousStatementId: string | null;
+  openingBalanceCent: number;
+  periodNetFeeCent: number;
+  netDueCent: number;
+  closingBalanceCent: number;
+}
+
 export interface StoreBillingStatement {
   statementId: string;
   storeId: string;
@@ -1999,6 +2007,8 @@ export interface StoreBillingStatement {
   confirmationDueAt?: string | null;
   promotionAmountCent: number;
   managementAmountCent: number;
+  promotionMonthlyBalance?: StatementMonthlyBalance | null;
+  managementMonthlyBalance?: StatementMonthlyBalance | null;
   promotionConfirmableAmountCent: number;
   managementConfirmableAmountCent: number;
   promotionConfirmation: BillingConfirmationSummary | null;

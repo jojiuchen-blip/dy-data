@@ -2974,6 +2974,10 @@ export interface StoreBillingQuery extends QueryParams {
   pageSize?: number;
 }
 
+export function downloadStoreSettlementBalances(statementId: string): Promise<void> {
+  return requestDownload(`/store-settlements/${encodeURIComponent(statementId)}/balances/export`);
+}
+
 export function fetchStoreBillingStatements(
   query: StoreBillingQuery,
 ): Promise<ApiLoadResult<StoreBillingStatementListData>> {

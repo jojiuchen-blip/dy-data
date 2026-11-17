@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from csv import DictReader, DictWriter
 from base64 import urlsafe_b64encode
 from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal
 from hashlib import sha256
 from io import StringIO, TextIOWrapper
 from urllib.parse import quote
@@ -86,9 +87,11 @@ from apps.api.dy_api.models import (
     SettlementFeeAdjustment,
     SettlementFeeResult,
     SettlementStatement,
+    SettlementStatementBalance,
     SettlementStatementConfirmation,
     SettlementStatementEntry,
     SettlementStatementLine,
+    SettlementStatementVisibility,
     StoreFinanceProfile,
     utcnow,
 )
@@ -807,6 +810,46 @@ def get_store_settlement_detail(
         ],
     }
     return _reporting_success(request, data)
+
+
+@router.get("/store-settlements/{statement_id}/balances/export")
+def export_store_settlement_balances(
+    statement_id: str,
+    request: Request,
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    session = _billing_session(store, request)
+    statement = _get_billing_statement(session, statement_id, request)
+    _require_billing_store_scope(current_user, statement.store_id, request)
+    balances = list(session.scalars(select(SettlementStatementBalance).where(
+        SettlementStatementBalance.statement_id == statement_id,
+    ).order_by(SettlementStatementBalance.fee_direction)))
+    if len(balances) != 2 or session.get(SettlementStatementVisibility, statement_id) is None:
+        _raise_reporting_error(request, status.HTTP_404_NOT_FOUND, "RESOURCE_NOT_FOUND", "账单抵扣明细尚未发布")
+    fields = {
+        "month": "账期", "version": "账单版本", "direction": "费用方向",
+        "original": "原始费用（元）", "adjustment": "本期调整（元）", "period_net": "本期净费用（元）",
+        "opening": "上期结转（元）", "net_due": "抵扣后净额（元）", "closing": "转下期余额（元）",
+    }
+    rows = []
+    for balance in balances:
+        prefix = "promotion" if balance.fee_direction == 1 else "management"
+        amounts = {
+            "original": getattr(statement, f"{prefix}_original_fee_cent"),
+            "adjustment": getattr(statement, f"{prefix}_adjustment_fee_cent"),
+            "period_net": balance.period_net_fee_cent, "opening": balance.opening_balance_cent,
+            "net_due": balance.net_due_cent, "closing": balance.closing_balance_cent,
+        }
+        rows.append({
+            "month": statement.statement_month, "version": statement.version_no,
+            "direction": "推广服务费" if balance.fee_direction == 1 else "管理服务费",
+            **{key: f"{Decimal(value) / 100:.2f}" for key, value in amounts.items()},
+        })
+    return _finance_csv_download(
+        request=request, filename_prefix=f"门店账单抵扣明细-{statement.statement_month}-v{statement.version_no}",
+        fieldnames=list(fields), header_labels=fields, rows=rows,
+    )
 
 
 @router.post("/store-settlements/{statement_id}/confirmations")
@@ -3908,7 +3951,9 @@ def register_promotion_invoice(
         ))
         if occupied is not None:
             _raise_reporting_error(request, status.HTTP_409_CONFLICT, "PROMOTION_INVOICE_PERIOD_OCCUPIED", "账期已存在当前有效推广费发票分配", field="allocations")
-        allocations.append((statement, {**item, "allocated_amount_cent": confirmed.confirmed_amount_cent}))
+        allocations.append((statement, {
+            **item, "allocated_amount_cent": projected_group["allocated_amount_cent"],
+        }))
     for group_id, selected_statement_ids in selected_statement_ids_by_group.items():
         required_statement_ids = set(
             groups_by_id[group_id]["required_statement_ids"]
@@ -6517,12 +6562,16 @@ def _promotion_invoice_carryforward_projection(
         conditions.append(SettlementStatement.statement_id.in_(statement_ids))
     rows = list(
         session.execute(
-            select(SettlementStatement, SettlementStatementConfirmation)
+            select(SettlementStatement, SettlementStatementConfirmation, SettlementStatementBalance)
             .join(
                 SettlementStatementConfirmation,
                 SettlementStatementConfirmation.statement_id
                 == SettlementStatement.statement_id,
             )
+            .outerjoin(SettlementStatementBalance, and_(
+                SettlementStatementBalance.statement_id == SettlementStatement.statement_id,
+                SettlementStatementBalance.fee_direction == 1,
+            ))
             .where(*conditions)
             .order_by(
                 SettlementStatement.store_id,
@@ -6535,10 +6584,6 @@ def _promotion_invoice_carryforward_projection(
         str,
         list[tuple[SettlementStatement, SettlementStatementConfirmation]],
     ] = {}
-    for statement, confirmation in rows:
-        rows_by_store.setdefault(statement.store_id, []).append(
-            (statement, confirmation)
-        )
 
     projection: dict[str, dict] = {}
     groups: list[dict] = []
@@ -6549,6 +6594,7 @@ def _promotion_invoice_carryforward_projection(
         ],
         *,
         invoiceable_amount_cent: int,
+        balance: SettlementStatementBalance | None = None,
     ) -> None:
         ordered_members = sorted(
             member_rows,
@@ -6588,11 +6634,11 @@ def _promotion_invoice_carryforward_projection(
             "store_id": ordered_members[0][0].store_id,
             "required_statement_ids": required_statement_ids,
             "invoiceable_amount_cent": invoiceable_amount_cent,
-            "positive_amount_cent": sum(
+            "positive_amount_cent": max(balance.period_net_fee_cent, 0) if balance else sum(
                 max(confirmation.confirmed_amount_cent, 0)
                 for _, confirmation in ordered_members
             ),
-            "negative_amount_cent": sum(
+            "negative_amount_cent": balance.opening_balance_cent + min(balance.period_net_fee_cent, 0) if balance else sum(
                 min(confirmation.confirmed_amount_cent, 0)
                 for _, confirmation in ordered_members
             ),
@@ -6609,8 +6655,18 @@ def _promotion_invoice_carryforward_projection(
                 "statement_version": statement.version_no,
                 "confirmation_id": confirmation.confirmation_id,
                 "confirmed_amount_cent": confirmation.confirmed_amount_cent,
-                "carryforward_balance_cent": min(chronological_total, 0),
+                "allocated_amount_cent": invoiceable_amount_cent if balance else confirmation.confirmed_amount_cent,
+                "carryforward_balance_cent": balance.closing_balance_cent if balance else min(chronological_total, 0),
             }
+
+    for statement, confirmation, balance in rows:
+        if balance is None:
+            rows_by_store.setdefault(statement.store_id, []).append((statement, confirmation))
+        else:
+            if confirmation.confirmed_amount_cent != balance.period_net_fee_cent:
+                continue
+            add_group([(statement, confirmation)], invoiceable_amount_cent=max(balance.net_due_cent, 0),
+                      balance=balance)
 
     for store_rows in rows_by_store.values():
         negative_rows = [
@@ -8936,12 +8992,16 @@ def _management_invoiceable_projection(
         conditions.append(SettlementStatement.statement_id.in_(statement_ids))
     statement_rows = list(
         session.execute(
-            select(SettlementStatement, SettlementStatementConfirmation)
+            select(SettlementStatement, SettlementStatementConfirmation, SettlementStatementBalance)
             .join(
                 SettlementStatementConfirmation,
                 SettlementStatementConfirmation.statement_id
                 == SettlementStatement.statement_id,
             )
+            .outerjoin(SettlementStatementBalance, and_(
+                SettlementStatementBalance.statement_id == SettlementStatement.statement_id,
+                SettlementStatementBalance.fee_direction == 2,
+            ))
             .where(*conditions)
             .order_by(
                 SettlementStatement.store_id,
@@ -8953,7 +9013,7 @@ def _management_invoiceable_projection(
     if not statement_rows:
         return [], []
 
-    statement_ids = [statement.statement_id for statement, _ in statement_rows]
+    statement_ids = [statement.statement_id for statement, _, _ in statement_rows]
     invoice_conditions = [
         InvoiceRecord.statement_id.in_(statement_ids),
         InvoiceRecord.fee_direction == 2,
@@ -9013,7 +9073,7 @@ def _management_invoiceable_projection(
     pending_positives: list[dict] = []
     pending_negatives: list[dict] = []
 
-    for statement, confirmation in statement_rows:
+    for statement, confirmation, balance in statement_rows:
         if statement.store_id != current_store_id:
             current_store_id = statement.store_id
             pending_positives = []
@@ -9033,6 +9093,13 @@ def _management_invoiceable_projection(
         }
         periods.append(period)
         period_by_statement[statement.statement_id] = period
+
+        if balance is not None:
+            if confirmed_amount == balance.period_net_fee_cent:
+                period["carryforward_balance_cent"] = balance.closing_balance_cent
+                if current_invoice is None:
+                    period["invoiceable_amount_cent"] = max(balance.net_due_cent, 0)
+            continue
 
         if confirmed_amount > 0:
             if current_invoice is not None:
@@ -9685,6 +9752,18 @@ def _statement_header_item(
         )
     projected_group = promotion_projection.get(statement.statement_id)
     confirmable_amounts = _statement_confirmable_amounts(session, statement)
+    balances = {
+        balance.fee_direction: {
+            "previous_statement_id": balance.previous_statement_id,
+            "opening_balance_cent": balance.opening_balance_cent,
+            "period_net_fee_cent": balance.period_net_fee_cent,
+            "net_due_cent": balance.net_due_cent,
+            "closing_balance_cent": balance.closing_balance_cent,
+        }
+        for balance in session.scalars(select(SettlementStatementBalance).where(
+            SettlementStatementBalance.statement_id == statement.statement_id,
+        ))
+    }
     return {
         "statement_id": statement.statement_id,
         "store_id": statement.store_id,
@@ -9697,6 +9776,8 @@ def _statement_header_item(
         **bill_confirmation_window(session, statement),
         "promotion_amount_cent": statement.promotion_net_fee_cent,
         "management_amount_cent": statement.management_net_fee_cent,
+        "promotion_monthly_balance": balances.get(1),
+        "management_monthly_balance": balances.get(2),
         "promotion_confirmable_amount_cent": confirmable_amounts["PROMOTION"],
         "management_confirmable_amount_cent": confirmable_amounts["MANAGEMENT"],
         "promotion_confirmation": _confirmation_summary(confirmations.get(1)),
@@ -10146,6 +10227,18 @@ def _create_dispute_statement_version(
     operator: str,
     request: Request,
 ) -> SettlementStatement:
+    if session.get(SettlementStatementBalance, (current_statement.statement_id, dispute.fee_direction)) is not None:
+        from apps.worker.monthly_fee_corrections import posted_monthly_dispute_statement
+
+        posted = posted_monthly_dispute_statement(
+            session, dispute=dispute, adjustment_amount_cent=adjustment_amount_cent,
+        )
+        if posted is not None:
+            return posted
+        _raise_reporting_error(
+            request, status.HTTP_409_CONFLICT, "PROCESSING_MONTH_CORRECTION_REQUIRED",
+            "原账单金额已冻结。需复核券、方向及差额清单，按处理月入账后处理本项异议。",
+        )
     current_lines = list(
         session.scalars(
             select(SettlementStatementLine).where(
