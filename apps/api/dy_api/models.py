@@ -1842,6 +1842,7 @@ class SettlementStatement(Base):
     lock_version: Mapped[str | None] = mapped_column(String(64))
     store_name_snapshot: Mapped[str | None] = mapped_column(String(255))
     sap_code_snapshot: Mapped[str | None] = mapped_column(String(128))
+    monthly_close_input_sha256: Mapped[str | None] = mapped_column(String(64))
     store_snapshot_status: Mapped[str] = mapped_column(
         String(32), default="UNRESOLVED", server_default="UNRESOLVED"
     )
@@ -1852,6 +1853,61 @@ class SettlementStatement(Base):
     updated_at: Mapped[datetime] = mapped_column(
         "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+class SettlementMonthClose(Base):
+    """Last certified publication outcome, separate from daily source readiness."""
+
+    __tablename__ = "settlement_month_close"
+    __table_args__ = (
+        CheckConstraint("unscoped_issue_count >= 0", name="ck_month_close_unscoped_issues"),
+    )
+
+    business_month: Mapped[str] = mapped_column(String(7), primary_key=True)
+    source_input_sha256: Mapped[str] = mapped_column(String(64))
+    source_job_id: Mapped[str] = mapped_column(String(128))
+    qualification_version_id: Mapped[str] = mapped_column(String(128))
+    is_complete: Mapped[bool] = mapped_column(Boolean)
+    blocked_store_ids: Mapped[list[str]] = mapped_column(JSON_TYPE)
+    unscoped_issue_count: Mapped[int] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class SettlementStatementVisibility(Base):
+    """First certified availability of an exact bill version in the settlement publication."""
+
+    __tablename__ = "settlement_statement_visibility"
+
+    statement_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("settlement_statement.statement_id", ondelete="CASCADE"), primary_key=True,
+    )
+    publication_id: Mapped[str] = mapped_column(String(64))
+    first_visible_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class SettlementStatementBalance(Base):
+    """Immutable per-direction accounting across published monthly statements."""
+
+    __tablename__ = "settlement_statement_balance"
+    __table_args__ = (
+        CheckConstraint("fee_direction IN (1, 2)", name="ck_statement_balance_direction"),
+        CheckConstraint("opening_balance_cent <= 0", name="ck_statement_balance_opening"),
+        CheckConstraint("net_due_cent = opening_balance_cent + period_net_fee_cent", name="ck_statement_balance_net"),
+        CheckConstraint("closing_balance_cent = CASE WHEN net_due_cent < 0 THEN net_due_cent ELSE 0 END",
+                        name="ck_statement_balance_closing"),
+    )
+
+    statement_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("settlement_statement.statement_id"), primary_key=True,
+    )
+    fee_direction: Mapped[int] = mapped_column(Integer, primary_key=True)
+    previous_statement_id: Mapped[str | None] = mapped_column(
+        String(128), ForeignKey("settlement_statement.statement_id"),
+    )
+    opening_balance_cent: Mapped[int] = mapped_column(BigInteger)
+    period_net_fee_cent: Mapped[int] = mapped_column(BigInteger)
+    net_due_cent: Mapped[int] = mapped_column(BigInteger)
+    closing_balance_cent: Mapped[int] = mapped_column(BigInteger)
 
 
 class SettlementStatementSnapshotMigrationException(Base):
