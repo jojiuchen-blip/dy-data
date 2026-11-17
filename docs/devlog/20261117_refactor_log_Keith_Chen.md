@@ -22,7 +22,9 @@
 - **目标**：月度分佣金额冻结、按门店出账、退款与更正结转、晚账核对期
 - **操作**：集成任务拆分、门店来源隔离、冻结账单和结转、同版导出及首次可见确认；用真实 PostgreSQL 和浏览器复查
 - **结果**：门店缺实收与补齐、原账金额不变、真零与未就绪、退费与撤销、两个自然日和取数同版已完成定向回归，前端构建已通过。整仓及远端 CI 状态单列。
-- **涉及文件**：apps/worker/month_close.py、apps/worker/settlement_rebuild.py、apps/worker/billing_auto_confirmation.py、tests/test_certified_month_close.py
+- **同主题补充**：
+  - 18:03 DYDATA-104 四项月结生产发布：修正订单导出测试夹具，推送 PR #80。确认最终候选 CI 和主线代码树后按腾讯云标准流程备份、迁移、预热并切换；结果：18:03 生产运行 678429d6，数据库 20261117_0068；全仓 5,715 通过，560 项强制专项通过，8 个运行服务和 5 个看板读回通过。月结与无人值守确认仍关闭，10 月正式账单为 0
+- **涉及文件**：apps/worker/month_close.py、apps/worker/settlement_rebuild.py、apps/worker/billing_auto_confirmation.py、tests/test_certified_month_close.py、CHANGELOG.md、docs/verification/20261117-monthly-settlement-release.md
 
 <!-- 复杂决策型任务可展开分析：
 ### 任务 N：标题（决策类）
