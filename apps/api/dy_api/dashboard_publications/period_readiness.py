@@ -4,10 +4,16 @@ import hashlib
 import json
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 FORMAL_START = "2026-08"
 SHANGHAI = ZoneInfo("Asia/Shanghai")
+
+
+def signed_legacy_statement_condition(statement):
+    """Previously confirmed or locked bills retain their existing authority."""
+    return or_(statement.statement_status.in_((3, 4)), statement.confirmed_at.is_not(None),
+               statement.locked_at.is_not(None))
 
 
 def formal_months(through_month: str) -> tuple[str, ...]:
@@ -36,7 +42,9 @@ def capture(session, cutoff: datetime) -> dict:
         certificates = {row.business_month: row for row in session.scalars(select(SettlementMonthClose).where(
             SettlementMonthClose.business_month < current_month))}
         for store_id, month in session.execute(select(SettlementStatement.store_id, SettlementStatement.statement_month).where(
-            SettlementStatement.is_current.is_(True), SettlementStatement.monthly_close_input_sha256.is_not(None),
+            SettlementStatement.is_current.is_(True),
+            or_(SettlementStatement.monthly_close_input_sha256.is_not(None),
+                signed_legacy_statement_condition(SettlementStatement)),
             SettlementStatement.statement_month < current_month,
         )):
             frozen_stores.setdefault(month, []).append(store_id)
@@ -70,7 +78,7 @@ def capture(session, cutoff: datetime) -> dict:
                 "blocked_store_ids": certificate.blocked_store_ids if certificate is not None else [],
                 "scope_unresolved": certificate is None or certificate.unscoped_issue_count > 0,
             }
-            if certificate is not None and (certificate.is_complete or published):
+            if published or (certificate is not None and certificate.is_complete):
                 # Later upstream retries cannot retract a frozen bill.
                 months[month]["ready"] = True
     return {"schema_version": 1, "formal_start_month": FORMAL_START, "months": months}

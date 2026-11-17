@@ -1560,7 +1560,7 @@ def _run_certified_month_close(
     from apps.worker.account_qualification import frozen_version
     from apps.worker.month_close import previous_business_month
     from apps.worker.monthly_close_scope import inspect_month_close_scope, record_month_close
-    from apps.worker.settlement import select_coupon_ids_for_monthly_refunds
+    from apps.worker.settlement import select_coupon_ids_for_monthly_cancellations, select_coupon_ids_for_monthly_refunds
 
     if business_month > previous_business_month():
         raise SettlementSourceNotReady("unfinished business month cannot be billed")
@@ -1580,10 +1580,12 @@ def _run_certified_month_close(
                 if qualification.version_id != metadata.get("account_qualification_version_id"):
                     raise SettlementSourceNotReady("month-end account qualification version changed")
                 _verify_month_calculation_input(session, business_month, job)
-                primary_coupons = select_coupon_ids_by_verify_business_month(session, business_month)
+                primary_coupons = select_coupon_ids_by_verify_business_month(session, business_month, monthly=True)
                 refund_coupons = select_coupon_ids_for_monthly_refunds(session, business_month)
+                cancellation_coupons = select_coupon_ids_for_monthly_cancellations(session, business_month)
                 stats = rebuild_dual_fee_results(
-                    session, calculation_run_id=source_run_id, coupon_ids=(*primary_coupons, *refund_coupons),
+                    session, calculation_run_id=source_run_id,
+                    coupon_ids=(*primary_coupons, *refund_coupons, *cancellation_coupons),
                     accounting_month=business_month, progress_callback=report_progress,
                 )
                 scope = inspect_month_close_scope(

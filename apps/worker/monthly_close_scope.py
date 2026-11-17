@@ -8,7 +8,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
-    DataQualityIssue, DimStore, RawDouyinOrderCoupon, SettlementFeeResult,
+    DataQualityIssue, DimStore, RawDouyinOrderCoupon, RawDouyinVerifyRecord, SettlementFeeResult,
     SettlementFeeResultCurrent, SettlementMonthClose, SettlementStatement, utcnow,
 )
 from apps.worker.historical_sale_attribution import HistoricalAttributionError, resolve_historical_sale_attribution
@@ -41,11 +41,14 @@ def _is_confirmed_exclusion(issue: DataQualityIssue) -> bool:
     )
 
 
-def _exact_issue_store(session: Session, coupon_id: str, direction: int) -> str | None:
+def _exact_issue_store(session: Session, coupon_id: str, direction: int, *, verify_id: str | None) -> str | None:
     coupon = session.scalar(select(RawDouyinOrderCoupon).where(RawDouyinOrderCoupon.coupon_id == coupon_id))
     if coupon is None:
         return None
-    verify = _select_valid_verify_record(session, coupon_id)
+    verify = (session.get(RawDouyinVerifyRecord, verify_id) if verify_id
+              else _select_valid_verify_record(session, coupon_id))
+    if verify is not None and verify.coupon_id != coupon_id:
+        return None
     if direction == MANAGEMENT_FEE:
         mapping = _find_poi_mapping(session, verify.poi_id) if verify is not None else None
         return mapping.store_id if mapping is not None and session.get(DimStore, mapping.store_id) is not None else None
@@ -94,13 +97,15 @@ def inspect_month_close_scope(
     exclusions = set()
     diagnosed = set()
     for issue in issues:
-        direction = (issue.raw_context_json or {}).get("fee_direction")
+        context = issue.raw_context_json or {}
+        direction = context.get("fee_direction")
         key = (issue.coupon_id, direction)
         if _is_confirmed_exclusion(issue):
             exclusions.add(key)
             continue
         diagnosed.add(key)
-        store_id = _exact_issue_store(session, *key) if issue.coupon_id and direction in (1, 2) else None
+        store_id = (_exact_issue_store(session, *key, verify_id=context.get("verify_id"))
+                    if issue.coupon_id and direction in (1, 2) else None)
         if store_id is None:
             unscoped.add(key)
         else:

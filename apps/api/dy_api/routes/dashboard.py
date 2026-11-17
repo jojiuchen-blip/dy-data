@@ -6519,13 +6519,15 @@ def _get_billing_statement(
 
 def _visible_billing_statement_condition():
     from sqlalchemy import true
+    from apps.api.dy_api.dashboard_publications.period_readiness import signed_legacy_statement_condition
     from apps.api.dy_api.models import SettlementStatementVisibility
     from apps.worker.account_qualification import FIRST_MONTH
     from src.dy_data.settlement_schedule import monthly_settlement_enabled
 
     if not monthly_settlement_enabled():
         return true()
-    return or_(SettlementStatement.statement_month < FIRST_MONTH, and_(
+    return or_(SettlementStatement.statement_month < FIRST_MONTH,
+               signed_legacy_statement_condition(SettlementStatement), and_(
         SettlementStatement.monthly_close_input_sha256.is_not(None),
         select(SettlementStatementVisibility.statement_id).where(
             SettlementStatementVisibility.statement_id == SettlementStatement.statement_id,

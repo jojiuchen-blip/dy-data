@@ -31,7 +31,7 @@ from apps.api.dy_api.db import session_scope
 from apps.api.dy_api.rule_utils import normalize_owner_account_name
 from apps.api.dy_api.models import (
     DataQualityIssue,
-    JobRun,
+    InvoiceRecord, JobImpact, JobRun, ManagementCarryforwardApplication, PromotionInvoice, PromotionInvoiceAllocation,
     SettlementFeeAdjustment,
     SettlementFeeResult,
     SettlementFeeResultCurrent,
@@ -293,9 +293,16 @@ def _calculation_inputs_digest(
     # pointer retires, so calculation output cannot shrink its own input scope.
     historical_coupons = select(SettlementFeeResult.coupon_id).where(
         SettlementFeeResult.original_business_month == business_month)
-    candidates = union(historical_coupons, select(RawDouyinVerifyRecord.coupon_id).where(
+    current_verifies = select(RawDouyinVerifyRecord.coupon_id).where(
         RawDouyinVerifyRecord.verify_time >= start, RawDouyinVerifyRecord.verify_time < end,
-    )).subquery("month_close_candidates")
+    )
+    if monthly:
+        from apps.worker.settlement import _monthly_cancellation_condition
+        candidates = union(historical_coupons, current_verifies, select(RawDouyinVerifyRecord.coupon_id).where(
+            _monthly_cancellation_condition(business_month),
+        )).subquery("month_close_candidates")
+    else:
+        candidates = union(historical_coupons, current_verifies).subquery("month_close_candidates")
     month_coupons = select(candidates.c.coupon_id)
     order_scope = union(select(RawDouyinOrderCoupon.order_id).where(RawDouyinOrderCoupon.coupon_id.in_(month_coupons)),
                    select(SettlementFeeResult.order_id).where(
@@ -308,9 +315,6 @@ def _calculation_inputs_digest(
         # was verified and billed in a previous month.
         earlier_refund_orders = select(DouyinRefundEvent.order_id).where(
             DouyinRefundEvent.occurred_at < end,
-            DouyinRefundEvent.order_id.in_(select(SettlementFeeResult.order_id).where(
-                SettlementFeeResult.original_business_month < business_month,
-            )),
             or_(DouyinRefundEvent.occurred_at >= start, DouyinRefundEvent.successful_observed_at >= start),
         )
         orders = select(union(orders, earlier_refund_orders).subquery().c.order_id)
@@ -394,10 +398,29 @@ def _calculation_inputs_digest(
         if prior is not None:
             digest.update(json.dumps([prior.source_input_sha256, prior.is_complete,
                 prior.blocked_store_ids, prior.unscoped_issue_count], separators=(",", ":")).encode())
+        feed(JobImpact, (JobImpact.entity_type == "verify") & JobImpact.entity_key.in_(
+            select(RawDouyinVerifyRecord.verify_id).where(RawDouyinVerifyRecord.coupon_id.in_(all_coupons))),
+            ("id", "entity_key", "old_values_json", "new_values_json"))
         feed(SettlementFeeAdjustment, (SettlementFeeAdjustment.adjustment_posting_month == business_month)
              & approved_month_correction_condition(SettlementFeeAdjustment.adjustment_id),
              ("adjustment_id", "original_fee_result_id", "coupon_id", "fee_direction",
               "adjustment_fee_cent", "rule_version"))
+        legacy_credits = select(SettlementStatement.statement_id).where(
+            SettlementStatement.statement_month < FIRST_MONTH, SettlementStatement.is_current.is_(True),
+            or_(SettlementStatement.promotion_net_fee_cent < 0, SettlementStatement.management_net_fee_cent < 0),
+        )
+        allocated = PromotionInvoiceAllocation.statement_id.in_(legacy_credits)
+        carried = ManagementCarryforwardApplication.source_statement_id.in_(legacy_credits)
+        feed(PromotionInvoiceAllocation, allocated,
+             ("allocation_id", "statement_id", "invoice_id", "allocated_amount_cent", "is_current"))
+        feed(PromotionInvoice, PromotionInvoice.invoice_id.in_(
+             select(PromotionInvoiceAllocation.invoice_id).where(allocated)),
+             ("invoice_id", "invoice_status", "is_current", "is_tombstone"))
+        feed(ManagementCarryforwardApplication, carried,
+             ("id", "source_statement_id", "invoice_id", "applied_amount_cent", "is_current"))
+        feed(InvoiceRecord, InvoiceRecord.invoice_id.in_(
+             select(ManagementCarryforwardApplication.invoice_id).where(carried)),
+             ("invoice_id", "invoice_status", "invoice_amount_cent", "is_current", "is_tombstone"))
     return digest.hexdigest()
 
 

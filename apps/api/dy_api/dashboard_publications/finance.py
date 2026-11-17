@@ -545,11 +545,16 @@ def build_finance(session: Session, publication_id: str, cutoff: datetime) -> di
     close_statements = {row.statement_id for row in statement_rows
         if period_readiness.monthly_close_entry(readiness, row.statement_month) is not None}
     if close_statements:
-        visible = set(session.scalars(select(SettlementStatementVisibility.statement_id).where(
-            SettlementStatementVisibility.statement_id.in_(close_statements))))
+        visible = set(session.scalars(select(SettlementStatement.statement_id).where(
+            SettlementStatement.statement_id.in_(close_statements),
+            or_(period_readiness.signed_legacy_statement_condition(SettlementStatement),
+                and_(SettlementStatement.monthly_close_input_sha256.is_not(None),
+                     select(SettlementStatementVisibility.statement_id).where(
+                         SettlementStatementVisibility.statement_id == SettlementStatement.statement_id,
+                     ).exists())),
+        )))
         statement_rows = [row for row in statement_rows
-            if row.statement_id not in close_statements
-            or (row.monthly_close_input_sha256 is not None and row.statement_id in visible)]
+            if row.statement_id not in close_statements or row.statement_id in visible]
     visible_current_ids = {row.statement_id for row in statement_rows}
 
     def approved_visible(statement_id, month):

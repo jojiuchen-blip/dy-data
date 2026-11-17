@@ -128,6 +128,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
     : storeId || storeOptions[0]?.storeId || "";
   const activeProductType = requestedProductType || meta?.defaultProductType || "all";
   useEffect(() => replaceBusinessFiltersInUrl({ month, periodKey: undefined, productType: requestedProductType || undefined, product_type: undefined }), [month, requestedProductType]);
+  const settlementPublicationId = settlementResource.data?.meta.publication?.id;
   const billingResource = useApiResource(
     () => fetchStoreBillingStatements({
       storeId: activeStoreId,
@@ -136,10 +137,9 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
       page: 1,
       pageSize: 1,
     }),
-    [activeStoreId, activeMonth],
+    [activeStoreId, activeMonth, settlementPublicationId],
     { enabled: Boolean(meta && activeStoreId && activeMonth), clearOnReload: true },
   );
-  const settlementPublicationId = settlementResource.data?.meta.publication?.id;
   const orderDetailsEnabled = Boolean(settlementResource.data && activeStoreId && activeMonth);
   const promotionOrderResource = useApiResource(
     () => fetchOrderFeeDetails({

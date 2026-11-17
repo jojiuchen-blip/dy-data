@@ -1,5 +1,5 @@
 """Exercise the writer, immutable publication, and store-scoped readers together."""
-from datetime import timedelta
+from datetime import UTC, timedelta
 
 import pytest
 from sqlalchemy import delete, select
@@ -15,6 +15,7 @@ from apps.api.dy_api.models import (
     SettlementStatement, SettlementStatementBalance, SettlementStatementVisibility,
 )
 from apps.worker import month_close, settlement_rebuild
+from apps.worker.billing_auto_confirmation import preview_auto_confirmation
 from apps.worker.repositories import upsert_aweme_account, upsert_store, upsert_store_poi_mapping
 from account_qualification_fixtures import binding
 from test_month_close_auto_bootstrap import MONTH, NOW, _quiet_sqlite_progress, _seed
@@ -76,8 +77,14 @@ def _partial_then_repaired(session, monkeypatch):
         assert {row["store_id"] for row in rank["list"]} == set(first_bills)
 
     with factory.begin() as writer:
+        # Source drift on a peer's unresolved slot does not invalidate an
+        # already frozen store's review/confirmation proof.
         for order in writer.scalars(select(RawDouyinOrder)):
             order.raw_payload = {"receipt_amount": 20001}
+    first_visible_utc = first_visible_at if first_visible_at.tzinfo is not None else first_visible_at.replace(tzinfo=UTC)
+    preview = preview_auto_confirmation(factory, months=(MONTH,), store_ids=("store-sale",),
+                                        now=first_visible_utc + timedelta(days=8))
+    assert [(row["direction"], row["state"]) for row in preview["rows"] if row["amount_cent"]] == [(1, "candidate")]
     second_job = _close(factory)
     assert second_job != first_job
     second_publication = publish_module(factory, "settlement", build_settlement, now=NOW + timedelta(days=3))
@@ -133,3 +140,13 @@ def test_complete_inputs_with_no_redemptions_can_certify_zero(bootstrap_session,
     with factory() as session:
         assert session.get(SettlementMonthClose, MONTH).is_complete
         assert _bills(session) == {}
+
+
+def test_empty_following_period_cannot_certify_zero_before_prior_carry_is_known(bootstrap_session):
+    from apps.worker.monthly_close_scope import MonthlyCloseScope
+
+    scope, carry = settlement_rebuild._certify_monthly_balance_inputs(
+        bootstrap_session, MonthlyCloseScope("2026-11", "frozen-version", frozenset(), 0),
+    )
+    assert scope.preceding_scope_unresolved
+    assert not scope.complete and not carry
