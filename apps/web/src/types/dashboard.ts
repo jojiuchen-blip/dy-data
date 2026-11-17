@@ -598,6 +598,9 @@ export type StoreFinanceRankingBasis =
   | "PROMOTION_FEE_CUMULATIVE";
 
 export interface SettlementFilterMetaData {
+  periodReadiness?: {
+    months: Record<string, { monthlyClose?: SettlementPeriodAvailability["monthlyClose"] }>;
+  };
   stores: Array<{ storeId: string; storeName: string }>;
   productScopes: string[];
   productScopeTypeMap: Record<string, string[]>;

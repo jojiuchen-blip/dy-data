@@ -129,6 +129,9 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
   const activeProductType = requestedProductType || meta?.defaultProductType || "all";
   useEffect(() => replaceBusinessFiltersInUrl({ month, periodKey: undefined, productType: requestedProductType || undefined, product_type: undefined }), [month, requestedProductType]);
   const settlementPublicationId = settlementResource.data?.meta.publication?.id;
+  const monthlyClose = meta?.periodReadiness?.months[activeMonth]?.monthlyClose
+    ?? settlementResource.data?.data.periodAvailability?.monthlyClose;
+  const feePublicationId = monthlyClose ? settlementPublicationId : undefined;
   const billingResource = useApiResource(
     () => fetchStoreBillingStatements({
       storeId: activeStoreId,
@@ -140,18 +143,18 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
     [activeStoreId, activeMonth, settlementPublicationId],
     { enabled: Boolean(meta && activeStoreId && activeMonth), clearOnReload: true },
   );
-  const orderDetailsEnabled = Boolean(settlementResource.data && activeStoreId && activeMonth);
+  const orderDetailsEnabled = Boolean(meta && activeStoreId && activeMonth && (!monthlyClose || feePublicationId));
   const promotionOrderResource = useApiResource(
     () => fetchOrderFeeDetails({
       storeId: activeStoreId,
       month: activeMonth,
       feeDirection: "PROMOTION",
       productType: activeProductType,
-      publication_id: settlementPublicationId,
+      publication_id: feePublicationId,
       page: 1,
       pageSize: 50,
     }),
-    [activeStoreId, activeMonth, activeProductType, settlementPublicationId],
+    [activeStoreId, activeMonth, activeProductType, feePublicationId],
     { enabled: orderDetailsEnabled, clearOnReload: true },
   );
   const managementOrderResource = useApiResource(
@@ -160,11 +163,11 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
       month: activeMonth,
       feeDirection: "MANAGEMENT",
       productType: activeProductType,
-      publication_id: settlementPublicationId,
+      publication_id: feePublicationId,
       page: 1,
       pageSize: 50,
     }),
-    [activeStoreId, activeMonth, activeProductType, settlementPublicationId],
+    [activeStoreId, activeMonth, activeProductType, feePublicationId],
     { enabled: orderDetailsEnabled, clearOnReload: true },
   );
 

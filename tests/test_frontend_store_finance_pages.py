@@ -423,8 +423,9 @@ def test_order_fee_details_export_reuses_the_same_month_as_the_list_query() -> N
 def test_store_settlement_order_previews_use_the_summary_publication() -> None:
     page = read_source("pages/StoreSettlementPage.tsx")
     assert "const settlementPublicationId = settlementResource.data?.meta.publication?.id" in page
-    assert page.count("publication_id: settlementPublicationId") == 2
-    assert page.count("[activeStoreId, activeMonth, activeProductType, settlementPublicationId]") == 2
+    assert "const feePublicationId = monthlyClose ? settlementPublicationId : undefined" in page
+    assert page.count("publication_id: feePublicationId") == 2
+    assert page.count("[activeStoreId, activeMonth, activeProductType, feePublicationId]") == 2
 
 
 def test_store_finance_pages_do_not_publish_developer_issue_copy() -> None:
