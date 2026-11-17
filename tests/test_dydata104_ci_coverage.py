@@ -36,6 +36,8 @@ PG_FILES = {
     "tests/test_commission_authority_query_postgres.py",
     "tests/test_commission_authority_import_paths.py",
     "tests/test_ops_browser_observation.py",
+    "tests/test_certified_month_close.py",
+    "tests/test_monthly_fee_posting.py",
 }
 BROWSER_FILES = {
     "tests/test_dydata104_finance_preview_browser.py",
@@ -138,6 +140,7 @@ def test_opt_in_databases_and_explicit_cases_are_verified_before_release(name: s
         "DYDATA_HISTORICAL_FEE_TEST_DATABASE_URL": "dydata_delivery_test",
         "DYDATA_PROTECTED_TEST_DATABASE_URL": "dydata_delivery_test",
         "DYDATA_MISSING_FEE_TEST_DATABASE_URL": "dydata_delivery_test",
+        "DYDATA_MONTHLY_TEST_DATABASE_URL": "dydata_monthly_test",
         "DYDATA_PUBLICATION_TEST_DATABASE_URL": "dydata_publication_test",
     }
     for key, database in expected.items():
@@ -145,6 +148,7 @@ def test_opt_in_databases_and_explicit_cases_are_verified_before_release(name: s
         assert url.host == "127.0.0.1" and url.port == 5432
         assert url.database == database and url.drivername == "postgresql+psycopg"
     assert "CREATE DATABASE dydata_delivery_test" in gate["run"]
+    assert "CREATE DATABASE dydata_monthly_test" in gate["run"]
     selector_url = make_url(gate["env"]["DYDATA_T12_TEST_DATABASE_URL"])
     assert selector_url.host == "127.0.0.1" and selector_url.port == 55432
     assert selector_url.database == selector_url.username == "dydata_t12"
@@ -225,6 +229,7 @@ def test_fixture_environment_inventory_matches_checked_in_sources() -> None:
         "tests/test_protected_billing_authority_postgres.py": "DYDATA_PROTECTED_TEST_DATABASE_URL",
         "tests/test_missing_fee_repair_postgres.py": "DYDATA_MISSING_FEE_TEST_DATABASE_URL",
         "tests/test_missing_fee_write_proof_postgres.py": "DYDATA_MISSING_FEE_TEST_DATABASE_URL",
+        "tests/test_monthly_fee_posting.py": "DYDATA_MONTHLY_TEST_DATABASE_URL",
     }
     for filename, variable in sources.items():
         assert f'os.getenv("{variable}")' in (ROOT / filename).read_text(encoding="utf-8")
