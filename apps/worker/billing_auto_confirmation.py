@@ -22,24 +22,28 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.dy_api.dashboard_publications.period_readiness import FORMAL_START, formal_months
 from apps.api.dy_api.models import (
-    FinanceOperationAudit, InvoiceRecord, JobRun, PromotionInvoiceAllocation,
-    SettlementDispute, SettlementMonthlyOverlay, SettlementProjectionActive,
+    AccountQualificationVersion, FinanceOperationAudit, InvoiceRecord, JobRun,
+    PromotionInvoiceAllocation, SettlementBillingSourceBundle, SettlementDispute,
+    SettlementFeeResult, SettlementMonthlyOverlay, SettlementProjectionActive,
     SettlementProjectionGeneration,
     SettlementStatement, SettlementStatementConfirmation, SettlementStatementEntry,
     SettlementStatementVisibility,
 )
-from apps.worker.month_close import published_days_revisions, require_current_month_qualification
-from apps.worker.account_qualification import AccountQualificationError
+from apps.worker.month_close import MONTHLY_CLOSE_POLICY, published_days_revisions, require_current_month_qualification
+from apps.worker.account_qualification import FIRST_MONTH, AccountQualificationError
 from apps.worker.priority_scheduler import _live_heavy_job
 from apps.worker.projection_lineage import LineageError, resolve_projection_partitions
 from apps.worker.repositories import HEAVY_SYNC_CLAIM_LOCK_KEY
 from apps.worker.settlement import _lock_settlement_slot, _sparse_authority_relation
 from src.dy_data.billing_dates import SHANGHAI, confirmation_due_at
 from src.dy_data.billing_amounts import statement_confirmable_amounts
+from src.dy_data.settlement_schedule import monthly_settlement_enabled
 
 PROTOCOL = "billing-auto-confirmation-v2"
 HOLD_OPERATION = "BILLING_CONFIRMATION_HOLD"
 HOLD_TARGET = "BILLING_CONFIRMATION_SLOT"
+FREEZE_OPERATION = "FREEZE_MONTHLY_BILLING"
+GENERATION_OPERATION = "GENERATE_PENDING_STATEMENT"
 LOGGER = logging.getLogger(__name__)
 MAX_BATCH_SOURCE_ROWS = 50000
 TRANSACTION_WALL_SECONDS = 30
@@ -339,6 +343,176 @@ def _batch_economic_proofs(session: Session, bills: list[SettlementStatement], g
     return output
 
 
+_FROZEN_ENTRY_FIELDS = (
+    "source_type", "source_record_id", "original_fee_result_id", "coupon_id", "order_id",
+    "fee_direction", "original_business_month", "posting_month", "product_scope",
+    "product_type", "base_amount_cent", "fee_amount_cent", "rule_version",
+)
+_FROZEN_ENTRY_COLUMNS = tuple(
+    SettlementStatementEntry.statement_posting_month if field == "posting_month"
+    else getattr(SettlementStatementEntry, field) for field in _FROZEN_ENTRY_FIELDS
+)
+
+
+def _frozen_bill_receipts(session, bills):
+    """Require both the capture publication and the original immutable bill receipt."""
+    audits = defaultdict(list)
+    for (row,) in _bounded_rows(session, select(FinanceOperationAudit).where(
+        FinanceOperationAudit.target_type == "SETTLEMENT_STATEMENT",
+        FinanceOperationAudit.target_id.in_([bill.statement_id for bill in bills]),
+        FinanceOperationAudit.operation_type.in_((FREEZE_OPERATION, GENERATION_OPERATION)),
+        FinanceOperationAudit.result_status == 1,
+    )):
+        audits[row.target_id, row.operation_type].append(row)
+    receipts = {}
+    for bill in bills:
+        freezes = audits[bill.statement_id, FREEZE_OPERATION]
+        generations = audits[bill.statement_id, GENERATION_OPERATION]
+        if len(freezes) != 1 or len(generations) != 1:
+            continue
+        freeze, generated = freezes[0], generations[0]
+        basis, capture = freeze.after_snapshot, generated.after_snapshot
+        if not isinstance(basis, dict) or not isinstance(capture, dict):
+            continue
+        if freeze.request_payload_sha256 != bill.monthly_close_input_sha256 or any(
+            receipt.get("versionNo") != bill.version_no for receipt in (basis, capture)
+        ):
+            continue
+        if not all(isinstance(basis.get(key), str) and basis[key] for key in (
+            "generationId", "sourceJobId", "qualificationVersionId",
+        )):
+            continue
+        count = capture.get("sourceCount")
+        if type(count) is not int or count < 0 or capture.get("status") != "COMPUTED":
+            continue
+        receipts[bill.statement_id] = (basis, capture, generated.request_payload_sha256)
+    if sum(capture["sourceCount"] for _, capture, _ in receipts.values()) > MAX_BATCH_SOURCE_ROWS:
+        raise AutoConfirmationConflict("confirmation frozen source row limit exceeded")
+    return receipts
+
+
+def _frozen_bill_sources(session, bills, receipts):
+    bundle_ids = {
+        (receipts[bill.statement_id][0]["generationId"], bill.store_id, bill.statement_month)
+        for bill in bills if bill.statement_id in receipts
+    }
+    generations = {
+        generation.generation_id: (generation, job)
+        for generation, job in _bounded_rows(session, select(SettlementProjectionGeneration, JobRun)
+            .join(JobRun, JobRun.job_id == SettlementProjectionGeneration.source_job_id)
+            .where(SettlementProjectionGeneration.generation_id.in_({key[0] for key in bundle_ids})))
+    }
+    qualifications = {
+        version.version_id: version for (version,) in _bounded_rows(session, select(AccountQualificationVersion)
+            .where(AccountQualificationVersion.version_id.in_({
+                basis["qualificationVersionId"] for basis, _, _ in receipts.values()
+            })))
+    }
+    bundles = {
+        (bundle.generation_id, bundle.store_id, bundle.statement_month): bundle
+        for (bundle,) in _bounded_rows(session, select(SettlementBillingSourceBundle).where(
+            tuple_(SettlementBillingSourceBundle.generation_id, SettlementBillingSourceBundle.store_id,
+                   SettlementBillingSourceBundle.statement_month).in_(bundle_ids),
+        ))
+    }
+    return generations, qualifications, bundles
+
+
+def _frozen_store_proof(bill, receipt, generation_job, qualification, bundle, billed_rows):
+    basis, capture, source_hash = receipt
+    if generation_job is None or qualification is None or bundle is None:
+        return "FROZEN_BILL_SOURCE_EVIDENCE_MISSING", None
+    generation, job = generation_job
+    metadata = job.metadata_json or {}
+    if not isinstance(metadata, dict) or not isinstance(metadata.get("settlement_projection"), dict):
+        return "FROZEN_BILL_SOURCE_EVIDENCE_MISSING", None
+    projection = metadata["settlement_projection"]
+    if (
+        generation.state != "published" or generation.published_at is None
+        or job.job_id != basis["sourceJobId"] or bundle.source_job_id != job.job_id
+        or job.job_name != "settlement_rebuild" or job.status != "success"
+        or metadata.get("monthly_close_policy") != MONTHLY_CLOSE_POLICY
+        or metadata.get("business_month") != bill.statement_month
+        or metadata.get("calculation_input_sha256") != bill.monthly_close_input_sha256
+        or metadata.get("account_qualification_version_id") != qualification.version_id
+        or qualification.business_month != bill.statement_month
+        or projection.get("status") != "published"
+        or projection.get("generation_id") != generation.generation_id
+    ):
+        return "FROZEN_BILL_VERSION_MISMATCH", None
+    payload = bundle.sources_json
+    if (not isinstance(payload, list) or len(payload) != capture["sourceCount"]
+            or bundle.source_fingerprint != source_hash or _hash(payload) != source_hash):
+        return "FROZEN_BILL_SOURCE_VERSION_MISMATCH", None
+
+    expected = []
+    for row in payload:
+        if (not isinstance(row, dict) or row.get("store_id") != bill.store_id
+                or row.get("posting_month") != bill.statement_month):
+            return "FROZEN_BILL_SOURCE_SLOT_MISMATCH", None
+        if any(field not in row for field in _FROZEN_ENTRY_FIELDS):
+            return "FROZEN_BILL_SOURCE_EVIDENCE_MISSING", None
+        expected.append(tuple(row[field] for field in _FROZEN_ENTRY_FIELDS))
+    entries = [tuple(row[:len(_FROZEN_ENTRY_FIELDS)]) for row in billed_rows]
+    if sorted(expected) != sorted(entries):
+        return "FROZEN_BILL_SOURCE_VERSION_MISMATCH", None
+    totals = defaultdict(int)
+    for row in billed_rows:
+        (source_type, source_id, original_id, coupon_id, order_id, direction, original_month,
+         _, _, _, _, fee_amount, _) = row[:len(_FROZEN_ENTRY_FIELDS)]
+        found_id, result_coupon, result_order, result_direction, result_month, qualification_id = row[-6:]
+        if (found_id, result_coupon, result_order, result_direction, result_month) != (
+            original_id, coupon_id, order_id, direction, original_month,
+        ):
+            return "FROZEN_BILL_SOURCE_EVIDENCE_MISSING", None
+        if source_type == 1 and (source_id != original_id or original_month != bill.statement_month):
+            return "FROZEN_BILL_SOURCE_SLOT_MISMATCH", None
+        if original_month == bill.statement_month and qualification_id != qualification.version_id:
+            return "FROZEN_BILL_QUALIFICATION_MISMATCH", None
+        totals[direction, source_type] += fee_amount
+    for direction, prefix in ((1, "promotion"), (2, "management")):
+        original, adjustment = totals[direction, 1], totals[direction, 2]
+        if (original, adjustment, original + adjustment) != tuple(
+            getattr(bill, f"{prefix}_{kind}_fee_cent") for kind in ("original", "adjustment", "net")
+        ):
+            return "BILL_PUBLICATION_MISMATCH", None
+    return None, _hash([
+        bill.monthly_close_input_sha256, generation.generation_id, job.job_id,
+        qualification.version_id, qualification.content_sha256, source_hash, entries,
+    ])
+
+
+def _batch_frozen_economic_proofs(session: Session, bills: list[SettlementStatement]) -> dict:
+    """Validate certified store facts without consulting now-mutable month inputs."""
+    if not bills:
+        return {}
+    output = {bill.statement_id: ("FROZEN_BILL_SOURCE_EVIDENCE_MISSING", None) for bill in bills}
+    receipts = _frozen_bill_receipts(session, bills)
+    if not receipts:
+        return output
+    generations, qualifications, bundles = _frozen_bill_sources(session, bills, receipts)
+    entries = defaultdict(list)
+    for row in _bounded_rows(session, select(
+        SettlementStatementEntry.statement_id, *_FROZEN_ENTRY_COLUMNS,
+        SettlementFeeResult.fee_result_id, SettlementFeeResult.coupon_id, SettlementFeeResult.order_id,
+        SettlementFeeResult.fee_direction, SettlementFeeResult.original_business_month,
+        SettlementFeeResult.account_qualification_version_id,
+    ).outerjoin(SettlementFeeResult, SettlementFeeResult.fee_result_id == SettlementStatementEntry.original_fee_result_id)
+      .where(SettlementStatementEntry.statement_id.in_(receipts))
+      .order_by(SettlementStatementEntry.statement_id, SettlementStatementEntry.source_type,
+                SettlementStatementEntry.source_record_id)):
+        entries[row[0]].append(tuple(row[1:]))
+    for bill in bills:
+        if receipt := receipts.get(bill.statement_id):
+            basis = receipt[0]
+            generation_id = basis["generationId"]
+            output[bill.statement_id] = _frozen_store_proof(
+                bill, receipt, generations.get(generation_id), qualifications.get(basis["qualificationVersionId"]),
+                bundles.get((generation_id, bill.store_id, bill.statement_month)), entries[bill.statement_id],
+            )
+    return output
+
+
 def _preview(session: Session, *, now: datetime, months: tuple[str, ...] = (),
              store_ids: tuple[str, ...] = (), after_id: int = 0, limit: int = 50,
              lock: bool = False) -> dict:
@@ -357,7 +531,6 @@ def _preview(session: Session, *, now: datetime, months: tuple[str, ...] = (),
     if lock:
         active_query = active_query.with_for_update()
     active = session.scalar(active_query.execution_options(populate_existing=True))
-    generation_id = active.generation_id if active else None
     bills = list(session.scalars(select(SettlementStatement).where(*conditions)
         .order_by(SettlementStatement.id).limit(limit + 1)))
     has_more = len(bills) > limit
@@ -368,9 +541,12 @@ def _preview(session: Session, *, now: datetime, months: tuple[str, ...] = (),
         ids = [row.statement_id for row in bills]
         bills = list(session.scalars(select(SettlementStatement).where(SettlementStatement.statement_id.in_(ids))
             .order_by(SettlementStatement.id).with_for_update().execution_options(populate_existing=True))) if ids else []
-    busy = _live_heavy_job(session, now) or session.scalar(select(JobRun).where(
+    has_legacy = any(bill.monthly_close_input_sha256 is None for bill in bills)
+    generation_id = active.generation_id if active and has_legacy else None
+    busy = (_live_heavy_job(session, now) or session.scalar(select(JobRun).where(
         JobRun.job_name == "settlement_rebuild", JobRun.status.in_(("queued", "pending", "retry_wait")))
-        .order_by(JobRun.job_id).limit(1))
+        .order_by(JobRun.job_id).limit(1))) if has_legacy else None
+    monthly_mode = monthly_settlement_enabled()
     dependencies = _batch_dependencies(session, bills)
     bill_ids = [bill.statement_id for bill in bills]
     visibility = {
@@ -416,9 +592,11 @@ def _preview(session: Session, *, now: datetime, months: tuple[str, ...] = (),
                 reason = "DISPUTE_PROTECTED"
             elif (*slot, direction) in dependencies["invoices"] or (direction == 1 and slot in dependencies["allocations"]):
                 reason = "INVOICE_FACT_PROTECTED"
+            elif monthly_mode and bill.statement_month >= FIRST_MONTH and bill.monthly_close_input_sha256 is None:
+                reason = "FROZEN_BILL_SOURCE_EVIDENCE_MISSING"
             elif due_at is None:
                 reason = "BILL_VISIBILITY_EVIDENCE_MISSING"
-            elif busy is not None:
+            elif busy is not None and bill.monthly_close_input_sha256 is None:
                 reason = "SOURCE_JOB_ACTIVE"
             if reason and state == "candidate":
                 state = "blocked"
@@ -437,7 +615,13 @@ def _preview(session: Session, *, now: datetime, months: tuple[str, ...] = (),
                 "disputes": sorted((row.dispute_id, row.fee_direction, row.status) for row in disputes),
             })
     candidate_ids = {row["statement_id"] for row in rows if row["state"] == "candidate"}
-    proofs = _batch_economic_proofs(session, [bill for bill in bills if bill.statement_id in candidate_ids], generation_id)
+    candidates = [bill for bill in bills if bill.statement_id in candidate_ids]
+    proofs = _batch_economic_proofs(
+        session, [bill for bill in candidates if bill.monthly_close_input_sha256 is None], generation_id,
+    )
+    proofs.update(_batch_frozen_economic_proofs(
+        session, [bill for bill in candidates if bill.monthly_close_input_sha256 is not None],
+    ))
     for row in rows:
         if row["state"] == "candidate":
             reason, proof = proofs[row["statement_id"]]
