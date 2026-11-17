@@ -21,6 +21,7 @@ from apps.api.dy_api.models import (
     SettlementProjectionGeneration,
     SettlementProjectionPartitionManifest,
     SettlementStatement,
+    SettlementMonthClose,
     SettlementFeeResult, SettlementFeeResultCurrent,
     utcnow,
 )
@@ -46,6 +47,7 @@ from apps.worker.settlement import (
     _projection_months,
     _sparse_base_chain,
     _sparse_expand_affected_months,
+    _sparse_authority_relation,
     build_settlement_sparse_overlay,
     mark_settlement_sparse_overlay_ready,
     rebuild_dual_fee_results,
@@ -363,7 +365,7 @@ def claim_latest_settlement_rebuild_job(
 
 
 def _lineage_refresh_plan(
-    factory: sessionmaker, *, job_id: str, months: tuple[str, ...] | None = None
+    factory: sessionmaker, *, job_id: str, months: tuple[str, ...] | None = None, monthly_scope=None,
 ) -> _LineageRefreshPlan | None:
     with session_scope(factory) as session:
         active = session.get(SettlementProjectionActive, "settlement")
@@ -421,7 +423,7 @@ def _lineage_refresh_plan(
                         "business month is outside the formal settlement window: "
                         f"{month}"
                     )
-            blocked = [month for month in requested if month in locked_months]
+            blocked = [month for month in requested if month in locked_months] if monthly_scope is None else []
             if blocked:
                 raise SettlementMonthLockedError(
                     "requested business month is locked: " + ",".join(blocked)
@@ -429,18 +431,19 @@ def _lineage_refresh_plan(
             candidate_months = set(requested)
 
         affected_months = tuple(
-            sorted(month for month in candidate_months if month not in locked_months)
+            sorted(month for month in candidate_months if monthly_scope is not None or month not in locked_months)
         )
         if not affected_months:
             return None
         # Capture, aggregation and the input fingerprint must consume one
         # closure. A conflicting frozen chain can move to another month.
-        affected_months = _sparse_expand_affected_months(session, affected_months)
-        blocked = sorted(set(affected_months) & locked_months)
-        if blocked:
-            raise SettlementMonthLockedError(
-                "settlement month closure is locked: " + ",".join(blocked)
-            )
+        if monthly_scope is None:
+            affected_months = _sparse_expand_affected_months(session, affected_months)
+            blocked = sorted(set(affected_months) & locked_months)
+            if blocked:
+                raise SettlementMonthLockedError(
+                    "settlement month closure is locked: " + ",".join(blocked)
+                )
 
         fingerprint_payload = {
             "protocol": "settlement-admin-rebuild-lineage-v1",
@@ -448,6 +451,8 @@ def _lineage_refresh_plan(
             "base_generation_id": base_generation_id,
             "affected_months": list(affected_months),
         }
+        if monthly_scope is not None:
+            fingerprint_payload["blocked_stores"] = sorted(monthly_scope.blocked_store_ids)
         input_fingerprint = hashlib.sha256(
             json.dumps(
                 fingerprint_payload,
@@ -547,14 +552,18 @@ def _require_publication_qualification(session: Session, months: tuple[str, ...]
 
 
 def _verify_month_calculation_input(session: Session, business_month: str, job: JobRun | None) -> None:
-    from apps.worker.month_close import CALCULATION_INPUT_PROTOCOL, _calculation_inputs_digest, published_days_revisions
+    from apps.worker.month_close import (
+        CALCULATION_INPUT_PROTOCOL, MONTHLY_CLOSE_POLICY, _calculation_inputs_digest, published_days_revisions,
+    )
 
     metadata = (job.metadata_json or {}) if job else {}
     if "calculation_input_protocol" not in metadata:
         return
     revisions = published_days_revisions(session, business_month)
+    monthly = metadata.get("monthly_close_policy") == MONTHLY_CLOSE_POLICY
     if (metadata.get("calculation_input_protocol") != CALCULATION_INPUT_PROTOCOL or revisions is None
-            or _calculation_inputs_digest(session, business_month, revisions) != metadata.get("calculation_input_sha256")):
+            or _calculation_inputs_digest(session, business_month, revisions, monthly=monthly)
+            != metadata.get("calculation_input_sha256")):
         raise SettlementSourceNotReady("month calculation input changed; await a new source-versioned close job")
 
 
@@ -567,6 +576,8 @@ def refresh_active_settlement_lineage(
     lease_duration: timedelta = DEFAULT_SETTLEMENT_REBUILD_LEASE,
     months: tuple[str, ...] | None = None,
     source_guard: Callable[[Session], None] | None = None,
+    monthly_scope=None,
+    carryforward_stores: tuple[str, ...] = (),
 ) -> dict[str, object] | None:
     """Build and publish the active settlement overlay after a full rebuild.
 
@@ -576,11 +587,15 @@ def refresh_active_settlement_lineage(
 
     # Keep the historical unscoped call signature exact: only a month-scoped
     # run passes ``months``, so existing callers and fakes are unaffected.
-    plan = (
-        _lineage_refresh_plan(factory, job_id=job_id)
-        if months is None
-        else _lineage_refresh_plan(factory, job_id=job_id, months=months)
-    )
+    if monthly_scope is not None:
+        if monthly_scope.unscoped_issue_count:
+            raise SettlementSourceNotReady("monthly close has an unbounded store impact")
+        plan = _lineage_refresh_plan(factory, job_id=job_id, months=months, monthly_scope=monthly_scope)
+        if plan is None:
+            raise SettlementSourceNotReady("monthly close requires a published settlement base")
+    else:
+        plan = (_lineage_refresh_plan(factory, job_id=job_id) if months is None
+                else _lineage_refresh_plan(factory, job_id=job_id, months=months))
     if plan is None:
         _record_settlement_projection_noop(
             factory,
@@ -613,9 +628,12 @@ def refresh_active_settlement_lineage(
             SettlementStatement.is_current.is_(True),
             SettlementStatement.statement_month.in_(plan.affected_months),
         )))
-        _require_publication_qualification(session, plan.affected_months)
-        frozen_sources = collect_billing_sources(session, months=plan.affected_months, slots=billing_slots)
-        _require_publication_qualification(session, plan.affected_months)
+        if monthly_scope is not None:
+            billing_slots = [slot for slot in billing_slots if slot.store_id not in monthly_scope.blocked_store_ids]
+            billing_slots.extend((store_id, monthly_scope.month) for store_id in carryforward_stores)
+        _validate_publication_scope(session, plan.affected_months, monthly_scope)
+        frozen_sources = _collect_publication_sources(session, plan, billing_slots, monthly_scope)
+        _validate_publication_scope(session, plan.affected_months, monthly_scope)
         if source_guard is not None:
             source_guard(session)
         freeze_billing_sources(
@@ -634,6 +652,7 @@ def refresh_active_settlement_lineage(
         source_job_id=job_id,
         commit_guard=commit_guard,
         progress_callback=progress_callback,
+        **({"monthly_scope": monthly_scope} if monthly_scope is not None else {}),
     )
     manifest = mark_settlement_sparse_overlay_ready(
         factory,
@@ -649,9 +668,9 @@ def refresh_active_settlement_lineage(
         # Detailed source data stays in a private table, not an operational log.
         commit_guard(session)
         _lock_billing_publication_base(session, plan.base_generation_id)
-        _require_publication_qualification(session, plan.affected_months)
-        current_sources = collect_billing_sources(session, months=plan.affected_months, slots=billing_slots)
-        _require_publication_qualification(session, plan.affected_months)
+        _validate_publication_scope(session, plan.affected_months, monthly_scope)
+        current_sources = _collect_publication_sources(session, plan, billing_slots, monthly_scope)
+        _validate_publication_scope(session, plan.affected_months, monthly_scope)
         if source_guard is not None:
             source_guard(session)
         freeze_billing_sources(
@@ -668,17 +687,23 @@ def refresh_active_settlement_lineage(
             input_fingerprint=plan.input_fingerprint,
             manifest_checksum=manifest.manifest_checksum,
         )
-        billing = generate_pending_statements(
-            session, generation_id=plan.generation_id, source_job_id=job_id,
-            sources=load_billing_sources(session, generation_id=plan.generation_id, job_id=job_id),
-            slots=load_billing_slots(session, generation_id=plan.generation_id, job_id=job_id),
-        )
-        if billing["blocked"]:
-            raise RuntimeError("pending billing generation blocked; publication was not committed")
         job = session.get(JobRun, job_id)
         if job is None:  # pragma: no cover - guarded by publication validation
             raise RuntimeError("settlement rebuild job disappeared before metadata update")
         metadata = dict(job.metadata_json or {})
+        billing = generate_pending_statements(
+            session, generation_id=plan.generation_id, source_job_id=job_id,
+            sources=load_billing_sources(session, generation_id=plan.generation_id, job_id=job_id),
+            slots=load_billing_slots(session, generation_id=plan.generation_id, job_id=job_id),
+            **({"monthly_input_sha256": metadata["calculation_input_sha256"],
+                "qualification_version_id": monthly_scope.qualification_version_id}
+               if monthly_scope is not None else {}),
+        )
+        if billing["blocked"]:
+            raise RuntimeError("pending billing generation blocked; publication was not committed")
+        if monthly_scope is not None:
+            from apps.worker.monthly_close_scope import record_month_close
+            record_month_close(session, monthly_scope, job_id=job_id, input_sha256=metadata["calculation_input_sha256"])
         metadata["billing_generation"] = billing
         metadata["settlement_projection"] = {
             "status": "published",
@@ -692,6 +717,23 @@ def refresh_active_settlement_lineage(
         }
         job.metadata_json = metadata
         return publication
+
+
+def _collect_publication_sources(session, plan, billing_slots, monthly_scope):
+    if monthly_scope is not None:
+        return collect_billing_sources(session, months=plan.affected_months, slots=billing_slots, monthly_scope=monthly_scope)
+    return collect_billing_sources(session, months=plan.affected_months, slots=billing_slots)
+
+
+def _validate_publication_scope(session, months, monthly_scope):
+    if monthly_scope is None:
+        _require_publication_qualification(session, months)
+        return
+    from apps.worker.account_qualification import frozen_version
+
+    qualification = frozen_version(session, monthly_scope.month)
+    if months != (monthly_scope.month,) or qualification.version_id != monthly_scope.qualification_version_id:
+        raise SettlementSourceNotReady("monthly close qualification or scope changed")
 
 
 def _record_settlement_projection_noop(
@@ -1284,6 +1326,9 @@ def run_settlement_rebuild_job(
         factory, job_id=job_id,
     )
     try:
+        from src.dy_data.settlement_schedule import monthly_settlement_enabled
+        if monthly_settlement_enabled():
+            raise SettlementMonthLockedError("ordinary full settlement rebuild superseded by monthly calculation")
         with _settlement_rebuild_heartbeat_watchdog(
             factory,
             job_id=job_id,
@@ -1334,7 +1379,7 @@ def run_settlement_rebuild_job(
     except Exception as exc:
         transition = _fail_claimed_settlement_rebuild(
             factory, job_id=job_id, claim_id=claim_id, error_message=str(exc),
-            requires_new_job=isinstance(exc, BillingSourceDriftError),
+            requires_new_job=isinstance(exc, (BillingSourceDriftError, SettlementMonthLockedError)),
         )
         if transition == "reconciled":
             return True
@@ -1388,6 +1433,21 @@ def run_settlement_month_rebuild_job(
         factory, job_id=job_id,
     )
     try:
+        from apps.worker.month_close import MONTHLY_CLOSE_POLICY
+        from src.dy_data.settlement_schedule import monthly_settlement_enabled
+
+        with factory() as session:
+            job = session.get(JobRun, job_id)
+            metadata = (job.metadata_json or {}) if job is not None else {}
+        official_monthly = metadata.get("monthly_close_policy") == MONTHLY_CLOSE_POLICY
+        if monthly_settlement_enabled() and not official_monthly:
+            raise SettlementMonthLockedError("legacy settlement close superseded by monthly calculation")
+        if official_monthly:
+            return _run_certified_month_close(
+                factory, job_id=job_id, claim_id=claim_id, business_month=business_month,
+                source_run_id=active_source_run_id, lease_duration=lease_duration,
+                heartbeat_interval_seconds=heartbeat_interval_seconds,
+            )
         with _settlement_rebuild_heartbeat_watchdog(
             factory,
             job_id=job_id,
@@ -1491,6 +1551,106 @@ def run_settlement_month_rebuild_job(
             return True
         raise
     return True
+
+
+def _run_certified_month_close(
+    factory: sessionmaker, *, job_id: str, claim_id: str, business_month: str, source_run_id: str,
+    lease_duration: timedelta, heartbeat_interval_seconds: float | None,
+) -> bool:
+    from apps.worker.account_qualification import frozen_version
+    from apps.worker.month_close import previous_business_month
+    from apps.worker.monthly_close_scope import inspect_month_close_scope, record_month_close
+    from apps.worker.settlement import select_coupon_ids_for_monthly_refunds
+
+    if business_month > previous_business_month():
+        raise SettlementSourceNotReady("unfinished business month cannot be billed")
+    if source_run_id != job_id:
+        raise ValueError("monthly close requires its own calculation run identity")
+    with _settlement_rebuild_heartbeat_watchdog(
+        factory, job_id=job_id, claim_id=claim_id, lease_duration=lease_duration,
+        heartbeat_interval_seconds=heartbeat_interval_seconds,
+    ) as report_progress:
+        with session_scope(factory) as session:
+            job = session.get(JobRun, job_id)
+            metadata = dict(job.metadata_json or {})
+            existing = session.get(SettlementMonthClose, business_month)
+            already_certified = existing is not None and (existing.is_complete or existing.source_job_id == job_id)
+            if not already_certified:
+                qualification = frozen_version(session, business_month)
+                if qualification.version_id != metadata.get("account_qualification_version_id"):
+                    raise SettlementSourceNotReady("month-end account qualification version changed")
+                _verify_month_calculation_input(session, business_month, job)
+                primary_coupons = select_coupon_ids_by_verify_business_month(session, business_month)
+                refund_coupons = select_coupon_ids_for_monthly_refunds(session, business_month)
+                stats = rebuild_dual_fee_results(
+                    session, calculation_run_id=source_run_id, coupon_ids=(*primary_coupons, *refund_coupons),
+                    accounting_month=business_month, progress_callback=report_progress,
+                )
+                scope = inspect_month_close_scope(
+                    session, month=business_month, calculation_run_id=source_run_id, coupon_ids=primary_coupons,
+                    qualification_version_id=qualification.version_id,
+                )
+                scope, carryforward_stores = _certify_monthly_balance_inputs(session, scope)
+                _verify_month_calculation_input(session, business_month, job)
+                if scope.unscoped_issue_count:
+                    record_month_close(session, scope, job_id=job_id, input_sha256=metadata["calculation_input_sha256"])
+                metadata["monthly_close_outcome"] = {
+                    "complete": scope.complete, "blocked_store_count": len(scope.blocked_store_ids),
+                    "unscoped_issue_count": scope.unscoped_issue_count,
+                }
+                job.metadata_json = metadata
+                _fence_settlement_rebuild_commit(session, job_id=job_id, claim_id=claim_id,
+                                                  stage="business_month_committed")
+        if not already_certified and not scope.unscoped_issue_count:
+            report_progress("publish_projection", 0, 1)
+            refresh_active_settlement_lineage(
+                factory, job_id=job_id, claim_id=claim_id, months=(business_month,),
+                monthly_scope=scope, carryforward_stores=carryforward_stores,
+                source_guard=lambda session: _verify_month_calculation_input(
+                    session, business_month, session.get(JobRun, job_id),
+                ),
+                lease_duration=lease_duration, progress_callback=report_progress,
+            )
+        result_count = 0 if already_certified else stats.result_count
+        issue_count = 0 if already_certified else stats.blocked_count
+    _finish_claimed_settlement_rebuild(
+        factory, job_id=job_id, claim_id=claim_id,
+        stats=SettlementStats(detail_count=result_count, issue_count=issue_count, ranking_count=0, monthly_count=0),
+    )
+    return True
+
+
+def _certify_monthly_balance_inputs(session, scope):
+    from dataclasses import replace
+    from apps.worker.account_qualification import FIRST_MONTH
+    from apps.worker.monthly_close_scope import current_frozen_stores, preceding_period_has_no_statement
+    from apps.worker.monthly_statement_balances import (
+        MonthlyBalanceNotReady, carryforward_store_ids, preceding_statement_for_balance,
+    )
+    from apps.worker.settlement import materialize_deferred_monthly_adjustments
+
+    if scope.unscoped_issue_count:
+        return scope, ()
+    carried = carryforward_store_ids(session, month=scope.month)
+    frozen = current_frozen_stores(session, scope.month)
+    blocked = set(scope.blocked_store_ids)
+    blocked.update(materialize_deferred_monthly_adjustments(session, month=scope.month))
+    relation = _sparse_authority_relation((scope.month,), monthly_scope=scope)
+    stores = set(session.scalars(select(relation.c.store_id).distinct())) | carried
+    stores.update(session.scalars(select(SettlementStatement.store_id).where(
+        SettlementStatement.is_current.is_(True), SettlementStatement.statement_month == scope.month,
+    )))
+    for store_id in stores - frozen - blocked:
+        if not store_id:
+            raise SettlementSourceNotReady("monthly source cannot establish the responsible store")
+        try:
+            preceding_statement_for_balance(session, store_id=store_id, month=scope.month, first_month=FIRST_MONTH,
+                preceding_period_has_no_statement=preceding_period_has_no_statement(
+                    session, store_id=store_id, month=scope.month,
+                ))
+        except MonthlyBalanceNotReady:
+            blocked.add(store_id)
+    return replace(scope, blocked_store_ids=frozenset(blocked)), tuple(sorted(carried - blocked))
 
 
 def settlement_month_scope_metadata(business_month: str) -> dict[str, str]:

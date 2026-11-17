@@ -631,7 +631,9 @@ def _active_adjustment_condition() -> Any:
     return or_(~is_versioned, is_current)
 
 
-def _sparse_authority_source(months: tuple[str, ...], *, protected_statements=None, protected_entries=None) -> Any:
+def _sparse_authority_source(
+    months: tuple[str, ...], *, protected_statements=None, protected_entries=None, monthly_scope=None,
+) -> Any:
     """Return exact economic rows before reporting dimension expansion.
 
     Optional relations must contain all protected current bills/entries, across
@@ -642,6 +644,7 @@ def _sparse_authority_source(months: tuple[str, ...], *, protected_statements=No
         frozen_authority_rows, frozen_primary_chain_condition,
         protected_entries_relation, protected_slot_condition,
     )
+    from apps.worker.monthly_fee_corrections import reviewed_fee_basis_condition
 
     result_store = case(
         (SettlementFeeResult.fee_direction == PROMOTION_FEE, SettlementFeeResult.sale_store_id),
@@ -678,6 +681,10 @@ def _sparse_authority_source(months: tuple[str, ...], *, protected_statements=No
             ~frozen_primary_chain_condition(entries=protected_entries),
         )
     )
+    if monthly_scope is not None:
+        result_rows = result_rows.where(
+            SettlementFeeResult.account_qualification_version_id == monthly_scope.qualification_version_id,
+        )
     original_store = case(
         (SettlementFeeAdjustment.fee_direction == PROMOTION_FEE, SettlementFeeResult.sale_store_id),
         else_=SettlementFeeResult.verify_store_id,
@@ -734,14 +741,21 @@ def _sparse_authority_source(months: tuple[str, ...], *, protected_statements=No
                     frozen_anchor.c.source_type == 1,
                     frozen_anchor.c.original_fee_result_id == SettlementFeeResult.reverification_anchor_id,
                 ).exists(),
+                reviewed_fee_basis_condition(SettlementFeeAdjustment.original_fee_result_id),
             ),
         )
     )
+    if monthly_scope is not None and monthly_scope.blocked_store_ids:
+        blocked_stores = sorted(monthly_scope.blocked_store_ids)
+        result_rows = result_rows.where(result_store.not_in(blocked_stores))
+        adjustment_rows = adjustment_rows.where(adjustment_store.not_in(blocked_stores))
     return union_all(result_rows, adjustment_rows, frozen_authority_rows(months, entries=protected_entries)).subquery("sparse_authority")
 
 
-def _sparse_authority_relation(months: tuple[str, ...]) -> Any:
-    source = _sparse_authority_source(months)
+def _sparse_authority_relation(months: tuple[str, ...], *, monthly_scope=None) -> Any:
+    if monthly_scope is not None and months != (monthly_scope.month,):
+        raise ValueError("monthly close billing authority must cover exactly its own month")
+    source = _sparse_authority_source(months, monthly_scope=monthly_scope)
 
     common = (
         source.c.source_kind,
@@ -778,8 +792,8 @@ def _sparse_authority_relation(months: tuple[str, ...]) -> Any:
     return expanded
 
 
-def _sparse_monthly_query(month: str) -> Any:
-    source = _sparse_authority_relation((month,))
+def _sparse_monthly_query(month: str, *, monthly_scope=None) -> Any:
+    source = _sparse_authority_relation((month,), monthly_scope=monthly_scope)
     original_promotion = and_(
         source.c.source_kind == "result", source.c.fee_direction == PROMOTION_FEE
     )
@@ -1000,6 +1014,7 @@ def _sparse_write_monthly_partition(
     month: str,
     batch_size: int,
     commit_guard: Callable[[Session], None] | None = None,
+    monthly_scope=None,
 ) -> None:
     with session_factory() as session:
         _sparse_assert_writable(
@@ -1023,7 +1038,7 @@ def _sparse_write_monthly_partition(
         digest = _SparsePartitionDigest.fresh("monthly", month)
         pending: list[dict[str, Any]] = []
         result = session.execute(
-            _sparse_monthly_query(month).execution_options(yield_per=batch_size)
+            _sparse_monthly_query(month, monthly_scope=monthly_scope).execution_options(yield_per=batch_size)
         ).mappings()
         for raw in result:
             values = _sparse_monthly_values(
@@ -1677,6 +1692,7 @@ def build_settlement_sparse_overlay(
     source_job_id: str | None = None,
     commit_guard: Callable[[Session], None] | None = None,
     progress_callback: Callable[[str, int, int | None], None] | None = None,
+    monthly_scope=None,
 ) -> ProjectionManifestSet:
     """Build only claimed monthly/ranking partitions over a pinned base.
 
@@ -1795,6 +1811,7 @@ def build_settlement_sparse_overlay(
             month=month,
             batch_size=batch_size,
             commit_guard=commit_guard,
+            **({"monthly_scope": monthly_scope} if monthly_scope is not None else {}),
         )
         completed_partitions += 1
         if progress_callback is not None:

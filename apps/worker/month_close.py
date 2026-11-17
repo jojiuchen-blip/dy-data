@@ -32,9 +32,10 @@ from apps.api.dy_api.rule_utils import normalize_owner_account_name
 from apps.api.dy_api.models import (
     DataQualityIssue,
     JobRun,
+    SettlementFeeAdjustment,
     SettlementFeeResult,
     SettlementFeeResultCurrent,
-    SettlementStatement,
+    SettlementStatement, SettlementMonthClose,
     AccountQualificationVersion,
     DimAwemeAccount, DimNonCommissionOwnerAccount, DimSkuProductRule,
     DimStore, DimStorePoiMapping, DouyinRefundEvent, HistoricalSaleAttributionDecision,
@@ -71,6 +72,7 @@ READY = "ready"
 QUALIFICATION_NOT_READY = "account_qualification_not_ready"
 CALCULATION_READY = "calculation_ready"
 CALCULATION_INPUT_PROTOCOL = "month-close-calculation-v1"
+MONTHLY_CLOSE_POLICY = "monthly-billing-v2"
 
 # Operator-visible readiness alert type.  One row per (business_month, state),
 # removed again as soon as the month becomes dispatchable.
@@ -280,7 +282,9 @@ def require_current_month_qualification(session: Session, business_month: str) -
     return version
 
 
-def _calculation_inputs_digest(session: Session, business_month: str, revisions: list[str]) -> str:
+def _calculation_inputs_digest(
+    session: Session, business_month: str, revisions: list[str], *, monthly: bool = False,
+) -> str:
     """Stream only the month's source graph; fee outputs never advance this key."""
     version = frozen_version(session, business_month)
     _, end = month_bounds(business_month)
@@ -297,6 +301,17 @@ def _calculation_inputs_digest(session: Session, business_month: str, revisions:
                    select(SettlementFeeResult.order_id).where(
                        SettlementFeeResult.original_business_month == business_month)).subquery("month_close_orders")
     orders = select(order_scope.c.order_id)
+    if monthly:
+        # A refund can belong to this close even though the original coupon
+        # was verified and billed in a previous month.
+        earlier_refund_orders = select(DouyinRefundEvent.order_id).where(
+            DouyinRefundEvent.occurred_at < end,
+            DouyinRefundEvent.order_id.in_(select(SettlementFeeResult.order_id).where(
+                SettlementFeeResult.original_business_month < business_month,
+            )),
+            or_(DouyinRefundEvent.occurred_at >= start, DouyinRefundEvent.successful_observed_at >= start),
+        )
+        orders = select(union(orders, earlier_refund_orders).subquery().c.order_id)
     all_coupons = union(month_coupons, select(RawDouyinOrderCoupon.coupon_id).where(RawDouyinOrderCoupon.order_id.in_(orders)))
     skus = union(select(RawDouyinOrder.sku_id).where(RawDouyinOrder.order_id.in_(orders)),
                  select(RawDouyinVerifyRecord.sku_id).where(RawDouyinVerifyRecord.coupon_id.in_(all_coupons)))
@@ -310,7 +325,8 @@ def _calculation_inputs_digest(session: Session, business_month: str, revisions:
                    select(RawAwemeBinding.account_id).where(bindings),
                    select(DimStorePoiMapping.store_id).where(DimStorePoiMapping.poi_id.in_(pois)),
                    select(HistoricalSaleAttributionDecision.store_id).where(HistoricalSaleAttributionDecision.business_month == business_month))
-    digest = hashlib.sha256(json.dumps({"protocol": CALCULATION_INPUT_PROTOCOL, "month": business_month,
+    digest = hashlib.sha256(json.dumps({"protocol": MONTHLY_CLOSE_POLICY if monthly else CALCULATION_INPUT_PROTOCOL,
+        "month": business_month,
         "days": revisions, "qualification": [version.version_id, version.content_sha256],
         "decisions": month_decision_digest(session, business_month)}, sort_keys=True).encode())
 
@@ -370,6 +386,16 @@ def _calculation_inputs_digest(session: Session, business_month: str, revisions:
         feed(DimNonCommissionOwnerAccount,
              DimNonCommissionOwnerAccount.normalized_owner_account_name.in_(normalized_names[offset:offset + 500]),
              ("normalized_owner_account_name", "owner_account_name", "is_active"))
+    if monthly:
+        previous = previous_business_month(start)
+        prior = session.get(SettlementMonthClose, previous)
+        if prior is not None:
+            digest.update(json.dumps([prior.source_input_sha256, prior.is_complete,
+                prior.blocked_store_ids, prior.unscoped_issue_count], separators=(",", ":")).encode())
+        feed(SettlementFeeAdjustment, (SettlementFeeAdjustment.adjustment_posting_month == business_month)
+             & (SettlementFeeAdjustment.adjustment_type == 4),
+             ("adjustment_id", "original_fee_result_id", "coupon_id", "fee_direction",
+              "adjustment_fee_cent", "rule_version"))
     return digest.hexdigest()
 
 
@@ -448,6 +474,9 @@ def ensure_month_close_job(
     if not MONTH_CLOSE_ENABLED:
         # Fail closed: never dispatch an unverified automatic close.
         return None
+    from src.dy_data.settlement_schedule import monthly_settlement_enabled
+    if monthly_settlement_enabled():
+        return _ensure_certified_close_job(factory, now=now)
     business_month = previous_business_month(now)
     with session_scope(factory) as session:
         if business_month >= FIRST_MONTH:
@@ -494,6 +523,67 @@ def ensure_month_close_job(
             },
         )
     return job_id
+
+
+def _ensure_certified_close_job(factory: sessionmaker, *, now: datetime | None) -> str | None:
+    """Dispatch one changed incomplete month, newest first, without reopening a completed month."""
+    business_month = previous_business_month(now)
+    month = business_month
+    last_job = None
+    with session_scope(factory) as session:
+        if _active_rebuild_exists(session):
+            return None
+        while month >= FIRST_MONTH:
+            job_id = _queue_certified_month(session, month, now=now)
+            if job_id is not None:
+                job, created = job_id
+                last_job = last_job or job
+                if created:
+                    return job
+            month = previous_business_month(month_bounds(month)[0])
+    return last_job
+
+
+def _queue_certified_month(
+    session: Session, month: str, *, now: datetime | None,
+) -> tuple[str, bool] | None:
+    prior = session.get(SettlementMonthClose, month)
+    if prior is not None and prior.is_complete:
+        return prior.source_job_id, False
+    revisions = published_days_revisions(session, month)
+    if revisions is None:
+        _sync_readiness_issue(session, month, WATERMARK_INCOMPLETE)
+        return None
+    try:
+        qualification = freeze_month(session, month, now=now)
+    except AccountQualificationError:
+        _sync_readiness_issue(session, month, QUALIFICATION_NOT_READY)
+        return None
+    prior = session.get(SettlementMonthClose, month, populate_existing=True)
+    if prior is not None and prior.is_complete:
+        return prior.source_job_id, False
+    _sync_readiness_issue(session, month, CALCULATION_READY)
+    watermark = _calculation_inputs_digest(session, month, revisions, monthly=True)
+    job_id = month_close_job_id(month, watermark[:32])
+    existing = session.get(JobRun, job_id)
+    if existing is not None:
+        if (existing.metadata_json or {}).get("calculation_input_sha256") != watermark:
+            raise RuntimeError("month calculation input identity conflicts with existing job")
+        return job_id, False
+    if _active_rebuild_exists(session):
+        return None
+    queue_job_run(session, job_id, SETTLEMENT_REBUILD_JOB_NAME, metadata_json={
+        **settlement_month_scope_metadata(month),
+        "trigger": "month_close",
+        "source_run_id": job_id,
+        "source_watermark": watermark,
+        "account_qualification_version_id": qualification.version_id,
+        "calculation_input_protocol": CALCULATION_INPUT_PROTOCOL,
+        "calculation_input_sha256": watermark,
+        "month_close_phase": "calculate",
+        "monthly_close_policy": MONTHLY_CLOSE_POLICY,
+    })
+    return job_id, True
 
 
 def _active_rebuild_exists(session: Session) -> bool:

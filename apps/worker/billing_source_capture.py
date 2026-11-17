@@ -31,12 +31,12 @@ class BillingSourceDriftError(ValueError):
 
 
 def collect_billing_sources(
-    session: Session, *, months: Sequence[str], slots: Sequence[tuple[str, str]] = (),
+    session: Session, *, months: Sequence[str], slots: Sequence[tuple[str, str]] = (), monthly_scope=None,
 ) -> list[StatementSource]:
     """Capture the same source identities as the sparse aggregation under slot locks."""
     if not months:
         return []
-    relation = _sparse_authority_relation(tuple(months))
+    relation = _sparse_authority_relation(tuple(months), monthly_scope=monthly_scope)
     query = select(
         relation.c.source_kind, relation.c.source_id, relation.c.store_id, relation.c.month,
         relation.c.frozen_entry_id, relation.c.basis_entry_id,
