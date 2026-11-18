@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ApiMeta(BaseModel):
@@ -883,6 +883,31 @@ class ClueOverviewMetrics(BaseModel):
     verified_count: int = 0
     self_store_verify_rate: float = 0
     pending_reassign_count: int = 0
+    follow_24h_rate: float | None = None
+    follow_any_rate: float | None = None
+    verification_rate: float | None = None
+    self_store_verification_count: int | None = None
+    follow_24h_numerator: int | None = None
+    follow_any_numerator: int | None = None
+    follow_denominator: int | None = None
+    verification_numerator: int | None = None
+    verification_denominator: int | None = None
+    received_task_count: int | None = None
+
+
+class ClueVerificationFact(BaseModel):
+    verify_id: str
+    verified_at: datetime
+    verified_store_id: str | None = None
+    verified_store_name: str | None = None
+    assignment_round_id: str
+    effective_assignment_round_id: str | None = None
+    credited_assignment_round_id: str | None = None
+    is_cross_store: bool
+    is_after_close: bool
+    had_valid_follow_before_verify: bool
+    counts_for_store_verification_rate: bool
+    is_back_credit: bool
 
 
 class ClueAssignmentRoundRow(BaseModel):
@@ -899,8 +924,12 @@ class ClueAssignmentRoundRow(BaseModel):
     current_assigned_store_name: str | None = None
     is_current_round: bool = False
     can_operate_current_round: bool = False
+    routing_mode: Literal["flow", "direct", "original"] | None = None
+    can_delete_follow_up_records: bool = False
     round_effective_status: Literal["active", "inactive"] = "inactive"
     round_status: str
+    closed_at: datetime | None = None
+    terminal_reason: str | None = None
     assigned_at: datetime | None = None
     expires_at: datetime | None = None
     first_sla_expires_at: datetime | None = None
@@ -917,6 +946,7 @@ class ClueAssignmentRoundRow(BaseModel):
     product_type: str | None = None
     author_nickname: str | None = None
     followed_at: datetime | None = None
+    appointment_at: datetime | None = None
     follow_result: str
     reassign_reason: str | None = None
     reassigned_at: datetime | None = None
@@ -924,6 +954,13 @@ class ClueAssignmentRoundRow(BaseModel):
     verified_store_name: str | None = None
     verified_at: datetime | None = None
     is_self_store_verified: bool = False
+    verification_summary: str | None = None
+    verification_facts: list[ClueVerificationFact] = Field(default_factory=list)
+    follow_24h_numerator: int = 0
+    follow_any_numerator: int = 0
+    follow_denominator: int = 0
+    verification_numerator: int = 0
+    verification_denominator: int = 0
 
 
 class ClueAssignmentRoundData(BaseModel):
@@ -935,6 +972,7 @@ class ClueFollowUpRequest(BaseModel):
     assignment_round_id: str
     follow_result: Literal["appointment", "further_follow_up", "lost", "unreachable", "request_store_change"]
     note: str | None = None
+    appointment_at: AwareDatetime | None = None
 
     @field_validator("assignment_round_id")
     def non_empty_assignment_round_id(cls, value: str) -> str:
@@ -968,6 +1006,7 @@ class ClueFollowUpRecordRow(BaseModel):
         "failed",
     ]
     note: str | None = None
+    appointment_at: datetime | None = None
     operator_user_id: str | None = None
     operator_username: str | None = None
     created_at: datetime
@@ -1268,6 +1307,9 @@ class ClueHeadquartersPoolEntryRow(BaseModel):
     source_decision_id: str | None = None
     source_rule_version_id: str | None = None
     allocation_cycle_id: str | None = None
+    routing_product_id: str | None = None
+    pending_round_no: int | None = None
+    can_resume: bool = False
 
 
 class ClueHeadquartersPoolSummary(BaseModel):
