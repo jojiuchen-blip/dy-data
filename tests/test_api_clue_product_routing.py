@@ -112,3 +112,39 @@ def test_strict_field_patch_and_shared_base_contract(client):
     publish = client.put(f"{BASE}/shared-rule", json={"rules": {"first_follow_up_sla_hours": 48}, "preview": False})
     assert publish.status_code == 200
     assert publish.json()["data"]["after"]["rule_version_id"]
+
+
+def test_shared_maintainer_human_session_has_page_but_no_products_or_grant_management(client, db_session):
+    _login(client)
+    assert client.get(f"{BASE}/shared-rule/grants").json()["data"]["user_ids"] == []
+    grants = client.put(f"{BASE}/shared-rule/grants", json={"user_ids": ["product-owner"]})
+    assert grants.status_code == 200
+    assert grants.json()["data"]["user_ids"] == ["product-owner"]
+    assert "product_id" not in grants.json()["data"]
+    identity = _login(client, "owner", "owner-password").json()["data"]
+    assert identity["role"] == "store"
+    assert "D05" in identity["page_keys"]
+    listing = client.get(f"{BASE}/products")
+    assert listing.status_code == 200
+    data = listing.json()["data"]
+    assert data["rows"] == [] and data["total"] == 0
+    assert data["can_manage_shared_rule"] is True
+    assert data["can_manage_grants"] is False
+    assert client.get(f"{BASE}/shared-rule").json()["data"]["can_manage"] is True
+    preview = client.put(f"{BASE}/shared-rule", json={"rules": {"first_follow_up_sla_hours": 48}, "preview": True})
+    assert preview.status_code == 200 and preview.json()["data"]["status"] == "preview"
+    assert client.get(f"{BASE}/shared-rule").json()["data"]["rule_version_id"] is None
+    published = client.put(f"{BASE}/shared-rule", json={"rules": {"first_follow_up_sla_hours": 48}, "preview": False})
+    assert published.status_code == 200
+    assert published.json()["data"]["after"]["first_follow_up_sla_hours"] == 48
+    assert client.get(f"{BASE}/shared-rule/grants").status_code == 403
+    assert client.put(f"{BASE}/shared-rule/grants", json={"user_ids": []}).status_code == 403
+    assert client.get(f"{BASE}/products/jc-product/grants").status_code == 403
+    assert client.post("/api/v1/admin/clue-allocation/rules", json={"name": "No", "scope": {"scope_type": "global"}}).status_code == 403
+    denied = client.post(f"{BASE}/products/batch", json={"product_ids": ["jc-product"], "action": "disable", "preview": False})
+    assert denied.json()["data"]["results"][0]["error"]["code"] == "PRODUCT_FORBIDDEN"
+    assert db_session.get(User, "product-owner").store_scope_mode == "none"
+    _login(client)
+    assert client.put(f"{BASE}/shared-rule/grants", json={"user_ids": []}).status_code == 200
+    _login(client, "owner", "owner-password")
+    assert client.get(f"{BASE}/shared-rule").status_code == 403

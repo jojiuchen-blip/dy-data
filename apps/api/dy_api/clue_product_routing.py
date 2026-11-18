@@ -25,7 +25,7 @@ from apps.api.dy_api.models import (
     ClueAllocationAuditLog, ClueAllocationRule, ClueAllocationRuleVersion,
     ClueCenterOrder, ClueLeadRuleVersionBinding, ClueMasterLead,
     ClueProductRoutingConfig, ClueProductRoutingGrant, ClueProductRoutingOperation,
-    ClueProductStoreListMember, ClueProductStoreListVersion, DimSkuProductRule,
+    ClueProductStoreListMember, ClueProductStoreListVersion, ClueSharedRuleMaintainer, DimSkuProductRule,
     DimStore, RawDouyinClue, User, utcnow,
 )
 from apps.worker.clue_rule_versions import (
@@ -172,7 +172,8 @@ def list_products(
     selected = session.execute(query.order_by("product_id").offset((page - 1) * page_size).limit(page_size)).mappings().all()
     rows = _product_snapshots(session, actor, [dict(row) for row in selected])
     return {"rows": rows, "total": total, "page": page, "page_size": page_size,
-            "can_manage_grants": _can_manage_grants(session, actor)}
+            "can_manage_grants": _can_manage_grants(session, actor),
+            "can_manage_shared_rule": _can_manage_shared_rule(session, actor)}
 
 
 def batch_product_changes(
@@ -295,7 +296,7 @@ def replace_product_grants(
 
 def get_shared_rule(session: Session, actor: Any) -> dict[str, Any]:
     """Read the explicitly identified Jingcheng base, never a pilot exception."""
-    _require_grant_manager(session, actor)
+    _require_shared_rule_maintainer(session, actor)
     version = _shared_base_version(session)
     return _shared_snapshot(session, version)
 
@@ -305,9 +306,10 @@ def publish_shared_rule(
     request_id: str | None = None,
 ) -> dict[str, Any]:
     """Publish a new shared base without altering any existing product pointer."""
-    _require_grant_manager(session, actor)
+    _require_shared_rule_maintainer(session, actor)
     if not preview:
         _lock_rule_publications(session)
+        _require_shared_rule_maintainer(session, actor)
     base = _ensure_shared_base_rule(session, actor) if not preview else None
     before = get_shared_rule(session, actor)
     after = {**before, **_patched_rule(before, rules)}
@@ -319,6 +321,38 @@ def publish_shared_rule(
         after = _shared_snapshot(session, version)
         _audit(session, actor, "product_routing_shared_rule", None, before, after, request_id=request_id)
     return {"before": before, "after": after, "status": "preview" if preview else "success"}
+
+
+def get_shared_rule_grants(session: Session, actor: Any) -> dict[str, Any]:
+    """Expose maintainer membership and eligible accounts only to global admins."""
+    _require_grant_manager(session, actor)
+    users = session.scalars(select(User).where(User.status == "active", User.is_initialized.is_(True)).order_by(User.username)).all()
+    ids = list(session.scalars(select(ClueSharedRuleMaintainer.user_id).order_by(ClueSharedRuleMaintainer.user_id)))
+    return {"user_ids": ids, "users": [
+        {"user_id": user.user_id, "username": user.username, "display_name": user.display_name} for user in users]}
+
+
+def replace_shared_rule_grants(
+    session: Session, actor: Any, user_ids: Sequence[str], *, request_id: str | None = None,
+) -> dict[str, Any]:
+    """Replace explicit maintainers without granting product or store authority."""
+    _require_grant_manager(session, actor)
+    _lock_rule_publications(session)
+    _require_grant_manager(session, actor)
+    before = get_shared_rule_grants(session, actor)
+    normalized = _normalized_ids(user_ids)
+    eligible = set(session.scalars(select(User.user_id).where(
+        User.user_id.in_(normalized), User.status == "active", User.is_initialized.is_(True))))
+    if eligible != set(normalized):
+        raise ProductRoutingError("INVALID_GRANTEE", "只能授权已初始化且启用的账号", http_status=422)
+    if set(before["user_ids"]) != set(normalized):
+        session.execute(delete(ClueSharedRuleMaintainer))
+        session.add_all([ClueSharedRuleMaintainer(user_id=user_id, granted_by=_actor_key(actor)) for user_id in normalized])
+        session.flush()
+        _audit(session, actor, "product_routing_shared_grants", None,
+               {"user_ids": before["user_ids"]}, {"user_ids": normalized}, request_id=request_id,
+               detail={"scope_key": SHARED_BASE_SCOPE_KEY})
+    return get_shared_rule_grants(session, actor)
 
 
 def _catalog():
@@ -628,6 +662,19 @@ def _can_manage_grants(session: Session, actor: Any) -> bool:
     return bool(user and user.status == "active" and user.is_initialized and user.role in {"admin", "highest_admin"} and user.store_scope_mode == "all")
 
 
+def _can_manage_shared_rule(session: Session, actor: Any) -> bool:
+    if _can_manage_grants(session, actor):
+        return True
+    user_id = getattr(actor, "user_id", None)
+    if not user_id or getattr(actor, "auth_type", "") != "user":
+        return False
+    return bool(session.scalar(select(exists().where(
+        ClueSharedRuleMaintainer.user_id == user_id,
+        User.user_id == ClueSharedRuleMaintainer.user_id,
+        User.status == "active", User.is_initialized.is_(True),
+    ))))
+
+
 def _require_human_actor(actor: Any) -> None:
     if getattr(actor, "auth_type", "") not in {"user", "env_admin"}:
         raise ProductRoutingError("HUMAN_SESSION_REQUIRED", "商品管理须使用本人交互登录会话", http_status=403)
@@ -636,7 +683,13 @@ def _require_human_actor(actor: Any) -> None:
 def _require_grant_manager(session: Session, actor: Any) -> None:
     _require_human_actor(actor)
     if not _can_manage_grants(session, actor):
-        raise ProductRoutingError("GRANT_MANAGEMENT_FORBIDDEN", "仅全部门店范围管理员可以管理商品授权与共享基座", http_status=403)
+        raise ProductRoutingError("GRANT_MANAGEMENT_FORBIDDEN", "仅全部门店范围管理员可以管理商品授权与共享基座维护人", http_status=403)
+
+
+def _require_shared_rule_maintainer(session: Session, actor: Any) -> None:
+    _require_human_actor(actor)
+    if not _can_manage_shared_rule(session, actor):
+        raise ProductRoutingError("SHARED_RULE_FORBIDDEN", "仅获授权的精诚共享规则维护人可以维护共享基座", http_status=403)
 
 
 def _actor_key(actor: Any) -> str:

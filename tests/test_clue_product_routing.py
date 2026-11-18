@@ -9,12 +9,12 @@ from sqlalchemy import func, select
 from apps.api.dy_api.clue_product_routing import (
     ProductRoutingError, batch_product_changes, bind_product_routing, get_shared_rule,
     has_published_product_store_list, list_products, load_product_store_ids,
-    publish_shared_rule, replace_product_grants,
+    publish_shared_rule, replace_product_grants, get_shared_rule_grants, replace_shared_rule_grants,
 )
 from apps.api.dy_api.models import (
     ClueAllocationAuditLog, ClueAllocationRuleVersion, ClueLeadRuleVersionBinding,
     ClueMasterLead, ClueProductRoutingConfig, ClueProductStoreListVersion,
-    DimSkuProductRule, DimStore, User,
+    ClueSharedRuleMaintainer, DimSkuProductRule, DimStore, User,
 )
 
 
@@ -250,3 +250,55 @@ def test_confirmed_all_matching_ids_do_not_expand_at_commit(db_session):
         "action": "disable", "preview": False})
     assert result["total"] == 2
     assert db_session.get(ClueProductRoutingConfig, "new-match") is None
+
+
+def test_shared_maintainers_are_explicit_and_do_not_gain_products_or_delegation(db_session):
+    _seed(db_session)
+    db_session.add_all([
+        User(user_id="maintainer", username="maintainer", display_name="Maintainer", role="store", store_scope_mode="none", status="active", is_initialized=True),
+        User(user_id="jc-owner", username="jc-owner", display_name="JC Owner", role="store", store_scope_mode="none", status="active", is_initialized=True),
+    ])
+    db_session.commit()
+    maintainer = SimpleNamespace(user_id="maintainer", username="maintainer", auth_type="user", role="store", store_scope_mode="none")
+    owner = SimpleNamespace(user_id="jc-owner", username="jc-owner", auth_type="user", role="store", store_scope_mode="none")
+    assert db_session.scalar(select(func.count()).select_from(ClueSharedRuleMaintainer)) == 0
+    replace_product_grants(db_session, ADMIN, "p-jc", ["jc-owner"])
+    assert not list_products(db_session, owner)["can_manage_shared_rule"]
+    with pytest.raises(ProductRoutingError, match="仅获授权的精诚共享规则维护人"):
+        get_shared_rule(db_session, owner)
+    grants = replace_shared_rule_grants(db_session, ADMIN, ["maintainer"])
+    assert grants["user_ids"] == ["maintainer"]
+    assert "product_id" not in grants
+    listing = list_products(db_session, maintainer)
+    assert listing["can_manage_shared_rule"] is True
+    assert listing["can_manage_grants"] is False
+    assert listing["rows"] == [] and listing["total"] == 0
+    preview = publish_shared_rule(db_session, maintainer, {"first_follow_up_sla_hours": 48}, preview=True)
+    assert preview["status"] == "preview"
+    assert get_shared_rule(db_session, ADMIN)["rule_version_id"] is None
+    published = publish_shared_rule(db_session, maintainer, {"first_follow_up_sla_hours": 48}, preview=False)
+    assert published["after"]["first_follow_up_sla_hours"] == 48
+    assert get_shared_rule(db_session, maintainer)["can_manage"] is True
+    denied = batch_product_changes(db_session, maintainer, {"product_ids": ["p-jc"], "action": "disable", "preview": False})
+    assert denied["results"][0]["error"]["code"] == "PRODUCT_FORBIDDEN"
+    assert denied["results"][0]["before"] == {}
+    for operation in (
+        lambda: get_shared_rule_grants(db_session, maintainer),
+        lambda: replace_shared_rule_grants(db_session, maintainer, ["maintainer", "jc-owner"]),
+        lambda: replace_product_grants(db_session, maintainer, "p-jc", ["maintainer"]),
+    ):
+        with pytest.raises(ProductRoutingError, match="仅全部门店范围管理员"):
+            operation()
+    assert db_session.get(User, "maintainer").store_scope_mode == "none"
+    assert db_session.get(User, "maintainer").role == "store"
+    before_audits = db_session.scalar(select(func.count()).select_from(ClueAllocationAuditLog).where(
+        ClueAllocationAuditLog.event_type == "product_routing_shared_grants"))
+    replace_shared_rule_grants(db_session, ADMIN, ["maintainer"])
+    assert db_session.scalar(select(func.count()).select_from(ClueAllocationAuditLog).where(
+        ClueAllocationAuditLog.event_type == "product_routing_shared_grants")) == before_audits
+    with pytest.raises(ProductRoutingError, match="已初始化且启用"):
+        replace_shared_rule_grants(db_session, ADMIN, ["missing"])
+    assert get_shared_rule_grants(db_session, ADMIN)["user_ids"] == ["maintainer"]
+    replace_shared_rule_grants(db_session, ADMIN, [])
+    with pytest.raises(ProductRoutingError, match="仅获授权的精诚共享规则维护人"):
+        publish_shared_rule(db_session, maintainer, {"first_follow_up_sla_hours": 24}, preview=False)

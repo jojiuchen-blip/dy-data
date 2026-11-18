@@ -17,7 +17,7 @@ JSON_TYPE = sa.JSON().with_variant(postgresql.JSONB(), "postgresql")
 NEW_TABLES = (
     "clue_product_routing_configs", "clue_product_store_list_versions",
     "clue_product_store_list_members", "clue_product_routing_grants",
-    "clue_product_routing_operations",
+    "clue_product_routing_operations", "clue_shared_rule_maintainers",
 )
 
 
@@ -73,6 +73,12 @@ def upgrade():
         sa.Column("request_sha256", sa.String(64), nullable=False),
         sa.Column("result_json", JSON_TYPE, nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    )
+    op.create_table(
+        "clue_shared_rule_maintainers",
+        sa.Column("user_id", sa.Text(), sa.ForeignKey("users.user_id", ondelete="RESTRICT"), primary_key=True),
+        sa.Column("granted_by", sa.Text(), nullable=False),
+        sa.Column("granted_at", sa.DateTime(timezone=True), nullable=False),
     )
 
 

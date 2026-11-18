@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 
 from apps.api.dy_api.clue_product_routing import (
     ProductRoutingError, batch_product_changes, get_product_grants, get_shared_rule,
-    list_products, publish_shared_rule, replace_product_grants,
+    get_shared_rule_grants, list_products, publish_shared_rule, replace_product_grants,
+    replace_shared_rule_grants,
 )
 from apps.api.dy_api.clue_product_routing_schemas import (
     ProductRoutingBatchRequest, ProductRoutingGrantsRequest, SharedRoutingRuleRequest,
@@ -111,6 +112,32 @@ def read_shared_routing_rule(
     try:
         return _response(request, get_shared_rule(session, actor))
     except ProductRoutingError as exc:
+        raise _http_error(exc) from None
+
+
+@router.get("/shared-rule/grants", summary="查询精诚共享规则维护人与可授权账号")
+def read_shared_rule_maintainers(
+    request: Request, actor: AuthContext = Depends(_human_user), session: Session = Depends(_session),
+) -> dict[str, Any]:
+    """Only global admins may inspect or delegate maintainer membership."""
+    try:
+        return _response(request, get_shared_rule_grants(session, actor))
+    except ProductRoutingError as exc:
+        raise _http_error(exc) from None
+
+
+@router.put("/shared-rule/grants", summary="替换精诚共享规则维护人授权")
+def update_shared_rule_maintainers(
+    request: Request, body: ProductRoutingGrantsRequest,
+    actor: AuthContext = Depends(_human_user), session: Session = Depends(_session),
+) -> dict[str, Any]:
+    """Grant shared-base maintenance without widening any product/store scope."""
+    try:
+        data = replace_shared_rule_grants(session, actor, body.user_ids, request_id=_request_id(request))
+        session.commit()
+        return _response(request, data)
+    except ProductRoutingError as exc:
+        session.rollback()
         raise _http_error(exc) from None
 
 

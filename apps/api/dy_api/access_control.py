@@ -11,6 +11,7 @@ from apps.api.dy_api.models import (
     AccessPage,
     AccountPermissionAuditLog,
     ClueProductRoutingGrant,
+    ClueSharedRuleMaintainer,
     RolePagePermission,
     User,
     UserPagePermissionOverride,
@@ -170,6 +171,9 @@ def effective_page_keys(session: Any, user: User | None, *, role: str | None = N
     # the old global-rule write dependencies remain administrator-only.
     if session.scalar(select(ClueProductRoutingGrant.product_id).where(
         ClueProductRoutingGrant.user_id == user.user_id).limit(1)):
+        values.add("D05")
+    if session.scalar(select(ClueSharedRuleMaintainer.user_id).where(
+        ClueSharedRuleMaintainer.user_id == user.user_id).limit(1)):
         values.add("D05")
     values.add("A03")
     values.discard("D10")

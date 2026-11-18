@@ -4742,6 +4742,16 @@ class ClueProductRoutingGrant(Base):
     granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class ClueSharedRuleMaintainer(Base):
+    """Explicit shared-base maintenance, independent of store/product grants."""
+
+    __tablename__ = "clue_shared_rule_maintainers"
+
+    user_id: Mapped[str] = mapped_column(Text, ForeignKey("users.user_id", ondelete="RESTRICT"), primary_key=True)
+    granted_by: Mapped[str] = mapped_column(Text)
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class ClueProductRoutingOperation(Base):
     """Persist a batch response for safe retries after transport uncertainty."""
 
