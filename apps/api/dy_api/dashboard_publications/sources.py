@@ -24,18 +24,20 @@ _FINANCE_SHARED = (
     "settlement_projection_partition_manifest", "settlement_projection_compaction_closure",
     "settlement_statement", "settlement_month_close", "settlement_statement_balance",
 )
+_CLUE_TASK_SOURCES = (
+    "clue_assignment_rounds", "clue_follow_up_records", "clue_master_leads", "clue_center_orders",
+    "dim_sku_product_rules", "raw_douyin_orders", "raw_douyin_clues", "raw_douyin_order_coupons",
+    "raw_douyin_verify_records", "raw_douyin_refund_records", "douyin_refund_event",
+    "settlement_order_details", "dim_store_poi_mappings", "dim_stores",
+)
 MODULE_SOURCE_TABLES: dict[str, tuple[str, ...]] = {
-    "douyin-ranking": (
-        "raw_douyin_orders", "raw_douyin_clues", "clue_center_orders", "clue_assignment_rounds",
-        "clue_follow_up_records", "raw_douyin_order_coupons", "raw_douyin_verify_records",
-        "dim_aweme_accounts", "raw_aweme_bindings", "dim_store_poi_mappings", "dim_sku_product_rules",
+    "douyin-ranking": _CLUE_TASK_SOURCES + (
+        "dim_aweme_accounts", "raw_aweme_bindings",
         "ranking_store_org_history", "ranking_area_corrections", "ranking_store_eligibility", "ranking_lead_org_bindings",
     ),
     "sales": ("settlement_order_details", "dim_stores", "dim_sku_product_rules"),
-    "clue-overview": (
-        "clue_assignment_rounds", "clue_center_orders", "clue_master_leads", "dim_sku_product_rules",
-        "raw_douyin_orders", "raw_douyin_clues", "dim_stores", "dim_store_org_assignments",
-        "ranking_store_org_history",
+    "clue-overview": _CLUE_TASK_SOURCES + (
+        "dim_store_org_assignments", "ranking_store_org_history",
     ),
     "settlement": _FINANCE_SHARED + (
         "settlement_statement_line", "settlement_statement_entry", "settlement_fee_result",
@@ -83,6 +85,7 @@ MODULE_CONTRACT_VERSIONS = {
     "clue-overview": "product-type-v2",
     "settlement": "commission-product-type-v3",
 }
+TASK_METRICS_CONTRACT_VERSIONS = {"clue-overview": "clue-task-v3", "douyin-ranking": "clue-task-v1"}
 
 
 def effective_organization_version(session: Session, cutoff: datetime) -> tuple[str, str | None]:
@@ -137,6 +140,8 @@ def source_fingerprint(session: Session, module: str | None = None, *, now: date
         payload["order_attribution_version"] = "historical-store-account-v1"
     if module in MODULE_CONTRACT_VERSIONS:
         payload["contract_version"] = MODULE_CONTRACT_VERSIONS[module]
+    if module in TASK_METRICS_CONTRACT_VERSIONS:
+        payload["task_metrics_contract"] = TASK_METRICS_CONTRACT_VERSIONS[module]
     return hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode()).hexdigest()
 
 

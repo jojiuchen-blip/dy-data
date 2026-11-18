@@ -15,7 +15,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session
 
 from .schema import heads, runs
-from .sources import MODULE_CONTRACT_VERSIONS
+from .sources import MODULE_CONTRACT_VERSIONS, TASK_METRICS_CONTRACT_VERSIONS
 
 REFRESH_INTERVAL = timedelta(minutes=5)
 MIN_DELETE_AGE = timedelta(0)
@@ -49,6 +49,8 @@ class Publication:
     published_at: datetime
     next_refresh_at: datetime | None
     status: str = "available"
+    contract_version: str | None = None
+    task_metrics_contract: str | None = None
 
     def meta(self) -> dict[str, Any]:
         """Return the value of meta.publication; all dates are explicit UTC."""
@@ -57,6 +59,8 @@ class Publication:
             "dataAsOf": self.data_as_of.isoformat() if self.data_as_of else None,
             "publishedAt": self.published_at.isoformat(), "status": self.status,
             "nextRefreshAt": self.next_refresh_at.isoformat() if self.next_refresh_at else None,
+            "contractVersion": self.contract_version,
+            "taskMetricsContract": self.task_metrics_contract,
         }
 
 
@@ -65,6 +69,8 @@ def _publication(row: Mapping[str, Any]) -> Publication:
         id=row["id"], module=row["module"], cutoff=utc(row["cutoff"]),
         data_as_of=utc(row["data_as_of"]), published_at=utc(row["published_at"]),
         next_refresh_at=utc(row["next_refresh_at"]),
+        contract_version=(row["stats_json"] or {}).get("contract_version"),
+        task_metrics_contract=(row["stats_json"] or {}).get("task_metrics_contract"),
     )
 
 
@@ -94,11 +100,11 @@ def resolve_publication(
         raise PublicationError("PUBLICATION_NOT_READY", "首次分析版本尚未发布", 503)
     expected_contract = MODULE_CONTRACT_VERSIONS.get(module)
     actual_contract = (row["stats_json"] or {}).get("contract_version")
-    # Changed analytical classifications need a new complete publication.
-    # Original financial rows and independent ranking retain their contracts.
+    # Changed analytical contracts require a complete publication built with
+    # their own frozen facts. Added columns on an old head are never valid data.
     if expected_contract and actual_contract != expected_contract:
         if publication_id is not None:
-            raise PublicationError("PUBLICATION_EXPIRED", "指定分析版本使用旧商品分类，请刷新后重试", 410)
+            raise PublicationError("PUBLICATION_EXPIRED", "指定分析版本使用旧指标契约，请刷新后重试", 410)
         if (allow_previous_deployment and module == "settlement"
                 and isinstance(actual_contract, str) and actual_contract):
             # The deployment pin binds a complete snapshot to the incoming
@@ -116,7 +122,18 @@ def resolve_publication(
             compatible = session.execute(previous).mappings().first()
             if compatible is not None:
                 return replace(_publication(compatible), status="stale")
-        raise PublicationError("PUBLICATION_NOT_READY", "新版商品分类分析尚未发布", 503)
+        raise PublicationError("PUBLICATION_NOT_READY", "新版指标分析尚未发布", 503)
+    expected_task_contract = TASK_METRICS_CONTRACT_VERSIONS.get(module)
+    actual_task_contract = (row["stats_json"] or {}).get("task_metrics_contract")
+    if expected_task_contract and actual_task_contract != expected_task_contract:
+        if allow_previous_deployment and actual_task_contract is None:
+            # Prior complete views retain their physical/classification
+            # contract. Only HTTP may display them with new metrics absent;
+            # the worker's strict readiness still requires new task facts.
+            return replace(_publication(row), status="refreshing")
+        if publication_id is not None:
+            raise PublicationError("PUBLICATION_EXPIRED", "指定分析版本尚未提供任务指标，请刷新后重试", 410)
+        raise PublicationError("PUBLICATION_NOT_READY", "新版任务指标尚未发布", 503)
     publication = _publication(row)
     # A historical successful version remains readable even after a failed
     # replacement. Status describes freshness, never changes its identity.
@@ -250,6 +267,8 @@ def publish_module(
             if (not force and current and fingerprint and current["source_fingerprint"] == token
                     and (module not in MODULE_CONTRACT_VERSIONS or
                          (current["stats_json"] or {}).get("contract_version") == MODULE_CONTRACT_VERSIONS[module])
+                    and (module not in TASK_METRICS_CONTRACT_VERSIONS or
+                         (current["stats_json"] or {}).get("task_metrics_contract") == TASK_METRICS_CONTRACT_VERSIONS[module])
                     and latest_status == "success"):
                 due = utc(current["next_refresh_at"]) is None or cutoff >= utc(current["next_refresh_at"])
                 if not refresh_on_interval or not due:
@@ -338,6 +357,8 @@ def publish_module(
                 published_at = datetime.now(UTC)
                 if module in MODULE_CONTRACT_VERSIONS:
                     statistics = {**statistics, "contract_version": MODULE_CONTRACT_VERSIONS[module]}
+                if module in TASK_METRICS_CONTRACT_VERSIONS:
+                    statistics = {**statistics, "task_metrics_contract": TASK_METRICS_CONTRACT_VERSIONS[module]}
                 if snapshot_mode:
                     statistics = {**statistics, "source_advanced_during_build": source_advanced}
                 next_refresh_at = published_at if source_advanced else published_at + REFRESH_INTERVAL
@@ -361,7 +382,8 @@ def publish_module(
                 session.info["publication_builder"] = False
                 session.commit()
                 return Publication(publication_id, module, cutoff, observed, published_at, next_refresh_at,
-                                   "stale" if source_advanced else "available")
+                                   "stale" if source_advanced else "available",
+                                   MODULE_CONTRACT_VERSIONS.get(module), TASK_METRICS_CONTRACT_VERSIONS.get(module))
         except Exception as error:
             connection.rollback()
             if snapshot_mode:

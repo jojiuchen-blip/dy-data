@@ -1,5 +1,5 @@
 """Narrow, immutable ranking facts registered with publication metadata."""
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Table, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Table, Text, false
 
 from apps.api.dy_api.dashboard_publications.schema import metadata
 
@@ -40,7 +40,13 @@ rounds = Table("dashboard_ranking_rounds", metadata, _publication_column(),
     Column("lead_key", Text, nullable=False), Column("store_id", Text), Column("mapping_version", Text),
     Column("assigned_at", DateTime(timezone=True), nullable=False), Column("is_jingcheng", Boolean, nullable=False),
     Column("follow_24h", Integer, nullable=False), Column("follow_any", Integer, nullable=False),
+    Column("task_follow_24h_numerator", Integer, nullable=False, server_default="0"),
+    Column("task_follow_any_numerator", Integer, nullable=False, server_default="0"),
+    Column("task_verification_numerator", Integer, nullable=False, server_default="0"),
+    Column("task_under_observation", Boolean, nullable=False, server_default=false()),
+    Column("follow_denominator", Integer, nullable=False, server_default="0"),
     Column("self_verified", Integer, nullable=False), Column("under_observation", Boolean, nullable=False),
+    Column("verification_denominator", Integer, nullable=False, server_default="0"),
     Column("first_assignment_changed", Boolean, nullable=False))
 Index("ix_dashboard_ranking_rounds_date", rounds.c.publication_id, rounds.c.assigned_at, rounds.c.store_id)
 Index("ix_dashboard_ranking_rounds_responsibility", rounds.c.publication_id, rounds.c.order_id, rounds.c.store_id, rounds.c.assigned_at)

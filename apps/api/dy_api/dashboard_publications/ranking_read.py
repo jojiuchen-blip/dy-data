@@ -7,11 +7,12 @@ from sqlalchemy.orm import Session
 
 from apps.api.dy_api.clue_product_scope import PRODUCT_SCOPE_LABELS, scope_predicate
 from apps.api.dy_api.dashboard_publications.ranking_schema import eligibility, info, orders, organizations, rounds
+from apps.api.dy_api.dashboard_publications.verifications import self_store_verifications
 from apps.api.dy_api.ranking_snapshots import DEFINITIONS, LEVEL_FIELDS, sort_ranking_rows, utc
 
 FIELDS = ("order_count", "follow_numerator", "follow_denominator", "follow_any_numerator",
     "follow_any_denominator", "follow_action_numerator", "follow_action_denominator",
-    "verification_numerator", "verification_denominator")
+    "verification_numerator", "verification_denominator", "self_store_verification_count")
 
 
 def _finish(item):
@@ -21,6 +22,7 @@ def _finish(item):
         item[field] = int(item[field])
     for result, numerator, denominator in (("order_average", "order_count", "store_count"),
         ("follow_rate", "follow_any_numerator", "follow_any_denominator"),
+        ("follow_any_rate", "follow_any_numerator", "follow_any_denominator"),
         ("follow_action_rate", "follow_action_numerator", "follow_action_denominator"),
         ("follow_24h_rate", "follow_numerator", "follow_denominator"),
         ("verification_rate", "verification_numerator", "verification_denominator")):
@@ -35,13 +37,15 @@ def read_report(
     district_name: str | None = None, area_name: str | None = None, store_id: str | None = None,
     page: int = 1, page_size: int | None = 50, sort_by: str = "order_count", sort_order: str = "DESC",
     product_scope: str = "jingcheng",
+    legacy_contract: bool = False,
 ) -> dict[str, Any]:
     """Read one immutable publication using an exclusive end and current scope.
 
     No source business tables or builders are accessed. SQL reduces the frozen
     facts to organization groups before any rows are materialized in Python.
     """
-    if level not in LEVEL_FIELDS or sort_by not in {"order_count", "order_average", "follow_24h_rate", "verification_rate"}:
+    if level not in LEVEL_FIELDS or sort_by not in {"order_count", "order_average", "follow_24h_rate",
+            "follow_any_rate", "verification_rate", "self_store_verification_count"}:
         raise ValueError("invalid level or sort")
     if page < 1 or (page_size is not None and page_size < 1):
         raise ValueError("invalid pagination")
@@ -105,27 +109,43 @@ def read_report(
     sales_fragment = fragment(sales_source, roster, {"order_count": func.count()}).where(
         selected_orders.c.reason.is_(None)).group_by(roster.c[key_field], roster.c[name_field])
 
-    # All rounds remain available. Query-dependent earliest responsibility is
-    # selected after date/product filtering, never by adding daily distincts.
+    # Every actual received task contributes its own frozen numerator and
+    # denominator. Never deduplicate order/store responsibility after filtering.
     partition = (rounds.c.order_id, rounds.c.store_id)
     selected_rounds = select(rounds,
         func.row_number().over(partition_by=partition, order_by=(rounds.c.assigned_at, rounds.c.round_id)).label("position"),
         func.min(func.coalesce(rounds.c.mapping_version, literal(""))).over(partition_by=partition).label("min_version"),
         func.max(func.coalesce(rounds.c.mapping_version, literal(""))).over(partition_by=partition).label("max_version")
-    ).where(rounds.c.publication_id == publication_id, rounds.c.assigned_at >= start, rounds.c.assigned_at < end,
+    ).where(rounds.c.publication_id == publication_id,
+        rounds.c.assigned_at >= start, rounds.c.assigned_at < end,
         scope_predicate(product_scope, rounds.c.is_jingcheng)).cte("selected_rounds")
     responsibility_org = select(organizations).where(pub_org).subquery("responsibility_org")
     responsibility_source = selected_rounds.join(responsibility_org, and_(
         selected_rounds.c.mapping_version == responsibility_org.c.mapping_version,
         selected_rounds.c.store_id == responsibility_org.c.store_id))
     follow_fragment = fragment(responsibility_source, responsibility_org, {
-        "follow_numerator": selected_rounds.c.follow_24h, "follow_denominator": literal(1),
-        "follow_any_numerator": selected_rounds.c.follow_any, "follow_any_denominator": literal(1),
-        "follow_action_numerator": selected_rounds.c.follow_any, "follow_action_denominator": literal(1)})
+        "follow_numerator": selected_rounds.c.follow_24h if legacy_contract else selected_rounds.c.task_follow_24h_numerator,
+        "follow_denominator": literal(1) if legacy_contract else selected_rounds.c.follow_denominator,
+        "follow_any_numerator": selected_rounds.c.follow_any if legacy_contract else selected_rounds.c.task_follow_any_numerator,
+        "follow_any_denominator": literal(1) if legacy_contract else selected_rounds.c.follow_denominator,
+        "follow_action_numerator": selected_rounds.c.follow_any if legacy_contract else selected_rounds.c.task_follow_any_numerator,
+        "follow_action_denominator": literal(1) if legacy_contract else selected_rounds.c.follow_denominator})
     self_fragment = fragment(responsibility_source, responsibility_org, {
-        "verification_numerator": selected_rounds.c.self_verified, "verification_denominator": literal(1)}).where(
-            selected_rounds.c.position == 1, selected_rounds.c.min_version == selected_rounds.c.max_version)
-    fragments = union_all(eligible_fragment, sales_fragment, follow_fragment, self_fragment).cte("ranking_fragments")
+        "verification_numerator": selected_rounds.c.self_verified if legacy_contract else selected_rounds.c.task_verification_numerator,
+        "verification_denominator": literal(1) if legacy_contract else selected_rounds.c.verification_denominator})
+    if legacy_contract:
+        self_fragment = self_fragment.where(selected_rounds.c.position == 1,
+            selected_rounds.c.min_version == selected_rounds.c.max_version)
+    # First effective order/store facts were chosen over all source history by
+    # the builder. A second coupon on another day cannot re-enter this sample.
+    selected_verifications = select(self_store_verifications).where(
+        self_store_verifications.c.publication_id == publication_id,
+        self_store_verifications.c.verified_at >= start, self_store_verifications.c.verified_at < end,
+        scope_predicate(product_scope, self_store_verifications.c.is_jingcheng)).subquery("selected_verifications")
+    verification_source = selected_verifications.join(roster, selected_verifications.c.store_id == roster.c.store_id)
+    volume_fragment = fragment(verification_source, roster, {"self_store_verification_count": func.count()}).group_by(
+        roster.c[key_field], roster.c[name_field])
+    fragments = union_all(eligible_fragment, sales_fragment, follow_fragment, self_fragment, volume_fragment).cte("ranking_fragments")
     aggregates = [func.sum(fragments.c[field]).label(field) for field in FIELDS]
     store_count = func.count(func.distinct(fragments.c.service_store_code)).label("store_count")
     statements = [select(literal("group").label("kind"), fragments.c.key,
@@ -154,9 +174,10 @@ def read_report(
             selected_rounds.c.mapping_version == responsibility_org.c.mapping_version,
             selected_rounds.c.store_id == responsibility_org.c.store_id))
         statements.append(quality_statement("round_quality", quality_source, {
-            "order_count": func.sum(case((missing_org, 3), else_=0) + case((and_(missing_org, earliest, uniform), 1), else_=0)),
+            "order_count": func.sum(case((missing_org, 4), else_=0)),
             "follow_numerator": func.sum(case((and_(earliest, ~uniform), 1), else_=0)),
-            "follow_denominator": func.sum(case((selected_rounds.c.under_observation, 1), else_=0)),
+            "follow_denominator": func.sum(case(((selected_rounds.c.under_observation if legacy_contract
+                else selected_rounds.c.task_under_observation), 1), else_=0)),
             "follow_any_numerator": func.count(func.distinct(case((selected_rounds.c.first_assignment_changed, selected_rounds.c.lead_key)))),
         }))
 
@@ -187,6 +208,16 @@ def read_report(
     # these grouped counts and metric numerators/denominators are additive.
     totals = _finish(dict(key="all", name="合计", **{
         field: sum(row[field] for row in rows) for field in (*FIELDS, "store_count")}))
+    if legacy_contract:
+        # These values were not stored under the task contract. Keeping their
+        # wire keys null makes the prior view readable without claiming new
+        # denominator or first-verification-date facts exist.
+        for item in [*rows, totals]:
+            item.update(dict.fromkeys(("follow_24h_rate", "follow_any_rate", "verification_rate",
+                "self_store_verification_count", "follow_numerator", "follow_denominator",
+                "follow_any_numerator", "follow_any_denominator", "verification_numerator",
+                "verification_denominator"), None))
+        rows = sort_ranking_rows(rows, sort_by, sort_order)
     return dict(period_start=period_start, period_end=period_end - timedelta(days=1), level=level,
         total=len(rows), page=page, page_size=page_size,
         rows=rows if page_size is None else rows[(page - 1) * page_size:page * page_size], totals=totals,
