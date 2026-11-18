@@ -460,6 +460,7 @@ def materialize_clue_master_leads(
     materialized_lead_keys: set[str] = set()
     closed_lead_keys: set[str] = set()
     headquarters_pool_keys: set[str] = set()
+    any_published_rule: bool | None = None
     for raw_clue in raw_clues:
         source_identity_key = _source_identity_key(raw_clue)
         canonical_clue_id = _clean(raw_clue.clue_id)
@@ -640,7 +641,16 @@ def materialize_clue_master_leads(
         if is_new_master:
             existing.order_id = order_id
             _set_master_anchor(existing, anchor)
-            bind_product_routing(session, existing, raw_clue.product_id, now)
+            if not _clean(raw_clue.product_id) and any_published_rule is None:
+                any_published_rule = bool(session.scalar(select(exists().where(
+                    ClueAllocationRuleVersion.status == "published"))))
+            if not _clean(raw_clue.product_id) and any_published_rule is False:
+                # Missing product and no published rule have the same ingress
+                # outcome for the whole bounded page. Do not resolve an absent
+                # global rule once per source row, or cache it across calls.
+                existing.routing_mode, existing.routing_product_id = "original", None
+            else:
+                bind_product_routing(session, existing, raw_clue.product_id, now)
         elif existing.routing_mode is not None and _has_frozen_routing_anchor(existing):
             anchor = _master_anchor_snapshot(existing)
 
