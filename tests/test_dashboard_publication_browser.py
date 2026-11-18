@@ -71,6 +71,21 @@ def test_dashboard_publication_browser(tmp_path):
                     pass
                 assert time.monotonic() < deadline, log_path.read_text(encoding="utf-8")
                 time.sleep(0.2)
+            # The HTML can be ready before Vite transforms its ESM graph on Windows.
+            # Prepare static modules within the same startup deadline, leaving the
+            # browser's navigation/action timeouts and business requests unchanged.
+            for module_path in (
+                "/src/main.tsx",
+                "/src/App.tsx",
+                "/src/api/client.ts",
+                "/src/pages/DouyinRankingPage.tsx",
+            ):
+                remaining = deadline - time.monotonic()
+                assert remaining > 0, log_path.read_text(encoding="utf-8")
+                with urlopen(f"{base_url}{module_path}", timeout=remaining) as response:
+                    assert response.status == 200
+                    assert "javascript" in response.headers.get("Content-Type", "")
+                    response.read()
             runner = subprocess.Popen(
                 [node, "--test", "--test-reporter=tap", str(WEB / "tests" / "dashboardPublications.browser.test.mjs")],
                 cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
