@@ -341,10 +341,11 @@ def run_formal_allocation_batch(factory, *, order_ids=None, max_items=100, now=N
                     allocated = allocate_lead(
                         session, key, execution_mode="formal", actor="formal_first_allocation",
                         now=executed_at, transition_key=f"first:{key}",
-                        auto_expiry_enabled_override=False, _batch_context=context,
+                        auto_expiry_enabled_override=(lead.routing_mode == "flow"), _batch_context=context,
                     )
                     session.commit()
-                    bucket = allocated.status if allocated.status in {"assigned", "headquarters"} else "skipped"
+                    bucket = allocated.status if allocated.status in {"assigned", "headquarters", "closed"} else "skipped"
+                    result.setdefault(bucket, 0)
                     result[bucket] += 1
             except Exception as exc:
                 result["failed"] += 1

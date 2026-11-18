@@ -24,6 +24,8 @@ from apps.api.dy_api.clue_followup_metrics import (
     FOLLOW_UP_METRIC_VERSION, TerminalEvidence, bulk_evaluate_clue_followup_metrics,
     load_terminal_evidence,
 )
+from apps.api.dy_api.clue_product_routing import bind_product_routing
+from apps.api.dy_api.clue_task_metrics import TASK_METRIC_VERSION, load_store_task_totals
 
 from apps.api.dy_api.models import (
     ClueAllocationRuleVersion,
@@ -122,6 +124,40 @@ class AnchorSnapshot:
     city_code: str | None
     longitude: Decimal | None
     latitude: Decimal | None
+
+
+def _master_anchor_snapshot(lead: ClueMasterLead) -> AnchorSnapshot:
+    return AnchorSnapshot(
+        lead.anchor_poi_id, lead.anchor_store_id, lead.anchor_unavailable_reason,
+        lead.anchor_province, lead.anchor_city, lead.anchor_city_code,
+        lead.anchor_longitude, lead.anchor_latitude,
+    )
+
+
+def _set_master_anchor(lead: ClueMasterLead, anchor: AnchorSnapshot) -> None:
+    lead.anchor_poi_id = anchor.poi_id
+    lead.anchor_store_id = anchor.store_id
+    lead.anchor_source = "douyin_follow_poi" if anchor.poi_id else None
+    lead.anchor_unavailable_reason = anchor.unavailable_reason
+    lead.anchor_province = anchor.province
+    lead.anchor_city = anchor.city
+    lead.anchor_city_code = anchor.city_code
+    lead.anchor_longitude = anchor.longitude
+    lead.anchor_latitude = anchor.latitude
+
+
+def _has_frozen_routing_anchor(lead: ClueMasterLead) -> bool:
+    return bool(
+        lead.anchor_poi_id and lead.anchor_store_id
+        and normalize_city_code(lead.anchor_city_code)
+        and _valid_coordinates(lead.anchor_latitude, lead.anchor_longitude)
+        and not lead.anchor_unavailable_reason
+    )
+
+
+def _is_product_business_closed(lead: ClueMasterLead) -> bool:
+    return bool(lead.routing_mode is not None and lead.closed_at is not None
+        and lead.allocation_state == "closed")
 
 
 @dataclass
@@ -599,6 +635,19 @@ def materialize_clue_master_leads(
         else:
             status_changed = False
 
+        # Routing is an ingress fact, including isolated and still-unassigned
+        # leads. Existing NULL rows are the durable legacy boundary.
+        if is_new_master:
+            existing.order_id = order_id
+            _set_master_anchor(existing, anchor)
+            bind_product_routing(session, existing, raw_clue.product_id, now)
+        elif existing.routing_mode is not None and _has_frozen_routing_anchor(existing):
+            anchor = _master_anchor_snapshot(existing)
+
+        business_closed = _is_product_business_closed(existing)
+        if business_closed and resolution.normalized_status == "active":
+            lifecycle_status = existing.lifecycle_status
+
         state_before = None if is_new_master else _master_state_signature(existing)
         accepts_status_evidence = _accepts_status_evidence(
             existing,
@@ -636,7 +685,9 @@ def materialize_clue_master_leads(
             # Re-entry to a store pool must be an explicit future operation.
             pool_location = "headquarters_pool"
             allocation_state = "headquarters"
-        elif anchor.unavailable_reason:
+        elif anchor.unavailable_reason and not (
+            existing.routing_mode == "direct" and anchor.store_id and anchor.poi_id
+        ):
             pool_location = "headquarters_pool"
             allocation_state = "headquarters"
         else:
@@ -657,15 +708,15 @@ def materialize_clue_master_leads(
             existing.lifecycle_status = lifecycle_status
         existing.pool_location = pool_location
         existing.allocation_state = allocation_state
-        existing.ended_without_assignment = (
+        existing.ended_without_assignment = existing.ended_without_assignment if business_closed else (
             not is_isolated_source
             and lifecycle_status in {"closed_verified", "closed_refunded", "closed_order"}
             and existing.current_assignment_round_id is None
             and existing.allocation_cycle_id is None
         )
-        if accepts_status_evidence:
+        if accepts_status_evidence and not (business_closed and resolution.normalized_status == "active"):
             existing.closed_at = (
-                resolution.closed_at
+                existing.closed_at if business_closed else resolution.closed_at
                 if lifecycle_status in {"closed_verified", "closed_refunded", "closed_order"}
                 else None
             )
@@ -679,15 +730,7 @@ def materialize_clue_master_leads(
             filter(None, (_aware(existing.last_seen_at), observed_at)),
         )
         existing.last_observation_key = _clean(raw_clue.observation_key)
-        existing.anchor_poi_id = anchor.poi_id
-        existing.anchor_store_id = anchor.store_id
-        existing.anchor_source = "douyin_follow_poi" if anchor.poi_id else None
-        existing.anchor_unavailable_reason = anchor.unavailable_reason
-        existing.anchor_province = anchor.province
-        existing.anchor_city = anchor.city
-        existing.anchor_city_code = anchor.city_code
-        existing.anchor_longitude = anchor.longitude
-        existing.anchor_latitude = anchor.latitude
+        _set_master_anchor(existing, anchor)
         if state_before is not None and state_before != _master_state_signature(existing):
             existing.state_version = max(existing.state_version or 1, 1) + 1
         existing.updated_at = now
@@ -777,6 +820,11 @@ def materialize_clue_master_leads(
                 lead=lead,
                 reason=lead.anchor_unavailable_reason or "headquarters_pool_retained",
                 entered_at=now,
+                source_snapshot={"product_routing": {
+                    "product_id": lead.routing_product_id,
+                    "routing_mode": lead.routing_mode,
+                    "pending_round_no": 0,
+                }} if lead.routing_mode is not None else None,
                 _active_entries_by_lead=active_headquarters_entries_by_lead,
                 _flush=False,
             )
@@ -3312,21 +3360,24 @@ def _apply_independent_status_evidence(
         resolution.raw_status, resolution.normalized_status, resolution.status_source,
     )
     lifecycle = _lifecycle_status(resolution.normalized_status)
+    business_closed = _is_product_business_closed(lead)
+    if business_closed and resolution.normalized_status == "active":
+        lifecycle = lead.lifecycle_status
     terminal = lifecycle in {"closed_verified", "closed_refunded", "closed_order"}
     lead.raw_order_status = resolution.raw_status
     lead.normalized_order_status = resolution.normalized_status
     lead.status_source = resolution.status_source
     lead.order_status_observed_at = observed_at
     lead.lifecycle_status = lifecycle
-    if terminal:
+    if terminal and not (business_closed and resolution.normalized_status == "active"):
         lead.pool_location = "closed"
         lead.allocation_state = "closed"
-        lead.closed_at = resolution.closed_at
+        lead.closed_at = lead.closed_at if business_closed else resolution.closed_at
         lead.closed_reason = _closed_reason(resolution.normalized_status)
         lead.ended_without_assignment = lead.current_assignment_round_id is None and lead.allocation_cycle_id is None
     elif lifecycle == "status_review":
         lead.pool_location, lead.allocation_state = "status_review", "status_review"
-    elif status_changed:
+    elif status_changed and not business_closed:
         current_round = _active_self_owned_current_round(session, lead, current_rounds_by_id=current_rounds_by_id)
         if current_round is not None:
             lead.pool_location, lead.allocation_state = "store_follow_up_pool", "assigned"
@@ -4656,6 +4707,8 @@ def _close_current_assignment(
     if round_row is not None and round_row.execution_mode in closable_execution_modes:
         round_row.round_status = round_status
         round_row.terminal_reason = terminal_reason
+        if round_row.closed_at is None:
+            round_row.closed_at = closed_at
         round_row.matured_at = closed_at
         round_row.updated_at = closed_at
     if center_order is not None and (
@@ -4773,6 +4826,76 @@ def _formal_store_metrics(
             own.follow_24h_numerator += metric.numerator
             own.follow_24h_denominator += metric.denominator
     return metrics_by_store
+
+
+def load_product_store_scores(
+    session: Session,
+    stores: list[DimStore],
+    *,
+    rule_version_id: str,
+    rule_snapshot: Mapping[str, object],
+    now: datetime,
+) -> dict[str, StoreScoreSnapshot]:
+    """Freeze product-scoped task metrics into each allocation's audit payload.
+
+    Product flow never reads the historical mixed-product score snapshots.
+    Cold starts keep the existing store -> city -> global fallback, within
+    the same product scope throughout. These transient rows are not published
+    to the legacy score tables.
+    """
+    window_end = _aware(now)
+    lookback_days = max(int(rule_snapshot.get("lookback_days") or 30), 1)
+    min_samples = max(int(rule_snapshot.get("min_samples") or 1), 1)
+    product_scope = str(rule_snapshot.get("product_scope") or "jingcheng")
+    window_start = window_end - timedelta(days=lookback_days)
+    eligible_stores = [store for store in stores if _is_candidate_eligible(store)]
+    totals = load_store_task_totals(
+        session, {store.store_id for store in eligible_stores}, window_start, window_end,
+        product_scope=product_scope, observed_through=window_end,
+    )
+    metrics = {store_id: StoreMetrics(
+        conversion_numerator=value.conversion_numerator,
+        conversion_denominator=value.conversion_denominator,
+        follow_24h_numerator=value.follow_24h_numerator,
+        follow_24h_denominator=value.follow_24h_denominator,
+    ) for store_id, value in totals.items()}
+    city_totals = _aggregate_city_metrics(eligible_stores, metrics)
+    global_total = _sum_metrics(metrics.values())
+    result: dict[str, StoreScoreSnapshot] = {}
+    for store in eligible_stores:
+        own = metrics.get(store.store_id, StoreMetrics())
+        city = city_totals.get(store.city_code or "", StoreMetrics())
+        conversion, conversion_source = _resolved_rate(
+            own.conversion_numerator, own.conversion_denominator,
+            city.conversion_numerator, city.conversion_denominator,
+            global_total.conversion_numerator, global_total.conversion_denominator,
+            min_samples,
+        )
+        follow, follow_source = _resolved_rate(
+            own.follow_24h_numerator, own.follow_24h_denominator,
+            city.follow_24h_numerator, city.follow_24h_denominator,
+            global_total.follow_24h_numerator, global_total.follow_24h_denominator,
+            min_samples,
+        )
+        result[store.store_id] = StoreScoreSnapshot(
+            snapshot_id=None, snapshot_run_id=None,
+            snapshot_date=window_end.astimezone(SHANGHAI).date(),
+            store_id=store.store_id, city_code=store.city_code,
+            window_start=window_start, window_end=window_end,
+            conversion_numerator=own.conversion_numerator,
+            conversion_denominator=own.conversion_denominator,
+            conversion_rate=conversion, conversion_value_source=conversion_source,
+            follow_24h_numerator=own.follow_24h_numerator,
+            follow_24h_denominator=own.follow_24h_denominator,
+            follow_24h_rate=follow, follow_24h_value_source=follow_source,
+            conversion_weight=Decimal("0.7"), follow_24h_weight=Decimal("0.3"),
+            store_weight=Decimal("1"),
+            composite_score=conversion * Decimal("0.7") + follow * Decimal("0.3"),
+            config_json={"rule_version_id": rule_version_id, "product_scope": product_scope,
+                "metric_version": TASK_METRIC_VERSION, "min_samples": min_samples},
+            computed_at=window_end,
+        )
+    return result
 
 
 def _aggregate_city_metrics(

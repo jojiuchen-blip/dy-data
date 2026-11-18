@@ -10,6 +10,10 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from apps.api.dy_api.clue_followup_metrics import TerminalEvidence, load_terminal_evidence
+from apps.api.dy_api.clue_product_routing import (
+    has_published_product_store_list,
+    load_product_store_ids,
+)
 
 from apps.api.dy_api.models import (
     ClueAllocationDecision,
@@ -29,12 +33,14 @@ from apps.worker.clue_allocation import (
     lock_clue_center_order_for_update,
     lock_clue_master_for_update,
     lock_clue_masters_for_update,
+    load_product_store_scores,
     normalize_city_code,
     refresh_terminal_evidence_for_locked_lead,
 )
 from apps.worker.clue_headquarters_pool import (
     close_current_headquarters_pool_entry,
     enter_headquarters_pool,
+    get_active_headquarters_pool_entry,
     headquarters_pool_reason_storage_values,
 )
 from apps.worker.clue_rule_versions import RuleResolutionError, bind_lead_rule_version
@@ -107,6 +113,13 @@ def allocate_lead(
     if lead is None:
         raise ValueError("clue master lead was not found")
     refresh_dirty_rounds_for_locked_leads(session, (lead.lead_key,))
+    if lead.routing_mode in {"flow", "direct"}:
+        return _allocate_product_routing_locked(
+            session, lead, now=executed_at, actor=normalized_actor,
+            transition_key=normalized_transition_key or f"first:{lead.lead_key}",
+            execution_mode=normalized_mode, allocation_cycle_id=normalized_cycle,
+            batch_context=_batch_context,
+        )
     terminal = _batch_context.terminal_by_order.get(lead.order_id) if _batch_context is not None else None
     if refresh_terminal_evidence_for_locked_lead(session, lead, now=executed_at, terminal=terminal):
         return AllocationResult(lead_key=lead.lead_key, status="skipped", reason="order_already_terminal",
@@ -155,6 +168,8 @@ def allocate_lead(
         )
 
     try:
+        if lead.routing_mode == "original" and session.get(ClueLeadRuleVersionBinding, lead.lead_key) is None:
+            raise RuleResolutionError("no published rule was available at first ingress")
         binding = bind_lead_rule_version(
             session,
             lead_key=lead.lead_key,
@@ -553,6 +568,269 @@ def allocate_leads(
     return [results[index] for index, _lead_key in indexed_keys]
 
 
+def continue_product_routing(
+    session: Session,
+    lead_key: str,
+    *,
+    now: datetime,
+    transition_key: str,
+) -> AllocationResult:
+    """Continue a flow lead after the caller has invalidated its old task.
+
+    Caller and allocation share one transaction. Repeated delivery cannot
+    create another task because the master lock protects the active-task and
+    business-round checks.
+    """
+    lead = lock_clue_master_for_update(session, _required_text(lead_key, "lead_key"))
+    if lead is None:
+        raise ValueError("clue master lead was not found")
+    refresh_dirty_rounds_for_locked_leads(session, (lead.lead_key,))
+    if lead.routing_mode != "flow":
+        return AllocationResult(lead.lead_key, "skipped", "product_routing_not_enabled", None, None)
+    return _allocate_product_routing_locked(
+        session, lead, now=_aware(now), actor="product_routing_continuation",
+        transition_key=_required_text(transition_key, "transition_key"),
+    )
+
+
+def resume_product_routing(
+    session: Session,
+    lead_key: str,
+    *,
+    now: datetime,
+    actor: str,
+    expected_entry_id: str | None = None,
+) -> AllocationResult:
+    """Resume headquarters confirmation using current order and list facts."""
+    lead = lock_clue_master_for_update(session, _required_text(lead_key, "lead_key"))
+    if lead is None:
+        raise ValueError("clue master lead was not found")
+    refresh_dirty_rounds_for_locked_leads(session, (lead.lead_key,))
+    if lead.routing_mode not in {"flow", "direct"}:
+        return AllocationResult(lead.lead_key, "skipped", "product_routing_not_supported", None, None)
+    executed_at = _aware(now)
+    entry = session.scalar(select(ClueHeadquartersPoolEntry)
+        .where(ClueHeadquartersPoolEntry.lead_key == lead.lead_key)
+        .where(ClueHeadquartersPoolEntry.status == "active")
+        .execution_options(populate_existing=True).with_for_update())
+    if expected_entry_id is not None and (
+        entry is None or entry.headquarters_pool_entry_id != expected_entry_id
+    ):
+        return AllocationResult(lead.lead_key, "skipped", "headquarters_entry_changed", None, None)
+    entry_id = entry.headquarters_pool_entry_id if entry is not None else "none"
+    return _allocate_product_routing_locked(
+        session, lead, now=executed_at, actor=_required_text(actor, "actor"),
+        transition_key=f"resume:{entry_id}:{executed_at.isoformat()}", allow_headquarters=True,
+    )
+
+
+def _allocate_product_routing_locked(
+    session: Session,
+    lead: ClueMasterLead,
+    *,
+    now: datetime,
+    actor: str,
+    transition_key: str,
+    execution_mode: str = "formal",
+    allocation_cycle_id: str | None = None,
+    allow_headquarters: bool = False,
+    batch_context: _AllocationBatchContext | None = None,
+) -> AllocationResult:
+    trial = execution_mode == "trial"
+    if not trial and lead.order_id:
+        # A repaired source identity must not produce a second task stream
+        # for an order already owned by another master.
+        if session.get_bind().dialect.name == "postgresql":
+            order_lock = int.from_bytes(sha256(f"product-routing:{lead.order_id}".encode()).digest()[:8], "big", signed=True)
+            session.execute(select(func.pg_advisory_xact_lock(order_lock)))
+        conflicting = session.scalar(select(ClueAssignmentRound.assignment_round_id)
+            .where(ClueAssignmentRound.order_id == lead.order_id)
+            .where(ClueAssignmentRound.lead_key != lead.lead_key)
+            .where(ClueAssignmentRound.execution_mode.in_(("formal", "legacy"))).limit(1))
+        if conflicting is not None:
+            return AllocationResult(lead.lead_key, "skipped", "order_already_has_task_stream", None, None)
+    if trial:
+        terminal = load_terminal_evidence(session, {lead.order_id}, observed_through=now).get(lead.order_id)
+        is_terminal = terminal is not None and terminal.is_terminal
+    else:
+        is_terminal = refresh_terminal_evidence_for_locked_lead(session, lead, now=now)
+    if is_terminal or lead.lifecycle_status != "active" or lead.normalized_order_status != "active":
+        return AllocationResult(lead.lead_key, "skipped", "order_already_terminal" if is_terminal else "lead_not_active", None, None)
+
+    # The pointer alone is insufficient after a retry or a stale projection.
+    active = session.scalar(select(ClueAssignmentRound)
+        .where(ClueAssignmentRound.lead_key == lead.lead_key)
+        .where(ClueAssignmentRound.execution_mode == "formal")
+        .where(ClueAssignmentRound.round_status.in_(("active_unfollowed", "active_followed")))
+        .order_by(ClueAssignmentRound.round_no.desc())
+        .execution_options(populate_existing=True).with_for_update())
+    if active is not None and not trial:
+        return AllocationResult(lead.lead_key, "assigned", "current_self_owned_round_exists",
+            active.assigned_store_id, active.assignment_round_id,
+            (active.allocation_decision_id,) if active.allocation_decision_id else ())
+    if not trial:
+        previous_attempts = session.scalars(select(ClueAllocationDecision)
+            .where(ClueAllocationDecision.lead_key == lead.lead_key)
+            .where(ClueAllocationDecision.execution_mode == "formal")
+            .where(ClueAllocationDecision.decision_status.in_(("assigned", "headquarters", "closed"))))
+        replay = next((decision for decision in previous_attempts
+            if (decision.decision_snapshot or {}).get("product_routing", {}).get("transition_key") == transition_key), None)
+        if replay is not None:
+            return AllocationResult(lead.lead_key, "skipped", "transition_already_processed",
+                replay.selected_store_id, replay.assignment_round_id, (replay.decision_id,))
+
+    entry = get_active_headquarters_pool_entry(session, lead.lead_key)
+    if not trial and not allow_headquarters and lead.pool_location == "headquarters_pool":
+        return AllocationResult(lead.lead_key, "headquarters", entry.reason if entry else lead.anchor_unavailable_reason,
+            None, None, (entry.source_decision_id,) if entry and entry.source_decision_id else ())
+
+    previous = session.scalar(select(ClueAssignmentRound)
+        .where(ClueAssignmentRound.lead_key == lead.lead_key)
+        .where(ClueAssignmentRound.execution_mode == "formal")
+        .order_by(ClueAssignmentRound.round_no.desc()).limit(1))
+    start_round = int(previous.round_no) + 1 if previous is not None else 0
+    if entry is not None:
+        pending = (entry.source_snapshot or {}).get("product_routing", {}).get("pending_round_no")
+        if isinstance(pending, int):
+            start_round = max(start_round, pending)
+    binding = session.get(ClueLeadRuleVersionBinding, lead.lead_key)
+    history = set(session.scalars(select(ClueAssignmentRound.assigned_store_id)
+        .where(ClueAssignmentRound.lead_key == lead.lead_key)
+        .where(ClueAssignmentRound.execution_mode.in_(("formal", "legacy")))))
+    history.discard(None)
+    if batch_context is not None and batch_context.stores is not None:
+        stores, stores_by_id, stores_by_city = (batch_context.stores,
+            batch_context.stores_by_id, batch_context.stores_by_city)
+    else:
+        stores = list(session.scalars(select(DimStore).order_by(DimStore.store_id)))
+        stores_by_id, stores_by_city = _index_stores(stores)
+        if batch_context is not None:
+            batch_context.stores = stores
+            batch_context.stores_by_id, batch_context.stores_by_city = stores_by_id, stores_by_city
+    sale_store = _resolve_sale_store_evidence(session, lead.order_id or "")
+    decisions: list[str] = []
+
+    def record(status: str, reason: str | None, business_round: int, *,
+        candidates: list[dict[str, Any]] | None = None, selected: dict[str, Any] | None = None,
+        strategy_type: str = "product_routing_validation") -> ClueAllocationDecision:
+        snapshot = _base_snapshot(lead=lead, binding=binding, sale_store=sale_store,
+            strategy_type=strategy_type, enabled=True, execution_order=business_round,
+            params={}, max_distance_km=10.0 if business_round in (0, 1) else None,
+            historical_store_ids=history, candidates=candidates or [],
+            selected_store_id=selected["store_id"] if selected else None)
+        snapshot["product_routing"] = {"product_id": lead.routing_product_id,
+            "routing_mode": lead.routing_mode, "pending_round_no": business_round,
+            "business_round_no": business_round, "transition_key": transition_key}
+        round_id = _assignment_round_id(lead_key=lead.lead_key, execution_mode=execution_mode,
+            allocation_cycle_id=allocation_cycle_id, round_no=business_round) if selected and not trial else None
+        if selected:
+            snapshot["assignment_round"] = {"assignment_round_id": round_id,
+                "round_no": business_round, "execution_mode": execution_mode,
+                "allocation_cycle_id": allocation_cycle_id}
+            snapshot["execution_timing"] = {"auto_expiry_enabled": lead.routing_mode == "flow" and not trial,
+                "first_follow_up_sla_hours": (binding.rule_version_snapshot or {}).get("first_follow_up_sla_hours", 24) if binding else 24}
+        decision = _record_decision(session, lead=lead, binding=binding,
+            execution_mode=execution_mode, allocation_cycle_id=allocation_cycle_id,
+            actor=actor, executed_at=now, strategy_type=strategy_type,
+            execution_order=business_round, status=status, reason=reason, snapshot=snapshot,
+            selected_store_id=selected["store_id"] if selected else None,
+            selected_store_name=selected["store_name"] if selected else None,
+            assignment_round_id=round_id, round_no=business_round if selected else None,
+            transition_key=transition_key)
+        decisions.append(decision.decision_id)
+        return decision
+
+    def headquarters(reason: str) -> AllocationResult:
+        decision = record("headquarters", reason, start_round)
+        if not trial:
+            _project_headquarters(lead, now, session, decision=decision)
+        session.flush()
+        return AllocationResult(lead.lead_key, "headquarters", reason, None, None, tuple(decisions))
+
+    def assign(selected: dict[str, Any], business_round: int, strategy_type: str,
+        candidates: list[dict[str, Any]]) -> AllocationResult:
+        decision = record("assigned", None, business_round, candidates=candidates,
+            selected=selected, strategy_type=strategy_type)
+        round_row = None
+        if not trial:
+            round_row = _ensure_selected_round(session, lead=lead, binding=binding,
+                decision=decision, selected=selected, executed_at=now,
+                auto_expiry_enabled_override=lead.routing_mode == "flow")
+            _project_self_owned_assignment(lead, round_row, selected, allocation_cycle_id, now, session)
+        session.flush()
+        return AllocationResult(lead.lead_key, "assigned", None, selected["store_id"],
+            round_row.assignment_round_id if round_row else None, tuple(decisions))
+
+    if not lead.order_id:
+        return headquarters("order_id_missing")
+    if lead.routing_mode == "direct":
+        if previous is not None:
+            return AllocationResult(lead.lead_key, "skipped", "direct_task_already_completed", None, None)
+        store = stores_by_id.get(lead.anchor_store_id)
+        if not lead.anchor_poi_id or store is None:
+            return headquarters("follow_poi_missing" if not lead.anchor_poi_id else "follow_poi_unmapped")
+        if not store.is_active or not store.participates_in_clue_allocation:
+            return headquarters("source_store_ineligible")
+        candidate = {"store_id": store.store_id, "store_name": store.store_name,
+            "city_code": normalize_city_code(store.city_code), "eligible": True,
+            "exclusion_reasons": [], "distance_km": None,
+            "score": _score_snapshot_payload(None, used_for_ranking=False), "rank": 1}
+        return assign(candidate, 0, "original_store_direct", [candidate])
+
+    if binding is None:
+        return headquarters("rule_version_unavailable")
+    if not has_published_product_store_list(session, lead.routing_product_id):
+        return headquarters("product_store_list_missing")
+    anchor_reason = _anchor_unavailable_reason(lead)
+    if anchor_reason:
+        return headquarters(anchor_reason)
+    allowed_store_ids = load_product_store_ids(session, lead.routing_product_id)
+    score_key = f"product:{binding.rule_version_id}:{(binding.rule_version_snapshot or {}).get('product_scope', 'jingcheng')}"
+    scores = batch_context.scores_by_rule_version.get(score_key) if batch_context is not None else None
+    if scores is None:
+        scores = load_product_store_scores(session, stores, rule_version_id=binding.rule_version_id,
+            rule_snapshot=binding.rule_version_snapshot or {}, now=now)
+        if batch_context is not None:
+            batch_context.scores_by_rule_version[score_key] = scores
+    for business_round in range(start_round, 3):
+        strategy_type = FIXED_STRATEGY_TYPES[business_round]
+        candidates, reason, _summary = _strategy_candidates(strategy_type=strategy_type,
+            lead=lead, sale_store=sale_store, stores=stores, stores_by_id=stores_by_id,
+            stores_by_city=stores_by_city, scores=scores, historical_store_ids=history,
+            max_distance_km=10.0 if business_round < 2 else None,
+            allowed_store_ids=allowed_store_ids)
+        selected = next((candidate for candidate in candidates if candidate["rank"] == 1), None)
+        if selected is not None:
+            return assign(selected, business_round, strategy_type, candidates)
+        record("skipped", reason or "no_candidate", business_round,
+            candidates=candidates, strategy_type=strategy_type)
+    decision = record("closed", "product_routing_no_candidate", max(start_round, 2),
+        strategy_type="product_routing_finalization")
+    if not trial:
+        _close_product_routing_lead(session, lead, now=now, reason=decision.reason,
+            had_assignment=previous is not None)
+    session.flush()
+    return AllocationResult(lead.lead_key, "closed", decision.reason, None, None, tuple(decisions))
+
+
+def _close_product_routing_lead(session: Session, lead: ClueMasterLead, *, now: datetime,
+    reason: str, had_assignment: bool) -> None:
+    close_current_headquarters_pool_entry(session, lead.lead_key, closed_at=now, close_reason=reason)
+    lead.lifecycle_status, lead.allocation_state, lead.pool_location = "closed_order", "closed", "closed"
+    lead.current_assignment_round_id = None
+    lead.closed_at = lead.closed_at or now
+    lead.closed_reason = reason
+    lead.ended_without_assignment = not had_assignment
+    lead.state_version = max(lead.state_version or 1, 1) + 1
+    lead.updated_at = now
+    center = lock_clue_center_order_for_update(session, lead.order_id)
+    if center is not None:
+        center.lead_status = "closed"
+        center.current_round_status = "closed_no_candidate"
+        center.reassign_reason = reason
+        center.updated_at = now
+
+
 def _strategy_configs(rule_snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
     by_type: dict[str, Mapping[str, Any]] = {}
     raw_configs = rule_snapshot.get("strategy_configs", [])
@@ -589,6 +867,7 @@ def _strategy_candidates(
     historical_store_ids: set[str],
     max_distance_km: float | None,
     source_store_mode: bool = False,
+    allowed_store_ids: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], str | None, dict[str, int]]:
     if source_store_mode and strategy_type != "sales_store_priority":
         # No city fallback may silently replace the exact Douyin source store.
@@ -644,6 +923,7 @@ def _strategy_candidates(
             historical_store_ids=historical_store_ids,
             max_distance_km=max_distance_km,
             used_for_ranking=False,
+            allowed_store_ids=allowed_store_ids,
         )
         if not candidate["eligible"]:
             if "distance_exceeds_max" in candidate["exclusion_reasons"]:
@@ -669,6 +949,7 @@ def _strategy_candidates(
             historical_store_ids=historical_store_ids,
             max_distance_km=max_distance_km,
             used_for_ranking=True,
+            allowed_store_ids=allowed_store_ids,
         )
         for store in scoped_stores
     ]
@@ -729,8 +1010,11 @@ def _candidate_record(
     historical_store_ids: set[str],
     max_distance_km: float | None,
     used_for_ranking: bool,
+    allowed_store_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     reasons = _candidate_eligibility_reasons(store)
+    if allowed_store_ids is not None and store.store_id not in allowed_store_ids:
+        reasons.append("product_store_not_applicable")
     distance_km: float | None = None
     if not reasons:
         distance_km = _distance_from_anchor(lead, store)
@@ -830,6 +1114,12 @@ def _score_snapshot_payload(snapshot: StoreScoreSnapshot | None, *, used_for_ran
         "follow_24h_rate": float(snapshot.follow_24h_rate),
         "follow_24h_value_source": snapshot.follow_24h_value_source,
         "store_weight": float(snapshot.store_weight),
+        "product_scope": (snapshot.config_json or {}).get("product_scope"),
+        "metric_version": (snapshot.config_json or {}).get("metric_version"),
+        "conversion_numerator": snapshot.conversion_numerator,
+        "conversion_denominator": snapshot.conversion_denominator,
+        "follow_24h_numerator": snapshot.follow_24h_numerator,
+        "follow_24h_denominator": snapshot.follow_24h_denominator,
     }
 
 
@@ -1075,7 +1365,7 @@ def _ensure_selected_round(
     session: Session,
     *,
     lead: ClueMasterLead,
-    binding: ClueLeadRuleVersionBinding,
+    binding: ClueLeadRuleVersionBinding | None,
     decision: ClueAllocationDecision,
     selected: dict[str, Any],
     executed_at: datetime,
@@ -1087,14 +1377,14 @@ def _ensure_selected_round(
     if existing is not None:
         return existing
 
-    rule_snapshot = dict(binding.rule_version_snapshot or {})
+    rule_snapshot = dict(binding.rule_version_snapshot or {}) if binding is not None else {}
     first_follow_up_sla_hours = _positive_int(rule_snapshot.get("first_follow_up_sla_hours"), 24)
     protection_days = _positive_int(rule_snapshot.get("protection_days"), 7)
     round_row = ClueAssignmentRound(
         assignment_round_id=decision.assignment_round_id,
         order_id=lead.order_id or "",
         lead_key=lead.lead_key,
-        rule_version_id=binding.rule_version_id,
+        rule_version_id=binding.rule_version_id if binding is not None else None,
         strategy_type=decision.strategy_type,
         allocation_decision_id=decision.decision_id,
         allocation_cycle_id=decision.allocation_cycle_id,
