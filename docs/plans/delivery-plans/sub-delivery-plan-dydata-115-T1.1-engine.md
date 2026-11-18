@@ -5,6 +5,8 @@
 - 主开发计划：[DYDATA-115](main-delivery-plan-dydata-115.md)
 - 任务看板：[T1.1](task-kanban-dydata-115.md)
 - 需求权威：[DYDATA-115](https://linear.app/keith-lim/issue/DYDATA-115) 正文及 2026-11-18 评论。
+- 当前进度：核心开发已集成、工程验证中，待负责人验收；生产交付默认 OFF，未授权正式开启。
+- Foundation 回捞：[六项待改请求](../foundation-plans/foundation-change-requests-dydata-115.md)，均为待评审；不表示上游已修订。
 
 #### T1.1 实施商品流转、跟进保护期、统一指标与管理入口
 
@@ -33,14 +35,16 @@
 - 迁移新增配置默认 OFF，保存全部存量绑定与旧处理规则，不将重拉视为新线索；试运行任务、名单预览及验证夹具隔离正式任务/指标。部署、验收、名单发布不自动开启；业务负责人确认有效名单并明确授权后才手动开启，关闭/重开只影响之后首次入库线索。
 
 **核心文件**：
+- 已集成商品服务：`apps/api/dy_api/clue_product_routing.py`、`apps/api/dy_api/clue_product_routing_policy.py`、`apps/api/dy_api/routes/clue_routing_products.py`；专用人工 CLI 为 `apps/cli/src/dydata_cli/human_products.py` 与 `apps/cli/src/dydata_cli/human_client.py`。
 - 数据/权限/契约：`apps/api/dy_api/models.py`、`apps/api/dy_api/schemas.py`、`apps/api/dy_api/routes/clues.py`、`apps/api/dy_api/access_control.py`、`apps/worker/clue_rule_versions.py`、`alembic/versions/`（新 revision 由迁移负责人在主线 head 上确定）。
 - 流转/跟进：`apps/worker/clue_allocation.py`、`apps/worker/clue_allocation_engine.py`、`apps/worker/clue_allocation_cycles.py`、`apps/worker/clue_follow_up_state.py`、`apps/worker/clue_headquarters_pool.py`、`apps/worker/clue_state_locking.py`。
+- 共享任务事实：`apps/api/dy_api/clue_task_metrics.py`、`apps/api/dy_api/clue_task_metrics_sources.py`；静态自店核销为 `apps/api/dy_api/dashboard_publications/verifications.py`。
 - 指标/核销：`apps/api/dy_api/clue_followup_metrics.py`、`apps/api/dy_api/clue_verification_facts.py`、`apps/api/dy_api/dashboard_publications/clues.py`、`apps/api/dy_api/douyin_ranking.py`。
 - UI/CLI：`apps/web/src/pages/ClueCenterPage.tsx`、`apps/web/src/pages/AdminClueAllocationPage.tsx`、`apps/web/src/api/client.ts`、`apps/cli/src/dydata_cli/parser.py`、`apps/cli/src/dydata_cli/commands.py`、`apps/cli/src/dydata_cli/client.py`。
 - 验证基线：`tests/test_api_clues.py`、`tests/test_api_clue_rule_versions.py`、`tests/test_clue_allocation_engine.py`、`tests/test_clue_follow_up_state.py`、`tests/test_clue_follow_up_postgres.py`、`tests/test_clue_followup_metrics.py`、`tests/test_clue_verification_facts.py`、`tests/test_dashboard_publication_clues_postgres.py`、`tests/cli/test_commands.py`。
 
 **完成标准**：
-1. 商品独立开/关/重开、入库时点绑定、名单版本独立生效、跨商品权限、批量部分失败和服务端审计可通过 API/UI/CLI 保存后刷新读回；生产种子/迁移/名单发布均保持 OFF。
+1. 商品独立开/关/重开、入库时点绑定、名单版本独立生效、跨商品权限、批量部分失败和服务端审计可通过 API/UI/CLI 保存后刷新读回，启用时确认预览所见仍有效的名单版本；生产种子/迁移/名单发布均保持 OFF。
 2. 销售店不适用时跳过；同城 10 公里整可选，11 公里和邻市 3 公里排除，第 2 轮可选同城远店；资料异常入池与资料齐全无候选关闭分别验证，轮次/任务 ID/候选/历史门店均可追溯。
 3. 重复提交、仅备注、真实改约、取消预约、未联系上到期、战败/换店、部分/全额退款、订单失效与核销均覆盖；真实 PG 并发证明一线索至多一个有效任务，旧任务先失效，新任务后开放，重复事件零新增任务。
 4. 首触配置 48 小时且第 30 小时首次有效提交，24 小时率=0/1、累计=1/1；无跟进自店核销两跟进率均0/1、核销率1/1、自店量+1；覆盖提前退款、分配前核销、有效期内跨店、关闭后原承接店和晚到核销。
@@ -52,11 +56,12 @@
 - 使用上述现有测试扩展新验收用例，运行商品权限/规则版本、分配/跟进、指标/核销、CLI 定向 pytest；新增测试文件由主线程在证据中记录，不假称现有文件已覆盖新行为。
 - 对可丢弃 PostgreSQL 执行迁移升级、存量种子对照、规则发布/入库/到期/终态并发反例，核对任务唯一性、旧绑定和逐商品失败原子性；禁止仅以 SQLite 代替并发验收。
 - 最终集成执行 `python -m pytest`、`npm --prefix apps/web run build`，运行真实浏览器按角色/商品操作及专用 CLI 交互流程，记录取消/预览无写、保存读回、逐商品失败与重试结果。
+- 冻结投影兼容需覆盖旧API读旧窄列、候选API读旧完整投影（新增指标为null）及新能力标记发布后读新列；保留严格就绪门禁，不能靠改旧header或GET现算掩盖升级缺口。
 - 同一组受控订单明细逐项比对两看板分子/分母、自店核销量日期和排名；另检查生产默认 OFF 的迁移/服务/UI/CLI，生产实证未执行时写“未验证”。
 
 **Evidence**：
-- 由主线程落盘 `docs/verification/dydata-115-verification.md`，记录源码 SHA、命令、结果/跳过、测试资产、迁移、页面/CLI截图或终端回执、指标明细对账及剩余问题；当前计划建立时业务实现与验证尚未完成。
-- 主计划本轮门禁记录与正式三件套；开发日志、CHANGELOG、Foundation 漂移待改请求由各授权责任人写入其正确入口，本计划不扩大写集。
+- 由主线程落盘 `docs/verification/dydata-115-verification.md`，记录源码 SHA、命令、结果/跳过、测试资产、迁移、页面/CLI截图或终端回执、指标明细对账及剩余问题；本次核心开发已集成，定向PG/CLI已有阶段回执，完整集成、发布兼容与负责人验收仍在进行中；阶段结果与新增名单版本确认后的复验分开记录。
+- 主计划0.4保存当前阶段摘要，实际命令/结果由主线程在 `docs/verification/dydata-115-verification.md` 与 `docs/devlog/20261118_refactor_log_Keith_Chen.md` 统一记录；Foundation请求见上方入口。未取得最终证据的发布闸门保持未勾选。
 
 **Failure Handling**：
 - 商品权限/并发/存量兼容/核销归属失败则阻止该候选交付并修复；失败商品保留旧版，不能批量静默部分覆盖或扩大授权。
