@@ -146,5 +146,3 @@ def read(session: Session, publication_id: str, filters: dict[str, Any], *,
     return {"total_clues": total, "active_clues": row["active_clue"], "follow_rate": ratio(row["followed_clue"]),
             "follow_success_rate": ratio(row["successful_follow_clue"]), "verified_count": row["self_store_verified_clue"],
             "self_store_verify_rate": ratio(row["self_store_verified_clue"]), "pending_reassign_count": row["pending_reassign_clue"]}
-
-
