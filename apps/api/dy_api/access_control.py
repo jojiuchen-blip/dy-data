@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 from uuid import uuid4
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, exists, func, or_, select
 
 from apps.api.dy_api.models import (
     AccessPage,
@@ -169,11 +169,10 @@ def effective_page_keys(session: Any, user: User | None, *, role: str | None = N
     # A product management grant is a separate business authorization. Expose
     # its dedicated page while its service still enforces every product ID;
     # the old global-rule write dependencies remain administrator-only.
-    if session.scalar(select(ClueProductRoutingGrant.product_id).where(
-        ClueProductRoutingGrant.user_id == user.user_id).limit(1)):
-        values.add("D05")
-    if session.scalar(select(ClueSharedRuleMaintainer.user_id).where(
-        ClueSharedRuleMaintainer.user_id == user.user_id).limit(1)):
+    if session.scalar(select(or_(
+        exists().where(ClueProductRoutingGrant.user_id == user.user_id),
+        exists().where(ClueSharedRuleMaintainer.user_id == user.user_id),
+    ))):
         values.add("D05")
     values.add("A03")
     values.discard("D10")

@@ -17,9 +17,9 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.clue_product_routing import batch_product_changes, bind_product_routing, load_product_store_ids, replace_product_grants
-from apps.api.dy_api.clue_product_routing import get_shared_rule, publish_shared_rule
+from apps.api.dy_api.clue_product_routing import ProductRoutingError, get_shared_rule, publish_shared_rule, replace_shared_rule_grants
 import apps.api.dy_api.clue_product_routing as routing_service
-from apps.api.dy_api.models import Base, ClueAllocationRuleVersion, ClueLeadRuleVersionBinding, ClueMasterLead, ClueProductRoutingConfig, ClueProductStoreListVersion, DimSkuProductRule, User
+from apps.api.dy_api.models import Base, ClueAllocationRuleVersion, ClueLeadRuleVersionBinding, ClueMasterLead, ClueProductRoutingConfig, ClueProductStoreListVersion, ClueSharedRuleMaintainer, DimSkuProductRule, User
 from apps.worker.clue_rule_versions import RuleValidationError
 from test_clue_product_routing import ADMIN, NOW, _batch, _lead, _seed
 
@@ -304,6 +304,42 @@ def test_failed_rule_publication_rolls_back_retirement_but_peer_succeeds(product
         assert verify.get(ClueAllocationRuleVersion, other_id).first_follow_up_sla_hours == 48
 
 
+def test_waiting_shared_maintainer_cannot_publish_after_revocation(product_pg_engine):
+    with Session(product_pg_engine) as setup:
+        setup.add(User(user_id="shared-maintainer", username="shared-maintainer", display_name="Shared Maintainer",
+            role="store", store_scope_mode="none", status="active", is_initialized=True))
+        setup.commit()
+        publish_shared_rule(setup, ADMIN, {"first_follow_up_sla_hours": 24}, preview=False)
+        replace_shared_rule_grants(setup, ADMIN, ["shared-maintainer"])
+        setup.commit()
+    actor = SimpleNamespace(user_id="shared-maintainer", username="shared-maintainer", auth_type="user", role="store", store_scope_mode="none")
+    ready = Event()
+    pids = []
+    def publish_after_preview():
+        with Session(product_pg_engine) as session:
+            pids.append(session.execute(text("SELECT pg_backend_pid()")).scalar_one())
+            ready.set()
+            try:
+                publish_shared_rule(session, actor, {"first_follow_up_sla_hours": 60}, preview=False)
+                session.commit()
+                return "unexpected_success"
+            except ProductRoutingError as exc:
+                session.rollback()
+                return exc.code
+    with ThreadPoolExecutor(max_workers=1) as pool, Session(product_pg_engine) as revoker:
+        replace_shared_rule_grants(revoker, ADMIN, [])
+        future = pool.submit(publish_after_preview)
+        assert ready.wait(3)
+        _wait_on_lock(product_pg_engine, pids[0])
+        revoker.commit()
+        assert future.result(timeout=5) == "SHARED_RULE_FORBIDDEN"
+    with Session(product_pg_engine) as verify:
+        assert get_shared_rule(verify, ADMIN)["first_follow_up_sla_hours"] == 24
+        assert verify.scalar(select(func.count()).select_from(ClueSharedRuleMaintainer)) == 0
+        assert verify.get(User, "shared-maintainer").store_scope_mode == "none"
+        assert verify.get(User, "shared-maintainer").role == "store"
+
+
 def test_real_upgrade_from_0068_preserves_old_leads_and_defaults_off(monkeypatch):
     url = os.getenv("DYDATA_CLUE_TEST_DATABASE_URL")
     if not url:
@@ -325,15 +361,27 @@ def test_real_upgrade_from_0068_preserves_old_leads_and_defaults_off(monkeypatch
             connection.execute(old.insert().values(lead_key="legacy-unassigned", source_clue_row_key="legacy-row", source_identity_key="legacy-identity",
                 normalized_order_status="active", status_source="clue", lifecycle_status="active", allocation_state="pending_allocation",
                 ended_without_assignment=False, created_at=NOW, updated_at=NOW))
+            users = Table("users", MetaData(), autoload_with=connection)
+            connection.execute(users.insert().values(user_id="existing-store-user", username="existing-store-user", display_name="Existing Store",
+                role="store", store_scope_mode="none", status="active", is_initialized=True, password_hash="synthetic-test-hash",
+                auth_version=7, cli_subject="synthetic-stable-subject", auth_generation=3, created_at=NOW, updated_at=NOW))
         command.upgrade(config, "20261118_0069")
         with scoped.connect() as connection:
             row = connection.execute(text("SELECT routing_mode,routing_product_id FROM clue_master_leads WHERE lead_key='legacy-unassigned'")).one()
             assert tuple(row) == (None, None)
             assert connection.execute(text("SELECT COUNT(*) FROM clue_product_routing_configs")).scalar_one() == 0
+            assert connection.execute(text("SELECT COUNT(*) FROM clue_shared_rule_maintainers")).scalar_one() == 0
+            existing_user = connection.execute(text("SELECT role,store_scope_mode,password_hash,auth_version,auth_generation FROM users WHERE user_id='existing-store-user'")).one()
+            assert tuple(existing_user) == ("store", "none", "synthetic-test-hash", 7, 3)
             column = next(value for value in inspect(connection).get_columns("clue_assignment_rounds") if value["name"] == "appointment_at")
             assert column["type"].timezone is True
         command.downgrade(config, "20261117_0068")
         command.upgrade(config, "20261118_0069")
+        with Session(scoped) as session:
+            session.add(ClueSharedRuleMaintainer(user_id="existing-store-user", granted_by="synthetic-admin"))
+            session.commit()
+        with pytest.raises(RuntimeError, match="Product routing history exists"):
+            command.downgrade(config, "20261117_0068")
         with Session(scoped) as session:
             session.add(ClueProductRoutingConfig(product_id="new-default"))
             session.commit()
