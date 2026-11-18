@@ -210,6 +210,11 @@ class AssignmentRoundEvidence:
     verified_store_id: str | None = None
     verified_at: datetime | None = None
     updated_at: datetime | None = None
+    lead_key: str | None = None
+    closed_at: datetime | None = None
+    reassigned_at: datetime | None = None
+    round_status: str | None = None
+    terminal_reason: str | None = None
 
     @classmethod
     def from_row(cls, row: Any) -> "AssignmentRoundEvidence":
@@ -223,6 +228,11 @@ class AssignmentRoundEvidence:
             verified_store_id=_text(getattr(row, "verified_store_id", None)),
             verified_at=_aware(getattr(row, "verified_at", None)),
             updated_at=_aware(getattr(row, "updated_at", None)),
+            lead_key=_text(getattr(row, "lead_key", None)),
+            closed_at=_aware(getattr(row, "closed_at", None)),
+            reassigned_at=_aware(getattr(row, "reassigned_at", None)),
+            round_status=_text(getattr(row, "round_status", None)),
+            terminal_reason=_text(getattr(row, "terminal_reason", None)),
         )
 
 
@@ -234,6 +244,7 @@ class FollowUpEvidence:
     assigned_store_id: str | None
     created_at: datetime | None
     deleted_at: datetime | None = None
+    follow_result: str | None = None
 
     @classmethod
     def from_row(cls, row: Any) -> "FollowUpEvidence":
@@ -244,6 +255,7 @@ class FollowUpEvidence:
             assigned_store_id=_text(getattr(row, "assigned_store_id", None)),
             created_at=_aware(getattr(row, "created_at", None)),
             deleted_at=_aware(getattr(row, "deleted_at", None)),
+            follow_result=_text(getattr(row, "follow_result", None)),
         )
 
 
@@ -278,6 +290,7 @@ class ClueFollowUpEvidence:
     verifications: tuple[VerificationEvidence, ...] = ()
     terminal: TerminalEvidence = field(default_factory=lambda: TerminalEvidence(None, None, None))
     observed_through: datetime | None = None
+    non_verification_terminal: TerminalEvidence = field(default_factory=lambda: TerminalEvidence(None, None, None))
 
     def follow_ups_for(self, assignment_round_id: str) -> tuple[FollowUpEvidence, ...]:
         return tuple(self.follow_ups_by_round.get(assignment_round_id, ()))
@@ -804,13 +817,14 @@ def load_clue_followup_evidence(
             rounds_by_order[evidence.order_id].append(evidence)
             round_ids.append(evidence.assignment_round_id)
         if round_ids:
-            follow_rows = session.scalars(
-                select(ClueFollowUpRecord)
-                .where(ClueFollowUpRecord.assignment_round_id.in_(round_ids))
-                .where(ClueFollowUpRecord.created_at <= cutoff)
-            ).all()
-            for row in follow_rows:
-                follows_by_round[str(row.assignment_round_id)].append(FollowUpEvidence.from_row(row))
+            for round_batch in _batch(round_ids):
+                follow_rows = session.scalars(
+                    select(ClueFollowUpRecord)
+                    .where(ClueFollowUpRecord.assignment_round_id.in_(round_batch))
+                    .where(ClueFollowUpRecord.created_at <= cutoff)
+                ).all()
+                for row in follow_rows:
+                    follows_by_round[str(row.assignment_round_id)].append(FollowUpEvidence.from_row(row))
 
         # Use column mappings instead of ORM hydration for raw orders.  Ranking
         # periods can contain old assigned rounds whose sale/order row is far
@@ -969,6 +983,17 @@ def load_clue_followup_evidence(
             verifications=tuple(verifications_by_order.get(order_id, ())),
             terminal=terminal,
             observed_through=cutoff,
+            non_verification_terminal=_terminal_from_rows(
+                order_id,
+                raw_order=raw_orders.get(order_id),
+                raw_clues=raw_clues_by_order.get(order_id, ()),
+                coupons=coupons_by_order.get(order_id, ()),
+                refunds=refunds_by_order.get(order_id, ()),
+                refund_events=refund_events_by_order.get(order_id, ()),
+                verifications=(),
+                observed_through=cutoff,
+                canceled_coupon_ids=canceled_coupon_ids,
+            ),
         )
     return result
 

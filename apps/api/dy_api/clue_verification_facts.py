@@ -1,19 +1,15 @@
-"""Live clue evidence uses the same successful coupon bridge as ranking.
+"""Live clue evidence and analytics share the canonical task facts.
 
-Round scoring flags remain untouched. Reads never backfill business records.
+Read enrichment never backfills immutable assignment or follow-up history.
 """
-from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from apps.api.dy_api.models import (
-    DimStore, DimStorePoiMapping, RawDouyinOrderCoupon, RawDouyinVerifyRecord,
-)
+from apps.api.dy_api.clue_task_metrics import load_clue_task_facts
 
-SUCCESS_STATUSES = ("1", "success", "verified", "已核销")
+SUCCESS_STATUSES = ("1", "401", "success", "verified", "已核销", "used", "fulfilled", "transaction_success")
 
 
 def verification_exists_sql(*, self_store: bool | None = None) -> str:
@@ -33,9 +29,10 @@ def verification_exists_sql(*, self_store: bool | None = None) -> str:
         JOIN raw_douyin_verify_records verification ON verification.coupon_id = coupon.coupon_id
         {mapping}
         WHERE coupon.order_id = r.order_id
-          AND verification.verify_status IN ('1', 'success', 'verified', '已核销')
+          AND LOWER(TRIM(verification.verify_status)) IN ('1', '401', 'success', 'verified', '已核销', 'used', 'fulfilled', 'transaction_success')
           AND verification.verify_time >= r.assigned_at
           AND verification.verify_time <= :clue_verification_cutoff
+          AND (verification.source_observed_at IS NULL OR verification.source_observed_at <= :clue_verification_cutoff)
           AND (verification.cancel_time IS NULL OR verification.cancel_time > :clue_verification_cutoff)
           {condition}
     )"""
@@ -47,47 +44,33 @@ def _utc(value: Any) -> datetime:
 
 
 def enrich_verification_facts(session: Session, rows: list[dict[str, Any]], cutoff: datetime) -> None:
-    """Populate authorized list/export/detail rows from bounded raw evidence.
+    """Enrich already-authorized rows without changing their access scope.
 
-    Prefer a valid same-store coupon, then a uniquely mapped other store. A
-    multi-coupon order appears once per selected round, never once per coupon.
+    The task loader retains all formal history for correct attribution while
+    only the supplied rows are returned. No contacts or mutable operation
+    permissions are loaded here.
     """
     if not rows:
         return
-    unique_stores = select(
-        DimStorePoiMapping.poi_id,
-        func.min(DimStorePoiMapping.store_id).label("store_id"),
-    ).group_by(DimStorePoiMapping.poi_id).having(
-        func.count(func.distinct(DimStorePoiMapping.store_id)) == 1,
-    ).subquery()
-    by_order = defaultdict(list)
-    order_ids = sorted({row["order_id"] for row in rows})
-    for offset in range(0, len(order_ids), 400):
-        query = select(
-            RawDouyinOrderCoupon.order_id, RawDouyinVerifyRecord.verify_id,
-            RawDouyinVerifyRecord.verify_time, unique_stores.c.store_id,
-            DimStore.store_name,
-        ).join(RawDouyinVerifyRecord,
-            RawDouyinVerifyRecord.coupon_id == RawDouyinOrderCoupon.coupon_id,
-        ).outerjoin(unique_stores,
-            unique_stores.c.poi_id == RawDouyinVerifyRecord.poi_id,
-        ).outerjoin(DimStore, DimStore.store_id == unique_stores.c.store_id).where(
-            RawDouyinOrderCoupon.order_id.in_(order_ids[offset:offset + 400]),
-            RawDouyinVerifyRecord.verify_status.in_(SUCCESS_STATUSES),
-            RawDouyinVerifyRecord.verify_time <= cutoff,
-            or_(RawDouyinVerifyRecord.cancel_time.is_(None), RawDouyinVerifyRecord.cancel_time > cutoff),
-        )
-        for fact in session.execute(query).mappings():
-            by_order[fact["order_id"]].append(fact)
+    facts = load_clue_task_facts(session, (row["order_id"] for row in rows), observed_through=_utc(cutoff))
     for row in rows:
-        assigned_at = row.get("assigned_at")
-        facts = [fact for fact in by_order[row["order_id"]]
-                 if assigned_at and _utc(fact["verify_time"]) >= _utc(assigned_at)]
-        facts.sort(key=lambda fact: (
-            fact["store_id"] != row.get("assigned_store_id"),
-            fact["store_id"] is None, _utc(fact["verify_time"]), fact["verify_id"],
-        ))
-        fact = facts[0] if facts else None
-        row["verified_at"] = fact["verify_time"] if fact else None
-        row["verified_store_id"] = fact["store_id"] if fact else None
-        row["verified_store_name"] = fact["store_name"] if fact else None
+        metric = facts.get(str(row.get("assignment_round_id", "")))
+        details = metric.verification_facts if metric else ()
+        chosen = min(details, key=lambda item: (
+            not item.counts_for_store_verification_rate,
+            item.verified_store_id != row.get("assigned_store_id"),
+            item.verified_store_id is None, item.verified_at, item.verify_id,
+        )) if details else None
+        row["verified_at"] = chosen.verified_at if chosen else None
+        row["verified_store_id"] = chosen.verified_store_id if chosen else None
+        row["verified_store_name"] = chosen.verified_store_name if chosen else None
+        row["verification_facts"] = [detail.as_dict() for detail in details]
+        row["verification_summary"] = (
+            "跨店核销、关单后核销" if chosen and chosen.is_cross_store and chosen.is_after_close
+            else "跨店核销" if chosen and chosen.is_cross_store
+            else "关单后核销" if chosen and chosen.is_after_close
+            else "已核销" if chosen else None
+        )
+        for field in ("follow_24h_numerator", "follow_any_numerator", "follow_denominator",
+                      "verification_numerator", "verification_denominator"):
+            row[field] = getattr(metric, field) if metric else 0
