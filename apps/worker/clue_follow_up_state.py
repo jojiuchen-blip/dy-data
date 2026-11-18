@@ -725,7 +725,7 @@ def _actor_can_operate_round(round_row: ClueAssignmentRound | None, actor: dict[
 
 def _aware(value: datetime | None) -> datetime:
     result = value or datetime.now(timezone.utc)
-    return result if result.tzinfo is not None else result.replace(tzinfo=timezone.utc)
+    return result.astimezone(timezone.utc) if result.tzinfo is not None else result.replace(tzinfo=timezone.utc)
 
 
 def _text(value: Any) -> str | None:

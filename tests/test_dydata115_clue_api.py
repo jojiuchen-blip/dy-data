@@ -33,18 +33,26 @@ def test_appointment_validation_response_deadline_and_immutable_history(client, 
     assert client.post(path, json=body).status_code == 422
     assert client.post(path, json={**body, "appointment_at": "2027-01-01T10:00:00"}).status_code == 422
     assert db_session.scalar(select(func.count()).select_from(ClueFollowUpRecord)) == 0
+    before = datetime.now(timezone.utc)
     response = client.post(path, json={**body, "appointment_at": "2027-01-01T10:00:00+08:00"})
+    after = datetime.now(timezone.utc)
     assert response.status_code == 200, response.text
     record = response.json()["data"]
     assert datetime.fromisoformat(record["appointment_at"]) == datetime(2027, 1, 1, 2, tzinfo=timezone.utc)
+    assert before <= datetime.fromisoformat(record["created_at"]) <= after
     assert record["note"] is None
     detail = client.get("/api/v1/clues/orders/order-2").json()["data"]
     current = detail["rounds"][0]
     assert current["routing_mode"] == mode
     assert current["can_delete_follow_up_records"] is False
-    deadline = datetime.fromisoformat(current["protection_expires_at"]).replace(tzinfo=timezone.utc)
+    deadline = datetime.fromisoformat(current["protection_expires_at"])
+    assert deadline.utcoffset() is not None
     assert deadline == datetime(2027, 1, 4, 2, tzinfo=timezone.utc)
-    assert detail["follow_up_records"][0]["appointment_at"]
+    assert datetime.fromisoformat(current["appointment_at"]).utcoffset() is not None
+    assert datetime.fromisoformat(current["assigned_at"]).utcoffset() is not None
+    history = detail["follow_up_records"][0]
+    assert datetime.fromisoformat(history["appointment_at"]) == datetime(2027, 1, 1, 2, tzinfo=timezone.utc)
+    assert before <= datetime.fromisoformat(history["created_at"]) <= after
     deletion = client.delete("/api/v1/clues/follow-up-records/" + record["follow_up_record_id"])
     assert deletion.status_code == 409 and "immutable" in deletion.json()["detail"]
     db_session.expire_all()

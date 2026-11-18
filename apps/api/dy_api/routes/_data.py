@@ -271,6 +271,19 @@ def _to_bool(value: Any) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _clue_utc_datetime(value: Any) -> datetime | None:
+    """Give UTC-naive SQLite values an explicit zone before API serialization."""
+
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if not isinstance(value, datetime):
+        return None
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+
 def _follow_up_record_payload(record: Any) -> dict[str, Any] | None:
     if record is None:
         return None
@@ -281,13 +294,13 @@ def _follow_up_record_payload(record: Any) -> dict[str, Any] | None:
         "round_no": record.round_no,
         "assigned_store_id": record.assigned_store_id,
         "follow_result": record.follow_result,
-        "appointment_at": record.appointment_at,
+        "appointment_at": _clue_utc_datetime(record.appointment_at),
         "note": record.note,
         "operator_user_id": record.operator_user_id,
         "operator_username": record.operator_username,
-        "created_at": record.created_at,
+        "created_at": _clue_utc_datetime(record.created_at),
         "is_deleted": record.deleted_at is not None,
-        "deleted_at": record.deleted_at,
+        "deleted_at": _clue_utc_datetime(record.deleted_at),
     }
 
 
@@ -5424,7 +5437,7 @@ class DashboardDataStore:
         return {
             "order_id": _to_str(order.get("order_id")),
             "canonical_clue_id": order.get("canonical_clue_id"),
-            "order_created_at": order.get("order_created_at"),
+            "order_created_at": _clue_utc_datetime(order.get("order_created_at")),
             "lead_status": _to_str(order.get("lead_status")),
             "phone_masked": phone_masked,
             "product_id": order.get("product_id"),
@@ -6272,7 +6285,7 @@ class DashboardDataStore:
         *,
         actor: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        expires_at = row.get("expires_at")
+        expires_at = _clue_utc_datetime(row.get("expires_at"))
         assignment_round_id = _to_str(row.get("assignment_round_id"))
         current_assignment_round_id = _to_str(row.get("current_assignment_round_id"))
         authoritative_round_id = (
@@ -6303,17 +6316,17 @@ class DashboardDataStore:
             ),
             "round_effective_status": "active" if is_current_round else "inactive",
             "round_status": _to_str(row.get("round_status")),
-            "assigned_at": row.get("assigned_at"),
+            "assigned_at": _clue_utc_datetime(row.get("assigned_at")),
             "expires_at": expires_at,
-            "first_sla_expires_at": row.get("first_sla_expires_at"),
-            "protection_started_at": row.get("protection_started_at"),
-            "protection_expires_at": row.get("protection_expires_at"),
+            "first_sla_expires_at": _clue_utc_datetime(row.get("first_sla_expires_at")),
+            "protection_started_at": _clue_utc_datetime(row.get("protection_started_at")),
+            "protection_expires_at": _clue_utc_datetime(row.get("protection_expires_at")),
             "auto_expiry_enabled": row.get("auto_expiry_enabled"),
             "first_follow_up_sla_hours": row.get("first_follow_up_sla_hours"),
             "protection_days": row.get("protection_days"),
-            "appointment_at": row.get("appointment_at"),
+            "appointment_at": _clue_utc_datetime(row.get("appointment_at")),
             "routing_mode": row.get("routing_mode"),
-            "closed_at": row.get("closed_at"),
+            "closed_at": _clue_utc_datetime(row.get("closed_at")),
             "terminal_reason": row.get("terminal_reason"),
             "can_delete_follow_up_records": bool(
                 actor and row.get("routing_mode") is None
@@ -6328,13 +6341,13 @@ class DashboardDataStore:
             "product_name": row.get("product_name"),
             "product_type": row.get("product_type"),
             "author_nickname": row.get("author_nickname"),
-            "followed_at": row.get("followed_at"),
+            "followed_at": _clue_utc_datetime(row.get("followed_at")),
             "follow_result": _to_str(row.get("follow_result"), "pending"),
             "reassign_reason": row.get("reassign_reason"),
-            "reassigned_at": row.get("reassigned_at"),
+            "reassigned_at": _clue_utc_datetime(row.get("reassigned_at")),
             "verified_store_id": row.get("verified_store_id"),
             "verified_store_name": row.get("verified_store_name"),
-            "verified_at": row.get("verified_at"),
+            "verified_at": _clue_utc_datetime(row.get("verified_at")),
             "is_self_store_verified": _to_bool(row.get("is_self_store_verified")),
             "verification_summary": row.get("verification_summary"),
             "verification_facts": row.get("verification_facts") or [],
@@ -6396,13 +6409,13 @@ class DashboardDataStore:
             "round_no": _to_int(row.get("round_no"), 1),
             "assigned_store_id": row.get("assigned_store_id"),
             "follow_result": _to_str(row.get("follow_result")),
-            "appointment_at": row.get("appointment_at"),
+            "appointment_at": _clue_utc_datetime(row.get("appointment_at")),
             "note": row.get("note"),
             "operator_user_id": row.get("operator_user_id"),
             "operator_username": row.get("operator_username"),
-            "created_at": row.get("created_at"),
+            "created_at": _clue_utc_datetime(row.get("created_at")),
             "is_deleted": row.get("deleted_at") is not None,
-            "deleted_at": row.get("deleted_at"),
+            "deleted_at": _clue_utc_datetime(row.get("deleted_at")),
             "deleted_by_user_id": row.get("deleted_by_user_id"),
             "deleted_by_username": row.get("deleted_by_username"),
             "deletion_reason": row.get("deletion_reason"),

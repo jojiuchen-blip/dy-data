@@ -117,6 +117,19 @@ def test_bound_policy_supplies_hours_and_new_records_cannot_be_reversed(db_sessi
     assert db_session.get(ClueFollowUpRecord, record.follow_up_record_id).deleted_at is None
 
 
+def test_non_utc_execution_clock_is_persisted_as_the_same_utc_instant(db_session):
+    _, row = seed_product_task(db_session)
+    instant = START + timedelta(hours=2)
+    record = submit(db_session, row, "further_follow_up",
+                    now=instant.astimezone(timezone(timedelta(hours=8)))).record
+    record_id = record.follow_up_record_id
+    db_session.commit()
+    db_session.expire_all()
+    assert utc(db_session.get(ClueFollowUpRecord, record_id).created_at) == instant
+    assert utc(row.followed_at) == instant
+    assert utc(row.protection_expires_at) == instant + timedelta(hours=168)
+
+
 @pytest.mark.parametrize("mode", ["flow", "direct", "original"])
 @pytest.mark.parametrize("action,reason", [("lost", "follow_lost"), ("request_store_change", "request_store_change")])
 def test_business_close_never_queues_another_store(db_session, mode, action, reason):
