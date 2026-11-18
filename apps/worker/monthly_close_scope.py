@@ -4,17 +4,22 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from apps.api.dy_api.models import (
-    DataQualityIssue, DimStore, RawDouyinOrderCoupon, RawDouyinVerifyRecord, SettlementFeeResult,
+    AccountQualificationVersion, DataQualityIssue, DimStore, RawDouyinOrderCoupon, RawDouyinVerifyRecord, SettlementFeeResult,
     SettlementFeeResultCurrent, SettlementMonthClose, SettlementStatement, utcnow,
 )
 from apps.worker.historical_sale_attribution import HistoricalAttributionError, resolve_historical_sale_attribution
+from apps.worker.account_qualification import (
+    FIRST_MONTH, SALE_ACCOUNT_MATCH_POLICY, SALE_NAME_PATHS,
+    AccountQualificationError, frozen_sale_candidate_stores, frozen_version,
+)
 from apps.worker.settlement import (
     MANAGEMENT_FEE, PROMOTION_FEE, _exact_monthly_sale_match, _diagnose_dual_fee_sale_account,
-    _find_poi_mapping, _raw_order_for_coupon, _select_valid_verify_record,
+    _find_poi_mapping, _monthly_verify_for_close, _raw_order_for_coupon, _select_valid_verify_record,
 )
 
 
@@ -31,6 +36,27 @@ class MonthlyCloseScope:
         return not (self.blocked_store_ids or self.unscoped_issue_count or self.preceding_scope_unresolved)
 
 
+def monthly_fee_evidence_condition(version: AccountQualificationVersion | str) -> ColumnElement[bool]:
+    """Accept fees only with the exact frozen name policy and attribution proof."""
+    evidence = SettlementFeeResult.sale_account_match_json
+    version_id = version if isinstance(version, str) else version.version_id
+    content_sha256 = (select(AccountQualificationVersion.content_sha256).where(
+        AccountQualificationVersion.version_id == version_id,
+    ).scalar_subquery() if isinstance(version, str) else version.content_sha256)
+    return and_(
+        func.coalesce(SettlementFeeResult.account_qualification_version_id, "") == version_id,
+        func.coalesce(evidence["policy"].as_string(), "") == SALE_ACCOUNT_MATCH_POLICY,
+        func.coalesce(evidence["qualification_version_id"].as_string(), "") == version_id,
+        func.coalesce(evidence["content_sha256"].as_string(), "") == content_sha256,
+        func.coalesce(evidence["account_name"].as_string(), "") != "",
+        func.coalesce(evidence["account_id"].as_string(), "") != "",
+        func.coalesce(evidence["douyin_id"].as_string(), "") != "",
+        func.coalesce(evidence["source_field"].as_string(), "").in_(SALE_NAME_PATHS),
+        SettlementFeeResult.sale_store_id.is_not(None),
+        func.coalesce(evidence["store_id"].as_string(), "") == SettlementFeeResult.sale_store_id,
+    )
+
+
 def _is_confirmed_exclusion(issue: DataQualityIssue) -> bool:
     context = issue.raw_context_json or {}
     return (
@@ -41,32 +67,41 @@ def _is_confirmed_exclusion(issue: DataQualityIssue) -> bool:
     )
 
 
-def _exact_issue_store(session: Session, coupon_id: str, direction: int, *, verify_id: str | None) -> str | None:
+def _exact_issue_stores(
+    session: Session, coupon_id: str, direction: int, *, month: str, verify_id: str | None,
+) -> frozenset[str] | None:
     coupon = session.scalar(select(RawDouyinOrderCoupon).where(RawDouyinOrderCoupon.coupon_id == coupon_id))
     if coupon is None:
         return None
-    verify = (session.get(RawDouyinVerifyRecord, verify_id) if verify_id
-              else _select_valid_verify_record(session, coupon_id))
+    if verify_id:
+        verify = session.get(RawDouyinVerifyRecord, verify_id)
+    elif month >= FIRST_MONTH:
+        verify, _ = _monthly_verify_for_close(session, coupon_id, month)
+    else:
+        verify = _select_valid_verify_record(session, coupon_id)
     if verify is not None and verify.coupon_id != coupon_id:
         return None
     if direction == MANAGEMENT_FEE:
         mapping = _find_poi_mapping(session, verify.poi_id) if verify is not None else None
-        return mapping.store_id if mapping is not None and session.get(DimStore, mapping.store_id) is not None else None
+        return (frozenset((mapping.store_id,))
+                if mapping is not None and session.get(DimStore, mapping.store_id) is not None else None)
     if direction != PROMOTION_FEE:
         return None
     order = _raw_order_for_coupon(session, coupon)
     if order is None:
         return None
+    if month >= FIRST_MONTH:
+        return frozen_sale_candidate_stores(session, version=frozen_version(session, month), order=order)
     try:
         decision = resolve_historical_sale_attribution(session, order=order, coupon=coupon,
                                                        verify=verify, current_result=None)
     except HistoricalAttributionError:
         return None
     if decision is not None:
-        return decision.store_id
+        return frozenset((decision.store_id,))
     diagnostic = _diagnose_dual_fee_sale_account(session, order, ignore_proven_personal_aliases=True)
     match = _exact_monthly_sale_match(session, order, diagnostic)
-    return match.store_id if match is not None else None
+    return frozenset((match.store_id,)) if match is not None else None
 
 
 def inspect_month_close_scope(
@@ -81,13 +116,15 @@ def inspect_month_close_scope(
     existing_candidates = set(session.scalars(select(RawDouyinOrderCoupon.coupon_id).where(
         RawDouyinOrderCoupon.coupon_id.in_(coupon_ids),
     ))) if coupon_ids else set()
+    qualification = frozen_version(session, month)
+    if qualification.version_id != qualification_version_id:
+        raise AccountQualificationError("qualification_version_conflict")
     keys = defaultdict(set)
     for result in session.scalars(select(SettlementFeeResult).join(
         SettlementFeeResultCurrent, SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.fee_result_id,
     ).where(
         SettlementFeeResult.original_business_month == month,
-        or_(SettlementFeeResult.account_qualification_version_id.is_(None),
-            SettlementFeeResult.account_qualification_version_id != qualification_version_id),
+        ~monthly_fee_evidence_condition(qualification),
     )):
         store_id = result.sale_store_id if result.fee_direction == PROMOTION_FEE else result.verify_store_id
         keys[result.coupon_id, result.fee_direction].add(store_id)
@@ -104,12 +141,12 @@ def inspect_month_close_scope(
             exclusions.add(key)
             continue
         diagnosed.add(key)
-        store_id = (_exact_issue_store(session, *key, verify_id=context.get("verify_id"))
+        store_ids = (_exact_issue_stores(session, *key, month=month, verify_id=context.get("verify_id"))
                     if issue.coupon_id and direction in (1, 2) else None)
-        if store_id is None:
+        if not store_ids:
             unscoped.add(key)
         else:
-            blocked.add(store_id)
+            blocked.update(store_ids)
         blocked.update(filter(None, keys.get(key, ())))
 
     for key, prior_stores in keys.items():

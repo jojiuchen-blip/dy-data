@@ -4,9 +4,9 @@ from datetime import timedelta
 from apps.worker import account_qualification as qualification
 
 
-def binding(account="owner-dual", *, kind="子机构门店号", status="认证成功", poi="poi-sale", douyin="dy-owner"):
-    return dict(account_id=account, douyin_id=douyin, poi_id=poi, raw_payload={
-        "account_id": account, "账号类型": kind, "抖音号绑定状态": status,
+def binding(account="owner-dual", *, kind="子机构门店号", status="认证成功", poi="poi-sale", douyin="dy-owner", nickname="Owner Dual"):
+    return dict(account_id=account, douyin_id=douyin, douyin_nickname=nickname, poi_id=poi, raw_payload={
+        "account_id": account, "抖音昵称": nickname, "账号类型": kind, "抖音号绑定状态": status,
         "认证信息": "任意真实企业名称或商家认证账号",
     })
 

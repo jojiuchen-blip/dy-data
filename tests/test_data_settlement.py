@@ -593,6 +593,7 @@ def _load_dual_fee_fixture(
     upsert_store_poi_mapping(
         session, "store-verify", "poi-verify", mapping_source="test"
     )
+    upsert_store_poi_mapping(session, "store-sale", "poi-sale", mapping_source="test")
     upsert_aweme_account(
         session,
         "owner-dual",
@@ -629,7 +630,7 @@ def _load_dual_fee_fixture(
         sale_channel=sale_channel,
         sale_channel_raw=sale_channel,
         sale_channel_normalized=sale_channel,
-        raw_payload={"receipt_amount": amount_cent},
+        raw_payload={"receipt_amount": amount_cent, "owner_account_name": "Owner Dual"},
         source_run_id="dual-source",
     )
     upsert_order_coupon(

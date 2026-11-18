@@ -36,7 +36,7 @@ from apps.api.dy_api.models import (
     SettlementFeeResult,
     SettlementFeeResultCurrent,
     SettlementStatement, SettlementMonthClose,
-    AccountQualificationVersion,
+    AccountQualificationSnapshot, AccountQualificationVersion,
     DimAwemeAccount, DimNonCommissionOwnerAccount, DimSkuProductRule,
     DimStore, DimStorePoiMapping, DouyinRefundEvent, HistoricalSaleAttributionDecision,
     RawAwemeBinding, RawDouyinOrder, RawDouyinOrderCoupon, RawDouyinVerifyRecord,
@@ -44,7 +44,8 @@ from apps.api.dy_api.models import (
 )
 from apps.worker.historical_sale_attribution import month_decision_digest
 from apps.worker.account_qualification import (
-    FIRST_MONTH, AccountQualificationError, freeze_month, frozen_version,
+    FIRST_MONTH, ROSTER_NAME_FIELDS, SALE_ACCOUNT_MATCH_POLICY, SALE_NAME_PATHS,
+    AccountQualificationError, freeze_month, frozen_version,
     month_bounds,
 )
 from apps.worker.priority_scheduler import _day_state, _priority_rows_for_day
@@ -72,7 +73,7 @@ READY = "ready"
 QUALIFICATION_NOT_READY = "account_qualification_not_ready"
 CALCULATION_READY = "calculation_ready"
 CALCULATION_INPUT_PROTOCOL = "month-close-calculation-v1"
-MONTHLY_CLOSE_POLICY = "monthly-billing-v2"
+MONTHLY_CLOSE_POLICY = "monthly-billing-sale-name-v3"
 
 # Operator-visible readiness alert type.  One row per (business_month, state),
 # removed again as soon as the month becomes dispatchable.
@@ -279,6 +280,17 @@ def require_current_month_qualification(session: Session, business_month: str) -
     ).limit(1))
     if mismatch is not None:
         raise AccountQualificationError("current_fee_qualification_version_mismatch")
+    from apps.worker.monthly_close_scope import monthly_fee_evidence_condition
+
+    unproven_sale = session.scalar(select(SettlementFeeResult.fee_result_id).join(
+        SettlementFeeResultCurrent,
+        SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.fee_result_id,
+    ).where(
+        SettlementFeeResult.original_business_month == business_month,
+        ~monthly_fee_evidence_condition(version),
+    ).limit(1))
+    if unproven_sale is not None:
+        raise AccountQualificationError("current_fee_sale_name_basis_mismatch")
     return version
 
 
@@ -323,15 +335,32 @@ def _calculation_inputs_digest(
                  select(RawDouyinVerifyRecord.sku_id).where(RawDouyinVerifyRecord.coupon_id.in_(all_coupons)))
     owners = select(RawDouyinOrder.owner_account_id).where(RawDouyinOrder.order_id.in_(orders))
     names = select(RawDouyinOrder.owner_account_name).where(RawDouyinOrder.order_id.in_(orders))
+    relevant_names = {name.strip() for name in session.scalars(names.distinct()) if name}
+    snapshot = session.get(AccountQualificationSnapshot, version.content_sha256)
+    if snapshot is None:
+        raise AccountQualificationError("qualification_snapshot_missing")
+    frozen_pois, frozen_stores = set(), set()
+    for record in snapshot.records_json:
+        payload = record.get("raw_payload") or {}
+        record_names = {str(payload[key]).strip() for key in ROSTER_NAME_FIELDS if payload.get(key)}
+        if record.get("douyin_nickname"):
+            record_names.add(str(record["douyin_nickname"]).strip())
+        if record_names & relevant_names:
+            if record.get("poi_id"):
+                frozen_pois.add(str(record["poi_id"]).strip())
+            if record.get("store_id"):
+                frozen_stores.add(str(record["store_id"]).strip())
     bindings = or_(RawAwemeBinding.account_id.in_(owners), RawAwemeBinding.douyin_nickname.in_(names))
     accounts = union(owners, select(RawAwemeBinding.account_id).where(bindings))
     pois = union(select(RawDouyinVerifyRecord.poi_id).where(RawDouyinVerifyRecord.coupon_id.in_(all_coupons)),
                  select(RawAwemeBinding.poi_id).where(bindings))
     stores = union(select(DimAwemeAccount.store_id).where(DimAwemeAccount.account_id.in_(accounts)),
                    select(RawAwemeBinding.account_id).where(bindings),
-                   select(DimStorePoiMapping.store_id).where(DimStorePoiMapping.poi_id.in_(pois)),
+                   select(DimStorePoiMapping.store_id).where(or_(
+                       DimStorePoiMapping.poi_id.in_(pois), DimStorePoiMapping.poi_id.in_(frozen_pois))),
                    select(HistoricalSaleAttributionDecision.store_id).where(HistoricalSaleAttributionDecision.business_month == business_month))
     digest = hashlib.sha256(json.dumps({"protocol": MONTHLY_CLOSE_POLICY if monthly else CALCULATION_INPUT_PROTOCOL,
+        "sale_account_match_policy": SALE_ACCOUNT_MATCH_POLICY,
         "month": business_month,
         "days": revisions, "qualification": [version.version_id, version.content_sha256],
         "decisions": month_decision_digest(session, business_month)}, sort_keys=True).encode())
@@ -363,7 +392,8 @@ def _calculation_inputs_digest(
          ("order_id", "order_status", "order_status_normalized", "sku_id", "pay_time", "sale_time", "owner_account_id", "owner_douyin_uid", "owner_account_name", "sale_channel", "sale_channel_normalized"),
          (("receipt_amount",), ("sub_order_amount_infos",), ("count",), ("owner_account_id",), ("owner_douyin_uid",),
           ("sale_info", "transfer_uid"), ("sale_info", "account_id"), ("sale_info", "transfer_douyin_uid"),
-          ("order_sale_info", "transfer_uid"), ("order_sale_info", "transfer_douyin_uid")))
+          ("order_sale_info", "transfer_uid"), ("order_sale_info", "transfer_douyin_uid"),
+          *(tuple(path.split(".")) for path in SALE_NAME_PATHS)))
     feed(RawDouyinOrderCoupon, RawDouyinOrderCoupon.order_id.in_(orders),
          ("coupon_id", "order_id", "raw_order_id", "order_item_id", "coupon_status", "coupon_status_normalized", "coupon_refunded_cent", "coupon_refunded_amount_cent", "coupon_refund_time", "latest_refund_at"), (("receipt_amount",),))
     feed(RawDouyinVerifyRecord, RawDouyinVerifyRecord.coupon_id.in_(all_coupons),
@@ -382,8 +412,9 @@ def _calculation_inputs_digest(
     feed(RawAwemeBinding, bindings,
          ("binding_key", "account_id", "douyin_id", "douyin_nickname", "poi_id", "binding_status"),
          tuple((key,) for key in ("账号类型", "account_type", "craftsman_uid", "account_id_for_settlement", "bind_status", "bind_start_time", "bind_end_time", "poi_id")))
-    feed(DimStorePoiMapping, DimStorePoiMapping.poi_id.in_(pois), ("poi_id", "store_id"))
-    feed(DimStore, DimStore.store_id.in_(stores), ("store_id", "is_active"))
+    feed(DimStorePoiMapping, or_(DimStorePoiMapping.poi_id.in_(pois), DimStorePoiMapping.poi_id.in_(frozen_pois)),
+         ("poi_id", "store_id"))
+    feed(DimStore, or_(DimStore.store_id.in_(stores), DimStore.store_id.in_(frozen_stores)), ("store_id", "is_active"))
     # The policy normalizes Unicode, whitespace and dash aliases. Evaluate
     # only distinct related names, then query their exact configuration keys.
     normalized_names = sorted({normalize_owner_account_name(name) for name in session.scalars(
@@ -556,8 +587,6 @@ def _ensure_certified_close_job(factory: sessionmaker, *, now: datetime | None) 
     month = business_month
     last_job = None
     with session_scope(factory) as session:
-        if _active_rebuild_exists(session):
-            return None
         while month >= FIRST_MONTH:
             job_id = _queue_certified_month(session, month, now=now)
             if job_id is not None:

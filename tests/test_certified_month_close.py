@@ -39,7 +39,9 @@ def _close(factory):
 
 def _partial_then_repaired(session, monkeypatch):
     monkeypatch.setenv("SETTLEMENT_MONTHLY_MODE", "true")
-    factory = _seed(session, records=[binding(), binding(account="owner-other", poi="poi-other", douyin="dy-other")])
+    factory = _seed(session, records=[binding(), binding(
+        account="owner-other", poi="poi-other", douyin="dy-other", nickname="Other Sales Account",
+    )])
     _quiet_sqlite_progress(monkeypatch, session)
     metadata.create_all(session.get_bind())
     session.rollback()
@@ -49,8 +51,8 @@ def _partial_then_repaired(session, monkeypatch):
         upsert_aweme_account(writer, "owner-other", store_id="other", binding_status="active")
         order = writer.scalar(select(RawDouyinOrder).where(RawDouyinOrder.order_id == "order-middle"))
         order.owner_account_id = "owner-other"
-        order.owner_account_name = None
-        order.raw_payload = {}
+        order.owner_account_name = "Other Sales Account"
+        order.raw_payload = {"owner_account_name": "Other Sales Account"}
         writer.get(RawDouyinVerifyRecord, "verify-middle").poi_id = "poi-other"
 
     first_job = _close(factory)
@@ -80,7 +82,7 @@ def _partial_then_repaired(session, monkeypatch):
         # Source drift on a peer's unresolved slot does not invalidate an
         # already frozen store's review/confirmation proof.
         for order in writer.scalars(select(RawDouyinOrder)):
-            order.raw_payload = {"receipt_amount": 20001}
+            order.raw_payload = {**order.raw_payload, "receipt_amount": 20001}
     first_visible_utc = first_visible_at if first_visible_at.tzinfo is not None else first_visible_at.replace(tzinfo=UTC)
     preview = preview_auto_confirmation(factory, months=(MONTH,), store_ids=("store-sale",),
                                         now=first_visible_utc + timedelta(days=8))
@@ -98,7 +100,8 @@ def _partial_then_repaired(session, monkeypatch):
         assert read_monthly_settlement(reader, second_publication.id, {"store_id": "other", "month": MONTH})[
             "metrics"]["promotion_net_fee_cent"] == 6000
     with factory.begin() as writer:
-        writer.scalar(select(RawDouyinOrder)).raw_payload = {"receipt_amount": 30001}
+        order = writer.scalar(select(RawDouyinOrder))
+        order.raw_payload = {**order.raw_payload, "receipt_amount": 30001}
     assert month_close.ensure_month_close_job(factory, now=NOW) == second_job
 
 

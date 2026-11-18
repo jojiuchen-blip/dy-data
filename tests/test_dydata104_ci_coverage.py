@@ -38,12 +38,18 @@ PG_FILES = {
     "tests/test_ops_browser_observation.py",
     "tests/test_certified_month_close.py",
     "tests/test_monthly_fee_posting.py",
+    "tests/test_finance_download_localization.py",
+    "tests/test_finance_import_batch_locking.py",
+    "tests/test_finance_live_import_readback.py",
+    "tests/test_monthend_sales_name_postgres.py",
+    "tests/test_monthly_close_name_scope.py",
 }
 BROWSER_FILES = {
     "tests/test_dydata104_finance_preview_browser.py",
     "tests/test_dydata105_buttons_browser.py",
     "tests/test_dydata104_oct30_invoice_browser.py",
     "tests/test_finance_import_chinese_browser.py",
+    "tests/test_finance_download_localization_browser.py",
 }
 COORDINATOR_CASES = {
     "test_postgres_publication_only_complete_apply[metadata]",
@@ -273,19 +279,19 @@ def test_release_workflows_share_the_same_pg_contract() -> None:
 
 @pytest.mark.parametrize("name", WORKFLOWS)
 @pytest.mark.parametrize("invalid_case", (None, "missing", "wrong_module", "skipped", "failure", "error"))
-@pytest.mark.parametrize("module_name, guard_label", (
-    ("test_settlement_verify_impact_selection", "verify impact"),
-    ("test_product_sync_failure_diagnostics", "product failure diagnostics"),
+@pytest.mark.parametrize("module_name, guard_label, case_count", (
+    ("test_settlement_verify_impact_selection", "eleven verify impact", 11),
+    ("test_product_sync_failure_diagnostics", "fourteen product failure diagnostics", 14),
 ))
-def test_verify_impact_receipt_requires_eleven_successful_postgres_cases(
-    name: str, invalid_case: str | None, module_name: str, guard_label: str,
+def test_diagnostics_receipt_requires_all_successful_postgres_cases(
+    name: str, invalid_case: str | None, module_name: str, guard_label: str, case_count: int,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     gate = _step(_workflow(name), PG_NAME)
-    guard = shlex.split(next(line for line in gate["run"].splitlines() if f"all eleven {guard_label}" in line))[2]
+    guard = shlex.split(next(line for line in gate["run"].splitlines() if f"all {guard_label}" in line))[2]
     document = Element("testsuites")
     suite = SubElement(document, "testsuite")
-    for index in range(11):
+    for index in range(case_count):
         if index == 0 and invalid_case == "missing":
             continue
         module = "tests.test_other" if index == 0 and invalid_case == "wrong_module" else f"tests.{module_name}"

@@ -72,7 +72,7 @@ def test_download_fill_preview_commit_refresh_and_reenter_show_real_stored_value
         expect(page.get_by_role("columnheader", name="SAP确认状态", exact=True)).to_have_count(0)
         exported = click_download(page, "导出门店基础信息")
         rows = list(csv.DictReader(StringIO(Path(exported.path()).read_text(encoding="utf-8-sig"))))
-        assert len(rows) == 1 and rows[0]["有效SAP编码"] == new_sap
+        assert len(rows) == 1 and rows[0]["有效SAP编码"] == "'" + new_sap
         assert "sap_status" not in rows[0] and "SAP确认状态" not in rows[0]
         target = Path(f".tmp/oct30-finance-import-committed-{width}.png")
         target.parent.mkdir(exist_ok=True)

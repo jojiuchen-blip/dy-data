@@ -226,8 +226,9 @@ def test_finance_retired_statement_allocation_keeps_period_totals_and_filter_par
     db_session.execute(update(PromotionInvoice).values(invoice_status=4))
     db_session.commit()
     for selected, metrics, exported in snapshots:
-        assert publication.read_finance_summary(db_session, "finance-retired", **selected) == metrics
-        assert publication.export_finance_invoices(db_session, "finance-retired", **selected) == exported
+        current = publication.read_finance_summary(db_session, "finance-retired", **selected)
+        assert current["metrics"] == _legacy_summary(db_session, **selected)
+        assert publication.export_finance_invoices(db_session, "finance-retired", **selected) == _legacy_invoices(db_session, **selected)
 
 
 @pytest.mark.parametrize("direction", ["PROMOTION", "MANAGEMENT"])
@@ -263,16 +264,27 @@ def test_finance_parity_scope_filters_export_and_frozen_source(db_session, direc
         assert len(history) == 2
         assert history == _legacy_invoices(db_session, include_history=True, **filters)
     db_session.commit()
-    # A subsequent invoice correction, current SAP/name edit and projection edit
-    # cannot change the old published operating figures or its export.
+    # Operating amounts remain published, while current legal invoice/SAP
+    # changes must reach the list, filters, summary and export immediately.
     db_session.execute(update(DimStore).values(store_name="Changed"))
     db_session.execute(update(SettlementMonthlyOverlay).values(promotion_net_fee_cent=9999,
         management_net_fee_cent=8888))
     db_session.execute(update(PromotionInvoice).values(invoice_status=4))
     db_session.execute(update(StoreFinanceProfile).values(sap_code="CHANGED"))
     db_session.commit()
-    monkeypatch.setattr(source, "_finance_summary_metrics", lambda *args, **kwargs: pytest.fail("source read"))
-    monkeypatch.setattr(source, "_management_invoiceable_projection", lambda *args, **kwargs: pytest.fail("source read"))
+    frozen_projections = {(item["store_id"], item["statement_month"]): item
+        for _filters, _summary, items in cases for item in items if item["statement_id"] is None}
+    current_cases = []
+    for filters, _summary, _items in cases:
+        expected_items = _legacy_invoices(db_session, **filters)
+        for item in expected_items:
+            if item["statement_id"] is None:
+                frozen = frozen_projections[item["store_id"], item["statement_month"]]
+                for field in ("store_name", "statement_amount_cent"):
+                    item[field] = frozen[field]
+        expected_metrics = _legacy_summary(db_session, **filters)
+        expected_metrics["statement_total_cent"] = sum(item["statement_amount_cent"] for item in expected_items)
+        current_cases.append((filters, expected_metrics, expected_items))
     statements_seen = []
 
     def observe(connection, cursor, statement, parameters, context, executemany):
@@ -280,15 +292,17 @@ def test_finance_parity_scope_filters_export_and_frozen_source(db_session, direc
 
     event.listen(db_session.get_bind(), "before_cursor_execute", observe)
     try:
-        for filters, expected_summary, expected_items in cases:
-            assert publication.read_finance_summary(db_session, "finance-v1", **filters) == expected_summary
+        for filters, expected_metrics, expected_items in current_cases:
+            assert publication.read_finance_summary(db_session, "finance-v1", **filters)["metrics"] == expected_metrics
             assert publication.export_finance_invoices(db_session, "finance-v1", **filters) == expected_items
     finally:
         event.remove(db_session.get_bind(), "before_cursor_execute", observe)
     assert statements_seen
     assert all(statement.lstrip().upper().startswith("SELECT") for statement in statements_seen)
-    assert all("FROM settlement_" not in statement and "FROM promotion_" not in statement
-               and "FROM invoice_record" not in statement for statement in statements_seen)
+    assert all(not any(table in statement for table in (
+        "raw_douyin_", "settlement_fee_result", "settlement_order_details", "agg_store_",
+        "settlement_monthly_overlay", "settlement_ranking_overlay", "job_runs",
+    )) for statement in statements_seen)
 
 
 def _seed_settlement(session, *, legacy_root=False):

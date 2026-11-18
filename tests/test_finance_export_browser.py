@@ -62,111 +62,142 @@ from test_visual_smoke import (  # noqa: E402
 
 API_PREFIX = "/api/v1"
 
-# 服务端 CSV 表头契约（与 apps/api/dy_api/routes 内 DictWriter fieldnames 一致）。
-INVOICE_EXPORT_FIELDS = [
-    "invoice_id",
-    "store_id",
-    "store_name",
-    "effective_sap_code",
-    "statement_id",
-    "statement_month",
-    "settlement_batch_month",
-    "statement_amount_cent",
-    "confirmed_amount_cent",
-    "invoice_number",
-    "invoice_date",
-    "invoice_amount_cent",
-    "status",
-    "rejection_reason",
-    "registered_at",
-    "factory_deduction_date",
-    "factory_deduction_amount_cent",
-    "processing_status",
+# 用户中文下载的表头合同，API 默认机读导出由后端测试独立覆盖。
+PROMOTION_INVOICE_EXPORT_FIELDS = [
+    "发票记录ID",
+    "门店ID",
+    "门店名称",
+    "有效SAP编码",
+    "账单ID",
+    "账期",
+    "结算批次账期",
+    "推广费总额（元）",
+    "已确认金额（元）",
+    "发票号码",
+    "开票日期",
+    "发票金额（元）",
+    "开票状态",
+    "驳回原因",
+    "登记时间",
+    "厂家扣款日期",
+    "厂家扣款金额（元）",
+    "处理状态"
+]
+
+MANAGEMENT_INVOICE_EXPORT_FIELDS = [
+    "发票记录ID",
+    "门店ID",
+    "门店名称",
+    "有效SAP编码",
+    "账单ID",
+    "账期",
+    "结算批次账期",
+    "管理费总额（元）",
+    "已确认金额（元）",
+    "发票号码",
+    "开票日期",
+    "发票金额（元）",
+    "开票状态",
+    "驳回原因",
+    "登记时间",
+    "厂家扣款日期",
+    "厂家扣款金额（元）",
+    "处理状态",
 ]
 
 ORDER_DETAIL_EXPORT_FIELDS = [
-    "statement_entry_id",
-    "statement_id",
-    "store_id",
-    "store_name",
-    "sap_code",
-    "billing_store_id",
-    "billing_store_name",
-    "service_store_name",
-    "effective_sap_code",
-    "statement_month",
-    "fee_direction",
-    "order_id",
-    "coupon_id",
-    "order_status",
-    "coupon_status",
-    "product_name",
-    "product_type",
-    "sku_id",
-    "sku_name",
-    "sale_channel",
-    "sale_store_id",
-    "sale_store_name",
-    "verify_store_id",
-    "verify_store_name",
-    "sale_time",
-    "verify_time",
-    "received_amount_cent",
-    "frozen_fee_base_cent",
-    "actual_fee_rate",
-    "frozen_fee_amount_cent",
-    "refund_time",
-    "adjustment_type",
-    "row_type",
-    "invoice_number",
-    "submitted_at",
-    "invoice_status",
-    "settled_at",
-    "settlement_date",
-    "rejection_reason",
-    "imported_at",
-    "settlement_status",
-    "factory_deduction_date",
-    "factory_deduction_amount_cent",
+    "账单明细ID",
+    "账单ID",
+    "门店ID",
+    "门店名称",
+    "SAP编码",
+    "结算门店ID",
+    "结算门店名称",
+    "服务门店名称",
+    "有效SAP编码",
+    "账期",
+    "费用方向",
+    "订单ID",
+    "券ID",
+    "订单状态",
+    "券状态",
+    "商品名称",
+    "商品类型",
+    "SKU ID",
+    "SKU名称",
+    "销售渠道",
+    "销售门店ID",
+    "销售门店名称",
+    "核销门店ID",
+    "核销门店名称",
+    "销售时间",
+    "核销时间",
+    "订单实收金额（元）",
+    "冻结计费基数（元）",
+    "实际费率",
+    "冻结费用金额（元）",
+    "退款时间",
+    "调整类型",
+    "明细类型",
+    "发票号码",
+    "提交时间",
+    "开票状态",
+    "结算时间",
+    "结算日期",
+    "驳回原因",
+    "导入时间",
+    "结算状态",
+    "厂家扣款日期",
+    "厂家扣款金额（元）"
 ]
 
 STORE_EXPORT_FIELDS = [
-    "门店ID", "门店名称", "门店维护SAP编码", "财务导入SAP编码", "有效SAP编码",
-    "有效SAP版本", "最近操作人", "最近更新时间", "账单总额（分）", "已确认金额（分）",
-    "待开票金额（分）", "已开票金额（分）", "已结算或扣款金额（分）",
+    "门店ID",
+    "门店名称",
+    "门店维护SAP编码",
+    "财务导入SAP编码",
+    "有效SAP编码",
+    "有效SAP版本",
+    "最近操作人",
+    "最近更新时间",
+    "账单总额（元）",
+    "已确认金额（元）",
+    "待开票金额（元）",
+    "已开票金额（元）",
+    "已结算或扣款金额（元）"
 ]
 
 SAP_EXPORT_FIELDS = [
-    "discrepancy_id",
-    "store_id",
-    "store_name",
-    "store_maintained_sap_code",
-    "finance_imported_sap_code",
-    "effective_sap_code",
-    "effective_sap_version",
-    "effective_sap_updated_by",
-    "effective_sap_updated_at",
-    "sap_status",
-    "discrepancy_detected_at",
+    "差异记录ID",
+    "门店ID",
+    "门店名称",
+    "门店维护SAP编码",
+    "财务导入SAP编码",
+    "有效SAP编码",
+    "有效SAP版本",
+    "最近操作人",
+    "最近更新时间",
+    "SAP差异处理状态",
+    "差异发现时间"
 ]
 
 DISPUTE_EXPORT_FIELDS = [
-    "dispute_id",
-    "statement_id",
-    "store_id",
-    "statement_month",
-    "fee_direction",
-    "dispute_type",
-    "status",
-    "disputed_amount_cent",
-    "description",
-    "contact_name",
-    "contact_phone_masked",
-    "linked_order_count",
-    "linked_order_ids",
-    "submitted_at",
-    "resolution_note",
-    "result_statement_id",
+    "异议ID",
+    "账单ID",
+    "门店ID",
+    "账期",
+    "费用方向",
+    "异议类型",
+    "异议状态",
+    "异议金额（元）",
+    "异议说明",
+    "联系人",
+    "联系电话（脱敏）",
+    "关联订单数",
+    "关联订单ID",
+    "提交时间",
+    "处理说明",
+    "处理结果账单ID"
 ]
 
 # order_fee_details_export_csv 使用中文表头。
@@ -184,15 +215,15 @@ ORDER_FEE_DETAIL_FIELDS = [
     "SKU ID",
     "产品范围",
     "商品类型",
-    "原始基数",
-    "调整基数",
-    "净基数",
+    "原始基数（元）",
+    "调整基数（元）",
+    "净基数（元）",
     "费率",
-    "原始费用",
-    "调整费用",
-    "调整后净额",
+    "原始费用（元）",
+    "调整费用（元）",
+    "调整后净额（元）",
     "规则版本",
-    "账单状态",
+    "账单状态"
 ]
 
 ERROR_FILE_FIELDS = ["原文件行号", "业务唯一键", "字段", "原始值", "错误原因", "建议修正方式"]
@@ -215,14 +246,14 @@ EMPTY_CASES = [
         "promotion-invoices",
         "/finance/promotion?month=2025-01",
         "导出当前筛选结果",
-        INVOICE_EXPORT_FIELDS,
+        PROMOTION_INVOICE_EXPORT_FIELDS,
         "当前筛选无记录，已下载仅含表头的文件。",
     ),
     (
         "management-invoices",
         "/finance/management?month=2025-01",
         "导出当前筛选结果",
-        INVOICE_EXPORT_FIELDS,
+        MANAGEMENT_INVOICE_EXPORT_FIELDS,
         "当前筛选无记录，已下载仅含表头的文件。",
     ),
     (
@@ -334,7 +365,7 @@ def test_dydata97_export_finance_fee_buttons_download_real_csv(
         )
         export = click_download(page, "导出当前筛选结果")
         rows = download_rows(export)
-        assert rows[0] == INVOICE_EXPORT_FIELDS
+        assert rows[0] == PROMOTION_INVOICE_EXPORT_FIELDS
         assert len(rows) - 1 == promotion["total"], (rows, promotion["total"])
         assert len(rows) > 1, "推广服务费导出不应只有表头"
 
@@ -357,7 +388,7 @@ def test_dydata97_export_finance_fee_buttons_download_real_csv(
         )
         export = click_download(page, "导出当前筛选结果")
         rows = download_rows(export)
-        assert rows[0] == INVOICE_EXPORT_FIELDS
+        assert rows[0] == MANAGEMENT_INVOICE_EXPORT_FIELDS
         assert len(rows) - 1 == management["total"], (rows, management["total"])
         assert len(rows) > 1, "管理服务费导出不应只有表头"
     finally:
@@ -698,16 +729,16 @@ def test_dydata97_export_management_history_rows_in_list_and_export(
 
         export = click_download(page, "导出当前筛选结果")
         rows = download_rows(export)
-        assert rows[0] == INVOICE_EXPORT_FIELDS
+        assert rows[0] == MANAGEMENT_INVOICE_EXPORT_FIELDS
         assert len(rows) - 1 == with_history["total"]
-        assert any(HISTORY_INVOICE_NUMBER in row for row in rows[1:])
+        assert any(HISTORY_INVOICE_NUMBER == cell.removeprefix("'") for row in rows[1:] for cell in row)
 
         page.get_by_role("button", name="仅看当前版本", exact=True).click()
         expect(page.get_by_text(HISTORY_INVOICE_NUMBER, exact=True)).to_have_count(0)
         export = click_download(page, "导出当前筛选结果")
         rows = download_rows(export)
         assert len(rows) - 1 == without_history["total"]
-        assert not any(HISTORY_INVOICE_NUMBER in row for row in rows[1:])
+        assert not any(HISTORY_INVOICE_NUMBER == cell.removeprefix("'") for row in rows[1:] for cell in row)
     finally:
         context.close()
 
@@ -789,7 +820,7 @@ def test_dydata97_export_finance_fee_filenames_match_content_disposition(
             "推广服务费厂家结果-导入模板.xlsx"
         )
         assert re.fullmatch(
-            r"finance-promotion-invoices-\d{4}-\d{2}-\d{2}\.csv",
+            r"推广服务费开票记录_2026年08月_\d{4}年\d{2}月\d{2}日\.csv",
             click_download(page, "导出当前筛选结果").suggested_filename,
         )
 
@@ -798,7 +829,7 @@ def test_dydata97_export_finance_fee_filenames_match_content_disposition(
             "管理服务费厂家结果-导入模板.xlsx"
         )
         assert re.fullmatch(
-            r"finance-management-invoices-\d{4}-\d{2}-\d{2}\.csv",
+            r"管理服务费开票记录_2026年08月_\d{4}年\d{2}月\d{2}日\.csv",
             click_download(page, "导出当前筛选结果").suggested_filename,
         )
     finally:
@@ -820,7 +851,7 @@ def test_dydata97_export_finance_order_detail_filenames_match_content_dispositio
         ):
             goto(page, vite_live_admin_api_base_url, path, heading)
             assert re.fullmatch(
-                r"finance-order-details-\d{4}-\d{2}-\d{2}\.csv",
+                rf"{heading}_2026年08月_\d{{4}}年\d{{2}}月\d{{2}}日\.csv",
                 click_download(page, "导出全部命中结果").suggested_filename,
             )
     finally:
@@ -841,7 +872,7 @@ def test_dydata97_export_finance_store_filenames_match_content_disposition(
             "门店基础信息-导入模板.xlsx"
         )
         assert re.fullmatch(
-            r"finance-stores-\d{4}-\d{2}-\d{2}\.csv",
+            r"门店基础信息_2026年08月_\d{4}年\d{2}月\d{2}日\.csv",
             click_download(page, "导出门店基础信息").suggested_filename,
         )
         page.get_by_role("tab", name="SAP异议处理", exact=True).click()
@@ -849,7 +880,7 @@ def test_dydata97_export_finance_store_filenames_match_content_disposition(
             timeout=20000
         )
         assert re.fullmatch(
-            r"finance-sap-discrepancies-\d{4}-\d{2}-\d{2}\.csv",
+            r"SAP编码差异_2026年08月_\d{4}年\d{2}月\d{2}日\.csv",
             click_download(page, "导出 SAP 编码差异清单").suggested_filename,
         )
         assert click_download(page, "下载 SAP 编码确认模板").suggested_filename == (
@@ -871,7 +902,7 @@ def test_dydata97_export_order_fee_details_filename_matches_content_disposition(
         goto(page, vite_live_admin_api_base_url, "/details?storeId=store-1&month=2026-08", "推广费订单明细")
         page.get_by_text("DY2026071900842", exact=True).first.wait_for(timeout=20000)
         assert re.fullmatch(
-            r"order-fee-details-\d{4}-\d{2}-\d{2}\.csv",
+            r"订单费用明细_2026年08月_\d{4}年\d{2}月\d{2}日\.csv",
             click_download(page, "导出").suggested_filename,
         )
     finally:
@@ -891,7 +922,7 @@ def test_dydata97_export_import_error_filename_matches_content_disposition(
         page.get_by_role("button", name=ERROR_BATCH_ID, exact=True).click()
         page.get_by_role("heading", name="批次详情", exact=True).wait_for(timeout=20000)
         assert click_download(page, "下载全部错误").suggested_filename == (
-            f"finance-import-errors-{ERROR_BATCH_ID}.csv"
+            f"财务导入错误明细_{ERROR_BATCH_ID}.csv"
         )
     finally:
         context.close()
@@ -909,7 +940,7 @@ def test_dydata97_export_dispute_filename_matches_content_disposition(
         goto(page, vite_live_admin_api_base_url, "/finance/disputes?month=2026-08", "账单异议")
         page.get_by_text("uat-dispute-001", exact=True).first.wait_for(timeout=20000)
         assert re.fullmatch(
-            r"finance-disputes-\d{4}-\d{2}-\d{2}\.csv",
+            r"结算异议_2026年08月_\d{4}年\d{2}月\d{2}日\.csv",
             click_download(page, "导出账单异议").suggested_filename,
         )
     finally:

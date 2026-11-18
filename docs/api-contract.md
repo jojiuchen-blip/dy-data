@@ -15,9 +15,9 @@ Product ID查询失败返回 `null`，不增加新面板，也不回传整个met
   `pendingProductIds`是本批最终未通过Product ID响应校验的ID，两者最多10项。
 - `frozenProductCount`是全状态列表结束后冻结的缺口集合大小，`batchOffset`是
   本批在其排序集合中的零基偏移；`batchMissingCount`仅是本批未解析数量。
-  `unvisitedProductCount`表示本批之后尚未查询的产品数量；
-  `remainingProductLookupCount = batchMissingCount + unvisitedProductCount`，
-  不代表只有本批缺口，也不证明SKU覆盖、状态、归属或结算金额已完整。
+  任务结束时的 `unvisitedProductCount` 表示冻结清单中实际未遍历的商品数。
+  `remainingProductLookupCount` 汇总所有已遍历批次的未解析商品和仍未遍历的商品。
+  每批质量记录保留请求当时的准确 ID、响应摘要和该批结果。单批空 SKU 或部分返回耗尽重试后继续遍历，已核验的档案进入历史记录。整次仍有缺口时保持失败状态，现行主档与上一次完整成功时间保持原值。
 - `attempts`最多3项，保留实际已有尝试：`attempt`、当次
   `requestedProductIds`、`responseReceived`、`returnedProductCount`、
   `productsShapeValid`，以及最多10个已请求产品的`products[{productId,skuCount}]`。
@@ -247,3 +247,6 @@ DYDATA-104 的账号、渠道生效月延续及显式停用接口见 [结算范�
 分佣展示productType与原财务snapshotProductType分离，新结算分析commission-product-type-v3须真实预热，旧版本不能只换标签；定义见[SKU API](prd/foundation/foundation-api-dy-data/sku-fee-admin.md#2026-10-30-分佣展示类型增量)。自动确认默认关闭，使用受控预演及正式服务，不新增公开写入口；部署、数据应用和业务验收分别记录，见[本轮证据](verification/dydata-104-oct30-delivery.md)。
 
 单店分账的正式账单以及月度分账的当前账单头返回可空的 `first_visible_at` 和 `confirmation_due_at`。两者均为带时区时间，分别表示当前版本首次可供门店核对的结算发布时间及最早自动确认时点。截止时间取正常次月 7 日 00:00 与首次可核对日期之后第三日 00:00 的较晚者，按上海自然日计算。缺少首次可核对凭据时两项为空。门店仍按原权限核对和主动确认。
+### 财务及订单分佣的中文下载
+
+网页发起用户下载时传 `locale=zh-CN`。响应通过 `Content-Disposition` 的 `filename*` 提供中文文件名。中文 CSV 对应业务表头、费用方向和当前状态，分值精确换算为标明单位的元，时间以 Asia/Shanghai 展示。待出账明细仍可有费用，已确认金额和发票字段按实际单据显示。未知状态保留原代码。旧机器下载和回导继续使用原有字段与单位。
