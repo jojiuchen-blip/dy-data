@@ -54,6 +54,8 @@ from src.dy_data.settlement_schedule import monthly_settlement_enabled
 from ..clue_phone_cache import get_phone, put_phone
 from ..clue_phone_filters import matching_phone_order_ids
 from ..clue_verification_facts import enrich_verification_facts, verification_exists_sql
+from ..clue_task_metrics import load_clue_task_facts, load_self_store_verifications
+from ..clue_product_scope import validate_product_scope
 from ..export_metadata import export_filter_header
 from apps.worker.order_status import ACTIVE_ORDER_STATUSES, PAID_ORDER_STATUSES
 from apps.worker.projection_lineage import (
@@ -279,6 +281,7 @@ def _follow_up_record_payload(record: Any) -> dict[str, Any] | None:
         "round_no": record.round_no,
         "assigned_store_id": record.assigned_store_id,
         "follow_result": record.follow_result,
+        "appointment_at": record.appointment_at,
         "note": record.note,
         "operator_user_id": record.operator_user_id,
         "operator_username": record.operator_username,
@@ -4858,56 +4861,113 @@ class DashboardDataStore:
         }
 
     def clue_overview(self, filters: dict[str, Any]) -> dict[str, Any]:
+        """Use the same received-task facts as frozen clue/ranking publications."""
+
         where_sql, params = self._clue_where(filters, include_round=True)
-        rows = self._execute(
-            f"""
-            SELECT COUNT(*) AS total_clues,
-                   COALESCE(SUM(active_clue), 0) AS active_clues,
-                   COALESCE(SUM(followed_clue), 0) AS followed_clues,
-                   COALESCE(SUM(successful_follow_clue), 0) AS successful_follow_clues,
-                   COALESCE(SUM(self_store_verified_clue), 0) AS self_store_verified_clues,
-                   COALESCE(SUM(pending_reassign_clue), 0) AS pending_reassign_count
-            FROM (
-                SELECT c.order_id,
-                       MAX(CASE
-                           WHEN r.assignment_round_id = c.current_assignment_round_id
-                             AND r.round_status IN ('active_unfollowed', 'active_followed')
-                           THEN 1 ELSE 0 END) AS active_clue,
-                       MAX(CASE WHEN r.is_followed = true THEN 1 ELSE 0 END) AS followed_clue,
-                       MAX(CASE WHEN r.is_follow_success = true THEN 1 ELSE 0 END)
-                           AS successful_follow_clue,
-                       MAX(CASE
-                           WHEN r.is_follow_success = true AND r.is_self_store_verified = true
-                           THEN 1 ELSE 0 END) AS self_store_verified_clue,
-                       MAX(CASE
-                           WHEN r.assignment_round_id = c.current_assignment_round_id
-                             AND (c.lead_status = 'pending_reassign'
-                             OR r.round_status IN (
-                                'failed_pending_reassign', 'expired_pending_reassign'
-                             ))
-                           THEN 1 ELSE 0 END) AS pending_reassign_clue
-                FROM clue_assignment_rounds r
-                JOIN clue_center_orders c ON c.order_id = r.order_id
-                {where_sql}
-                GROUP BY c.order_id
-            ) scoped_orders
-            """,
-            params,
-        )
-        row = rows[0] if rows else {}
-        total = _to_int(row.get("total_clues"))
-        followed = _to_int(row.get("followed_clues"))
-        successful = _to_int(row.get("successful_follow_clues"))
-        self_verified = _to_int(row.get("self_store_verified_clues"))
+        product_scope = validate_product_scope(_to_str(filters.get("product_scope")) or "all")
+        cutoff = datetime.now(timezone.utc)
+        fields = ("follow_24h_numerator", "follow_any_numerator", "follow_denominator",
+                  "verification_numerator", "verification_denominator")
+        counts = dict.fromkeys((*fields, "received_task_count"), 0)
+        order_flags: dict[str, list[bool]] = {}
+        query = text(f"""
+            SELECT r.assignment_round_id, r.order_id, r.round_status, r.is_follow_success,
+                   c.current_assignment_round_id, c.lead_status
+            FROM clue_assignment_rounds r
+            JOIN clue_center_orders c ON c.order_id = r.order_id
+            {where_sql}
+            ORDER BY r.order_id, r.assignment_round_id
+        """)
+        for batch in self.session.execute(query, params).mappings().partitions(400):
+            facts = load_clue_task_facts(self.session, {row["order_id"] for row in batch}, observed_through=cutoff)
+            for row in batch:
+                fact = facts.get(row["assignment_round_id"])
+                if fact is None or product_scope != "all" and fact.product_scope != product_scope:
+                    continue
+                for field in fields:
+                    counts[field] += getattr(fact, field)
+                counts["received_task_count"] += 1
+                current = row["assignment_round_id"] == row["current_assignment_round_id"]
+                flags = order_flags.setdefault(row["order_id"], [False, False, False])
+                flags[0] |= current and row["round_status"] in CURRENT_OPERABLE_ROUND_STATUSES
+                flags[1] |= _to_bool(row["is_follow_success"])
+                flags[2] |= current and (row["lead_status"] == "pending_reassign" or row["round_status"] in {
+                    "failed_pending_reassign", "expired_pending_reassign",
+                })
+        total = len(order_flags)
+        rate = lambda numerator, denominator: round(numerator / denominator, 6) if denominator else 0
+        follow_24h_rate = rate(counts["follow_24h_numerator"], counts["follow_denominator"])
+        follow_any_rate = rate(counts["follow_any_numerator"], counts["follow_denominator"])
+        verification_rate = rate(counts["verification_numerator"], counts["verification_denominator"])
         return {
             "total_clues": total,
-            "active_clues": _to_int(row.get("active_clues")),
-            "follow_rate": _ratio(followed, total),
-            "follow_success_rate": _ratio(successful, total),
-            "verified_count": self_verified,
-            "self_store_verify_rate": _ratio(self_verified, total),
-            "pending_reassign_count": _to_int(row.get("pending_reassign_count")),
+            "active_clues": sum(flags[0] for flags in order_flags.values()),
+            "follow_rate": follow_any_rate,
+            "follow_success_rate": _ratio(sum(flags[1] for flags in order_flags.values()), total),
+            "verified_count": counts["verification_numerator"],
+            "self_store_verify_rate": verification_rate,
+            "pending_reassign_count": sum(flags[2] for flags in order_flags.values()),
+            **counts,
+            "follow_24h_rate": follow_24h_rate,
+            "follow_any_rate": follow_any_rate,
+            "verification_rate": verification_rate,
+            "self_store_verification_count": self._live_self_store_verification_count(filters, cutoff=cutoff),
         }
+
+    def _live_self_store_verification_count(self, filters: dict[str, Any], *, cutoff: datetime) -> int:
+        """Count actual-store first verifications, including orders with no task."""
+
+        product_scope = validate_product_scope(_to_str(filters.get("product_scope")) or "all")
+        start = _parse_filter_datetime(filters.get("assigned_date_start"))
+        end = _parse_filter_date_end(filters.get("assigned_date_end"))
+        visible_types = self._visible_product_types()
+        scope_sets = [set(filters[key]) for key in ("scope_store_ids", "organization_store_ids")
+                      if filters.get(key) is not None]
+        exact_store = _to_str(filters.get("assigned_store_id")).strip()
+        exact_type = _to_str(filters.get("product_type")).strip()
+        province, city = (_to_str(filters.get(key)).strip() for key in ("province", "city"))
+        query = _to_str(filters.get("q")).strip().lower()
+        count, after = 0, ""
+        while True:
+            orders = self._execute("""
+                SELECT DISTINCT order_id FROM raw_douyin_order_coupons
+                WHERE order_id IS NOT NULL AND order_id > :after
+                ORDER BY order_id LIMIT 400
+            """, {"after": after})
+            if not orders:
+                break
+            order_ids = [row["order_id"] for row in orders]
+            facts = load_self_store_verifications(self.session, order_ids, observed_through=cutoff)
+            placeholders, store_params = _in_clause_params("verification_store", {fact.store_id for fact in facts})
+            stores = {row["store_id"]: row for row in self._execute(f"""
+                SELECT store_id, store_name, standard_province, standard_city FROM dim_stores
+                WHERE store_id IN ({placeholders})
+            """, store_params)} if placeholders else {}
+            for fact in facts:
+                if fact.business_date < CLUE_VISIBLE_ASSIGNED_AT.date():
+                    continue
+                if product_scope != "all" and fact.product_scope != product_scope:
+                    continue
+                if any(fact.store_id not in scope for scope in scope_sets):
+                    continue
+                if exact_store and exact_store != "all" and fact.store_id != exact_store:
+                    continue
+                if exact_type and exact_type != "all" and fact.product_type != exact_type:
+                    continue
+                if visible_types is not None and fact.product_type not in visible_types:
+                    continue
+                if start is not None and fact.verified_at < start or end is not None and fact.verified_at >= end:
+                    continue
+                store = stores.get(fact.store_id, {})
+                if province and province != "all" and store.get("standard_province") != province:
+                    continue
+                if city and city != "all" and store.get("standard_city") != city:
+                    continue
+                if query and query not in fact.order_id.lower() and query not in _to_str(store.get("store_name")).lower():
+                    continue
+                count += 1
+            after = order_ids[-1]
+        return count
 
     def clue_store_follow_up_summary(
         self,
@@ -5040,6 +5100,7 @@ class DashboardDataStore:
                     lead.lifecycle_status AS master_lifecycle_status,
                     lead.normalized_order_status AS master_normalized_order_status,
                     lead.pool_location AS master_pool_location,
+                    lead.routing_mode,
                     EXISTS (
                         SELECT 1
                         FROM clue_master_leads headquarters_lead
@@ -5056,6 +5117,9 @@ class DashboardDataStore:
                    r.auto_expiry_enabled,
                    r.first_follow_up_sla_hours,
                    r.protection_days,
+                   r.appointment_at,
+                   r.closed_at,
+                   r.terminal_reason,
                    r.assigned_store_id,
                    r.assigned_store_name,
                    COALESCE(c.phone_masked, '') AS phone_masked,
@@ -5122,6 +5186,7 @@ class DashboardDataStore:
                    lead.lifecycle_status AS master_lifecycle_status,
                    lead.normalized_order_status AS master_normalized_order_status,
                    lead.pool_location AS master_pool_location,
+                   lead.routing_mode,
                    EXISTS (
                        SELECT 1
                        FROM clue_master_leads headquarters_lead
@@ -5132,6 +5197,15 @@ class DashboardDataStore:
                    r.round_status,
                    r.assigned_at,
                    r.expires_at,
+                   r.first_sla_expires_at,
+                   r.protection_started_at,
+                   r.protection_expires_at,
+                   r.auto_expiry_enabled,
+                   r.first_follow_up_sla_hours,
+                   r.protection_days,
+                   r.appointment_at,
+                   r.closed_at,
+                   r.terminal_reason,
                    r.assigned_store_id,
                    r.assigned_store_name,
                    COALESCE(c.phone_plain, '') AS phone_plain,
@@ -5245,6 +5319,7 @@ class DashboardDataStore:
                    lead.lifecycle_status AS master_lifecycle_status,
                    lead.normalized_order_status AS master_normalized_order_status,
                    lead.pool_location AS master_pool_location,
+                   lead.routing_mode,
                    EXISTS (
                        SELECT 1
                        FROM clue_master_leads headquarters_lead
@@ -5255,6 +5330,15 @@ class DashboardDataStore:
                    r.round_status,
                    r.assigned_at,
                    r.expires_at,
+                   r.first_sla_expires_at,
+                   r.protection_started_at,
+                   r.protection_expires_at,
+                   r.auto_expiry_enabled,
+                   r.first_follow_up_sla_hours,
+                   r.protection_days,
+                   r.appointment_at,
+                   r.closed_at,
+                   r.terminal_reason,
                    r.assigned_store_id,
                    r.assigned_store_name,
                    COALESCE(c.phone_masked, '') AS phone_masked,
@@ -5281,6 +5365,17 @@ class DashboardDataStore:
                 "clue_min_assigned_at": self._clue_query_datetime(CLUE_VISIBLE_ASSIGNED_AT),
             },
         )
+        if scope_store_ids is not None and any(row.get("routing_mode") is not None for row in rows):
+            allowed_stores = set(scope_store_ids)
+            allowed_lead_keys = {
+                row.get("lead_key") for row in rows
+                if row.get("assigned_store_id") in allowed_stores and row.get("lead_key")
+            }
+            rows = [row for row in rows if (
+                row.get("lead_key") in allowed_lead_keys
+                or (not row.get("lead_key") and row.get("assigned_store_id") in allowed_stores)
+            )]
+        visible_round_ids = {row["assignment_round_id"] for row in rows}
         deleted_scope_sql, deleted_scope_params = self._store_scope_clause(
             "follow_round.assigned_store_id", scope_store_ids, prefix="deleted_history_scope",
         )
@@ -5292,6 +5387,7 @@ class DashboardDataStore:
                    follow_record.round_no,
                    follow_record.assigned_store_id,
                    follow_record.follow_result,
+                   follow_record.appointment_at,
                    follow_record.note,
                    follow_record.operator_user_id,
                    follow_record.operator_username,
@@ -5340,6 +5436,7 @@ class DashboardDataStore:
             "rounds": cleaned_rounds,
             "follow_up_records": [
                 self._clean_follow_up_record(row) for row in record_rows
+                if row.get("assignment_round_id") in visible_round_ids
             ],
         }
 
@@ -5524,6 +5621,12 @@ class DashboardDataStore:
         assignment_round_id = _to_str(payload.get("assignment_round_id")).strip()
         follow_result = _to_str(payload.get("follow_result")).strip()
         note = _to_str(payload.get("note")).strip() or None
+        appointment_at = payload.get("appointment_at")
+        if isinstance(appointment_at, str):
+            try:
+                appointment_at = datetime.fromisoformat(appointment_at.replace("Z", "+00:00"))
+            except ValueError:
+                return "appointment_invalid", None
         if not order_id or not assignment_round_id:
             return "not_found", None
         if follow_result not in FOLLOW_UP_RESULTS:
@@ -5541,6 +5644,7 @@ class DashboardDataStore:
                 follow_result=follow_result,
                 actor=actor,
                 note=note,
+                appointment_at=appointment_at,
                 now=generated_at(),
             )
             return result.status, _follow_up_record_payload(result.record)
@@ -5864,7 +5968,7 @@ class DashboardDataStore:
             # Preserve the existing trial-only detail response (empty
             # business rounds) while hiding formal historical-only orders.
             return not formal_rows
-        if self._clue_order_has_active_headquarters_lead(order_id):
+        if self._clue_order_has_active_headquarters_lead(order_id, legacy_only=True):
             return False
         placeholders, params = _in_clause_params("detail_scope_store", scope_store_ids)
         if not placeholders:
@@ -5887,14 +5991,16 @@ class DashboardDataStore:
         )
         return bool(rows)
 
-    def _clue_order_has_active_headquarters_lead(self, order_id: str) -> bool:
+    def _clue_order_has_active_headquarters_lead(self, order_id: str, *, legacy_only: bool = False) -> bool:
+        legacy_clause = "AND headquarters_lead.routing_mode IS NULL" if legacy_only else ""
         rows = self._execute(
-            """
+            f"""
             SELECT 1
             FROM clue_master_leads headquarters_lead
             WHERE headquarters_lead.order_id = :order_id
               AND headquarters_lead.lifecycle_status = 'active'
               AND headquarters_lead.pool_location = 'headquarters_pool'
+              {legacy_clause}
             LIMIT 1
             """,
             {"order_id": order_id},
@@ -6125,6 +6231,7 @@ class DashboardDataStore:
                 f"WHERE headquarters_lead.order_id = {order_ref} "
                 "AND headquarters_lead.lifecycle_status = 'active' "
                 "AND headquarters_lead.pool_location = 'headquarters_pool'"
+                " AND headquarters_lead.routing_mode IS NULL"
                 ")"
             )
             if include_round:
@@ -6168,10 +6275,15 @@ class DashboardDataStore:
         expires_at = row.get("expires_at")
         assignment_round_id = _to_str(row.get("assignment_round_id"))
         current_assignment_round_id = _to_str(row.get("current_assignment_round_id"))
+        authoritative_round_id = (
+            _to_str(row.get("master_current_assignment_round_id"))
+            if row.get("routing_mode") is not None else current_assignment_round_id
+        )
         is_current_round = bool(
             assignment_round_id
-            and current_assignment_round_id
-            and assignment_round_id == current_assignment_round_id
+            and authoritative_round_id
+            and assignment_round_id == authoritative_round_id
+            and _to_str(row.get("round_status")) in CURRENT_OPERABLE_ROUND_STATUSES
         )
         return {
             "assignment_round_id": assignment_round_id,
@@ -6199,6 +6311,16 @@ class DashboardDataStore:
             "auto_expiry_enabled": row.get("auto_expiry_enabled"),
             "first_follow_up_sla_hours": row.get("first_follow_up_sla_hours"),
             "protection_days": row.get("protection_days"),
+            "appointment_at": row.get("appointment_at"),
+            "routing_mode": row.get("routing_mode"),
+            "closed_at": row.get("closed_at"),
+            "terminal_reason": row.get("terminal_reason"),
+            "can_delete_follow_up_records": bool(
+                actor and row.get("routing_mode") is None
+                and _to_str(row.get("execution_mode")) == BUSINESS_CLUE_EXECUTION_MODE
+                and _to_str(actor.get("role")) in {"admin", "highest_admin"}
+                and can_access_clue_store(actor, _to_str(row.get("assigned_store_id")))
+            ),
             "remaining_reassign_seconds": _remaining_reassign_seconds(expires_at),
             "assigned_store_id": row.get("assigned_store_id"),
             "assigned_store_name": row.get("assigned_store_name"),
@@ -6214,6 +6336,13 @@ class DashboardDataStore:
             "verified_store_name": row.get("verified_store_name"),
             "verified_at": row.get("verified_at"),
             "is_self_store_verified": _to_bool(row.get("is_self_store_verified")),
+            "verification_summary": row.get("verification_summary"),
+            "verification_facts": row.get("verification_facts") or [],
+            "follow_24h_numerator": _to_int(row.get("follow_24h_numerator")),
+            "follow_any_numerator": _to_int(row.get("follow_any_numerator")),
+            "follow_denominator": _to_int(row.get("follow_denominator")),
+            "verification_numerator": _to_int(row.get("verification_numerator")),
+            "verification_denominator": _to_int(row.get("verification_denominator")),
         }
 
     def _store_display_status(self, row: dict[str, Any]) -> str:
@@ -6267,6 +6396,7 @@ class DashboardDataStore:
             "round_no": _to_int(row.get("round_no"), 1),
             "assigned_store_id": row.get("assigned_store_id"),
             "follow_result": _to_str(row.get("follow_result")),
+            "appointment_at": row.get("appointment_at"),
             "note": row.get("note"),
             "operator_user_id": row.get("operator_user_id"),
             "operator_username": row.get("operator_username"),

@@ -318,8 +318,8 @@ def default_stage_handlers(*, client: Any | None = None) -> dict[str, Callable[.
                 **settlement_output,
                 "verification_projection_delta": verification_delta,
                 "clue_follow_up_due": {
-                    "disabled": True,
-                    "reason": "automatic_reallocation_disabled",
+                    "mode": "product_flow_only",
+                    "owner": "clue-follow-up-transitions",
                 },
                 "store_score_snapshot": snapshots,
             }
@@ -344,8 +344,8 @@ def default_stage_handlers(*, client: Any | None = None) -> dict[str, Callable[.
             "master_refresh": master_refresh,
             "clue_center_refresh": center_refresh,
             "clue_follow_up_due": {
-                "disabled": True,
-                "reason": "automatic_reallocation_disabled",
+                "mode": "product_flow_only",
+                "owner": "clue-follow-up-transitions",
             },
             "store_score_snapshot": snapshots,
         }

@@ -18,6 +18,9 @@ from apps.api.dy_api.models import (
 from apps.worker import clue_allocation_engine, clue_follow_up_state
 from test_clue_follow_up_postgres import _assert_waiting
 from test_dydata115_follow_up import START, next_store, seed_product_task, submit
+from test_product_routing_allocation import NOW
+from test_product_routing_allocation_postgres import product_factory
+from test_clue_allocation_engine import _add_sale_store
 
 
 @pytest.fixture()
@@ -134,3 +137,54 @@ def test_terminal_committed_after_due_selection_wins_before_continuation(product
         assert row.round_status == "closed_order_refunded"
         assert row.closed_at == START + timedelta(hours=2)
         assert check.scalar(select(func.count()).select_from(ClueAssignmentRound)) == 1
+
+
+def test_real_due_worker_runs_zero_one_two_then_closes_with_retries(product_factory):
+    """Use the real allocation service and PostgreSQL transactions end to end."""
+
+    factory, state = product_factory
+    state["stores"] = {"sale", "near", "far"}
+    with factory() as session:
+        _add_sale_store(session, order_id="order-1", store_id="sale", coupon_id="sale-order")
+        session.flush()
+        first = clue_allocation_engine.allocate_lead(session, "lead-1", now=NOW)
+        assert session.get(ClueAssignmentRound, first.assignment_round_id).round_no == 0
+        session.commit()
+    for day in (1, 2):
+        due_at = NOW + timedelta(days=day)
+        result = clue_follow_up_state.run_product_follow_up_batch(factory, now=due_at)
+        assert result["assigned"] == result["sla_expired"] == 1
+        assert clue_follow_up_state.run_product_follow_up_batch(factory, now=due_at)["processed"] == 0
+    due_at = NOW + timedelta(days=3)
+    assert clue_follow_up_state.run_product_follow_up_batch(factory, now=due_at)["closed"] == 1
+    assert clue_follow_up_state.run_product_follow_up_batch(factory, now=due_at)["processed"] == 0
+    with factory() as session:
+        rows = session.scalars(select(ClueAssignmentRound).order_by(ClueAssignmentRound.round_no)).all()
+        assert [row.round_no for row in rows] == [0, 1, 2]
+        assert len({row.assigned_store_id for row in rows}) == 3
+        assert [row.closed_at for row in rows] == [NOW + timedelta(days=day) for day in (1, 2, 3)]
+        assert all(row.round_status not in {"active_unfollowed", "active_followed"} for row in rows)
+        assert session.get(ClueMasterLead, "lead-1").allocation_state == "closed"
+
+
+def test_competing_real_due_consumers_create_only_one_next_task(product_factory, monkeypatch):
+    factory, _ = product_factory
+    with factory() as session:
+        first = clue_allocation_engine.allocate_lead(session, "lead-1", now=NOW)
+        session.commit()
+    locked, release = pause_due(monkeypatch)
+    due_at = NOW + timedelta(days=1)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        first_due = executor.submit(clue_follow_up_state.run_product_follow_up_batch, factory, now=due_at)
+        assert locked.wait(5)
+        try:
+            assert clue_follow_up_state.run_product_follow_up_batch(factory, now=due_at)["processed"] == 0
+        finally:
+            release.set()
+        assert first_due.result(timeout=5)["assigned"] == 1
+    assert clue_follow_up_state.run_product_follow_up_batch(factory, now=due_at)["processed"] == 0
+    with factory() as session:
+        rows = session.scalars(select(ClueAssignmentRound)).all()
+        assert len(rows) == 2
+        assert sum(row.round_status in {"active_unfollowed", "active_followed"} for row in rows) == 1
+        assert session.get(ClueAssignmentRound, first.assignment_round_id).closed_at == due_at
