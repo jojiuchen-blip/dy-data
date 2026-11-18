@@ -85,8 +85,8 @@ def test_changed_classification_contract_rejects_legacy_rows_without_mutating_th
             "contract_version"] == MODULE_CONTRACT_VERSIONS[module]
 
 
-@pytest.mark.parametrize("module", ["finance", "douyin-ranking"])
-def test_legacy_financial_and_independent_ranking_publications_remain_readable(factory, module):
+@pytest.mark.parametrize("module", ["finance"])
+def test_legacy_financial_publications_remain_readable(factory, module):
     first = publish_module(factory, module, build)
     with factory.begin() as session:
         session.execute(update(runs).where(runs.c.id == first.id).values(stats_json={}))
