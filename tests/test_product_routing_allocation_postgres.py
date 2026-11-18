@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 
 from apps.api.dy_api.models import (
     Base, ClueAssignmentRound, ClueHeadquartersPoolEntry, ClueMasterLead,
-    RawDouyinOrder,
+    DimStorePoiMapping, RawDouyinClue, RawDouyinOrder,
 )
 from apps.worker import clue_allocation_engine as engine
 from apps.worker.clue_allocation import lock_clue_master_for_update
@@ -168,3 +168,33 @@ def test_waiting_headquarters_resume_sees_refund_committed_before_lock_release(p
         assert session.get(ClueMasterLead, "lead-1").normalized_order_status == "refunded"
         assert session.query(ClueAssignmentRound).count() == 0
         assert session.query(ClueHeadquartersPoolEntry).filter_by(status="active").count() == 0
+
+
+def test_headquarters_resume_reads_repaired_mapping_without_another_source_observation(product_factory):
+    factory, _state = product_factory
+    with factory() as session:
+        lead = lock_clue_master_for_update(session, "lead-1")
+        lead.anchor_store_id = None
+        lead.anchor_unavailable_reason = "follow_poi_unmapped"
+        lead.anchor_latitude = lead.anchor_longitude = None
+        session.add(RawDouyinClue(clue_row_key=lead.source_clue_row_key,
+            order_id=lead.order_id, follow_poi_id=lead.anchor_poi_id,
+            order_status="201", source_observed_at=NOW, observation_key="unchanged", raw_payload={}))
+        session.flush()
+        assert engine.allocate_lead(session, "lead-1", now=NOW).status == "headquarters"
+        entry_id = session.query(ClueHeadquartersPoolEntry).filter_by(status="active").one().headquarters_pool_entry_id
+        session.commit()
+    with factory() as session:
+        session.add(DimStorePoiMapping(store_id="anchor", poi_id="poi-anchor"))
+        session.commit()
+    with factory() as session:
+        result = engine.resume_product_routing(session, "lead-1", now=NOW + timedelta(minutes=1),
+            actor="hq-operator", expected_entry_id=entry_id)
+        assert result.status == "assigned"
+        session.commit()
+    with factory() as session:
+        lead = session.get(ClueMasterLead, "lead-1")
+        assert lead.anchor_store_id == "anchor"
+        assert lead.anchor_unavailable_reason is None
+        assert session.get(RawDouyinClue, lead.source_clue_row_key).observation_key == "unchanged"
+        assert session.query(ClueAssignmentRound).count() == 1

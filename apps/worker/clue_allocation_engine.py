@@ -701,15 +701,11 @@ def _allocate_product_routing_locked(
         .where(ClueAssignmentRound.lead_key == lead.lead_key)
         .where(ClueAssignmentRound.execution_mode.in_(("formal", "legacy")))))
     history.discard(None)
-    if batch_context is not None and batch_context.stores is not None:
-        stores, stores_by_id, stores_by_city = (batch_context.stores,
-            batch_context.stores_by_id, batch_context.stores_by_city)
-    else:
-        stores = list(session.scalars(select(DimStore).order_by(DimStore.store_id)))
-        stores_by_id, stores_by_city = _index_stores(stores)
-        if batch_context is not None:
-            batch_context.stores = stores
-            batch_context.stores_by_id, batch_context.stores_by_city = stores_by_id, stores_by_city
+    # Each selection consumes current qualification and location data. Only
+    # metric evidence may be reused across commits in a formal batch.
+    stores = list(session.scalars(select(DimStore).order_by(DimStore.store_id)
+        .execution_options(populate_existing=True)))
+    stores_by_id, stores_by_city = _index_stores(stores)
     sale_store = _resolve_sale_store_evidence(session, lead.order_id or "")
     decisions: list[str] = []
 

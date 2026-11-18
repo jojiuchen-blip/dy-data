@@ -136,6 +136,26 @@ def test_product_city_scoring_is_loaded_once_per_bound_version_batch(db_session,
     assert len(calls) == 1
 
 
+def test_next_batch_selection_rechecks_store_qualification(db_session, lists):
+    lead = _flow(db_session)
+    second = _lead("lead-two", order_id="order-two")
+    second.routing_mode, second.routing_product_id = "flow", "product-1"
+    db_session.add(second)
+    binding = bind_lead_rule_version(db_session, lead_key=second.lead_key,
+        anchor_store_id=second.anchor_store_id, anchor_city_code=second.anchor_city_code)
+    binding.rule_version_snapshot = dict(db_session.get(ClueLeadRuleVersionBinding, lead.lead_key).rule_version_snapshot)
+    db_session.flush()
+    context = engine._AllocationBatchContext()
+    lists["stores"] = {"far", "near"}
+    first = engine.allocate_lead(db_session, lead.lead_key, now=NOW, _batch_context=context)
+    assert first.selected_store_id == "far"
+    store = db_session.get(clue_allocation.DimStore, "far")
+    store.participates_in_clue_allocation = False
+    db_session.flush()
+    result = engine.allocate_lead(db_session, second.lead_key, now=NOW, _batch_context=context)
+    assert result.selected_store_id == "near"
+
+
 @pytest.mark.parametrize("distance,city,expected_round", [(10, "CN-SH", 1), (11, "CN-SH", 2), (3, "OTHER", None)])
 def test_nearby_ten_kilometer_and_same_city_boundaries(db_session, lists, monkeypatch, distance, city, expected_round):
     lead = _flow(db_session, stores=[_store("anchor"), _store("near", city_code=city)])
