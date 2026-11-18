@@ -182,6 +182,8 @@ def batch_product_changes(
     """Preview without writes or apply each product within an isolated savepoint."""
     preview = bool(payload.get("preview", True))
     _require_human_actor(actor)
+    if not preview and payload.get("all_matching"):
+        raise ProductRoutingError("PREVIEW_REQUIRED", "正式提交须使用预览确认的明确商品 ID，不能重新展开筛选范围", http_status=422)
     operation = None
     digest = _digest(dict(payload))
     if not preview and idempotency_key:
@@ -189,7 +191,7 @@ def batch_product_changes(
         if operation.result_json:
             # A revoked manager must not replay formerly accessible snapshots.
             for result in operation.result_json.get("results", []):
-                if not can_manage_product(session, actor, result["product_id"]):
+                if (result.get("before") or result.get("after")) and not can_manage_product(session, actor, result["product_id"]):
                     raise ProductRoutingError("PRODUCT_FORBIDDEN", "商品管理权限已变更，请重新预览", http_status=403)
             return deepcopy(operation.result_json)
     if not preview and payload.get("action") in {"publish_rule", "enable"}:
@@ -669,5 +671,6 @@ def _audit(
         actor_username_snapshot=getattr(actor, "username", None), actor_role_snapshot=getattr(actor, "role", None),
         actor_scope_snapshot={"store_scope_mode": getattr(actor, "store_scope_mode", None)},
         request_id=request_id, result_status="failed" if error else "success", reason_code=error,
+        privileged_confirmation=event == "product_routing_enable" and error is None and bool((detail or {}).get("authorization_note")),
         before_snapshot=deepcopy(before), after_snapshot=deepcopy(after),
         detail_json={"product_id": product_id, **(detail or {})}))

@@ -111,7 +111,7 @@ def test_cross_page_scope_and_grants_do_not_grant_delegation(db_session):
     assert listing["rows"][0]["product_id"] == "p-jc"
     assert not listing["can_manage_grants"]
     changed = batch_product_changes(db_session, manager, {
-        "all_matching": True, "filters": {"q": "套餐", "product_scope": "all"},
+        "product_ids": [row["product_id"] for row in listing["rows"]],
         "action": "publish_list", "store_ids": ["001"], "preview": False,
     })
     assert changed["total"] == changed["succeeded"] == 1
@@ -182,8 +182,8 @@ def test_all_matching_selection_over_5000_is_processed_in_chunks(db_session):
     assert response["total"] == response["succeeded"] == 5001
     assert response["failed"] == 0
     assert db_session.scalar(select(func.count()).select_from(ClueProductRoutingConfig)) == 0
-    committed = batch_product_changes(db_session, ADMIN, {"all_matching": True,
-        "filters": {"q": "大批商品", "product_scope": "byd"}, "action": "disable", "preview": False})
+    committed = batch_product_changes(db_session, ADMIN, {"product_ids": [row["product_id"] for row in response["results"]],
+        "action": "disable", "preview": False})
     assert committed["total"] == committed["succeeded"] == 5001
     db_session.commit()
     assert db_session.scalar(select(func.count()).select_from(ClueProductRoutingConfig)) == 5001
@@ -219,3 +219,34 @@ def test_first_byd_enable_copies_current_base_then_allows_independent_rules(db_s
     assert reopened["results"][0]["after"]["rule_version_id"] == independent_id
     assert reopened["results"][0]["after"]["first_follow_up_sla_hours"] == 60
     assert db_session.get(ClueProductRoutingConfig, "p-byd").first_enabled_at == first_enabled_at
+
+
+def test_mixed_denial_idempotency_replays_safe_receipt_and_revoked_snapshots_stay_private(db_session):
+    _seed(db_session)
+    db_session.add(User(user_id="manager", username="manager", display_name="Manager", role="store", status="active", is_initialized=True))
+    db_session.commit()
+    replace_product_grants(db_session, ADMIN, "p-jc", ["manager"])
+    manager = SimpleNamespace(user_id="manager", username="manager", auth_type="user", role="store", store_scope_mode="none")
+    payload = {"product_ids": ["p-jc", "p-byd"], "action": "disable", "preview": False}
+    first = batch_product_changes(db_session, manager, payload, idempotency_key="mixed-denial")
+    db_session.commit()
+    assert first["succeeded"] == first["failed"] == 1
+    assert batch_product_changes(db_session, manager, payload, idempotency_key="mixed-denial") == first
+    replace_product_grants(db_session, ADMIN, "p-jc", [])
+    db_session.commit()
+    with pytest.raises(ProductRoutingError, match="商品管理权限已变更"):
+        batch_product_changes(db_session, manager, payload, idempotency_key="mixed-denial")
+
+
+def test_confirmed_all_matching_ids_do_not_expand_at_commit(db_session):
+    _seed(db_session)
+    selection = {"all_matching": True, "filters": {"q": "套餐", "product_scope": "all"}, "action": "disable", "preview": True}
+    preview = batch_product_changes(db_session, ADMIN, selection)
+    db_session.add(DimSkuProductRule(sku_id="new-match-sku", product_id="new-match", product_name="新套餐", product_scope="比亚迪本品"))
+    db_session.commit()
+    with pytest.raises(ProductRoutingError, match="不能重新展开筛选范围"):
+        batch_product_changes(db_session, ADMIN, {**selection, "preview": False})
+    result = batch_product_changes(db_session, ADMIN, {"product_ids": [row["product_id"] for row in preview["results"]],
+        "action": "disable", "preview": False})
+    assert result["total"] == 2
+    assert db_session.get(ClueProductRoutingConfig, "new-match") is None

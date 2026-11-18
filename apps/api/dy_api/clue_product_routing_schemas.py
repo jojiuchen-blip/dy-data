@@ -64,6 +64,8 @@ class ProductRoutingBatchRequest(StrictRoutingModel):
         """Keep selection and imported-list precedence unambiguous."""
         if self.all_matching and self.product_ids:
             raise ValueError("all_matching 与 product_ids 不可同时使用")
+        if self.all_matching and not self.preview:
+            raise ValueError("正式提交须使用预览确认的明确商品 ID，不能重新展开筛选范围")
         if not self.all_matching and not self.product_ids:
             raise ValueError("请选择商品")
         if self.store_ids is not None and self.lists is not None:
