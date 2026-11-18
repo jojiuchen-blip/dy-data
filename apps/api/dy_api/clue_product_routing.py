@@ -167,7 +167,7 @@ def list_products(
     query = _product_query(session, actor, q=q, product_scope=product_scope)
     total = int(session.scalar(select(func.count()).select_from(query.subquery())) or 0)
     selected = session.execute(query.order_by("product_id").offset((page - 1) * page_size).limit(page_size)).mappings().all()
-    rows = [_product_snapshot(session, actor, dict(row)) for row in selected]
+    rows = _product_snapshots(session, actor, [dict(row) for row in selected])
     return {"rows": rows, "total": total, "page": page, "page_size": page_size,
             "can_manage_grants": _can_manage_grants(session, actor)}
 
@@ -260,8 +260,9 @@ def replace_product_grants(
 ) -> dict[str, Any]:
     """Atomically replace one product's grant set without delegating grants."""
     _require_grant_manager(session, actor)
-    before = get_product_grants(session, actor, product_id)
     _locked_config(session, product_id)
+    _require_grant_manager(session, actor)
+    before = get_product_grants(session, actor, product_id)
     normalized = _normalized_ids(user_ids)
     eligible = set(session.scalars(select(User.user_id).where(User.user_id.in_(normalized), User.status == "active", User.is_initialized.is_(True))))
     if eligible != set(normalized):
@@ -288,10 +289,11 @@ def publish_shared_rule(
 ) -> dict[str, Any]:
     """Publish a new shared base without altering any existing product pointer."""
     _require_grant_manager(session, actor)
+    base = _ensure_shared_base_rule(session, actor) if not preview else None
     before = get_shared_rule(session, actor)
     after = {**before, **_patched_rule(before, rules)}
     if not preview:
-        base = _ensure_shared_base_rule(session, actor)
+        assert base is not None
         version = _shared_base_version(session)
         if version is None or _rule_settings(_shared_snapshot(session, version)) != _rule_settings(after):
             version = _publish_version(session, base, actor, after, product_scope="jingcheng")
@@ -337,19 +339,48 @@ def _catalog_row(session: Session, product_id: str) -> dict[str, Any] | None:
 
 
 def _product_snapshot(session: Session, actor: Any, catalog_row: Mapping[str, Any]) -> dict[str, Any]:
-    product_id = catalog_row["product_id"]
-    config = session.get(ClueProductRoutingConfig, product_id)
-    version = session.get(ClueAllocationRuleVersion, config.rule_version_id) if config and config.rule_version_id else None
-    settings = _shared_snapshot(session, version) if version else _shared_snapshot(session, _shared_base_version(session))
-    return {"product_id": product_id, "product_name": catalog_row["product_name"] or product_id,
-            "product_scope": product_scope_for_id(session, product_id),
+    return _product_snapshots(session, actor, [catalog_row])[0]
+
+
+def _product_snapshots(session: Session, actor: Any, catalog_rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    if not catalog_rows:
+        return []
+    product_ids = [row["product_id"] for row in catalog_rows]
+    configs = {row.product_id: row for row in session.scalars(select(ClueProductRoutingConfig).where(
+        ClueProductRoutingConfig.product_id.in_(product_ids)))}
+    versions = {row.rule_version_id: row for row in session.scalars(select(ClueAllocationRuleVersion).where(
+        ClueAllocationRuleVersion.rule_version_id.in_([row.rule_version_id for row in configs.values() if row.rule_version_id])))}
+    member_ids: dict[str, list[str]] = {}
+    for product_id, store_id in session.execute(select(ClueProductStoreListVersion.product_id, ClueProductStoreListMember.store_id)
+            .join(ClueProductStoreListMember, ClueProductStoreListMember.list_version_id == ClueProductStoreListVersion.list_version_id)
+            .join(ClueProductRoutingConfig, ClueProductRoutingConfig.active_list_version_id == ClueProductStoreListVersion.list_version_id)
+            .where(ClueProductRoutingConfig.product_id.in_(product_ids),
+                   ClueProductRoutingConfig.product_id == ClueProductStoreListVersion.product_id)):
+        member_ids.setdefault(product_id, []).append(store_id)
+    jingcheng = set()
+    for product_id, sku_id in session.execute(select(DimSkuProductRule.product_id, DimSkuProductRule.sku_id).where(
+            DimSkuProductRule.product_scope == "精诚养车", or_(DimSkuProductRule.product_id.in_(product_ids), DimSkuProductRule.sku_id.in_(product_ids)))):
+        jingcheng.update((product_id, sku_id))
+    is_global = _can_manage_grants(session, actor)
+    granted = set() if is_global else set(session.scalars(select(ClueProductRoutingGrant.product_id).where(
+        ClueProductRoutingGrant.product_id.in_(product_ids), ClueProductRoutingGrant.user_id == getattr(actor, "user_id", None))))
+    default_settings = _shared_snapshot(session, _shared_base_version(session))
+    rows = []
+    for catalog in catalog_rows:
+        product_id = catalog["product_id"]
+        config = configs.get(product_id)
+        version = versions.get(config.rule_version_id) if config else None
+        settings = _shared_snapshot(session, version) if version else default_settings
+        rows.append({"product_id": product_id, "product_name": catalog["product_name"] or product_id,
+            "product_scope": "jingcheng" if product_id in jingcheng else "byd",
             "routing_enabled": bool(config and config.routing_enabled),
             "rule_version_id": config.rule_version_id if config else None,
             "first_follow_up_sla_hours": settings["first_follow_up_sla_hours"],
-            "follow_up_policy": settings["follow_up_policy"],
-            "store_ids": sorted(load_product_store_ids(session, product_id)),
+            "follow_up_policy": deepcopy(settings["follow_up_policy"]),
+            "store_ids": sorted(member_ids.get(product_id, [])),
             "list_version": config.active_list_version_id if config else None,
-            "can_manage": can_manage_product(session, actor, product_id)}
+            "can_manage": is_global or product_id in granted})
+    return rows
 
 
 def _preview_change(session: Session, before: Mapping[str, Any], payload: Mapping[str, Any]) -> dict[str, Any]:

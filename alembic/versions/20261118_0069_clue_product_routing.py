@@ -82,6 +82,13 @@ def downgrade():
             raise RuntimeError("Product routing history exists; preserve bindings and use a forward migration.")
     if bind.execute(sa.text("SELECT 1 FROM clue_master_leads WHERE routing_mode IS NOT NULL LIMIT 1")).first():
         raise RuntimeError("New-ingress routing bindings exist; use a forward migration.")
+    if bind.execute(sa.text("SELECT 1 FROM clue_allocation_rules WHERE scope_type IN ('product', 'product_base') LIMIT 1")).first():
+        raise RuntimeError("Product rule publication history exists; use a forward migration.")
+    for table, column in (("clue_assignment_rounds", "appointment_at"),
+                          ("clue_assignment_rounds", "closed_at"),
+                          ("clue_follow_up_records", "appointment_at")):
+        if bind.execute(sa.text(f"SELECT 1 FROM {table} WHERE {column} IS NOT NULL LIMIT 1")).first():
+            raise RuntimeError("Follow-up timing history exists; use a forward migration.")
     for table in reversed(NEW_TABLES):
         op.drop_table(table)
     op.drop_column("clue_allocation_rule_versions", "snapshot")
