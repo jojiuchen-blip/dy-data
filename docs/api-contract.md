@@ -4,6 +4,13 @@
 
 ## 1. 基础约定
 
+### 商品同步执行归属（DYDATA-104）
+
+`POST /api/v1/admin/product-sync-runs` 在 `priority_daily` 模式提交原有排队任务，
+由正式 worker 按重任务、资源及配额门禁消费，保留请求的任务 ID 与 FULL/INCREMENTAL 模式。
+其他调度模式继续原 API 后台回调。现有鉴权、幂等键、冲突及 QUEUED 响应合同保持，
+执行进度和最终结果通过对应任务查询接口读取。
+
 ### 商品同步失败取证（DYDATA-104）
 
 现有 `GET /api/v1/admin/product-sync-runs/{sync_run_id}` 在 `data` 中增加
