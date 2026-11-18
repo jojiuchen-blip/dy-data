@@ -790,19 +790,26 @@ def _allocate_product_routing_locked(
     allowed_store_ids = load_product_store_ids(session, lead.routing_product_id)
     score_key = f"product:{binding.rule_version_id}:{(binding.rule_version_snapshot or {}).get('product_scope', 'jingcheng')}"
     scores = batch_context.scores_by_rule_version.get(score_key) if batch_context is not None else None
-    if scores is None:
-        scores = load_product_store_scores(session, stores, rule_version_id=binding.rule_version_id,
-            rule_snapshot=binding.rule_version_snapshot or {}, now=now)
-        if batch_context is not None:
-            batch_context.scores_by_rule_version[score_key] = scores
     for business_round in range(start_round, 3):
         strategy_type = FIXED_STRATEGY_TYPES[business_round]
         candidates, reason, _summary = _strategy_candidates(strategy_type=strategy_type,
             lead=lead, sale_store=sale_store, stores=stores, stores_by_id=stores_by_id,
-            stores_by_city=stores_by_city, scores=scores, historical_store_ids=history,
+            stores_by_city=stores_by_city, scores=scores or {}, historical_store_ids=history,
             max_distance_km=10.0 if business_round < 2 else None,
             allowed_store_ids=allowed_store_ids)
         selected = next((candidate for candidate in candidates if candidate["rank"] == 1), None)
+        if selected is not None and business_round >= 1 and scores is None:
+            # Sales identity and a genuinely empty candidate set need no
+            # nationwide historical task query. Score only a qualifying city
+            # selection, then retain the evidence for this bounded batch.
+            scores = load_product_store_scores(session, stores, rule_version_id=binding.rule_version_id,
+                rule_snapshot=binding.rule_version_snapshot or {}, now=now)
+            if batch_context is not None:
+                batch_context.scores_by_rule_version[score_key] = scores
+            for candidate in candidates:
+                candidate["score"] = _score_snapshot_payload(scores.get(candidate["store_id"]), used_for_ranking=True)
+            ranked = _rank_eligible_candidates(candidates)
+            selected = ranked[0] if ranked else None
         if selected is not None:
             return assign(selected, business_round, strategy_type, candidates)
         record("skipped", reason or "no_candidate", business_round,
@@ -956,16 +963,7 @@ def _strategy_candidates(
         )
         for store in scoped_stores
     ]
-    ranked = [candidate for candidate in candidates if candidate["eligible"]]
-    ranked.sort(
-        key=lambda candidate: (
-            -float(candidate["score"]["composite_score"]),
-            float(candidate["distance_km"]),
-            str(candidate["store_id"]),
-        )
-    )
-    for rank, candidate in enumerate(ranked, start=1):
-        candidate["rank"] = rank
+    ranked = _rank_eligible_candidates(candidates)
     return (
         candidates,
         None if ranked else "no_candidate",
@@ -976,6 +974,20 @@ def _strategy_candidates(
             omitted_out_of_city_count=len(stores) - len(scoped_stores),
         ),
     )
+
+
+def _rank_eligible_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    ranked = [candidate for candidate in candidates if candidate["eligible"]]
+    ranked.sort(
+        key=lambda candidate: (
+            -float(candidate["score"]["composite_score"]),
+            float(candidate["distance_km"]),
+            str(candidate["store_id"]),
+        )
+    )
+    for rank, candidate in enumerate(ranked, start=1):
+        candidate["rank"] = rank
+    return ranked
 
 
 def _index_stores(stores: list[DimStore]) -> tuple[dict[str, DimStore], dict[str, list[DimStore]]]:

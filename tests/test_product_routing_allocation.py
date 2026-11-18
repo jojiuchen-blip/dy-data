@@ -98,6 +98,42 @@ def test_sales_store_outside_list_is_skipped_and_first_actual_round_is_one(db_se
     assert "product_store_not_applicable" in first.decision_snapshot["candidates"][0]["exclusion_reasons"]
 
 
+def test_successful_sales_round_never_queries_historical_scores(db_session, lists, monkeypatch):
+    lead = _flow(db_session)
+    _add_sale_store(db_session, order_id=lead.order_id, store_id="sale", coupon_id="sale-coupon")
+    db_session.flush()
+    monkeypatch.setattr(engine, "load_product_store_scores",
+        lambda *_args, **_kwargs: pytest.fail("sales priority must not query scores"))
+    assert engine.allocate_lead(db_session, lead.lead_key, now=NOW).selected_store_id == "sale"
+
+
+def test_no_eligible_store_closes_without_querying_historical_scores(db_session, lists, monkeypatch):
+    lead = _flow(db_session)
+    lists["stores"] = set()
+    monkeypatch.setattr(engine, "load_product_store_scores",
+        lambda *_args, **_kwargs: pytest.fail("no candidate requires no scoring"))
+    assert engine.allocate_lead(db_session, lead.lead_key, now=NOW).status == "closed"
+
+
+def test_product_city_scoring_is_loaded_once_per_bound_version_batch(db_session, lists, monkeypatch):
+    lead = _flow(db_session)
+    second = _lead("lead-two", order_id="order-two")
+    second.routing_mode, second.routing_product_id = "flow", "product-1"
+    db_session.add(second)
+    binding = bind_lead_rule_version(db_session, lead_key=second.lead_key,
+        anchor_store_id=second.anchor_store_id, anchor_city_code=second.anchor_city_code)
+    binding.rule_version_snapshot = dict(db_session.get(ClueLeadRuleVersionBinding, lead.lead_key).rule_version_snapshot)
+    db_session.flush()
+    calls = []
+    def scores(*_args, **_kwargs):
+        calls.append(True)
+        return {}
+    monkeypatch.setattr(engine, "load_product_store_scores", scores)
+    results = engine.allocate_leads(db_session, [lead.lead_key, second.lead_key], now=NOW)
+    assert all(result.status == "assigned" for result in results)
+    assert len(calls) == 1
+
+
 @pytest.mark.parametrize("distance,city,expected_round", [(10, "CN-SH", 1), (11, "CN-SH", 2), (3, "OTHER", None)])
 def test_nearby_ten_kilometer_and_same_city_boundaries(db_session, lists, monkeypatch, distance, city, expected_round):
     lead = _flow(db_session, stores=[_store("anchor"), _store("near", city_code=city)])
