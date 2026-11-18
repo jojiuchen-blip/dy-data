@@ -36,6 +36,7 @@ from apps.worker.clue_rule_versions import (
 
 SHARED_BASE_SCOPE_KEY = "product_base:jingcheng"
 PRODUCT_PROCESSING_CHUNK_SIZE = 200
+SHARED_BASE_LOCK_KEY = 5942041150069
 RULE_PATCH_KEYS = frozenset(DEFAULT_FOLLOW_UP_POLICY) | {"first_follow_up_sla_hours", "follow_up_policy"}
 
 
@@ -191,6 +192,8 @@ def batch_product_changes(
                 if not can_manage_product(session, actor, result["product_id"]):
                     raise ProductRoutingError("PRODUCT_FORBIDDEN", "商品管理权限已变更，请重新预览", http_status=403)
             return deepcopy(operation.result_json)
+    if not preview and payload.get("action") in {"publish_rule", "enable"}:
+        _lock_rule_publications(session)
     filters = dict(payload.get("filters") or {})
     if payload.get("all_matching"):
         matching = _product_query(session, actor, **filters).subquery()
@@ -301,6 +304,8 @@ def publish_shared_rule(
 ) -> dict[str, Any]:
     """Publish a new shared base without altering any existing product pointer."""
     _require_grant_manager(session, actor)
+    if not preview:
+        _lock_rule_publications(session)
     base = _ensure_shared_base_rule(session, actor) if not preview else None
     before = get_shared_rule(session, actor)
     after = {**before, **_patched_rule(before, rules)}
@@ -424,6 +429,9 @@ def _preview_change(session: Session, before: Mapping[str, Any], payload: Mappin
             raise ProductRoutingError("UNKNOWN_STORE_IDS", "名单包含未知门店编码，请校正后重试")
         after["store_ids"] = normalized
     elif action == "publish_rule":
+        config = session.get(ClueProductRoutingConfig, before["product_id"])
+        if before["product_scope"] == "byd" and (config is None or config.first_enabled_at is None):
+            raise ProductRoutingError("PRODUCT_NOT_ENABLED", "本品首次开启前继承精诚共享基座，请先按已确认名单开启，之后可发布独立规则")
         rules = payload.get("rules")
         if not rules:
             raise ProductRoutingError("INVALID_RULE", "请至少选择一个要修改的规则字段")
@@ -464,9 +472,11 @@ def _apply_change(session: Session, actor: Any, product_id: str, payload: Mappin
             session.add_all([ClueProductStoreListMember(list_version_id=version.list_version_id, store_id=store_id) for store_id in store_ids])
             session.flush()
             config.active_list_version_id = version.list_version_id
-    elif action == "publish_rule" or (action == "enable" and not config.rule_version_id):
+    elif action == "publish_rule" or (action == "enable" and (not config.rule_version_id or
+            (after["product_scope"] == "byd" and config.first_enabled_at is None))):
         old_version = session.get(ClueAllocationRuleVersion, config.rule_version_id) if config.rule_version_id else None
-        if old_version is None or _rule_settings(_shared_snapshot(session, old_version)) != _rule_settings(after):
+        inherit_as_new = old_version is None or (action == "enable" and after["product_scope"] == "byd" and config.first_enabled_at is None)
+        if inherit_as_new or _rule_settings(_shared_snapshot(session, old_version)) != _rule_settings(after):
             base_rule = _ensure_shared_base_rule(session, actor)
             base_version = _shared_base_version(session)
             if base_version is None:
@@ -478,9 +488,9 @@ def _apply_change(session: Session, actor: Any, product_id: str, payload: Mappin
                 session.add(rule)
                 session.flush()
                 config.rule_id = rule.rule_id
-            inherited_base_id = (old_version.snapshot or {}).get("base_rule_version_id") if old_version else base_version.rule_version_id
+            inherited_base_id = base_version.rule_version_id if inherit_as_new else (old_version.snapshot or {}).get("base_rule_version_id")
             effective_settings = after
-            if old_version is None:
+            if inherit_as_new:
                 effective_settings = _shared_snapshot(session, base_version)
                 if action == "publish_rule":
                     effective_settings.update(_patched_rule(effective_settings, payload.get("rules") or {}))
@@ -489,6 +499,8 @@ def _apply_change(session: Session, actor: Any, product_id: str, payload: Mappin
             config.rule_version_id = version.rule_version_id
     if action in {"enable", "disable"}:
         config.routing_enabled = action == "enable"
+        if action == "enable" and config.first_enabled_at is None:
+            config.first_enabled_at = utcnow()
     config.updated_by = _actor_key(actor)
     config.updated_at = utcnow()
     session.flush()
@@ -540,6 +552,14 @@ def _ensure_shared_base_rule(session: Session, actor: Any) -> ClueAllocationRule
             rule = session.scalar(select(ClueAllocationRule).where(ClueAllocationRule.scope_key == SHARED_BASE_SCOPE_KEY).with_for_update())
     assert rule is not None
     return rule
+
+
+def _lock_rule_publications(session: Session) -> None:
+    # Acquire the shared lock before any product row, including when no base
+    # row exists yet. This avoids lock inversion for overlapping batches that
+    # initialize the shared base while holding different product rows.
+    if session.get_bind().dialect.name == "postgresql":
+        session.execute(select(func.pg_advisory_xact_lock(SHARED_BASE_LOCK_KEY)))
 
 
 def _publish_version(

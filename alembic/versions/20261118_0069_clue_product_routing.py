@@ -34,6 +34,7 @@ def upgrade():
         "clue_product_routing_configs",
         sa.Column("product_id", sa.Text(), primary_key=True),
         sa.Column("routing_enabled", sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column("first_enabled_at", sa.DateTime(timezone=True)),
         sa.Column("rule_id", sa.Text(), sa.ForeignKey("clue_allocation_rules.rule_id", ondelete="RESTRICT")),
         sa.Column("rule_version_id", sa.Text(), sa.ForeignKey("clue_allocation_rule_versions.rule_version_id", ondelete="RESTRICT")),
         sa.Column("active_list_version_id", sa.Text()),

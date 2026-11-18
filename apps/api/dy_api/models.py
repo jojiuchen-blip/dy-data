@@ -4699,6 +4699,7 @@ class ClueProductRoutingConfig(Base):
 
     product_id: Mapped[str] = mapped_column(Text, primary_key=True)
     routing_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    first_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     rule_id: Mapped[str | None] = mapped_column(Text, ForeignKey("clue_allocation_rules.rule_id", ondelete="RESTRICT"))
     rule_version_id: Mapped[str | None] = mapped_column(Text, ForeignKey("clue_allocation_rule_versions.rule_version_id", ondelete="RESTRICT"))
     active_list_version_id: Mapped[str | None] = mapped_column(Text)

@@ -182,3 +182,40 @@ def test_all_matching_selection_over_5000_is_processed_in_chunks(db_session):
     assert response["total"] == response["succeeded"] == 5001
     assert response["failed"] == 0
     assert db_session.scalar(select(func.count()).select_from(ClueProductRoutingConfig)) == 0
+    committed = batch_product_changes(db_session, ADMIN, {"all_matching": True,
+        "filters": {"q": "大批商品", "product_scope": "byd"}, "action": "disable", "preview": False})
+    assert committed["total"] == committed["succeeded"] == 5001
+    db_session.commit()
+    assert db_session.scalar(select(func.count()).select_from(ClueProductRoutingConfig)) == 5001
+    assert db_session.scalar(select(func.count()).select_from(ClueProductRoutingConfig).where(
+        ClueProductRoutingConfig.routing_enabled.is_(True))) == 0
+
+
+def test_first_byd_enable_copies_current_base_then_allows_independent_rules(db_session):
+    _seed(db_session)
+    denied = _batch(db_session, "publish_rule", ids=("p-byd",), rules={"first_follow_up_sla_hours": 60})
+    assert denied["results"][0]["error"]["code"] == "PRODUCT_NOT_ENABLED"
+    assert db_session.get(ClueProductRoutingConfig, "p-byd") is None
+    publish_shared_rule(db_session, ADMIN, {"first_follow_up_sla_hours": 36}, preview=False)
+    _batch(db_session, "publish_list", ids=("p-byd",), store_ids=["001"])
+    preview = batch_product_changes(db_session, ADMIN, {"product_ids": ["p-byd"], "action": "enable", "preview": True,
+        "authorization_note": "业务负责人确认名单并授权"})
+    approved_list = preview["results"][0]["before"]["list_version"]
+    publish_shared_rule(db_session, ADMIN, {"first_follow_up_sla_hours": 48}, preview=False)
+    current_base_id = get_shared_rule(db_session, ADMIN)["rule_version_id"]
+    enabled = _batch(db_session, "enable", ids=("p-byd",), authorization_note="业务负责人确认名单并授权",
+        expected_list_versions={"p-byd": approved_list})
+    first_id = enabled["results"][0]["after"]["rule_version_id"]
+    first_version = db_session.get(ClueAllocationRuleVersion, first_id)
+    assert first_version.first_follow_up_sla_hours == 48
+    assert first_version.snapshot["base_rule_version_id"] == current_base_id
+    first_enabled_at = db_session.get(ClueProductRoutingConfig, "p-byd").first_enabled_at
+    assert first_enabled_at is not None
+    _batch(db_session, "disable", ids=("p-byd",))
+    independent = _batch(db_session, "publish_rule", ids=("p-byd",), rules={"first_follow_up_sla_hours": 60})
+    independent_id = independent["results"][0]["after"]["rule_version_id"]
+    publish_shared_rule(db_session, ADMIN, {"first_follow_up_sla_hours": 24}, preview=False)
+    reopened = _batch(db_session, "enable", ids=("p-byd",), authorization_note="再次授权开启")
+    assert reopened["results"][0]["after"]["rule_version_id"] == independent_id
+    assert reopened["results"][0]["after"]["first_follow_up_sla_hours"] == 60
+    assert db_session.get(ClueProductRoutingConfig, "p-byd").first_enabled_at == first_enabled_at
