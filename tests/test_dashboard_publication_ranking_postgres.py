@@ -38,7 +38,7 @@ def pg():
         admin.dispose()
 
 
-def seed_frozen(session, count):
+def seed_frozen(session, count, *, include_self_verification=True):
     session.execute(runs.insert().values(id="pub", module="douyin_ranking", status="building",
         cutoff=CUTOFF, created_at=CUTOFF, stats_json={}))
     session.execute(frozen.info.insert().values(publication_id="pub", cutoff=CUTOFF))
@@ -56,8 +56,9 @@ def seed_frozen(session, count):
             task_follow_24h_numerator=number % 2, task_follow_any_numerator=1, follow_denominator=1,
             task_verification_numerator=number % 2, verification_denominator=1, task_under_observation=False,
             under_observation=False, first_assignment_changed=False) for number in range(offset, min(offset + 1000, count))])
-    session.execute(self_store_verifications.insert().values(publication_id="pub", order_id="volume", store_id="A",
-        verify_id="volume", verified_at=AT, business_date=AT.date(), is_jingcheng=True))
+    if include_self_verification:
+        session.execute(self_store_verifications.insert().values(publication_id="pub", order_id="volume", store_id="A",
+            verify_id="volume", verified_at=AT, business_date=AT.date(), is_jingcheng=True))
     session.commit()
 
 

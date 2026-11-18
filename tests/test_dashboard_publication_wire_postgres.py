@@ -69,7 +69,7 @@ def ranking_http(publication_postgres_session, http_client):
 def _prepare_ranking_wire(session, *, task_metrics=True, zero=False):
     """Populate both physical contracts; the marker selects task interpretation."""
     metadata.create_all(session.get_bind())
-    seed_frozen(session, 3)
+    seed_frozen(session, 3, include_self_verification=False)
     session.execute(frozen_ranking.rounds.update().where(
         frozen_ranking.rounds.c.publication_id == "pub",
     ).values(
