@@ -8,15 +8,13 @@ from io import StringIO
 from pathlib import Path
 
 import httpx
-import pytest
 from fastapi.testclient import TestClient
 
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
-pytest.importorskip("apps.api.dy_api.clue_product_routing", reason="product backend is not integrated into this isolated CLI worktree yet")
-
 from apps.api.dy_api.models import ClueProductRoutingConfig, DimSkuProductRule, DimStore, User
+from apps.api.dy_api.clue_product_routing import load_product_store_ids
 from dy_api.main import create_app
 from dy_api.routes._data import get_session_dependency
 from dydata_cli.human_client import HumanProductSession
@@ -41,10 +39,9 @@ def test_human_console_real_login_preview_publish_readback_and_grants(db_session
     db_session.commit()
     app = create_app()
     app.dependency_overrides[get_session_dependency] = lambda: db_session
-    paths = {route.path for route in app.routes if hasattr(route, "path")}
-    assert "/api/v1/admin/clue-routing/products/batch" in paths
     client = TestClient(app)
     observed = []
+    batches = []
 
     def bridge(request: httpx.Request) -> httpx.Response:
         assert request.url.host == "dy-business-engine.com"
@@ -53,21 +50,29 @@ def test_human_console_real_login_preview_publish_readback_and_grants(db_session
         if not request.url.path.endswith("/auth/login"):
             assert request.headers.get("cookie")
         observed.append((request.method, request.url.path))
+        if request.url.path.endswith("/products/batch"):
+            batches.append(json.loads(request.content))
         response = client.request(request.method, str(request.url), headers=dict(request.headers), content=request.content)
         return httpx.Response(response.status_code, headers=response.headers, content=response.content, request=request)
 
     change = tmp_path / "change.json"
 
-    def run(answers: list[str], payload=None, command: str = "manage"):
+    def run(answers: list[str], payload=None, command: str = "manage", before_answer=None):
         remaining = iter(["human.roundtrip", *answers])
         output = StringIO()
         argv = [command]
         if payload is not None:
             change.write_text(json.dumps(payload), encoding="utf-8")
             argv.extend(["--input", str(change)])
+
+        def ask(prompt: str) -> str:
+            if before_answer is not None:
+                before_answer(prompt)
+            return next(remaining)
+
         code = main(
             argv, session_factory=lambda: HumanProductSession(transport=httpx.MockTransport(bridge)),
-            text_input=lambda _: next(remaining), password_input=lambda _: "synthetic-roundtrip-password",
+            text_input=ask, password_input=lambda _: "synthetic-roundtrip-password",
             is_interactive_terminal=lambda: True, stream=output,
         )
         assert "synthetic-roundtrip-password" not in output.getvalue()
@@ -97,5 +102,37 @@ def test_human_console_real_login_preview_publish_readback_and_grants(db_session
     assert all(attempt["after"] == ["roundtrip-manager"] for attempt in grants["attempts"])
     shared = run(["PUBLISH SHARED"], {"rules": {"appointment_hours": 96}}, command="shared-rule")
     assert shared["attempts"][0]["after"]["follow_up_policy"]["appointment_hours"] == 96
-    assert observed.count(("POST", "/api/v1/auth/login")) == 7
-    assert observed.count(("POST", "/api/v1/auth/logout")) == 7
+
+    # Simulate a real store-catalog change between human preview and publication.
+    # One product must retain its prior list while its peer succeeds; the human
+    # then corrects the catalog and explicitly retries only that failed product.
+    db_session.add(DimStore(store_id="002", store_name="Restorable Synthetic Store"))
+    db_session.commit()
+    unchanged_jc_version = db_session.get(ClueProductRoutingConfig, "p-jc").active_list_version_id
+
+    def change_catalog(prompt: str) -> None:
+        if "PUBLISH 2" in prompt:
+            db_session.delete(db_session.get(DimStore, "002"))
+            db_session.commit()
+        elif prompt.startswith("仅重试失败商品"):
+            assert load_product_store_ids(db_session, "p-byd") == {"001"}
+            db_session.add(DimStore(store_id="002", store_name="Restored Synthetic Store"))
+            db_session.commit()
+
+    partial_retry = run(["all", "1", "PUBLISH 2", "y", "PUBLISH 1"], {"lists": [
+        {"product_id": "p-jc", "store_ids": ["001"]},
+        {"product_id": "p-byd", "store_ids": ["002"]},
+    ]}, before_answer=change_catalog)
+    assert partial_retry["status"] == "complete" and partial_retry["failed_product_ids"] == []
+    assert len(partial_retry["attempts"]) == 2
+    first_result = {row["product_id"]: row for row in partial_retry["attempts"][0]["results"]}
+    assert first_result["p-jc"]["status"] == "success"
+    assert first_result["p-byd"]["error"]["code"] == "UNKNOWN_STORE_IDS"
+    assert partial_retry["attempts"][1]["product_ids"] == ["p-byd"]
+    assert batches[-1]["lists"] == [{"product_id": "p-byd", "store_ids": ["002"]}]
+    db_session.expire_all()
+    assert db_session.get(ClueProductRoutingConfig, "p-jc").active_list_version_id == unchanged_jc_version
+    assert load_product_store_ids(db_session, "p-jc") == {"001"}
+    assert load_product_store_ids(db_session, "p-byd") == {"002"}
+    assert observed.count(("POST", "/api/v1/auth/login")) == 8
+    assert observed.count(("POST", "/api/v1/auth/logout")) == 8
