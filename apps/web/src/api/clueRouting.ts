@@ -46,6 +46,7 @@ export interface ClueRoutingProductList {
   page: number;
   page_size: number;
   can_manage_grants: boolean;
+  can_manage_shared_rule?: boolean;
 }
 
 export interface ClueRoutingProductListWrite {
@@ -86,10 +87,13 @@ export interface ClueRoutingBatchResult {
   failed: number;
 }
 
-export interface ClueRoutingGrants {
-  product_id: string;
+export interface ClueRoutingGrantSet {
   user_ids: string[];
   users: Array<{ user_id: string; username: string; display_name: string | null }>;
+}
+
+export interface ClueRoutingGrants extends ClueRoutingGrantSet {
+  product_id: string;
 }
 
 export interface SharedClueRoutingRuleResult {
@@ -194,6 +198,14 @@ export function fetchClueRoutingGrants(productId: string) {
 
 export function saveClueRoutingGrants(productId: string, userIds: string[]) {
   return request<ClueRoutingGrants>(`/admin/clue-routing/products/${encodeURIComponent(productId)}/grants`, { method: "PUT", body: { user_ids: userIds } });
+}
+
+export function fetchSharedClueRoutingGrants() {
+  return request<ClueRoutingGrantSet>("/admin/clue-routing/shared-rule/grants");
+}
+
+export function saveSharedClueRoutingGrants(userIds: string[]) {
+  return request<ClueRoutingGrantSet>("/admin/clue-routing/shared-rule/grants", { method: "PUT", body: { user_ids: userIds } });
 }
 
 export function fetchSharedClueRoutingRule() {

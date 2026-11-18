@@ -74,6 +74,7 @@ export function AdminClueRoutingProductsPage() {
   const [notice, setNotice] = useState("");
   const [grantsProduct, setGrantsProduct] = useState<ClueRoutingProduct | null>(null);
   const [sharedOpen, setSharedOpen] = useState(false);
+  const [sharedGrantsOpen, setSharedGrantsOpen] = useState(false);
   const requestSequence = useRef(0);
 
   const load = useCallback(async (signal?: AbortSignal) => {
@@ -99,6 +100,7 @@ export function AdminClueRoutingProductsPage() {
   }, [load]);
 
   const selectedCount = allMatching ? data.total : selectedIds.length;
+  const canManageSharedRule = data.can_manage_shared_rule ?? data.can_manage_grants;
   const manageableRows = data.rows.filter((row) => row.can_manage);
   const pageSelected = manageableRows.length > 0 && manageableRows.every((row) => selectedIds.includes(row.product_id));
   const parsedLists = listMode === "per_product" ? parseClueRoutingProductLists(listText) : null;
@@ -215,7 +217,8 @@ export function AdminClueRoutingProductsPage() {
     <section className="admin-header">
       <div><h1>商品线索流转</h1><p className="admin-muted">按商品发布门店名单、规则并手动启停。只展示当前账号有权管理的商品。</p></div>
       <div className="admin-header-actions">
-        {data.can_manage_grants ? <Button onClick={() => setSharedOpen(true)}>精诚养车共享基座</Button> : null}
+        {canManageSharedRule ? <Button onClick={() => setSharedOpen(true)}>精诚养车共享基座</Button> : null}
+        {data.can_manage_grants ? <Button onClick={() => setSharedGrantsOpen(true)}>共享基座维护人</Button> : null}
         <Button disabled={loading} icon="sync" loading={loading} onClick={() => void load()}>刷新</Button>
       </div>
     </section>
@@ -240,7 +243,7 @@ export function AdminClueRoutingProductsPage() {
         <Button disabled={loading || !selectedCount} onClick={() => openAction("disable")}>关闭流转</Button>
         {review ? <Button onClick={() => setDialogOpen(true)}>查看本次{review.phase === "complete" ? "结果" : "预览"}</Button> : null}
       </div>
-      <DataTable columns={productColumns} emptyText="当前没有可管理的匹配商品；商品负责人可联系全国范围管理员授予商品权限。" errorText={loadError} loadingText="正在加载商品配置..." rows={data.rows} state={loading ? "loading" : loadError ? "error" : "ready"} stickyHeader="container"
+      <DataTable columns={productColumns} emptyText={canManageSharedRule && !data.can_manage_grants ? "当前没有可管理的匹配商品。可通过上方“精诚养车共享基座”维护共享规则；商品管理需单独授权。" : "当前没有可管理的匹配商品；商品负责人可联系全国范围管理员授予商品权限。"} errorText={loadError} loadingText="正在加载商品配置..." rows={data.rows} state={loading ? "loading" : loadError ? "error" : "ready"} stickyHeader="container"
         mobileCard={(row) => <div className="clue-routing-mobile-product">
           <CheckboxField checked={allMatching || selectedIds.includes(row.product_id)} disabled={allMatching || !row.can_manage || loading} label={`选择商品 ${row.product_id}`} onChange={(event) => toggleProduct(row.product_id, event.target.checked)} />
           <strong>{row.product_name || "未命名商品"}</strong>
@@ -289,6 +292,7 @@ export function AdminClueRoutingProductsPage() {
       </>}
     </Dialog>
     <ClueRoutingGrantsDialog onClose={() => setGrantsProduct(null)} product={grantsProduct} />
+    <ClueRoutingGrantsDialog onClose={() => setSharedGrantsOpen(false)} product={null} sharedRule={sharedGrantsOpen} />
     <SharedClueRoutingRuleDialog onClose={() => setSharedOpen(false)} open={sharedOpen} />
   </div>;
 }

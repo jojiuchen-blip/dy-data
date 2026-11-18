@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import {
-  clueRoutingRequestError, fetchClueRoutingGrants, fetchSharedClueRoutingRule,
-  saveClueRoutingGrants, saveSharedClueRoutingRule,
-  type ClueRoutingGrants, type ClueRoutingProduct, type ClueRoutingRuleSnapshot,
+  clueRoutingRequestError, fetchClueRoutingGrants, fetchSharedClueRoutingGrants, fetchSharedClueRoutingRule,
+  saveClueRoutingGrants, saveSharedClueRoutingGrants, saveSharedClueRoutingRule,
+  type ClueRoutingGrantSet, type ClueRoutingProduct, type ClueRoutingRuleSnapshot,
   type ClueRoutingRuleWrite, type SharedClueRoutingRuleResult,
 } from "../api/clueRouting";
 import { Button } from "./Button";
@@ -13,36 +13,38 @@ import {
   createClueRoutingRuleDraft, readClueRoutingRuleDraft,
 } from "./ClueRoutingRuleEditor";
 
-export function ClueRoutingGrantsDialog({ product, onClose }: {
+export function ClueRoutingGrantsDialog({ product, sharedRule = false, onClose }: {
   product: ClueRoutingProduct | null;
+  sharedRule?: boolean;
   onClose: () => void;
 }) {
-  const [grants, setGrants] = useState<ClueRoutingGrants | null>(null);
+  const [grants, setGrants] = useState<ClueRoutingGrantSet | null>(null);
   const [userIds, setUserIds] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [reload, setReload] = useState(0);
+  const productId = product?.product_id;
   useEffect(() => {
-    if (!product) return;
+    if (!productId && !sharedRule) return;
     let current = true;
     setBusy(true); setError(""); setNotice(""); setGrants(null); setQuery("");
-    fetchClueRoutingGrants(product.product_id).then((data) => {
+    (sharedRule ? fetchSharedClueRoutingGrants() : fetchClueRoutingGrants(productId!)).then((data) => {
       if (current) { setGrants(data); setUserIds(data.user_ids); }
     }).catch((failure) => {
-      if (current) setError(clueRoutingRequestError(failure, "商品授权暂时无法读取。"));
+      if (current) setError(clueRoutingRequestError(failure, "管理授权暂时无法读取。"));
     }).finally(() => { if (current) setBusy(false); });
     return () => { current = false; };
-  }, [product?.product_id, reload]);
+  }, [productId, sharedRule, reload]);
   const save = async () => {
-    if (!product || !grants || busy) return;
+    if ((!productId && !sharedRule) || !grants || busy) return;
     setBusy(true); setError(""); setNotice("");
     try {
-      await saveClueRoutingGrants(product.product_id, userIds);
-      setNotice("商品负责人授权已保存。");
+      await (sharedRule ? saveSharedClueRoutingGrants(userIds) : saveClueRoutingGrants(productId!, userIds));
+      setNotice(sharedRule ? "共享基座维护人授权已保存。" : "商品负责人授权已保存。");
       try {
-        const updated = await fetchClueRoutingGrants(product.product_id);
+        const updated = await (sharedRule ? fetchSharedClueRoutingGrants() : fetchClueRoutingGrants(productId!));
         setGrants(updated); setUserIds(updated.user_ids);
       } catch (failure) {
         setError(clueRoutingRequestError(failure, "授权已保存，最新结果暂时无法读取，请重新打开核对。"));
@@ -56,10 +58,10 @@ export function ClueRoutingGrantsDialog({ product, onClose }: {
   }
   const visibleUsers = users.filter((user) => `${user.display_name ?? ""} ${user.username}`.toLowerCase().includes(query.trim().toLowerCase()));
   return <Dialog
-    actions={<><Button disabled={busy} onClick={onClose}>关闭</Button><Button disabled={busy || !grants} loading={busy && Boolean(grants)} onClick={() => void save()} variant="primary">保存商品授权</Button></>}
+    actions={<><Button disabled={busy} onClick={onClose}>关闭</Button><Button disabled={busy || !grants} loading={busy && Boolean(grants)} onClick={() => void save()} variant="primary">{sharedRule ? "保存基座维护人" : "保存商品授权"}</Button></>}
     closeDisabled={busy}
-    description={product ? `${product.product_name} · ${product.product_id}。所选账号仅能管理本商品，授权入口由服务端生效。` : undefined}
-    onClose={onClose} open={Boolean(product)} panelClassName="clue-routing-grants-dialog" title="管理商品负责人"
+    description={sharedRule ? "所选账号可维护精诚养车共享基座。此授权不增加商品管理权限，也不授予分配维护人的权限。" : product ? `${product.product_name} · ${product.product_id}。所选账号仅能管理本商品，授权入口由服务端生效。` : undefined}
+    onClose={onClose} open={Boolean(product) || sharedRule} panelClassName="clue-routing-grants-dialog" title={sharedRule ? "管理共享基座维护人" : "管理商品负责人"}
   >
     {error ? <p className="admin-error" role="alert">{error}</p> : null}
     {notice ? <p className="resource-notice" role="status">{notice}</p> : null}
@@ -67,7 +69,7 @@ export function ClueRoutingGrantsDialog({ product, onClose }: {
     {!busy && !grants ? <Button onClick={() => setReload((value) => value + 1)}>重新读取授权</Button> : null}
     {grants ? <>
       <label className="filter-field"><span>查找账号</span><FieldInput disabled={busy} onChange={(event) => setQuery(event.target.value)} placeholder="姓名或用户名" type="search" value={query} /></label>
-      <p className="admin-muted">已选 {userIds.length} 个账号。取消全部后，该商品仅由全国范围管理员管理。</p>
+      <p className="admin-muted">已选 {userIds.length} 个账号。{sharedRule ? "取消全部后，共享基座仅由全国范围管理员维护。" : "取消全部后，该商品仅由全国范围管理员管理。"}</p>
       <div className="clue-routing-grants-list">
         {visibleUsers.map((user) => <CheckboxField
           checked={userIds.includes(user.user_id)} disabled={busy} key={user.user_id}

@@ -20,7 +20,7 @@ function makeProduct(index) {
 async function withApp(options, run) {
   const browser = await chromium.launch({ headless: true, channel: process.env.CLUE_ROUTING_BROWSER_CHANNEL || "msedge" });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1080 } });
-  const state = { products: Array.from({ length: options.count ?? 55 }, (_, index) => makeProduct(index + 1)), requests: [], errors: [], failOnce: options.failOnce, transportOnce: options.transportOnce, grants: ["owner"], headquartersOpen: true, resumeAttempts: 0, shared: { rule_version_id: "BASE1", first_follow_up_sla_hours: 24, follow_up_policy: { ...policy }, can_manage: true }, idempotency: new Map() };
+  const state = { products: Array.from({ length: options.count ?? 55 }, (_, index) => makeProduct(index + 1)), requests: [], errors: [], failOnce: options.failOnce, transportOnce: options.transportOnce, grants: ["owner"], sharedGrants: options.maintainer ? ["owner"] : [], headquartersOpen: true, resumeAttempts: 0, shared: { rule_version_id: "BASE1", first_follow_up_sla_hours: 24, follow_up_policy: { ...policy }, can_manage: true }, idempotency: new Map() };
   page.on("pageerror", (error) => state.errors.push(error.message));
   page.on("console", (message) => {
     if (message.type() === "error" && !message.text().startsWith("Failed to load resource:")) state.errors.push(message.text());
@@ -35,10 +35,10 @@ async function withApp(options, run) {
     if (path === "/auth/me") return route.fulfill({ json: envelope({ user_id: options.admin ? "admin" : "owner", username: "synthetic-test-user", display_name: options.admin ? "测试管理员" : "测试商品负责人", role: options.admin ? "admin" : "store", store_scope_mode: options.admin ? "all" : "none", store_ids: [], page_keys: options.admin ? ["D01", "D05", "D06", "D07", "D08"] : ["D05"], can_manage_global_settings: Boolean(options.admin), status: "active", is_initialized: true }) });
     if (path === "/admin/clue-routing/products" && request.method() === "GET") {
       if (options.forbidden) return route.fulfill({ status: 403, json: { detail: "无商品管理权限" } });
-      const rows = matching(Object.fromEntries(url.searchParams));
+      const rows = options.maintainer ? [] : matching(Object.fromEntries(url.searchParams));
       const pageNumber = Number(url.searchParams.get("page"));
       const pageSize = Number(url.searchParams.get("page_size"));
-      return route.fulfill({ json: envelope({ rows: structuredClone(rows.slice((pageNumber - 1) * pageSize, pageNumber * pageSize)), total: rows.length, page: pageNumber, page_size: pageSize, can_manage_grants: Boolean(options.admin) }) });
+      return route.fulfill({ json: envelope({ rows: structuredClone(rows.slice((pageNumber - 1) * pageSize, pageNumber * pageSize)), total: rows.length, page: pageNumber, page_size: pageSize, can_manage_grants: Boolean(options.admin), ...(options.legacySharedCapability ? {} : { can_manage_shared_rule: Boolean(options.admin || state.sharedGrants.includes("owner")) }) }) });
     }
     if (path === "/admin/clue-routing/products/batch") {
       const key = request.headers()["idempotency-key"];
@@ -79,8 +79,13 @@ async function withApp(options, run) {
       if (body) state.grants = body.user_ids;
       return route.fulfill({ json: envelope({ product_id: path.split("/").at(-2), user_ids: state.grants, users: [{ user_id: "owner", username: "owner", display_name: "商品负责人甲" }, { user_id: "manager2", username: "manager2", display_name: "商品负责人乙" }] }) });
     }
+    if (path === "/admin/clue-routing/shared-rule/grants") {
+      if (!options.admin) return route.fulfill({ status: 403, json: { detail: "无共享基座授权管理权限" } });
+      if (body) state.sharedGrants = body.user_ids;
+      return route.fulfill({ json: envelope({ user_ids: state.sharedGrants, users: [{ user_id: "owner", username: "owner", display_name: "商品负责人甲" }, { user_id: "manager2", username: "manager2", display_name: "项目组成员乙" }] }) });
+    }
     if (path === "/admin/clue-routing/shared-rule") {
-      if (!options.admin) return route.fulfill({ status: 403, json: { detail: "无共享规则权限" } });
+      if (!options.admin && !state.sharedGrants.includes("owner")) return route.fulfill({ status: 403, json: { detail: "无共享规则权限" } });
       if (!body) return route.fulfill({ json: envelope(structuredClone(state.shared)) });
       const before = structuredClone(state.shared);
       const { first_follow_up_sla_hours, ...changes } = body.rules;
@@ -307,6 +312,51 @@ test("administrator grants a product manager and publishes shared base without c
     assert.equal(state.shared.first_follow_up_sla_hours, 48);
     assert.equal(state.products[0].rule_version_id, null);
     assert.equal(state.products[0].routing_enabled, false);
+  });
+});
+
+test("shared-base maintainer can publish without product grants and loses entry after revocation", { timeout: 120000 }, async () => {
+  await withApp({ maintainer: true }, async (page, state) => {
+    await page.goto(productRoute);
+    await page.getByRole("button", { name: "精诚养车共享基座", exact: true }).waitFor();
+    assert.equal(await page.getByRole("checkbox", { name: /^选择商品 / }).count(), 0);
+    assert.equal(await page.getByRole("button", { name: "共享基座维护人", exact: true }).count(), 0);
+    assert.equal(await page.getByRole("button", { name: "管理授权", exact: true }).count(), 0);
+    await page.getByRole("button", { name: "精诚养车共享基座", exact: true }).click();
+    await page.getByRole("spinbutton", { name: "首次跟进期限（小时）", exact: true }).fill("72");
+    await page.getByRole("button", { name: "校验并预览共享基座", exact: true }).click();
+    await page.getByRole("button", { name: "确认发布共享基座", exact: true }).click();
+    await page.getByText("共享基座已发布。", { exact: false }).waitFor();
+    assert.equal(state.shared.first_follow_up_sla_hours, 72);
+    assert.equal(state.products[0].first_follow_up_sla_hours, 24);
+    assert.equal(state.requests.some((request) => request.path.endsWith("/grants")), false);
+    await page.screenshot({ path: join(evidenceDir, "shared-base-maintainer.png") });
+    await page.getByRole("button", { name: "关闭", exact: true }).click();
+    state.sharedGrants = [];
+    await page.getByRole("button", { name: "刷新", exact: true }).click();
+    await page.getByText("当前没有可管理的匹配商品；商品负责人可联系全国范围管理员授予商品权限。", { exact: true }).first().waitFor();
+    assert.equal(await page.getByRole("button", { name: "精诚养车共享基座", exact: true }).count(), 0);
+  });
+});
+
+test("global administrator grants and revokes shared-base maintainers with legacy capability fallback", { timeout: 120000 }, async () => {
+  await withApp({ admin: true, legacySharedCapability: true }, async (page, state) => {
+    await openProducts(page);
+    assert.ok(await page.getByRole("button", { name: "精诚养车共享基座", exact: true }).isVisible());
+    await page.getByRole("button", { name: "共享基座维护人", exact: true }).click();
+    await page.getByRole("heading", { name: "管理共享基座维护人", exact: true }).waitFor();
+    const member = page.getByRole("checkbox", { name: "项目组成员乙（manager2）", exact: true });
+    await member.check();
+    await page.getByRole("button", { name: "保存基座维护人", exact: true }).click();
+    await page.getByText("共享基座维护人授权已保存。", { exact: true }).waitFor();
+    assert.deepEqual(state.sharedGrants, ["manager2"]);
+    await member.uncheck();
+    await page.getByRole("button", { name: "保存基座维护人", exact: true }).click();
+    await page.getByText("共享基座维护人授权已保存。", { exact: true }).waitFor();
+    assert.deepEqual(state.sharedGrants, []);
+    const saves = state.requests.filter((request) => request.path === "/admin/clue-routing/shared-rule/grants" && request.method === "PUT");
+    assert.deepEqual(saves.map((request) => request.body), [{ user_ids: ["manager2"] }, { user_ids: [] }]);
+    assert.ok(state.requests.filter((request) => request.path === "/admin/clue-routing/shared-rule/grants" && request.method === "GET").length >= 3);
   });
 });
 
