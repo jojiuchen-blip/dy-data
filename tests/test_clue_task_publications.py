@@ -213,6 +213,33 @@ def test_readiness_requires_self_store_projection_without_running_builder(board_
     assert not check_ready(factory, ("douyin-ranking", "clue-overview"))
 
 
+def test_legacy_action_denominator_stays_independent_in_static_live_and_snapshot(db_session):
+    from apps.api.dy_api.douyin_ranking import build_douyin_ranking_report
+    from apps.api.dy_api.ranking_snapshots import calculate_snapshot, read_snapshot_report
+
+    seed_dimensions(db_session)
+    for number in range(4):
+        order_id = "action-" + str(number)
+        _order(db_session, order_id)
+        _task(db_session, "task-" + str(number), order_id=order_id)
+    _follow(db_session, "actual-action", task="task-0", order_id="action-0")
+    refunded = db_session.scalar(select(RawDouyinOrder).where(RawDouyinOrder.order_id == "action-3"))
+    refunded.order_status_normalized = "refunded"
+    refunded.raw_payload = {"refund_completed_at": (AT + timedelta(hours=4)).isoformat()}
+    db_session.commit()
+    publications = freeze_both(db_session)
+    static = ranking.read_report(db_session, publications["douyin-ranking"].id,
+        period_start=AT, period_end=CUTOFF)["totals"]
+    live = build_douyin_ranking_report(db_session, period_start=AT, period_end=CUTOFF)["totals"]
+    calculate_snapshot(db_session, run_id="independent-action", period_start=AT, period_end=CUTOFF,
+        observed_through=CUTOFF, roster_at=AT, eligibility_version="list", data_mode="business")
+    snapshot = read_snapshot_report(db_session, period_start=AT, period_end=CUTOFF,
+        run_id="independent-action", data_mode="business")["totals"]
+    for totals in (static, live, snapshot):
+        assert (totals["follow_any_numerator"], totals["follow_any_denominator"], totals["follow_rate"]) == (1, 3, .333333)
+        assert (totals["follow_action_numerator"], totals["follow_action_denominator"], totals["follow_action_rate"]) == (1, 4, .25)
+
+
 @pytest.mark.parametrize("day,expected", [("2026-11-17", 1), ("2026-11-18", 0)])
 def test_first_verification_date_before_date_filter_includes_no_clue_order(board_client, day, expected):
     client, _, _ = board_client
@@ -260,6 +287,26 @@ def test_get_and_export_are_pinned_read_only_and_export_new_metrics(board_client
     finally:
         event.remove(db_session.bind, "before_cursor_execute", guard)
     assert statements
+
+
+def test_default_export_preserves_follow_headers_and_shared_denominator_order(board_client):
+    client, _, _ = board_client
+    response = client.get("/api/v1/dashboard/douyin-ranking/export", params={"productScope": "all",
+        "periodStart": "2026-11-17", "periodEnd": "2026-11-26", "levels": "store"})
+    assert response.status_code == 200, response.text[:200]
+    workbook = load_workbook(BytesIO(response.content))
+    assert workbook.sheetnames == ["抖音店均订单量排行", "24小时有效跟进率排行", "任务核销率排行"]
+    sheet = workbook.worksheets[1]
+    rows = list(sheet.values)
+    header_at = next(index for index, row in enumerate(rows) if row[0] == "排名")
+    headers = list(rows[header_at])
+    assert len(headers) == len(set(headers))
+    assert headers[3:] == ["24小时有效跟进率", "24小时有效跟进轮次", "24小时有效跟进分母",
+                           "跟进率", "跟进率分子", "跟进率分母"]
+    at_24h, at_any = headers.index("24小时有效跟进分母"), headers.index("跟进率分母")
+    by_name = {row[1]: row for row in rows[header_at + 1:] if row[1]}
+    assert by_name["Store A"][at_24h] == by_name["Store A"][at_any] == 5
+    assert by_name["Store B"][at_24h] == by_name["Store B"][at_any] == 2
 
 
 @pytest.mark.parametrize("module,legacy_contract", [("clue-overview", "product-type-v2"), ("douyin-ranking", None)])

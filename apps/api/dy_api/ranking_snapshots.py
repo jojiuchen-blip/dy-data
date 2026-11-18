@@ -25,8 +25,9 @@ from apps.api.dy_api.ranking_identity import OrderAttributionIndex
 from apps.api.dy_api.ranking_history import load_confirmed_aliases, restore_missing_poi
 from apps.api.dy_api.clue_product_scope import PRODUCT_SCOPE_LABELS, scope_predicate, validate_product_scope
 from apps.api.dy_api.clue_task_metrics import load_clue_task_facts, load_self_store_verifications
+from apps.api.dy_api.ranking_legacy_followup import LEGACY_DEFINITIONS, bulk_evaluate_legacy_ranking_followup
 
-METRIC_VERSION = "douyin-ranking-clue-task-v1"
+METRIC_VERSION = "douyin-ranking-clue-task-v1-independent-action-v1"
 
 
 
@@ -52,7 +53,7 @@ DEFINITIONS = {
     "order_average": "订单量÷统计开始日适用名单中的精诚养车门店数（含零销量店）",
     "follow_24h_rate": "本店正式接收任务中，正式分配后固定24小时内首次有效人工提交的任务数÷跟进任务分母；24小时内全额退款或失效且结束前无有效提交时排除，核销不视为跟进",
     "follow_any_rate": "本轮有效期间有过有效人工提交的任务数÷跟进任务分母；与24小时跟进率共用分母，每任务最多计一次",
-    "follow_action_rate": "累计跟进率的兼容字段，与累计跟进率使用相同有效人工提交和任务分母",
+    "follow_action_rate": LEGACY_DEFINITIONS["follow_action_rate"],
     "terminal_evidence": "有效核销、全额退款和订单失效按实际业务发生时间认定；提前核销仍保留跟进分母",
     "verification_rate": "按实际核销时间匹配有效承接轮次的本店核销任务数÷本店实际接收任务数；跨店核销不回补前轮，整体关单后可补计实际核销店曾承接的原轮次",
     "self_store_verification_count": "实际核销店按订单全期去重的有效核销量，归入该店首次有效核销业务日期（北京时间）；包含未生成或未分配线索的订单",
@@ -287,6 +288,8 @@ def calculate_snapshot(
                 new_bindings.append(dict(lead_key=key, first_assigned_at=at, mapping_version=versions[key]))
 
     task_metrics = load_clue_task_facts(session, {row.order_id for row in selected}, observed_through=cutoff)
+    legacy_actions = bulk_evaluate_legacy_ranking_followup(session, {row.order_id for row in selected},
+        round_rows=selected, observed_through=cutoff)
     responsibility_versions = defaultdict(set)
     for row in selected:
         at, version = utc(row.assigned_at), versions.get(_lead(row))
@@ -317,9 +320,10 @@ def calculate_snapshot(
              "terminal_kind": metric.terminal_kind,
              "terminal_at": metric.terminal_at.isoformat() if metric.terminal_at else None})
         add("follow_action", row.assignment_round_id, row.assigned_store_id, version, at,
-            metric.follow_any_numerator, metric.follow_denominator,
+            legacy_actions[row.assignment_round_id].follow_action_numerator,
+            legacy_actions[row.assignment_round_id].follow_action_denominator,
             {"order_id": row.order_id,
-             "follow_record_ids": list(metric.follow_any_record_ids)})
+             "follow_record_ids": list(legacy_actions[row.assignment_round_id].follow_action_record_ids)})
         if metric.under_observation:
             quality["follow_rounds_under_observation"] += 1
         add("self_verification", row.assignment_round_id, row.assigned_store_id, version, at,

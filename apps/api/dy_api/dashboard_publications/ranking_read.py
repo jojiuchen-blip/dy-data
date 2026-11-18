@@ -128,8 +128,8 @@ def read_report(
         "follow_denominator": literal(1) if legacy_contract else selected_rounds.c.follow_denominator,
         "follow_any_numerator": selected_rounds.c.follow_any if legacy_contract else selected_rounds.c.task_follow_any_numerator,
         "follow_any_denominator": literal(1) if legacy_contract else selected_rounds.c.follow_denominator,
-        "follow_action_numerator": selected_rounds.c.follow_any if legacy_contract else selected_rounds.c.task_follow_any_numerator,
-        "follow_action_denominator": literal(1) if legacy_contract else selected_rounds.c.follow_denominator})
+        "follow_action_numerator": selected_rounds.c.follow_any,
+        "follow_action_denominator": literal(1)})
     self_fragment = fragment(responsibility_source, responsibility_org, {
         "verification_numerator": selected_rounds.c.self_verified if legacy_contract else selected_rounds.c.task_verification_numerator,
         "verification_denominator": literal(1) if legacy_contract else selected_rounds.c.verification_denominator})

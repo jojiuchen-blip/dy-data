@@ -9,6 +9,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
+    ClueAssignmentRound,
     DimAwemeAccount,
     DimStore,
     DimStoreOrgAssignment,
@@ -21,6 +22,8 @@ from apps.api.dy_api.models import (
 )
 from apps.api.dy_api.clue_task_metrics import load_self_store_verifications, load_store_task_totals
 from apps.api.dy_api.clue_product_scope import scope_predicate, validate_product_scope
+from apps.api.dy_api.clue_task_metrics_sources import jingcheng_order_predicate
+from apps.api.dy_api.ranking_legacy_followup import bulk_evaluate_legacy_ranking_followup
 from apps.api.dy_api.ranking_snapshots import DEFINITIONS
 
 
@@ -252,10 +255,24 @@ def _load_clue_metrics(
         facts = facts_by_store[store_id]
         facts.follow_numerator = metric.follow_24h_numerator
         facts.follow_denominator = metric.follow_24h_denominator
-        facts.follow_any_numerator = facts.follow_action_numerator = metric.follow_any_numerator
-        facts.follow_any_denominator = facts.follow_action_denominator = metric.follow_24h_denominator
+        facts.follow_any_numerator = metric.follow_any_numerator
+        facts.follow_any_denominator = metric.follow_24h_denominator
         facts.verification_numerator = metric.conversion_numerator
         facts.verification_denominator = metric.conversion_denominator
+    # Keep the undisplayed auxiliary action fields on their independent old
+    # manual-record contract. Early invalidation changes the two main follow
+    # denominators, never this compatibility denominator.
+    legacy_rounds = select(ClueAssignmentRound).where(ClueAssignmentRound.execution_mode == "formal",
+        ClueAssignmentRound.assigned_store_id.in_(facts_by_store), ClueAssignmentRound.assigned_at >= period_start,
+        ClueAssignmentRound.assigned_at < period_end, ClueAssignmentRound.assigned_at <= observed_at,
+        scope_predicate(product_scope, jingcheng_order_predicate(ClueAssignmentRound.order_id)))
+    for batch in session.scalars(legacy_rounds.execution_options(yield_per=400)).partitions(400):
+        legacy = bulk_evaluate_legacy_ranking_followup(session, {row.order_id for row in batch},
+            round_rows=batch, observed_through=observed_at)
+        for row in batch:
+            target = facts_by_store[row.assigned_store_id]
+            target.follow_action_numerator += legacy[row.assignment_round_id].follow_action_numerator
+            target.follow_action_denominator += legacy[row.assignment_round_id].follow_action_denominator
     # Candidate orders are bounded by actual verification time, while the
     # evaluator chooses first order/store facts over complete source history.
     candidates = select(RawDouyinOrderCoupon.order_id).join(RawDouyinVerifyRecord,

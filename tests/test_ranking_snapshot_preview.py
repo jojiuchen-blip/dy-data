@@ -463,7 +463,7 @@ def test_business_follow_denominator_is_shared_in_snapshot_and_live(preview, lev
     # The six later O3 tasks and EARLY end within 24 hours without a valid
     # submission. Their post-terminal actions cannot restore the denominator.
     assert (totals["follow_any_numerator"], totals["follow_any_denominator"], totals["follow_rate"]) == (4, 4, 1)
-    assert (totals["follow_action_numerator"], totals["follow_action_denominator"], totals["follow_action_rate"]) == (4, 4, 1)
+    assert (totals["follow_action_numerator"], totals["follow_action_denominator"], totals["follow_action_rate"]) == (5, 11, .454545)
     live = build_douyin_ranking_report(preview, period_start=START, period_end=END, level=level)["totals"]
     for key in ["follow_numerator", "follow_denominator", "follow_24h_rate", "follow_any_numerator",
                 "follow_any_denominator", "follow_rate", "follow_action_numerator",
