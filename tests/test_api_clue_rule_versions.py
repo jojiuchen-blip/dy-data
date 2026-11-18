@@ -12,7 +12,9 @@ from sqlalchemy.orm import Session
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
-from apps.api.dy_api.models import ClueAllocationAuditLog, DimStore, User, UserStoreScope  # noqa: E402
+from apps.api.dy_api.models import (  # noqa: E402
+    ClueAllocationAuditLog, ClueAllocationRule, ClueAllocationRuleVersion, DimStore, User, UserStoreScope,
+)
 from dy_api.auth import hash_password_pbkdf2  # noqa: E402
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
@@ -112,6 +114,31 @@ def _seed_users(session: Session) -> None:
     session.flush()
     session.add(UserStoreScope(user_id="database-admin", store_id="store-1"))
     session.commit()
+
+
+@pytest.mark.parametrize("scope_type", ["product", "product_base"])
+def test_product_rules_use_the_product_publication_api_only(client, db_session, scope_type):
+    db_session.add(ClueAllocationRule(rule_id="product-rule", rule_name="产品规则",
+        scope_key=f"{scope_type}:example", scope_type=scope_type))
+    db_session.flush()
+    version_id = "product-version"
+    db_session.add(ClueAllocationRuleVersion(rule_id="product-rule", rule_version_id=version_id,
+                                             version_no=1, status="draft"))
+    db_session.commit()
+    _login(client, "system-admin", "test-password")
+
+    base = "/api/v1/admin/clue-allocation"
+    listing = client.get(f"{base}/rules")
+    assert listing.status_code == 200
+    assert listing.json()["data"]["rows"] == []
+    assert client.get(f"{base}/rules/product-rule").status_code == 404
+    assert client.post(f"{base}/rules/product-rule/versions", json=_version_payload()).status_code == 404
+    version_path = f"{base}/rule-versions/{version_id}"
+    assert client.put(version_path, json=_version_payload()).status_code == 404
+    assert client.post(f"{version_path}/publish").status_code == 404
+    assert client.post(f"{version_path}/retire").status_code == 404
+    assert client.delete(version_path).status_code == 404
+    assert db_session.get(ClueAllocationRuleVersion, version_id).status == "draft"
 
 
 @pytest.mark.parametrize("writer,password,actor_id", [

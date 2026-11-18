@@ -141,17 +141,26 @@ Product ID查询失败返回 `null`，不增加新面板，也不回传整个met
 
 详情、电话和跟进操作必须校验用户角色、订单归属和门店范围。
 
+**DYDATA-115 商品流转与任务统计**
+
+- 新线索首次入库时固定商品、归属和适用规则版本。已发布的门店名单在每次选店时读取。生产默认关闭，名单发布与商品开启是两个独立操作。
+- `POST /api/v1/admin/clue-routing/products/batch` 的开启请求先预览，再按商品回传 `expected_list_versions` 和业务授权说明。提交时名单已换版的商品返回 `LIST_VERSION_CHANGED`，维持原开关，须重新预览并确认。本品首次开启时复制当前精诚共享基座，之后独立发布规则。
+- `POST /api/v1/admin/clue-allocation/headquarters-pool/{entry_id}/resume` 由全部门店范围管理员操作，按原始门店地址资料重新检查订单和候选，返回处理结果、门店和任务 ID。原始直派商品资料补齐后派回原店。
+- 新规则的跟进请求沿用现有地址。结果为 `appointment` 时提交带时区的 `appointment_at`。改约或切换状态按绑定规则重算截止时间，补备注沿用原截止。新模式通过 `routing_mode` 和 `can_delete_follow_up_records` 告知客户端操作权限，服务端在任务锁内复核。已提交的跟进记录按时间追加。
+- 新版线索概览与指标榜单共用正式接收任务的跟进、核销明细。24 小时跟进率与累计跟进率共用分母。自店核销量按实际核销门店和订单去重，计入首次仍有效核销的上海业务日期，包含从未分配的订单。列表和详情提供核销摘要、实际门店与时间、有效轮次、补计轮次及该门店是否获得核销率分子。
+- 概览 `product_scope=all|jingcheng|byd` 选择营销范围，`product_type` 在选定范围内按实际业务类型精确筛选。各组汇总按分子、分母合并后计算比率。
+
 DYDATA-105 批量门店筛选：
 
 - 解析请求为 `{raw_input: string}`，只读当前账户 ID（`DimAwemeAccount.account_id`）和 POI ID（`DimStorePoiMapping.poi_id`）映射；不把任意内部 `store_id` 当作粘贴 ID 回退匹配。NFKC 规范宽度，支持空格、分号、斜杠、换行与 tab，保留长 ID 和前导零。一对多匹配全部授权门店；命名空间冲突返回授权匹配并标注来源；不存在与无权统一计为未匹配。
 - 返回 `stores`（含 `store_id/store_name/matches`）及输入、去重、匹配和未匹配数量。原始输入最多 128000 字符，单 ID 最多 128 字符，去重后最多 1000 个输入 ID，匹配和合并选择最多 1000 家门店；任一超限整次拒绝，不截断。
 - POST 列表请求 `{filters, page, page_size}`，POST 导出请求 `{filters}`。公共 `filters.assigned_store_ids` 为规范门店 ID 字符串数组，`null`/省略表示无额外条件，`[]` 明确表示零结果。同一选择集取 OR，与其他条件及服务端授权取 AND；列表总数与导出使用同一条件。客户端不得提交内部授权字段，未知字段拒绝。旧 GET 保持兼容。
 - 页面合并名称选择和 ID 匹配，展示选中项并可逐项移除；移除最后一项保持零结果，显式清空恢复无额外门店条件。大选择集经 JSON 请求体传输，避免 URL 过长。
-- 管理员撤销跟进需在业务行锁后重新验证该轮次门店权限，越权与不存在统一 404；历史已撤销记录仅对有该门店权限的管理员可见。账号禁删不改变跟进撤销的审计语义。
+- 对仍沿用历史规则的线索，管理员撤销跟进需在业务行锁后重新验证该轮次门店权限。越权与不存在统一返回 404。历史已撤销记录仅对有该门店权限的管理员可见。
 
 DYDATA-88 修复后的运行约定：
 
-- `overview` 以筛选范围内的唯一订单为分母；跟进、有效跟进和本店核销以该订单在范围内轮次的布尔汇总计数，不因多次分配重复累计。当前有效线索仍要求当前有效轮次。分配明细和门店轮次报表仍按轮次呈现。
+- 历史发布版本的概览按唯一订单汇总。新版按上述 DYDATA-115 口径发布任务指标，并保留线索订单数和当前有效订单数。
 - `store_scope_mode=all` 只授权管理员全店访问；`specified` 只授权列出的门店；`none`、空集合、未知或缺失范围拒绝操作。电话、跟进和 `can_operate_current_round` 使用同一范围判断，并复核当前正式轮次及主线索状态。
 - 电话只接受完整中国手机号或合法格式化号码。密文先解密，掩码不作为明文。缓存必须匹配当前原始联系方式的来源指纹；没有来源、来源变化或解密失败时不返回旧明文。旧的无指纹缓存由当前源重新验证，不能直接视为可信。
 - 列表电话按订单批量查询和解析；GET 不提交业务写事务。进程内解密缓存按数据库与来源隔离，上限 1024 项，成功 300 秒、失败 30 秒，不缓存授权结果。完整电话仍仅由授权电话端点或当前可操作轮次的导出提供。
@@ -172,6 +181,9 @@ DYDATA-88 修复后的运行约定：
 - 反馈：`/feedback*`。
 - 商品与归属规则：`/sku-rules*`、`/non-commission-owner-accounts*`、`/product-type-visibility*`。
 - 线索分配：`/clue-allocation/master-leads`、`decisions*`、`eligible-leads`、`headquarters-pool`、`cycles*`、`cycle-previews`、`trial-cycles`、`rebuild-cycles`、`audit-logs`、`store-scores*`、`rules*`、`rule-versions*`、`store-groups*`。
+  - `GET /clue-routing/products` 返回当前人员有权管理的商品。`POST /clue-routing/products/batch` 预览并逐商品发布名单、规则或启停结果。正式开启要求有效名单和业务授权说明。后台与交互式管理 CLI 共用这些接口。
+  - `GET/PUT /clue-routing/products/{product_id}/grants` 由全范围管理员管理逐商品授权。`GET/PUT /clue-routing/shared-rule` 维护精诚共享规则版本，供商品首次启用时复制。
+  - `POST /clue-allocation/headquarters-pool/{entry_id}/resume` 由总部管理员确认指定待处理记录。服务端在锁内复核待处理项、订单终态和当前商品名单，响应返回实际处理结果及新任务 ID。
   - `POST /clue-allocation/cycle-previews` 生成 10 分钟有效的短时预览，并绑定线索状态版本、规则版本和目标范围。
   - `POST /clue-allocation/trial-cycles` 与 `POST /clue-allocation/rebuild-cycles` 仅供最高管理员显式确认后执行，必须携带 `Idempotency-Key`；同键同请求重放原结果，同键不同请求返回冲突。
   - `GET /clue-allocation/cycles/{cycle_id}` 返回批次摘要和分页逐线索执行项；`GET /clue-allocation/decisions/{decision_id}` 返回结构化候选与评分证据。
@@ -220,7 +232,7 @@ GET `/api/v1/dashboard/douyin-ranking/export`：沿用A03页面权限和账号�
 ## 线索商品范围与组织筛选（2026-09-24）
 
 - 指标看板及Excel导出新增 `productScope=all|jingcheng|byd`，默认jingcheng兼容原有口径。响应包含productScope，导出标注商品范围；非法范围422。缓存、run ID校验及报表读取均区分范围。all计数为jingcheng与byd之和，比率仍按对应分子分母重算，名单分母沿用既有适用名单。
-- `/clues/overview`、`/clues/assignment-rounds`、`/clues/assignment-rounds/export` 的 `product_type` 使用 `all` 或实际商品类型精确名称；旧 scope 参数忽略，`jingcheng/byd` 不再是普通线索的范围别名。类型元数据受当前权限及可见性限制，分析读取冻结发布类型，当前工作队列使用当前目录精确解析。独立打榜仍保留原 scope 语义。详见[商品类型与默认账期合同](api/product-type-classification.md)。
+- `/clues/overview`、`/clues/assignment-rounds`、`/clues/assignment-rounds/export` 的 `product_type` 使用 `all` 或实际商品类型精确名称。DYDATA-115 为概览增加独立的 `product_scope` 营销范围参数。类型元数据受当前权限及可见性限制，分析读取冻结发布类型，当前工作队列使用当前目录精确解析。[商品类型与默认账期合同](api/product-type-classification.md)
 - 三个线索接口新增 `org_level=all|group|service_center|district|area|store` 和 `org_key`。key是JSON字符串数组：集团[name]、中心[name]、大区[center,district]、区域[center,district,area]、门店[store_id]。空key表示不额外收窄；非法/不完整路径422，越权路径返回空数据。
 - `GET /clues/filter-options/organizations?level=area&q=关键词&selected_key=...&limit=50` 返回 `{data:{options:[{value,label}]},meta}`。limit上限100；当前生效组织目录、仅授权门店、完整路径搜索；选中项在授权范围内时保留。集团与中心为独立维度。
 - 指标看板沿用所有有效账号全局可见规则；线索选项、查询、数量和导出按账号权限与组织筛选取交集。
