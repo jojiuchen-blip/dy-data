@@ -222,8 +222,15 @@ def _publish_batches(
             return _cancel_pending(audit, ready + failed)
         # Freeze all-matching into the exact previewed IDs before the mutation.
         committed = {**_narrow_body(body, ready), "preview": False}
+        if body["action"] == "enable":
+            committed["expected_list_versions"] = {
+                row["product_id"]: row["before"]["list_version"]
+                for row in preview["results"] if row["status"] == "preview"
+            }
         key = f"human_publish_{uuid4().hex}"
         attempt = {"action": body["action"], "product_ids": ready, "idempotency_key": key, "status": "unknown"}
+        if "expected_list_versions" in committed:
+            attempt["expected_list_versions"] = committed["expected_list_versions"]
         audit["attempts"].append(attempt)
         audit["status"] = "unknown"
         try:

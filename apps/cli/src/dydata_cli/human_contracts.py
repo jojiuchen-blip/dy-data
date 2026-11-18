@@ -26,6 +26,9 @@ PRODUCT_ERRORS = {
     "PRODUCT_NOT_FOUND": "商品不存在。",
     "CONFLICT": "商品状态冲突，请刷新预览后重试。",
     "PRODUCT_LIMIT_EXCEEDED": "商品数量超过单批限制，请缩小范围。",
+    "PREVIEW_REQUIRED": "开启前必须重新预览并确认当前已发布的有效名单。",
+    "LIST_VERSION_CHANGED": "适用名单已在预览后变更，本次开启未执行；请重新预览并确认当前版本。",
+    "PRODUCT_NOT_ENABLED": "本品首次开启前继承精诚共享基座，请先按已确认名单开启，之后可发布独立规则。",
 }
 
 

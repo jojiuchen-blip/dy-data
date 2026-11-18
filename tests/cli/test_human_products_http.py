@@ -57,7 +57,7 @@ def test_human_console_real_login_preview_publish_readback_and_grants(db_session
 
     change = tmp_path / "change.json"
 
-    def run(answers: list[str], payload=None, command: str = "manage", before_answer=None):
+    def run(answers: list[str], payload=None, command: str = "manage", before_answer=None, expected_exit: int = 0):
         remaining = iter(["human.roundtrip", *answers])
         output = StringIO()
         argv = [command]
@@ -77,7 +77,7 @@ def test_human_console_real_login_preview_publish_readback_and_grants(db_session
         )
         assert "synthetic-roundtrip-password" not in output.getvalue()
         assert "dy_session=" not in output.getvalue()
-        assert code == 0, output.getvalue()
+        assert code == expected_exit, output.getvalue()
         return json.loads(output.getvalue().splitlines()[-1])["audit"]
 
     cancelled = run(["all", "1", "cancel"], {"store_ids": ["001"]})
@@ -89,11 +89,14 @@ def test_human_console_real_login_preview_publish_readback_and_grants(db_session
     db_session.expire_all()
     assert not db_session.get(ClueProductRoutingConfig, "p-jc").routing_enabled
     assert not db_session.get(ClueProductRoutingConfig, "p-byd").routing_enabled
-    run(["all", "2", "PUBLISH 2"], {"rules": {"first_follow_up_sla_hours": 48}})
+    blocked_rule = run(["p-byd", "done", "2", "n"], {"rules": {"first_follow_up_sla_hours": 48}}, expected_exit=1)
+    assert blocked_rule["attempts"] == []
+    assert blocked_rule["previews"][0]["results"][0]["error"]["code"] == "PRODUCT_NOT_ENABLED"
     run(["all", "3", "合成业务授权：名单已确认，同意本次测试开启", "PUBLISH 2"])
     db_session.expire_all()
     assert db_session.get(ClueProductRoutingConfig, "p-jc").routing_enabled
     assert db_session.get(ClueProductRoutingConfig, "p-byd").routing_enabled
+    run(["all", "2", "PUBLISH 2"], {"rules": {"first_follow_up_sla_hours": 48}})
     run(["p-jc", "done", "4", "PUBLISH 1"])
     db_session.expire_all()
     assert not db_session.get(ClueProductRoutingConfig, "p-jc").routing_enabled
@@ -134,5 +137,39 @@ def test_human_console_real_login_preview_publish_readback_and_grants(db_session
     assert db_session.get(ClueProductRoutingConfig, "p-jc").active_list_version_id == unchanged_jc_version
     assert load_product_store_ids(db_session, "p-jc") == {"001"}
     assert load_product_store_ids(db_session, "p-byd") == {"002"}
-    assert observed.count(("POST", "/api/v1/auth/login")) == 8
-    assert observed.count(("POST", "/api/v1/auth/logout")) == 8
+
+    run(["all", "4", "PUBLISH 2"])
+    assert "expected_list_versions" not in batches[-1]
+    previous_byd_version = db_session.get(ClueProductRoutingConfig, "p-byd").active_list_version_id
+    changed_list_version = []
+
+    def replace_published_list(prompt: str) -> None:
+        if "PUBLISH 2" in prompt and not changed_list_version:
+            replacement = client.post("https://dy-business-engine.com/api/v1/admin/clue-routing/products/batch", json={
+                "product_ids": ["p-byd"], "action": "publish_list", "store_ids": ["001"], "preview": False,
+            })
+            assert replacement.status_code == 200
+            result = replacement.json()["data"]["results"][0]
+            assert result["status"] == "success"
+            changed_list_version.append(result["after"]["list_version"])
+        elif prompt.startswith("仅重试失败商品"):
+            db_session.expire_all()
+            assert not db_session.get(ClueProductRoutingConfig, "p-byd").routing_enabled
+            assert db_session.get(ClueProductRoutingConfig, "p-jc").routing_enabled
+
+    enable_retry = run([
+        "all", "3", "合成业务负责人确认当前有效名单并授权开启", "PUBLISH 2", "y", "PUBLISH 1",
+    ], before_answer=replace_published_list)
+    assert enable_retry["status"] == "complete" and len(enable_retry["attempts"]) == 2
+    first_enable = {row["product_id"]: row for row in enable_retry["attempts"][0]["results"]}
+    assert first_enable["p-byd"]["error"]["code"] == "LIST_VERSION_CHANGED"
+    assert first_enable["p-jc"]["status"] == "success"
+    assert batches[-3]["expected_list_versions"]["p-byd"] == previous_byd_version
+    assert batches[-1]["expected_list_versions"] == {"p-byd": changed_list_version[0]}
+    assert batches[-1]["product_ids"] == ["p-byd"]
+    assert changed_list_version[0] != previous_byd_version
+    db_session.expire_all()
+    assert db_session.get(ClueProductRoutingConfig, "p-jc").routing_enabled
+    assert db_session.get(ClueProductRoutingConfig, "p-byd").routing_enabled
+    assert observed.count(("POST", "/api/v1/auth/login")) == 11
+    assert observed.count(("POST", "/api/v1/auth/logout")) == 11

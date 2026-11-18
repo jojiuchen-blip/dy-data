@@ -94,6 +94,14 @@ class ProductApi:
             for product_id in product_ids:
                 before = deepcopy(self.products[product_id])
                 after = deepcopy(before)
+                if body["action"] == "enable" and not body["preview"]:
+                    expected = body.get("expected_list_versions", {}).get(product_id)
+                    if expected != before["list_version"]:
+                        results.append({
+                            "product_id": product_id, "status": "failed", "before": {}, "after": {},
+                            "error": {"code": "LIST_VERSION_CHANGED" if expected is not None else "PREVIEW_REQUIRED"},
+                        })
+                        continue
                 if product_id in self.fail_preview or (not body["preview"] and product_id in self.fail_once):
                     self.fail_once.discard(product_id)
                     results.append({
@@ -156,7 +164,7 @@ class ProductApi:
 
 def _run(
     api: ProductApi, answers: list[str], *, argv: list[str] | None = None,
-    password_input=None, is_interactive: bool = True,
+    password_input=None, is_interactive: bool = True, before_answer=None,
 ) -> tuple[int, str, dict[str, Any]]:
     output = StringIO()
     remaining = iter(answers)
@@ -167,9 +175,14 @@ def _run(
         sessions.append(session)
         return session
 
+    def ask(prompt: str) -> str:
+        if before_answer is not None:
+            before_answer(prompt)
+        return next(remaining)
+
     exit_code = main(
         argv or ["manage"], session_factory=session_factory,
-        text_input=lambda _: next(remaining), password_input=password_input or (lambda _: _PASSWORD),
+        text_input=ask, password_input=password_input or (lambda _: _PASSWORD),
         is_interactive_terminal=lambda: is_interactive, stream=output,
     )
     assert all(session._http.is_closed and not session._http.cookies for session in sessions)
@@ -268,7 +281,34 @@ def test_enable_requires_separate_business_authorization_and_exact_confirmation(
     else:
         assert code == 0 and audit["status"] == "complete"
         assert api.batches[-1]["authorization_note"] == note
+        assert api.batches[-1]["expected_list_versions"] == {"product-a": 1, "product-b": 1}
         assert all(row["routing_enabled"] for row in api.products.values())
+
+
+def test_enable_list_change_requires_new_preview_version_and_human_confirmation() -> None:
+    api = ProductApi()
+    changed = False
+
+    def replace_list(prompt: str) -> None:
+        nonlocal changed
+        if "PUBLISH 2" in prompt and not changed:
+            api.products["product-b"]["list_version"] = 2
+            api.products["product-b"]["store_ids"] = ["store-changed"]
+            changed = True
+        if prompt.startswith("仅重试失败商品"):
+            assert not api.products["product-b"]["routing_enabled"]
+
+    code, output, audit = _run(api, [
+        "human.admin", "all", "3", "业务负责人确认并授权", "PUBLISH 2", "y", "PUBLISH 1",
+    ], before_answer=replace_list)
+
+    assert code == 0 and audit["status"] == "complete"
+    assert "LIST_VERSION_CHANGED" in output
+    assert [batch["preview"] for batch in api.batches] == [True, False, True, False]
+    assert api.batches[1]["expected_list_versions"] == {"product-a": 1, "product-b": 1}
+    assert api.batches[3]["expected_list_versions"] == {"product-b": 2}
+    assert api.batches[3]["product_ids"] == ["product-b"]
+    assert all(row["routing_enabled"] for row in api.products.values())
 
 
 def test_network_loss_after_publication_is_unknown_and_is_not_retried() -> None:
