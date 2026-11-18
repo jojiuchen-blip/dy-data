@@ -5020,7 +5020,7 @@ class DashboardDataStore:
             JOIN clue_center_orders c ON c.order_id = r.order_id
             {where_sql}
             ORDER BY r.order_id, r.assignment_round_id
-        """)
+        """).execution_options(yield_per=400)
         for batch in self.session.execute(query, params).mappings().partitions(400):
             facts = load_clue_task_facts(self.session, {row["order_id"] for row in batch}, observed_through=cutoff)
             for row in batch:
