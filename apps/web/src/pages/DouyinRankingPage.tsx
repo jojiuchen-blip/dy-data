@@ -14,6 +14,13 @@ import { usePublishedResource } from "../hooks/usePublishedResource";
 import type { DouyinRankingLevel, DouyinRankingRow } from "../types/dashboard";
 import { formatInteger, formatPercent } from "../utils/format";
 import {
+  CLUE_PRODUCT_SCOPE_OPTIONS,
+  FOLLOW_24H_DESCRIPTION,
+  FOLLOW_ANY_DESCRIPTION,
+  SELF_STORE_VERIFICATION_DESCRIPTION,
+  VERIFICATION_RATE_DESCRIPTION,
+} from "../utils/clueMetrics";
+import {
   RANKING_EARLIEST_DATE,
   normalizeRankingDateRange,
   updateRankingPeriodEnd,
@@ -34,23 +41,21 @@ const LEVEL_OPTIONS: Array<{ value: DouyinRankingLevel; label: string }> = [
 ];
 
 function displayRate(value: number | null | undefined) {
-  return value === null || value === undefined ? "暂无样本" : formatPercent(value);
+  return value === undefined ? "暂不可用" : value === null ? "暂无样本" : formatPercent(value);
 }
 
 function displayAverage(value: number | null | undefined) {
   return value === null || value === undefined ? "暂无数据" : value.toFixed(2);
 }
 
-const FOLLOW_24H_DESCRIPTION = "24小时内有人工跟进记录的轮次 ÷ 全部正式分配轮次。未接通、战败也算；核销不自动计入，退款不剔除。";
-const FOLLOW_DESCRIPTION = "有人工跟进记录的轮次 ÷ 全部正式分配轮次，不限24小时。核销不自动计入，退款不剔除。";
-
 function displayCount(value: number | null | undefined) {
   return value === null || value === undefined ? "—" : formatInteger(value);
 }
 
-function AuxiliaryFollowRates({ metrics }: { metrics: Pick<DouyinRankingRow, "followRate" | "followAnyNumerator" | "followAnyDenominator"> | undefined }) {
+function AuxiliaryFollowRates({ metrics }: { metrics: Pick<DouyinRankingRow, "followAnyRate" | "followRate" | "followAnyNumerator" | "followAnyDenominator" | "followDenominator"> | undefined }) {
+  const rate = metrics?.followAnyRate !== undefined ? metrics.followAnyRate : metrics?.followRate;
   return <span className="ranking-follow-auxiliary">
-    <small><TooltipLabel label="跟进率" description={FOLLOW_DESCRIPTION} interactive hideIcon /> {displayRate(metrics?.followRate)}（{displayCount(metrics?.followAnyNumerator)}/{displayCount(metrics?.followAnyDenominator)}）</small>
+    <small><TooltipLabel label="累计跟进率（辅助）" description={FOLLOW_ANY_DESCRIPTION} interactive hideIcon /> {displayRate(rate)}（{displayCount(metrics?.followAnyNumerator)}/{displayCount(metrics?.followAnyDenominator ?? metrics?.followDenominator)}）</small>
   </span>;
 }
 
@@ -105,7 +110,7 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState<RankingMetric>(() => RANKING_METRIC_OPTIONS.find((item) => item.value === searchParams.get("sortBy"))?.value ?? "order_average");
   const [productScope, setProductScope] = useState(() => ["all", "jingcheng", "byd"].includes(searchParams.get("productScope") ?? "") ? searchParams.get("productScope")! : "jingcheng");
-  const productLabel = ({all: "全部商品", jingcheng: "精诚养车商品", byd: "比亚迪本品"} as Record<string, string>)[productScope];
+  const productLabel = CLUE_PRODUCT_SCOPE_OPTIONS.find((item) => item.value === productScope)?.label ?? "全部商品";
   const [exportOpen, setExportOpen] = useState(false);
 
   const rankingResource = usePublishedResource(
@@ -128,6 +133,8 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
 
   );
   const ranking = rankingResource.data?.data;
+  const publication = rankingResource.data?.meta.publication;
+  const metricsWarming = Boolean(publication && publication.taskMetricsContract !== "clue-task-v1");
   const hasQualityIssues = Object.entries(ranking?.qualityJson ?? {}).some(
     ([key, count]) => key !== "followRoundsUnderObservation" && count > 0,
   );
@@ -138,7 +145,6 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
 
   const orderDescription = `所选日期内门店及所属职人的全渠道${productLabel}订单数，按订单去重、期初组织归属汇总。`;
   const averageDescription = "订单量 ÷ 适用门店数（含零销量门店）。名单和组织归属按统计开始日固定。";
-  const verificationDescription = `本店线索关联订单中在本店成功核销的订单数 ÷ 本店线索关联订单数，按订单去重。上级组织汇总分子、分母计算。`;
   const metricTitle = (label: string, description: string) => <TooltipLabel label={label} description={description} interactive hideIcon />;
   const columns: Column<DouyinRankingRow>[] = [
     { key: "rank", title: "排名", align: "center", render: (row) => <span className="rank-badge">{row.rank ?? "—"}</span> },
@@ -154,8 +160,9 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
     { key: "storeCount", title: metricTitle("适用门店数", averageDescription), align: "right", render: (row) => formatInteger(row.storeCount) },
     { key: "orderCount", title: metricTitle("抖音订单量", orderDescription), align: "right", render: (row) => formatInteger(row.orderCount) },
     { key: "orderAverage", title: metricTitle("店均订单量", averageDescription), align: "right", render: (row) => displayAverage(row.orderAverage) },
-    { key: "follow24hRate", title: metricTitle("24小时有效跟进率", FOLLOW_24H_DESCRIPTION), align: "right", render: (row) => <><span className="ranking-follow-main">{displayRate(row.follow24hRate)}（{formatInteger(row.followNumerator)}/{formatInteger(row.followDenominator)}）</span><AuxiliaryFollowRates metrics={row} /></> },
-    { key: "verificationRate", title: metricTitle("订单核销率", verificationDescription), align: "right", render: (row) => `${displayRate(row.verificationRate)}（${formatInteger(row.verificationNumerator)}/${formatInteger(row.verificationDenominator)}）` },
+    { key: "follow24hRate", title: metricTitle("24小时跟进率", FOLLOW_24H_DESCRIPTION), align: "right", render: (row) => <><span className="ranking-follow-main">{displayRate(metricsWarming ? undefined : row.follow24hRate)}（{displayCount(metricsWarming ? undefined : row.followNumerator)}/{displayCount(metricsWarming ? undefined : row.followDenominator)}）</span><AuxiliaryFollowRates metrics={metricsWarming ? undefined : row} /></> },
+    { key: "verificationRate", title: metricTitle("核销率", VERIFICATION_RATE_DESCRIPTION), align: "right", render: (row) => `${displayRate(metricsWarming ? undefined : row.verificationRate)}（${displayCount(metricsWarming ? undefined : row.verificationNumerator)}/${displayCount(metricsWarming ? undefined : row.verificationDenominator)}）` },
+    { key: "selfStoreVerificationCount", title: metricTitle("自店核销量", SELF_STORE_VERIFICATION_DESCRIPTION), align: "right", render: (row) => metricsWarming || row.selfStoreVerificationCount == null ? "暂不可用" : formatInteger(row.selfStoreVerificationCount) },
   ];
 
   return (
@@ -173,7 +180,7 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
       {ranking?.dataMode === "synthetic" && <ResourcePanel>{ranking.previewNote} 快照：{ranking.snapshotId}</ResourcePanel>}
       {ranking?.dataMode === "business" && hasQualityIssues && <ResourcePanel>部分数据的门店归属或历史绑定资料尚待核验，当前排名仅供参考；未能唯一归属的数据暂未计入。</ResourcePanel>}
       <FilterBar>
-        <SelectField label="商品类型" value={productScope} onChange={(value) => { setProductScope(value); setPage(1); }} options={[{value: "all", label: "全部商品"}, {value: "jingcheng", label: "精诚养车商品"}, {value: "byd", label: "比亚迪本品"}]} />
+        <SelectField label="商品范围" value={productScope} onChange={(value) => { setProductScope(value); setPage(1); }} options={CLUE_PRODUCT_SCOPE_OPTIONS} />
         <FilterField label="开始日期"><FieldInput type="date" min={RANKING_EARLIEST_DATE} max={initialRange.today} value={periodStart} onChange={(event) => { const next = updateRankingPeriodStart(event.target.value, periodEnd, initialRange.today); setPeriodStart(next.periodStart); setPeriodEnd(next.periodEnd); setPage(1); }} /></FilterField>
         <FilterField label="结束日期"><FieldInput type="date" min={periodStart} max={initialRange.today} value={periodEnd} onChange={(event) => { setPeriodEnd(updateRankingPeriodEnd(event.target.value, periodStart, initialRange.today)); setPage(1); }} /></FilterField>
         <SelectField label="查看层级" value={level} onChange={(value) => { setLevel(value as DouyinRankingLevel); setPage(1); }} options={LEVEL_OPTIONS} />
@@ -187,10 +194,11 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
       </FilterBar>
       {!ranking && rankingResource.loading ? <ResourcePanel>正在加载打榜指标…</ResourcePanel> : !ranking ? <ResourcePanel tone="error">打榜看板暂不可用。</ResourcePanel> : (
         <>
-          <section className="metric-grid metric-grid--three">
+          <section className="metric-grid metric-grid--four">
             <MetricCard interactiveTooltip hideTooltipIcon label="抖音订单量" value={formatInteger(totals?.orderCount ?? 0)} meta={<><TooltipLabel label="店均订单量" description={averageDescription} interactive hideIcon /> {displayAverage(totals?.orderAverage)} · {sourceLabel}</>} description={orderDescription} />
-            <MetricCard interactiveTooltip hideTooltipIcon label="线索24小时有效跟进率" value={displayRate(totals?.follow24hRate)} meta={<><div>有效 {formatInteger(totals?.followNumerator ?? 0)} / 分配 {formatInteger(totals?.followDenominator ?? 0)}</div><AuxiliaryFollowRates metrics={totals} /></>} description={`${productLabel}对应的正式分配线索。${FOLLOW_24H_DESCRIPTION}`} />
-            <MetricCard interactiveTooltip hideTooltipIcon label="抖音订单核销率" value={displayRate(totals?.verificationRate)} meta={`核销 ${formatInteger(totals?.verificationNumerator ?? 0)} / 关联 ${formatInteger(totals?.verificationDenominator ?? 0)}`} description={verificationDescription} />
+            <MetricCard interactiveTooltip hideTooltipIcon label="24小时跟进率" value={displayRate(metricsWarming ? undefined : totals?.follow24hRate)} meta={<><div>有效 {displayCount(metricsWarming ? undefined : totals?.followNumerator)} / 接收 {displayCount(metricsWarming ? undefined : totals?.followDenominator)}</div><AuxiliaryFollowRates metrics={metricsWarming ? undefined : totals} /></>} description={`${productLabel}对应的正式分配任务。${FOLLOW_24H_DESCRIPTION}`} />
+            <MetricCard interactiveTooltip hideTooltipIcon label="核销率" value={displayRate(metricsWarming ? undefined : totals?.verificationRate)} meta={`核销 ${displayCount(metricsWarming ? undefined : totals?.verificationNumerator)} / 接收 ${displayCount(metricsWarming ? undefined : totals?.verificationDenominator)}`} description={VERIFICATION_RATE_DESCRIPTION} />
+            <MetricCard interactiveTooltip hideTooltipIcon label="自店核销量" value={metricsWarming || totals?.selfStoreVerificationCount == null ? "暂不可用" : formatInteger(totals.selfStoreVerificationCount)} meta="按该店首次有效核销日期计单" description={SELF_STORE_VERIFICATION_DESCRIPTION} />
           </section>
           <section className="content-section">
             <div className="section-title">

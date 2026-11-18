@@ -1,0 +1,49 @@
+.clue-verification-summary {
+  color: var(--muted);
+  font-size: var(--font-size-caption);
+  white-space: normal;
+}
+
+.clue-followup-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-size-caption);
+  line-height: 1.5;
+}
+
+.clue-followup-record-content,
+.clue-round-verifications {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.clue-round-verifications {
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.clue-round-verifications h4 {
+  margin: 0;
+  font-size: var(--font-size-control);
+}
+
+.clue-followup-form .filter-field input[type="datetime-local"] {
+  min-width: 0;
+  width: 100%;
+}
+
+.clue-followup-form .filter-field,
+.clue-followup-form .clue-followup-note {
+  display: grid;
+  cursor: default;
+}
+
+@media (min-width: 641px) {
+  .clue-page-content:not(.clue-page-content--details) .clue-filter-bar {
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+}

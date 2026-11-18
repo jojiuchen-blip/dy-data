@@ -13,6 +13,8 @@ export interface DashboardPublication {
   publishedAt: string;
   status: "available" | "refreshing" | "stale" | "failed";
   nextRefreshAt: string | null;
+  contractVersion?: string | null;
+  taskMetricsContract?: string | null;
 }
 
 export interface ApiMeta {
@@ -678,6 +680,7 @@ export interface DouyinRankingRow {
   followDenominator: number;
   follow24hRate: number | null;
   followRate?: number | null;
+  followAnyRate?: number | null;
   followAnyNumerator?: number | null;
   followAnyDenominator?: number | null;
   followActionRate?: number | null;
@@ -686,6 +689,7 @@ export interface DouyinRankingRow {
   verificationNumerator: number;
   verificationDenominator: number;
   verificationRate: number | null;
+  selfStoreVerificationCount?: number | null;
 }
 
 export interface DouyinRankingTotals {
@@ -696,6 +700,7 @@ export interface DouyinRankingTotals {
   followDenominator: number;
   follow24hRate: number | null;
   followRate?: number | null;
+  followAnyRate?: number | null;
   followAnyNumerator?: number | null;
   followAnyDenominator?: number | null;
   followActionRate?: number | null;
@@ -704,6 +709,7 @@ export interface DouyinRankingTotals {
   verificationNumerator: number;
   verificationDenominator: number;
   verificationRate: number | null;
+  selfStoreVerificationCount?: number | null;
 }
 
 export interface DouyinRankingData {
@@ -1412,7 +1418,10 @@ export interface OrderDetailsData {
   pagination: Pagination;
 }
 
+export type ClueProductScope = "all" | "jingcheng" | "byd";
+
 export interface ClueOverviewFilters {
+  product_scope?: ClueProductScope;
   verification_status?: "" | "self_store_verified";
   org_level?: string;
   org_key?: string;
@@ -1460,6 +1469,30 @@ export interface ClueOverviewMetrics {
   verified_count: number;
   self_store_verify_rate: number;
   pending_reassign_count: number;
+  follow_24h_rate?: number | null;
+  follow_any_rate?: number | null;
+  verification_rate?: number | null;
+  self_store_verification_count?: number | null;
+  follow_24h_numerator?: number | null;
+  follow_any_numerator?: number | null;
+  follow_denominator?: number | null;
+  verification_numerator?: number | null;
+  verification_denominator?: number | null;
+}
+
+export interface ClueVerificationFact {
+  verify_id: string;
+  verified_at: string;
+  verified_store_id: string | null;
+  verified_store_name: string | null;
+  assignment_round_id: string;
+  effective_assignment_round_id: string | null;
+  credited_assignment_round_id: string | null;
+  is_cross_store: boolean;
+  is_after_close: boolean;
+  had_valid_follow_before_verify: boolean;
+  counts_for_store_verification_rate: boolean;
+  is_back_credit: boolean;
 }
 
 export interface ClueAssignmentRound {
@@ -1477,6 +1510,8 @@ export interface ClueAssignmentRound {
   is_current_round: boolean;
   round_effective_status: "active" | "inactive";
   can_operate_current_round?: boolean;
+  can_delete_follow_up_records?: boolean;
+  routing_mode?: "flow" | "direct" | "original" | null;
   timing_state?: string | null;
   status_reason?: string | null;
   round_status: string;
@@ -1491,12 +1526,15 @@ export interface ClueAssignmentRound {
   author_nickname: string | null;
   followed_at: string | null;
   follow_result: string;
+  appointment_at?: string | null;
   reassign_reason: string | null;
   reassigned_at: string | null;
   verified_store_id: string | null;
   verified_store_name: string | null;
   verified_at: string | null;
   is_self_store_verified: boolean;
+  verification_summary?: string | null;
+  verification_facts?: ClueVerificationFact[];
 }
 
 export interface ClueAssignmentRoundData {
@@ -1528,6 +1566,7 @@ export interface ClueFollowUpRecord {
   assigned_store_id: string | null;
   assigned_store_name?: string | null;
   follow_result: ClueFollowUpResult;
+  appointment_at?: string | null;
   note: string | null;
   timing_state?: string | null;
   status_reason?: string | null;
@@ -1545,6 +1584,7 @@ export interface ClueFollowUpPayload {
   assignment_round_id: string;
   follow_result: ClueFollowUpAction;
   note: string | null;
+  appointment_at?: string | null;
 }
 
 export interface ClueOrderDetail {
