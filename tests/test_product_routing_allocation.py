@@ -338,6 +338,18 @@ def test_duplicate_order_master_cannot_start_second_task_stream(db_session, list
     assert db_session.query(ClueAssignmentRound).count() == 1
 
 
+def test_order_with_unlinked_legacy_task_cannot_start_product_task_stream(db_session, lists):
+    lead = _flow(db_session)
+    db_session.add(ClueAssignmentRound(assignment_round_id="unlinked-legacy", order_id=lead.order_id,
+        execution_mode="legacy", round_no=1, assigned_at=NOW - timedelta(days=1),
+        assigned_store_id="anchor", round_status="active_unfollowed"))
+    db_session.flush()
+    result = engine.allocate_lead(db_session, lead.lead_key, now=NOW)
+    assert result.status == "skipped"
+    assert result.reason == "order_already_has_task_stream"
+    assert db_session.query(ClueAssignmentRound).count() == 1
+
+
 @pytest.fixture
 def ingress(monkeypatch, db_session):
     state = {"mode": "flow", "calls": []}

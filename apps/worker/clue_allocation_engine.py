@@ -6,7 +6,7 @@ from decimal import Decimal
 from hashlib import sha256
 from typing import Any, Mapping
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from apps.api.dy_api.clue_followup_metrics import TerminalEvidence, load_terminal_evidence
@@ -645,7 +645,7 @@ def _allocate_product_routing_locked(
             session.execute(select(func.pg_advisory_xact_lock(order_lock)))
         conflicting = session.scalar(select(ClueAssignmentRound.assignment_round_id)
             .where(ClueAssignmentRound.order_id == lead.order_id)
-            .where(ClueAssignmentRound.lead_key != lead.lead_key)
+            .where(or_(ClueAssignmentRound.lead_key.is_(None), ClueAssignmentRound.lead_key != lead.lead_key))
             .where(ClueAssignmentRound.execution_mode.in_(("formal", "legacy"))).limit(1))
         if conflicting is not None:
             return AllocationResult(lead.lead_key, "skipped", "order_already_has_task_stream", None, None)
