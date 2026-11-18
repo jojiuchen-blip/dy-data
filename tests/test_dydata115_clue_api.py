@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from apps.api.dy_api.models import (
     ClueAssignmentRound, ClueFollowUpRecord, ClueMasterLead, RawDouyinOrder,
@@ -13,6 +13,7 @@ from test_api_clues import client, _dt, _login, _login_user, _seed_clue_center
 from dy_api.auth import hash_password_pbkdf2
 from dy_api.routes._data import DashboardDataStore
 from test_clue_verification_facts import add_verification
+from publication_fixture_helpers import publish_fixture
 
 
 def product_order(session, mode="flow"):
@@ -151,3 +152,30 @@ def test_live_overview_combines_task_counts_and_taskless_actual_store_volume(db_
     assert same_day["received_task_count"] == 0
     assert same_day["self_store_verification_count"] == 1
     assert store.clue_overview({"assigned_date_start": "2026-09-03", "assigned_date_end": "2026-09-03"})["self_store_verification_count"] == 0
+
+
+def test_http_reader_uses_stored_task_contract_marker_and_keeps_legacy_counters_unknown(client, db_session):
+    from apps.api.dy_api.dashboard_publications.schema import runs
+
+    _seed_clue_center(db_session)
+    publication = publish_fixture(db_session, "clue-overview")
+    stats = dict(db_session.scalar(select(runs.c.stats_json).where(runs.c.id == publication.id)))
+    assert stats.pop("task_metrics_contract") == "clue-task-v3"
+    db_session.execute(update(runs).where(runs.c.id == publication.id).values(stats_json=stats))
+    db_session.commit()
+    _login(client)
+    legacy = client.get("/api/v1/clues/overview", params={"publication_id": publication.id})
+    assert legacy.status_code == 200, legacy.text
+    payload = legacy.json()
+    assert payload["meta"]["publication"]["taskMetricsContract"] is None
+    assert payload["data"]["received_task_count"] is None
+    assert payload["data"]["follow_denominator"] is None
+    assert payload["data"]["self_store_verification_count"] is None
+    db_session.execute(update(runs).where(runs.c.id == publication.id).values(
+        stats_json={**stats, "task_metrics_contract": "clue-task-v3"}))
+    db_session.commit()
+    current = client.get("/api/v1/clues/overview", params={"publication_id": publication.id})
+    assert current.status_code == 200, current.text
+    assert current.json()["meta"]["publication"]["taskMetricsContract"] == "clue-task-v3"
+    assert current.json()["data"]["received_task_count"] > 0
+    assert isinstance(current.json()["data"]["follow_denominator"], int)

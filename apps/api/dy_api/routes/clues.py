@@ -251,7 +251,7 @@ def clue_overview(
                 "verification_status": verification_status,
                 "scope_store_ids": _scope_store_ids(current_user),
                 "organization_store_ids": org_scope,
-            }, **_published_clue_access(store)))
+            }, legacy_contract=publication.task_metrics_contract != "clue-task-v3", **_published_clue_access(store)))
     return attach_publication({
         "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "postgres"},
