@@ -8,16 +8,23 @@ from io import StringIO
 from pathlib import Path
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
 
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
-from apps.api.dy_api.models import ClueProductRoutingConfig, DimSkuProductRule, DimStore, User
+from apps.api.dy_api.models import (
+    ClueAllocationRuleVersion, ClueProductRoutingConfig, ClueSharedRuleMaintainer,
+    DimSkuProductRule, DimStore, User,
+)
 from apps.api.dy_api.clue_product_routing import load_product_store_ids
 from dy_api.main import create_app
+from dy_api.auth import hash_password_pbkdf2
 from dy_api.routes._data import get_session_dependency
 from dydata_cli.human_client import HumanProductSession
+from dydata_cli.client import CliError
 from dydata_cli.human_products import main
 
 
@@ -173,3 +180,103 @@ def test_human_console_real_login_preview_publish_readback_and_grants(db_session
     assert db_session.get(ClueProductRoutingConfig, "p-byd").routing_enabled
     assert observed.count(("POST", "/api/v1/auth/login")) == 11
     assert observed.count(("POST", "/api/v1/auth/logout")) == 11
+
+
+def test_shared_project_maintainer_cli_real_grant_cancel_role_scope_and_revocation(db_session, monkeypatch, tmp_path: Path) -> None:
+    passwords = {
+        "shared.admin": "synthetic-shared-admin-password",
+        "shared.maintainer": "synthetic-maintainer-password",
+        "shared.outsider": "synthetic-outsider-password",
+    }
+    monkeypatch.setenv("DY_API_TEST_MODE", "true")
+    monkeypatch.setenv("DY_SUPER_ADMIN_USERNAME", "shared.admin")
+    monkeypatch.setenv("DY_TEST_ADMIN_PASSWORD", passwords["shared.admin"])
+    monkeypatch.delenv("DY_SUPER_ADMIN_PASSWORD_HASH", raising=False)
+    monkeypatch.delenv("DY_ADMIN_PASSWORD_HASH", raising=False)
+    monkeypatch.setenv("DY_SESSION_COOKIE_SECURE", "true")
+    monkeypatch.setenv("DYDATA_ENV", "production")
+    db_session.add_all([
+        DimSkuProductRule(sku_id="sku-jc", product_id="p-jc", product_name="精诚套餐", product_scope="精诚养车"),
+        User(user_id="maintainer", username="shared.maintainer", display_name="Synthetic Maintainer",
+             role="store", store_scope_mode="none", status="active", is_initialized=True,
+             password_hash=hash_password_pbkdf2(passwords["shared.maintainer"])),
+        User(user_id="outsider", username="shared.outsider", display_name="Synthetic Outsider",
+             role="store", store_scope_mode="none", status="active", is_initialized=True,
+             password_hash=hash_password_pbkdf2(passwords["shared.outsider"])),
+    ])
+    db_session.commit()
+    app = create_app()
+    app.dependency_overrides[get_session_dependency] = lambda: db_session
+    client = TestClient(app)
+    writes = []
+
+    def bridge(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "dy-business-engine.com"
+        assert "authorization" not in request.headers
+        if request.url.path.endswith("/shared-rule/grants") and request.method == "PUT":
+            writes.append(json.loads(request.content))
+        response = client.request(request.method, str(request.url), headers=dict(request.headers), content=request.content)
+        return httpx.Response(response.status_code, headers=response.headers, content=response.content, request=request)
+
+    change = tmp_path / "shared-change.json"
+
+    def run(username: str, command: str, answers: list[str], payload=None, expected_exit: int = 0):
+        output = StringIO()
+        remaining = iter([username, *answers])
+        argv = [command]
+        if payload is not None:
+            change.write_text(json.dumps(payload), encoding="utf-8")
+            argv.extend(["--input", str(change)])
+        code = main(
+            argv, session_factory=lambda: HumanProductSession(transport=httpx.MockTransport(bridge)),
+            text_input=lambda _: next(remaining), password_input=lambda _: passwords[username],
+            is_interactive_terminal=lambda: True, stream=output,
+        )
+        text = output.getvalue()
+        assert all(password not in text for password in passwords.values())
+        assert "dy_session=" not in text
+        assert code == expected_exit, text
+        return json.loads(text.splitlines()[-1])["audit"], text
+
+    def maintainer_ids():
+        db_session.expire_all()
+        return list(db_session.scalars(select(ClueSharedRuleMaintainer.user_id).order_by(ClueSharedRuleMaintainer.user_id)))
+
+    cancelled, _ = run("shared.admin", "shared-rule-grants", ["cancel"], {"user_ids": ["maintainer"]})
+    assert cancelled["status"] == "cancelled" and cancelled["attempts"] == []
+    assert maintainer_ids() == [] and writes == []
+    granted, _ = run("shared.admin", "shared-rule-grants", ["AUTHORIZE SHARED"], {"user_ids": ["maintainer"]})
+    assert granted["status"] == "complete" and maintainer_ids() == ["maintainer"]
+    discovery, text = run("shared.maintainer", "manage", [])
+    assert discovery["actor"]["role"] == "store"
+    assert "筛选命中 0" in text and "dydata-products shared-rule。" in text
+    assert "dydata-products shared-rule-grants。" not in text
+
+    preview_cancel, _ = run("shared.maintainer", "shared-rule", ["cancel"], {"rules": {"first_follow_up_sla_hours": 48}})
+    assert preview_cancel["status"] == "cancelled"
+    assert db_session.scalar(select(func.count()).select_from(ClueAllocationRuleVersion)) == 0
+    published, _ = run("shared.maintainer", "shared-rule", ["PUBLISH SHARED"], {"rules": {"first_follow_up_sla_hours": 48}})
+    assert published["status"] == "complete"
+    assert db_session.scalars(select(ClueAllocationRuleVersion)).one().first_follow_up_sla_hours == 48
+    assert db_session.get(ClueProductRoutingConfig, "p-jc") is None
+    run("shared.maintainer", "shared-rule-grants", [], expected_exit=4)
+    assert len(writes) == 1 and maintainer_ids() == ["maintainer"]
+
+    with HumanProductSession(transport=httpx.MockTransport(bridge)) as session:
+        session.login("shared.maintainer", passwords["shared.maintainer"])
+        listing = session.list_products(q="", product_scope="all", page=1, page_size=50)
+        assert listing["rows"] == [] and listing["can_manage_shared_rule"]
+        assert not listing["can_manage_grants"]
+        denied = session.batch({"product_ids": ["p-jc"], "all_matching": False, "action": "disable", "preview": False},
+                               idempotency_key="maintainer-denied-product")
+        assert denied["results"][0]["error"]["code"] == "PRODUCT_FORBIDDEN"
+        assert denied["results"][0]["before"] == denied["results"][0]["after"] == {}
+        with pytest.raises(CliError) as denied_grants:
+            session.get_grants("p-jc")
+        assert denied_grants.value.code == "SCOPE_DENIED"
+    run("shared.outsider", "shared-rule", [], {"rules": {"appointment_hours": 96}}, expected_exit=4)
+    removed, _ = run("shared.admin", "shared-rule-grants", ["AUTHORIZE SHARED"], {"user_ids": []})
+    assert removed["status"] == "complete" and maintainer_ids() == []
+    run("shared.maintainer", "shared-rule", [], {"rules": {"appointment_hours": 96}}, expected_exit=4)
+    assert db_session.scalar(select(func.count()).select_from(ClueAllocationRuleVersion)) == 1
+    assert db_session.get(ClueProductRoutingConfig, "p-jc") is None

@@ -49,7 +49,7 @@ def _terminal_is_interactive() -> bool:
 def _parser() -> argparse.ArgumentParser:
     parser = CliArgumentParser(prog="dydata-products", allow_abbrev=False)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for name in ("manage", "shared-rule"):
+    for name in ("manage", "shared-rule", "shared-rule-grants"):
         command = subparsers.add_parser(name, allow_abbrev=False)
         command.add_argument("--input", type=Path, help="UTF-8 JSON change file; never credentials")
         command.add_argument("--audit", type=Path, help="create a new credential-free JSON audit file")
@@ -99,6 +99,10 @@ def _select_products(
     while True:
         data = session.list_products(**filters, page=page, page_size=parsed.page_size)
         stream.write(f"第 {page} 页；筛选命中 {data['total']}；已选 {len(selected)}\n")
+        if data["can_manage_shared_rule"]:
+            stream.write("已获精诚养车共享基座维护权：运行 dydata-products shared-rule。\n")
+        if data["can_manage_grants"]:
+            stream.write("维护精诚养车项目组授权：运行 dydata-products shared-rule-grants。\n")
         for row in data["rows"]:
             if row["can_manage"]:
                 seen.add(row["product_id"])
@@ -331,6 +335,44 @@ def _manage_grants(
     return 0
 
 
+def _manage_shared_rule_grants(
+    session: HumanProductSession, payload: dict[str, Any] | None,
+    ask: Callable[[str], str], stream: TextIO, audit: dict[str, Any],
+) -> int:
+    stream.write("精诚养车项目组共享基座维护人授权（须全范围管理员权限）。\n")
+    current = session.get_shared_rule_grants()
+    stream.write("可授权用户：\n")
+    for user in current["users"]:
+        _write_json(stream, user)
+    if payload is None:
+        answer = ask("共享基座维护人user_id（逗号分隔；输入none清空）: ").strip()
+        desired = [] if answer == "none" else _ids_from_prompt(answer)
+    else:
+        if set(payload) != {"user_ids"}:
+            raise CliError("INVALID_ARGUMENT")
+        try:
+            desired = require_ids(payload["user_ids"])
+        except CliError:
+            raise CliError("INVALID_ARGUMENT") from None
+    if not set(desired) <= {user["user_id"] for user in current["users"]}:
+        raise CliError("INVALID_ARGUMENT")
+    preview = {"action": "shared_rule_grants", "before": current["user_ids"], "after": desired}
+    audit["previews"].append(preview)
+    _write_json(stream, preview)
+    if ask("替换精诚共享基座维护人请输入 AUTHORIZE SHARED，其他输入取消: ").strip() != "AUTHORIZE SHARED":
+        audit["status"] = "cancelled"
+        return 0
+    attempt = {**preview, "status": "unknown"}
+    audit["attempts"].append(attempt)
+    audit["status"] = "unknown"
+    result = session.set_shared_rule_grants(desired)
+    attempt.update({"status": "success", "after": result["user_ids"],
+                    "request_id": session.request_id, "server_request_id": session.server_request_id})
+    audit["status"] = "complete"
+    _write_json(stream, attempt)
+    return 0
+
+
 def _run(
     session: HumanProductSession, parsed: argparse.Namespace, payload: dict[str, Any] | None,
     ask: Callable[[str], str], password_input: Callable[[str], str], stream: TextIO,
@@ -354,7 +396,10 @@ def _run(
         password = ""
     audit["actor"] = identity
     stream.write(f"已登录：{identity['username']}；角色 {identity['role']}。关闭会话即清除临时Cookie。\n")
+    if parsed.command == "shared-rule-grants":
+        return _manage_shared_rule_grants(session, payload, ask, stream, audit)
     if parsed.command == "shared-rule":
+        stream.write("精诚养车共享基座由获授权的项目组维护；维护权不授予其他商品或授权分发权限。\n")
         rules = _rule_input(payload, ask)
         preview = session.shared_rule(rules=rules, preview=True)
         _write_json(stream, preview)

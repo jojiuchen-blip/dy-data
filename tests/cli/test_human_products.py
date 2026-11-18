@@ -48,12 +48,15 @@ class ProductApi:
         self.fail_once: set[str] = set()
         self.fail_preview: set[str] = set()
         self.can_manage_grants = True
+        self.can_manage_shared_rule = True
         self.drop_publication_response = False
         self.grants: dict[str, list[str]] = {product_id: ["user-old"] for product_id in product_ids}
         self.shared = {
             "rule_version_id": "base-v1", "first_follow_up_sla_hours": 24,
             "follow_up_policy": dict(_POLICY), "can_manage": True,
         }
+        self.shared_grants = ["user-old"]
+        self.shared_grant_writes: list[list[str]] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -84,6 +87,7 @@ class ProductApi:
             return httpx.Response(200, json={"data": {
                 "rows": rows, "total": len(self.products), "page": page,
                 "page_size": page_size, "can_manage_grants": self.can_manage_grants,
+                "can_manage_shared_rule": self.can_manage_shared_rule,
             }})
         if path == "admin/clue-routing/products/batch":
             body = json.loads(request.content)
@@ -133,6 +137,17 @@ class ProductApi:
             if not body["preview"] and self.drop_publication_response:
                 raise httpx.ReadError("unsafe transport error sentinel " + _COOKIE, request=request)
             return httpx.Response(200, json={"data": {"results": results}})
+        if path == "admin/clue-routing/shared-rule/grants":
+            if not self.can_manage_grants:
+                return httpx.Response(403, json={"detail": {"code": "GLOBAL_WRITE_REQUIRED"}})
+            if request.method == "PUT":
+                self.shared_grants = json.loads(request.content)["user_ids"]
+                self.shared_grant_writes.append(list(self.shared_grants))
+            return httpx.Response(200, json={"data": {
+                "user_ids": self.shared_grants,
+                "users": [{"user_id": user_id, "username": user_id, "display_name": user_id}
+                          for user_id in ("user-old", "user-new")],
+            }})
         if path.endswith("/grants"):
             product_id = path.split("/")[-2]
             if request.method == "PUT":
@@ -145,6 +160,8 @@ class ProductApi:
                           for user_id in ("user-old", "user-new")],
             }})
         if path == "admin/clue-routing/shared-rule":
+            if not self.can_manage_shared_rule:
+                return httpx.Response(403, json={"detail": {"code": "SHARED_RULE_FORBIDDEN"}})
             body = json.loads(request.content)
             self.shared_writes.append(body)
             before, after = deepcopy(self.shared), deepcopy(self.shared)
@@ -373,6 +390,44 @@ def test_shared_base_cancel_and_input_target_mismatch_do_not_publish(tmp_path: P
     path.write_text(json.dumps({"lists": [{"product_id": "product-b", "store_ids": ["store-new"]}]}), encoding="utf-8")
     code, _, _ = _run(api, ["human.admin", "product-a", "done", "1"], argv=["manage", "--input", str(path)])
     assert code == 2 and not api.batches
+
+
+def test_shared_rule_discovery_survives_empty_product_scope() -> None:
+    api = ProductApi(product_ids=())
+    api.can_manage_grants = False
+    code, output, audit = _run(api, ["human.admin"])
+
+    assert code == 0 and audit["status"] == "cancelled"
+    assert "dydata-products shared-rule。" in output
+    assert "dydata-products shared-rule-grants。" not in output
+    assert not api.batches and not api.shared_writes
+
+
+def test_shared_maintainer_grants_require_preview_confirmation_and_can_be_cleared(tmp_path: Path) -> None:
+    api = ProductApi()
+    path = _input_file(tmp_path, {"user_ids": ["user-new"]})
+    code, _, audit = _run(api, ["human.admin", "no"], argv=["shared-rule-grants", "--input", str(path)])
+    assert code == 0 and audit["status"] == "cancelled" and not api.shared_grant_writes
+    code, _, audit = _run(api, ["human.admin", "AUTHORIZE SHARED"], argv=["shared-rule-grants", "--input", str(path)])
+    assert code == 0 and audit["status"] == "complete"
+    assert audit["previews"][0]["before"] == ["user-old"]
+    assert api.shared_grant_writes == [["user-new"]]
+    code, _, audit = _run(api, ["human.admin", "none", "AUTHORIZE SHARED"], argv=["shared-rule-grants"])
+    assert code == 0 and audit["status"] == "complete" and api.shared_grant_writes[-1] == []
+
+
+def test_shared_rule_maintenance_does_not_confer_grant_delegation(tmp_path: Path) -> None:
+    api = ProductApi(product_ids=())
+    api.can_manage_grants = False
+    path = _input_file(tmp_path, {"rules": {"appointment_hours": 96}})
+    code, _, audit = _run(api, ["human.admin", "PUBLISH SHARED"], argv=["shared-rule", "--input", str(path)])
+    assert code == 0 and audit["status"] == "complete"
+    assert api.shared["follow_up_policy"]["appointment_hours"] == 96
+    code, _, _ = _run(api, ["human.admin"], argv=["shared-rule-grants"])
+    assert code == 4 and not api.shared_grant_writes and not api.batches
+    api.can_manage_shared_rule = False
+    code, _, _ = _run(api, ["human.admin"], argv=["shared-rule", "--input", str(path)])
+    assert code == 4 and len(api.shared_writes) == 2
 
 
 @pytest.mark.parametrize("argv", [

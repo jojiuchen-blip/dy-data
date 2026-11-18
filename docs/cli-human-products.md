@@ -6,6 +6,7 @@ DYDATA-115 的专用命令 `dydata-products` 随 `apps/cli` 同一 Python 包安
 python -m pip install -e apps/cli
 dydata-products manage --product-scope jingcheng --q 保养 --input change.json --audit receipt.json
 dydata-products shared-rule --input rule.json --audit shared-receipt.json
+dydata-products shared-rule-grants --input maintainers.json --audit maintainer-receipt.json
 ```
 
 命令仅供本人在交互终端执行。每次显示固定环境及服务地址，由本人输入系统账号，密码通过 `getpass` 隐藏输入；不能关闭回显时停止。命令通过现有 Web 登录接口创建仅存在内存的临时 Cookie，退出时注销并清除，不读取浏览器文件，不保存或获取 CLI/Agent 令牌。没有账号、密码、Cookie、token、URL 或 `--yes` 参数。`DYDATA_ENV` 仅选择包内已登记的环境；不接受任意地址覆盖。
@@ -43,6 +44,10 @@ dydata-products shared-rule --input rule.json --audit shared-receipt.json
 ```
 
 首触期限为 1–168 小时；其他期限为 1–8760 小时；到期动作只可为 `next` 或 `close`。规则输入只包含实际需要变更的字段。`shared-rule` 使用同一规则文件，服务端逐字段合并；要求 `PUBLISH SHARED` 确认。发布精诚养车共享基座供后续本品首次开启复制，不切换已发布商品独立版本或已入库线索。
+
+精诚养车项目组通过独立的共享基座维护授权使用 `shared-rule`；普通账号获此授权后也可预览和发布基座。商品发现接口以 `can_manage_shared_rule` 提示该入口，即使本人没有可管理商品，仍可发现并使用共享基座。共享维护授权不会赋予任何未授权商品的管理权，也不授予维护人或商品管理者的授权分发能力。
+
+全范围管理员使用 `shared-rule-grants` 列出可授权用户、读取当前维护人，输入新的完整 `user_ids` 集合（同下方 JSON 格式），逐项预览前后集合后输入 `AUTHORIZE SHARED` 发布；可增补、移除或以 `[]`/交互输入 `none` 明确清空维护人。其他输入取消且不提交。维护人账号不能读取或分发这组授权；全范围管理员权限仍由服务端逐请求复核。
 
 全范围管理员可选择“替换商品管理授权”，查看服务端返回的可授权用户 ID，再填写目标集合。以下文件对所选每个商品替换全部显式管理者；`[]` 明确清空：
 

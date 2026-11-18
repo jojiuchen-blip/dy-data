@@ -77,10 +77,11 @@ class HumanProductSession:
                 raise CliError("SCHEMA_MISMATCH")
         if data["page"] != page or data["page_size"] != page_size:
             raise CliError("SCHEMA_MISMATCH")
-        if type(data.get("can_manage_grants")) is not bool:
-            raise CliError("SCHEMA_MISMATCH")
+        for key in ("can_manage_grants", "can_manage_shared_rule"):
+            if type(data.get(key)) is not bool:
+                raise CliError("SCHEMA_MISMATCH")
         return {"rows": rows, **{
-            key: data[key] for key in ("total", "page", "page_size", "can_manage_grants")
+            key: data[key] for key in ("total", "page", "page_size", "can_manage_grants", "can_manage_shared_rule")
         }}
 
     def batch(self, body: dict[str, Any], *, idempotency_key: str) -> dict[str, Any]:
@@ -104,6 +105,16 @@ class HumanProductSession:
         """Replace one product's explicit human managers, with server authorization."""
         data = self._request("PUT", self._grants_path(product_id), body={"user_ids": user_ids})
         return self._validate_grants(data, product_id)
+
+    def get_shared_rule_grants(self) -> dict[str, Any]:
+        """Read shared-base maintainers and available users as a full-scope admin."""
+        data = self._request("GET", "admin/clue-routing/shared-rule/grants")
+        return self._validate_user_grants(data)
+
+    def set_shared_rule_grants(self, user_ids: list[str]) -> dict[str, Any]:
+        """Replace shared-base maintainers through the separate authorized endpoint."""
+        data = self._request("PUT", "admin/clue-routing/shared-rule/grants", body={"user_ids": user_ids})
+        return self._validate_user_grants(data)
 
     def shared_rule(self, *, rules: dict[str, Any], preview: bool) -> dict[str, Any]:
         """Preview or publish the shared Jingcheng base without switching product rules."""
@@ -157,7 +168,13 @@ class HumanProductSession:
 
     @staticmethod
     def _validate_grants(data: dict[str, Any], product_id: str) -> dict[str, Any]:
-        if data.get("product_id") != product_id or not isinstance(data.get("users"), list):
+        if data.get("product_id") != product_id:
+            raise CliError("SCHEMA_MISMATCH")
+        return {"product_id": product_id, **HumanProductSession._validate_user_grants(data)}
+
+    @staticmethod
+    def _validate_user_grants(data: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(data.get("users"), list):
             raise CliError("SCHEMA_MISMATCH")
         users = []
         for user in data["users"]:
@@ -166,7 +183,7 @@ class HumanProductSession:
             users.append({key: require_text(user.get(key), empty=key == "display_name")
                           for key in ("user_id", "username", "display_name")})
         require_ids([user["user_id"] for user in users])
-        return {"product_id": product_id, "user_ids": require_ids(data.get("user_ids")), "users": users}
+        return {"user_ids": require_ids(data.get("user_ids")), "users": users}
 
     def _request(
         self, method: str, path: str, *, body: dict[str, Any] | None = None,
