@@ -338,7 +338,7 @@ def _evaluate_order(
             is_after_close=after_close,
             had_valid_follow_before_verify=any(item.created_at < event.verified_at for item in follows),
             counts_for_store_verification_rate=credit_id == row_id,
-            is_back_credit=back_credit and credit_id == row_id,
+            is_back_credit=back_credit,
         ) for event, active_id, credit_id, after_close, back_credit in attributed
             if event.verified_at >= row.assigned_at)
         closed_by_cutoff = ends[row_id] is not None and ends[row_id] <= cutoff

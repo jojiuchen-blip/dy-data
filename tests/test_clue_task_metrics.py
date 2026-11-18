@@ -195,6 +195,9 @@ def test_later_coupon_after_overall_close_can_independently_backcredit_prior_tas
     assert later.effective_assignment_round_id is None and later.credited_assignment_round_id == "A0"
     assert later.is_after_close and later.is_back_credit and later.counts_for_store_verification_rate
     assert repeated.credited_assignment_round_id == "A0"  # task numerator remains at most one
+    other_task_later = facts["B1"].verification_facts[1]
+    assert other_task_later.is_back_credit and other_task_later.credited_assignment_round_id == "A0"
+    assert other_task_later.counts_for_store_verification_rate is False
     self_volume = load_self_store_verifications(db_session, ["O"], observed_through=CUTOFF)
     assert len(self_volume) == 1
     assert self_volume[0].verify_id == "during-B" and self_volume[0].business_date == date(2026, 11, 18)
