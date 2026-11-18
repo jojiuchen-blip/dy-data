@@ -367,12 +367,12 @@ def ingress(monkeypatch, db_session):
     return state
 
 
-def _ingest(session, *, key="raw-one", order_id="order-one", poi="poi-anchor", product="product-one", observed=NOW):
+def _ingest(session, *, key="raw-one", order_id="order-one", poi="poi-anchor", product="product-one", observed=NOW, status="201"):
     raw = session.get(RawDouyinClue, key)
     if raw is None:
         raw = RawDouyinClue(clue_row_key=key, clue_id=f"clue-{key}", raw_payload={})
         session.add(raw)
-    raw.order_id, raw.order_status = order_id, "201"
+    raw.order_id, raw.order_status = order_id, status
     raw.product_id, raw.follow_poi_id = product, poi
     raw.source_observed_at = observed
     raw.observation_key = observed.isoformat()
@@ -458,6 +458,13 @@ def test_business_closure_is_not_reopened_by_active_repull_or_late_verification(
     assert lead.lifecycle_status == "closed_order"
     assert lead.closed_at.replace(tzinfo=timezone.utc) == closed_at
     assert lead.closed_reason == "product_routing_no_candidate"
+    assert lead.allocation_state == "closed"
+    lead = _ingest(db_session, status="unknown", observed=NOW + timedelta(days=1, hours=1))
+    assert lead.lifecycle_status == "closed_order"
+    assert lead.allocation_state == "closed"
+    assert lead.closed_reason == "product_routing_no_candidate"
+    lead = _ingest(db_session, observed=NOW + timedelta(days=1, hours=2))
+    assert lead.lifecycle_status == "closed_order"
     assert lead.allocation_state == "closed"
     db_session.add(RawDouyinOrder(order_id=lead.order_id, order_status="已退款", source_observed_at=NOW + timedelta(days=2), raw_payload={}))
     db_session.flush()

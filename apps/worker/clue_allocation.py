@@ -655,7 +655,7 @@ def materialize_clue_master_leads(
             anchor = _master_anchor_snapshot(existing)
 
         business_closed = _is_product_business_closed(existing)
-        if business_closed and resolution.normalized_status == "active":
+        if business_closed and resolution.normalized_status not in {"verified", "refunded", "closed"}:
             lifecycle_status = existing.lifecycle_status
 
         state_before = None if is_new_master else _master_state_signature(existing)
@@ -724,7 +724,9 @@ def materialize_clue_master_leads(
             and existing.current_assignment_round_id is None
             and existing.allocation_cycle_id is None
         )
-        if accepts_status_evidence and not (business_closed and resolution.normalized_status == "active"):
+        if accepts_status_evidence and not (
+            business_closed and resolution.normalized_status not in {"verified", "refunded", "closed"}
+        ):
             existing.closed_at = (
                 existing.closed_at if business_closed else resolution.closed_at
                 if lifecycle_status in {"closed_verified", "closed_refunded", "closed_order"}
@@ -3371,7 +3373,7 @@ def _apply_independent_status_evidence(
     )
     lifecycle = _lifecycle_status(resolution.normalized_status)
     business_closed = _is_product_business_closed(lead)
-    if business_closed and resolution.normalized_status == "active":
+    if business_closed and resolution.normalized_status not in {"verified", "refunded", "closed"}:
         lifecycle = lead.lifecycle_status
     terminal = lifecycle in {"closed_verified", "closed_refunded", "closed_order"}
     lead.raw_order_status = resolution.raw_status
@@ -3379,7 +3381,9 @@ def _apply_independent_status_evidence(
     lead.status_source = resolution.status_source
     lead.order_status_observed_at = observed_at
     lead.lifecycle_status = lifecycle
-    if terminal and not (business_closed and resolution.normalized_status == "active"):
+    if terminal and not (
+        business_closed and resolution.normalized_status not in {"verified", "refunded", "closed"}
+    ):
         lead.pool_location = "closed"
         lead.allocation_state = "closed"
         lead.closed_at = lead.closed_at if business_closed else resolution.closed_at
