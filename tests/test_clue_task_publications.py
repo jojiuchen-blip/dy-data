@@ -201,6 +201,18 @@ def test_diagnostic_and_published_counts_share_the_same_fact_contract(board_clie
         assert live[field] == frozen[field], field
 
 
+def test_readiness_requires_self_store_projection_without_running_builder(board_client, db_session, monkeypatch):
+    from apps.api.dy_api.dashboard_publications.verifications import self_store_verifications
+    from apps.worker.dashboard_publications import check_ready
+
+    factory = sessionmaker(db_session.bind, expire_on_commit=False)
+    assert check_ready(factory, ("douyin-ranking", "clue-overview"))
+    monkeypatch.setattr(ranking, "build", lambda *a, **kw: pytest.fail("readiness ran builder"))
+    monkeypatch.setattr(clues, "build", lambda *a, **kw: pytest.fail("readiness ran builder"))
+    self_store_verifications.drop(db_session.bind)
+    assert not check_ready(factory, ("douyin-ranking", "clue-overview"))
+
+
 @pytest.mark.parametrize("day,expected", [("2026-11-17", 1), ("2026-11-18", 0)])
 def test_first_verification_date_before_date_filter_includes_no_clue_order(board_client, day, expected):
     client, _, _ = board_client

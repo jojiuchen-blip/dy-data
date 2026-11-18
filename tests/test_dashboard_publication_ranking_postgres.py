@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from apps.api.dy_api.dashboard_publications import ranking
 from apps.api.dy_api.dashboard_publications import ranking_schema as frozen
 from apps.api.dy_api.dashboard_publications.schema import metadata, runs
+from apps.api.dy_api.dashboard_publications.verifications import self_store_verifications
 from apps.worker.ranking_preview_fixture import AT, CUTOFF, END, START
 
 
@@ -52,7 +53,11 @@ def seed_frozen(session, count):
         session.execute(frozen.rounds.insert(), [dict(publication_id="pub", round_id=str(number),
             order_id=str(number // 2), lead_key=str(number // 2), store_id="A", mapping_version="v1",
             assigned_at=AT, is_jingcheng=True, follow_24h=number % 2, follow_any=1, self_verified=1,
+            task_follow_24h_numerator=number % 2, task_follow_any_numerator=1, follow_denominator=1,
+            task_verification_numerator=number % 2, verification_denominator=1, task_under_observation=False,
             under_observation=False, first_assignment_changed=False) for number in range(offset, min(offset + 1000, count))])
+    session.execute(self_store_verifications.insert().values(publication_id="pub", order_id="volume", store_id="A",
+        verify_id="volume", verified_at=AT, business_date=AT.date(), is_jingcheng=True))
     session.commit()
 
 
@@ -87,7 +92,9 @@ def test_sql_aggregates_before_hydration_at_scale(pg):
             event.remove(pg, "after_cursor_execute", record_rows)
         assert report["totals"]["order_count"] == 100000
         assert report["totals"]["follow_denominator"] == 100000
-        assert report["totals"]["verification_denominator"] == 50000
+        assert report["totals"]["verification_denominator"] == 100000
+        assert report["totals"]["verification_numerator"] == 50000
+        assert report["totals"]["self_store_verification_count"] == 1
         assert report["totals"]["store_count"] == 2
         assert max(returned_rows, default=0) <= 4
         assert len(statements) <= 12
@@ -107,7 +114,7 @@ def test_cascade_only_projection_and_persistent_first_binding(pg):
         session.execute(frozen.lead_bindings.insert().values(lead_key="persistent", first_assigned_at=AT, mapping_version="v1"))
         session.execute(runs.delete().where(runs.c.id == "pub"))
         session.commit()
-        for table in (frozen.orders, frozen.rounds, frozen.organizations, frozen.eligibility, frozen.info):
+        for table in (frozen.orders, frozen.rounds, frozen.organizations, frozen.eligibility, frozen.info, self_store_verifications):
             assert not session.execute(select(table)).first()
         assert session.scalar(select(frozen.lead_bindings.c.lead_key)) == "persistent"
 
@@ -214,9 +221,7 @@ def test_round_membership_is_batch_bounded_and_uses_source_indexes(pg, monkeypat
         queries = []
 
         def capture(connection, cursor, statement, parameters, context, executemany):
-            if statement.lstrip().startswith("SELECT DISTINCT") and any(
-                "FROM " + model.__tablename__ in statement for model in (RawDouyinOrder, RawDouyinClue, ClueCenterOrder)
-            ):
+            if "task_product_sources" in statement:
                 queries.append((statement, parameters))
 
         monkeypatch.setattr(ranking_build, "BATCH_SIZE", 2)
@@ -231,10 +236,10 @@ def test_round_membership_is_batch_bounded_and_uses_source_indexes(pg, monkeypat
         actual = dict(session.execute(select(frozen.rounds.c.order_id, frozen.rounds.c.is_jingcheng).where(
             frozen.rounds.c.publication_id == "pub")).all())
         assert actual == expected
-        assert len(queries) == 12  # Four round batches, three membership sources each.
+        assert len(queries) == 4  # One bounded three-source catalog join per round batch.
         evidence = []
         for statement, parameters in queries:
-            batch_parameters = [value for key, value in parameters.items() if key.startswith("order_id_")]
+            batch_parameters = {value for key, value in parameters.items() if key.startswith("order_id_")}
             assert 1 <= len(batch_parameters) <= 2
             assert set(batch_parameters).issubset(expected)
             plan = session.connection().exec_driver_sql(
@@ -245,15 +250,17 @@ def test_round_membership_is_batch_bounded_and_uses_source_indexes(pg, monkeypat
                 for child in node.get("Plans", []):
                     yield from nodes(child)
 
-            source_nodes = [node for node in nodes(plan["Plan"]) if node.get("Relation Name")]
+            source_nodes = [node for node in nodes(plan["Plan"]) if node.get("Relation Name") in {
+                RawDouyinOrder.__tablename__, RawDouyinClue.__tablename__, ClueCenterOrder.__tablename__}]
             assert source_nodes
             assert all(node["Node Type"] in {"Index Scan", "Index Only Scan", "Bitmap Heap Scan"} for node in source_nodes)
-            assert plan["Plan"]["Actual Rows"] <= len(batch_parameters)
+            assert plan["Plan"]["Actual Rows"] <= 3 * len(batch_parameters) + 1
             # One requested order deliberately has two raw-clue rows.
-            assert sum(node["Actual Rows"] for node in source_nodes) <= len(batch_parameters) + 1
+            assert sum(node["Actual Rows"] for node in source_nodes) <= 3 * len(batch_parameters) + 1
             assert not any("SubPlan" in node.get("Parent Relationship", "") for node in nodes(plan["Plan"]))
-            evidence.append({"relation": source_nodes[0]["Relation Name"], "batch": len(batch_parameters),
-                "node": source_nodes[0]["Node Type"], "execution_ms": plan["Execution Time"],
+            evidence.append({"relations": [{"table": node["Relation Name"], "node": node["Node Type"],
+                "index": node.get("Index Name")} for node in source_nodes], "batch": len(batch_parameters),
+                "execution_ms": plan["Execution Time"],
                 "source_rows": sum(node["Actual Rows"] for node in source_nodes)})
         print("ROUND_MEMBERSHIP_BATCH_PLANS=" + str(evidence))
         session.rollback()
