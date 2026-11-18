@@ -221,6 +221,32 @@ def test_order_fee_existing_chinese_columns_gain_units_and_readable_values() -> 
     assert rows == [{"订单ID": "123", "费用方向": "推广服务费", "原始发生月份": "2026年10月", "原始基数（元）": "123.45", "原始费用（元）": "-3.59", "账单状态": "已锁账"}]
 
 
+@pytest.mark.parametrize("value,expected", [
+    ("-1.01", "-1.01"), (Decimal("-0.01"), "-0.01"), (0, "0.00"),
+    ("+1.01", "1.01"), ("13.37", "13.37"), ("9999999999999999.99", "9999999999999999.99"),
+    (None, ""), ("", ""),
+])
+def test_balance_yuan_fields_preserve_numbers_and_blanks_without_reclassifying_text(value, expected):
+    fields = ["original", "adjustment", "period_net", "opening", "net_due", "closing"]
+    content = localized_csv(
+        fields + ["sku_id", "store_name"],
+        [{**dict.fromkeys(fields, value), "sku_id": "-1.01", "store_name": "=SUM(1,2)"}],
+        context="门店账单抵扣明细-2026-11-v1",
+    )
+    row = next(csv.DictReader(StringIO(content)))
+    assert all(row[field] == expected for field in fields)
+    assert row["SKU ID"] == "'-1.01"
+    assert row["门店名称"] == "'=SUM(1,2)"
+
+
+@pytest.mark.parametrize("value", ["=SUM(1,2)", "-1+2", "+1+2", "@SUM(1)"])
+def test_balance_amount_columns_keep_formula_protection(value):
+    fields = ["original", "adjustment", "period_net", "opening", "net_due", "closing"]
+    content = localized_csv(fields, [dict.fromkeys(fields, value)], context="门店账单抵扣明细-2026-11-v1")
+    row = next(csv.DictReader(StringIO(content)))
+    assert all(row[field] == "'" + value for field in fields)
+
+
 def test_filename_uses_shanghai_export_day_and_headers_remain_empty() -> None:
     request = Request({"type": "http", "query_string": b"locale=zh-CN&month=2026-10"})
     assert download_filename(request, "finance-promotion-invoices", datetime(2026, 11, 18, 23, tzinfo=timezone.utc)) == "推广服务费开票记录_2026年10月_2026年11月19日.csv"

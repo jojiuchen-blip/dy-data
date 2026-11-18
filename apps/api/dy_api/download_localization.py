@@ -14,6 +14,8 @@ from starlette.requests import Request
 
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
+BALANCE_EXPORT_PATTERN = re.compile(r"门店账单抵扣明细-(\d{4}-\d{2})-v(\d+)\Z")
+BALANCE_YUAN_FIELDS = {"original", "adjustment", "period_net", "opening", "net_due", "closing"}
 FIELD_LABELS = {
     "invoice_id": "发票记录ID", "store_id": "门店ID", "store_name": "门店名称",
     "effective_sap_code": "有效SAP编码", "statement_id": "账单ID", "statement_month": "账期",
@@ -170,6 +172,11 @@ def localized_value(field: str, value: object, *, context: str = "", direction: 
         return ""
     if key.endswith("_cent"):
         return format(Decimal(str(value)) / Decimal(100), ".2f")
+    if (
+        key in BALANCE_YUAN_FIELDS
+        and re.fullmatch(r"[+-]?\d+(?:\.\d{1,2})?", str(value))
+    ):
+        return format(Decimal(str(value)), ".2f")
     if key in ENUM_FIELDS:
         text = str(value)
         if key == "validationStatus" and text in {"PENDING", "COMMITTED", "COMMIT_FAILED"}:
@@ -224,6 +231,12 @@ def download_filename(request: Request, prefix: str, generated: datetime, *, ext
     if not chinese_download(request):
         return f"{prefix}-{generated.date().isoformat()}{extension}"
     title = FILE_LABELS.get(prefix, prefix)
+    balance_export = BALANCE_EXPORT_PATTERN.fullmatch(prefix)
+    if balance_export:
+        title = (
+            f"门店账单抵扣明细_{chinese_date(balance_export[1], month=True)}"
+            f"_第{balance_export[2]}版"
+        )
     if prefix == "finance-order-details":
         direction = request.query_params.get("feeDirection")
         title = {"PROMOTION": "推广服务费订单明细", "MANAGEMENT": "管理服务费订单明细"}.get(direction, title)
