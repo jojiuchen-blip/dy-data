@@ -120,14 +120,12 @@ def apply_follow_up_action(
 
 
 def process_due_transitions(session: Session, *, now: datetime | None = None) -> dict[str, int]:
-    """Preserve the bound legacy transition rules; product flow has its own worker."""
+    """Reconcile order terminals, while preserving only legacy expiry rules."""
 
     processed_at = _aware(now)
     stats = {"sla_expired": 0, "protection_expired": 0, "terminal_closed": 0}
     round_refs = session.execute(
         select(ClueAssignmentRound.assignment_round_id, ClueAssignmentRound.order_id)
-        .join(ClueMasterLead, ClueMasterLead.lead_key == ClueAssignmentRound.lead_key)
-        .where(ClueMasterLead.routing_mode.is_(None))
         .where(ClueAssignmentRound.execution_mode == BUSINESS_EXECUTION_MODE)
         .where(ClueAssignmentRound.round_status.in_(ACTIVE_ROUND_STATUSES))
         .order_by(ClueAssignmentRound.lead_key, ClueAssignmentRound.assignment_round_id)
@@ -151,6 +149,10 @@ def process_due_transitions(session: Session, *, now: datetime | None = None) ->
             stats["terminal_closed"] += 1
             continue
         if not _is_current_active_round(lead, round_row):
+            continue
+        if _uses_product_follow_up(lead):
+            # Product expiries are consumed by the bounded dedicated worker;
+            # this compatibility entry point may still reconcile terminals.
             continue
         if not round_row.auto_expiry_enabled:
             continue

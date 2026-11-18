@@ -14,7 +14,7 @@ from apps.api.dy_api.models import (
 )
 from apps.worker import clue_allocation_engine
 from apps.worker.clue_follow_up_state import (
-    apply_follow_up_action, run_product_follow_up_batch, soft_delete_follow_up_record,
+    apply_follow_up_action, process_due_transitions, run_product_follow_up_batch, soft_delete_follow_up_record,
 )
 
 
@@ -186,6 +186,18 @@ def test_product_worker_never_expires_legacy_or_non_flow_tasks(db_session, monke
     db_session.expire_all()
     assert lead.current_assignment_round_id == row.assignment_round_id
     assert row.round_status == "active_unfollowed"
+
+
+@pytest.mark.parametrize("mode", ["flow", "direct", "original"])
+def test_compatibility_processor_only_reconciles_terminals_for_new_tasks(db_session, mode):
+    lead, row = seed_product_task(db_session, mode=mode)
+    stats = process_due_transitions(db_session, now=START + timedelta(days=2))
+    assert sum(stats.values()) == 0
+    assert lead.current_assignment_round_id == row.assignment_round_id
+    lead.normalized_order_status = "verified"
+    db_session.flush()
+    assert process_due_transitions(db_session, now=START + timedelta(days=2))["terminal_closed"] == 1
+    assert row.round_status == "closed_order_verified" and row.closed_at is not None
 
 
 @pytest.mark.parametrize("round_no,action", [(2, None), (0, "unreachable"), (1, "unreachable")])
