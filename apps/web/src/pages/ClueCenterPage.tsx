@@ -1874,10 +1874,6 @@ export function ClueCenterPage({
                           <dd>{formatDateTime(detail.order_created_at)}</dd>
                         </div>
                         <div>
-                          <dt>核销状态</dt>
-                          <dd>{verificationSummary(activeDetailRound)}</dd>
-                        </div>
-                        <div>
                           <dt>核销门店</dt>
                           <dd>{activeDetailRound ? verificationStoreText(activeDetailRound) : "-"}</dd>
                         </div>
