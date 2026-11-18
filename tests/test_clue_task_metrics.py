@@ -169,7 +169,6 @@ def test_active_other_store_verification_never_backcredits_previous_task(db_sess
     _task(db_session, "A0", status="expired_pending_reassign", handoff=24)
     _task(db_session, "B1", store="B", hour=24)
     _verify(db_session, "first", hour=25)
-    _verify(db_session, "second-coupon", hour=50)
     db_session.commit()
     facts = load_clue_task_facts(db_session, ["O"], observed_through=CUTOFF)
     assert [facts[key].verification_numerator for key in ("A0", "B1")] == [0, 0]
@@ -177,7 +176,28 @@ def test_active_other_store_verification_never_backcredits_previous_task(db_sess
     assert detail.effective_assignment_round_id == "B1"
     assert detail.credited_assignment_round_id is None
     assert detail.is_back_credit is False
-    assert len(facts["A0"].verification_facts) == 1  # later coupon cannot requalify the same order/store
+    assert len(facts["A0"].verification_facts) == 1
+
+
+def test_later_coupon_after_overall_close_can_independently_backcredit_prior_task(db_session):
+    _order(db_session)
+    _task(db_session, "A0", status="expired_pending_reassign", handoff=24)
+    _task(db_session, "B1", store="B", hour=24)
+    _verify(db_session, "during-B", hour=25)
+    _verify(db_session, "after-close", hour=50)
+    _verify(db_session, "another-after-close", hour=51)
+    db_session.commit()
+    facts = load_clue_task_facts(db_session, ["O"], observed_through=CUTOFF)
+    assert [facts[key].verification_numerator for key in ("A0", "B1")] == [1, 0]
+    first, later, repeated = facts["A0"].verification_facts
+    assert first.effective_assignment_round_id == "B1" and first.credited_assignment_round_id is None
+    assert first.is_back_credit is False and first.is_after_close is False
+    assert later.effective_assignment_round_id is None and later.credited_assignment_round_id == "A0"
+    assert later.is_after_close and later.is_back_credit and later.counts_for_store_verification_rate
+    assert repeated.credited_assignment_round_id == "A0"  # task numerator remains at most one
+    self_volume = load_self_store_verifications(db_session, ["O"], observed_through=CUTOFF)
+    assert len(self_volume) == 1
+    assert self_volume[0].verify_id == "during-B" and self_volume[0].business_date == date(2026, 11, 18)
 
 
 @pytest.mark.parametrize("close_reason", ["no_candidate", "natural_expiry", "lost", "request_store_change"])

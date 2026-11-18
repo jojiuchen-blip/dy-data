@@ -54,7 +54,7 @@ CLUE_TASK_METRIC_DEFINITIONS = {
 
 @dataclass(frozen=True)
 class VerificationAttribution:
-    """Explain one first effective order/store verification for a shown task."""
+    """Explain one effective coupon verification for a shown task."""
 
     verify_id: str
     verified_at: datetime
@@ -236,7 +236,10 @@ def _evaluate_order(
     )), key=lambda row: (row.assigned_at, row.round_no, row.assignment_round_id))
     if not rounds:
         return {}
-    events = _first_per_store(events)
+    # Conversion attribution evaluates every effective coupon independently.
+    # Only self-store volume deduplicates an order/store to its first date:
+    # a later coupon may independently qualify for post-close back-credit.
+    events = tuple(sorted(events, key=lambda item: (item.verified_at, item.verify_id)))
     first_verify_at = min((event.verified_at for event in events), default=None)
     nonverify = evidence.non_verification_terminal
     terminal = evidence.terminal
