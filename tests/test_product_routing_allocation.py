@@ -14,10 +14,12 @@ from apps.api.dy_api.models import (
     DimSkuProductRule, DimStorePoiMapping, RawDouyinClue, RawDouyinOrder,
     RawDouyinOrderCoupon, RawDouyinVerifyRecord,
 )
-from apps.worker import clue_allocation, clue_allocation_engine as engine
+from apps.worker import clue_allocation, clue_allocation_cycles as cycles, clue_allocation_engine as engine
 from apps.worker.clue_rule_versions import bind_lead_rule_version
 from apps.worker.formal_allocation_runtime import run_formal_allocation_batch
-from test_clue_allocation_engine import _add_sale_store, _lead, _publish_global_rule, _store
+from test_clue_allocation_engine import (
+    _add_sale_store, _lead, _new_version, _publish_global_rule, _store, _strategy_configs,
+)
 
 
 NOW = datetime(2026, 11, 18, 3, tzinfo=timezone.utc)
@@ -279,6 +281,61 @@ def test_product_trial_only_persists_decisions_and_preserves_formal_state(db_ses
     formal = engine.allocate_lead(db_session, lead.lead_key, now=NOW)
     assert formal.assignment_round_id is not None
     assert formal.selected_store_id == "near"
+
+
+@pytest.mark.parametrize("mode", ["flow", "original", "direct"])
+def test_trial_rebind_and_rebuild_keep_immutable_product_ingress_binding(db_session, lists, mode):
+    lead = _flow(db_session)
+    lead.routing_mode = mode
+    original = db_session.get(ClueLeadRuleVersionBinding, lead.lead_key)
+    old_version = original.rule_version_id
+    old_snapshot = dict(original.rule_version_snapshot)
+    rule_id = original.scope_resolution_snapshot["rule_id"]
+    if mode == "direct":
+        db_session.delete(original)
+        expected_version = None
+    else:
+        expected_version = old_version
+    db_session.flush()
+    _new_version(db_session, rule_id, strategy_configs=_strategy_configs())
+    preview_state = cycles._current_preview_state(db_session, [lead.lead_key], rebind_rule_version=True)
+    assert preview_state[0]["rule_version_id"] == expected_version
+    cycles._remove_trial_bindings(db_session, [lead.lead_key])
+    current = db_session.get(ClueLeadRuleVersionBinding, lead.lead_key)
+    assert (current.rule_version_id if current else None) == expected_version
+    result = cycles.run_trial_allocation_cycle(db_session, lead_keys=[lead.lead_key],
+        actor="trial-operator", rebind_rule_version=True, now=NOW)
+    assert result["summary"]["assigned"] == 1
+    rebuilt = cycles.rebuild_trial_allocation_cycle(db_session,
+        source_cycle_id=result["allocation_cycle_id"], actor="trial-operator",
+        rebind_rule_version=True, now=NOW + timedelta(minutes=1))
+    assert rebuilt["summary"]["assigned"] == 1
+    current = db_session.get(ClueLeadRuleVersionBinding, lead.lead_key)
+    assert (current.rule_version_id if current else None) == expected_version
+    if current is not None:
+        assert current.rule_version_snapshot == old_snapshot
+    assert db_session.get(ClueMasterLead, lead.lead_key).routing_mode == mode
+    assert db_session.query(ClueAssignmentRound).count() == 0
+    decisions = list(db_session.scalars(select(ClueAllocationDecision)
+        .where(ClueAllocationDecision.allocation_cycle_id == rebuilt["allocation_cycle_id"])))
+    assert decisions
+    assert {decision.rule_version_id for decision in decisions} == {expected_version}
+
+
+def test_closed_trial_outcome_is_counted_and_leaves_business_lead_active(db_session, lists):
+    lead = _flow(db_session)
+    lists["stores"] = set()
+    result = cycles.run_trial_allocation_cycle(db_session, lead_keys=[lead.lead_key], actor="trial-operator", now=NOW)
+    assert result["summary"]["closed"] == 1
+    assert result["summary"]["assigned"] == 0
+    assert result["summary"]["total"] == 1
+    decision = cycles._final_cycle_decision(db_session, allocation_cycle_id=result["allocation_cycle_id"], lead_key=lead.lead_key)
+    assert decision.decision_status == "closed"
+    assert lead.lifecycle_status == "active"
+    assert lead.allocation_state == "pending_allocation"
+    assert lead.closed_at is None
+    assert db_session.query(ClueAssignmentRound).count() == 0
+    assert db_session.query(ClueHeadquartersPoolEntry).count() == 0
 
 
 def test_scoring_uses_scoped_task_counts_fixed_seventy_thirty_and_stable_ties(db_session, lists, monkeypatch):

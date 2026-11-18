@@ -831,6 +831,7 @@ def _summary(results: list[AllocationResult], *, failed_count: int = 0) -> dict[
     return {
         "assigned": int(counts["assigned"]),
         "headquarters": int(counts["headquarters"]),
+        "closed": int(counts["closed"]),
         "skipped": int(counts["skipped"]),
         "failed": int(failed_count),
         "total": len(results) + int(failed_count),
@@ -1010,10 +1011,17 @@ def _current_preview_state(
         lead = session.get(ClueMasterLead, lead_key)
         if lead is None:
             continue
-        binding = None if rebind_rule_version else session.get(ClueLeadRuleVersionBinding, lead_key)
+        binding = (
+            None if rebind_rule_version and lead.routing_mode is None
+            else session.get(ClueLeadRuleVersionBinding, lead_key)
+        )
         if binding is not None:
             rule_version_id = binding.rule_version_id
             rule_snapshot = dict(binding.rule_version_snapshot or {})
+        elif lead.routing_mode is not None:
+            # A missing ingress version is itself frozen; preview must not
+            # silently substitute a subsequently published legacy default.
+            rule_version_id, rule_snapshot = None, {}
         else:
             match = resolve_published_rule_version(
                 session,
@@ -1032,6 +1040,8 @@ def _current_preview_state(
                 "normalized_order_status": lead.normalized_order_status,
                 "pool_location": lead.pool_location,
                 "current_assignment_round_id": lead.current_assignment_round_id,
+                "routing_mode": lead.routing_mode,
+                "routing_product_id": lead.routing_product_id,
                 "anchor_store_id": lead.anchor_store_id,
                 "anchor_city_code": lead.anchor_city_code,
                 "rule_version_id": rule_version_id,
@@ -1061,6 +1071,9 @@ def _assert_preview_state_matches(
 
 def _remove_trial_bindings(session: Session, lead_keys: Iterable[str]) -> None:
     for lead_key in _normalized_lead_keys(lead_keys):
+        lead = session.get(ClueMasterLead, lead_key)
+        if lead is not None and lead.routing_mode is not None:
+            continue
         binding = session.get(ClueLeadRuleVersionBinding, lead_key)
         if binding is not None:
             session.delete(binding)
@@ -1087,7 +1100,7 @@ def _final_cycle_decision(
         (
             decision
             for decision in decisions
-            if decision.decision_status in {"selected", "headquarters"}
+            if decision.decision_status in {"selected", "assigned", "headquarters", "closed"}
         ),
         decisions[0] if decisions else None,
     )
