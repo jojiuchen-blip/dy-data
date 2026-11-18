@@ -11,8 +11,13 @@ from apps.api.dy_api.dashboard_publications.schema import runs, source_counters
 from apps.api.dy_api.models import DouyinRefundEvent, RawDouyinRefundRecord, RawDouyinVerifyRecord
 from apps.worker.dashboard_publications import run_tick
 from test_dashboard_publication_migration import full_pg_stack
-from test_clue_task_publications import seed_tasks
+from test_clue_task_publications import seed_tasks, test_new_publication_remains_readable_by_frozen_old_resolver_and_sql as assert_legacy_read_compatibility
+from test_dashboard_publication_sales_postgres import publication_postgres_session
 from test_clue_task_metrics import AT, CUTOFF, _follow
+
+
+def test_frozen_678_resolver_and_ranking_sql_on_postgresql(publication_postgres_session):
+    assert_legacy_read_compatibility(publication_postgres_session)
 
 
 def test_source_changes_refresh_both_boards_and_preserve_pinned_first_date(full_pg_stack):

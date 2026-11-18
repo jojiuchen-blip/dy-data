@@ -580,10 +580,11 @@ def test_clue_dashboard_contract(client: TestClient, db_session: Session) -> Non
     metrics = overview.json()["data"]
     assert metrics["total_clues"] == 2
     assert metrics["active_clues"] == 2
-    assert metrics["follow_rate"] == 0.5
+    assert metrics["follow_rate"] == 0  # Projection flags are not valid submissions.
     assert metrics["follow_success_rate"] == 0.5
-    assert metrics["verified_count"] == 1
-    assert metrics["self_store_verify_rate"] == 0.5
+    assert metrics["verified_count"] == 0  # No coupon/verification bridge was seeded.
+    assert metrics["self_store_verify_rate"] == 0
+    assert metrics["follow_denominator"] == metrics["verification_denominator"] == 2
 
     details = client.get("/api/v1/clues/assignment-rounds?assigned_store_id=store-1")
     assert details.status_code == 200
@@ -790,7 +791,7 @@ def test_clue_overview_separates_action_and_effective_follow_rates(
 
     assert response.status_code == 200
     metrics = response.json()["data"]
-    assert metrics["follow_rate"] == 1
+    assert metrics["follow_rate"] == 0
     assert metrics["follow_success_rate"] == 0.5
 
 
@@ -820,10 +821,11 @@ def test_clue_overview_counts_unique_orders_within_selected_scope(
     metrics = response.json()["data"]
     assert metrics["total_clues"] == 2
     assert metrics["active_clues"] == 2
-    assert metrics["follow_rate"] == 1
+    assert metrics["follow_rate"] == 0
     assert metrics["follow_success_rate"] == 1
-    assert metrics["verified_count"] == 1
-    assert metrics["self_store_verify_rate"] == 0.5
+    assert metrics["verified_count"] == 0
+    assert metrics["self_store_verify_rate"] == 0
+    assert metrics["received_task_count"] == metrics["verification_denominator"] == 3
 
 
 def test_clue_assignment_rounds_export_csv_includes_plain_phone_and_scope(
@@ -1251,7 +1253,7 @@ def test_clue_order_detail_serializes_legacy_continue_following_history(
 
 
 def test_admin_can_record_current_follow_up_and_detail_returns_history(
-    client: TestClient, db_session: Session
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _seed_clue_center(db_session)
     _promote_order_two_to_self_owned_round(db_session)
@@ -1260,7 +1262,10 @@ def test_admin_can_record_current_follow_up_and_detail_returns_history(
     overview_url = "/api/v1/clues/overview?assigned_store_id=store-1"
     original_overview = client.get(overview_url)
     assert original_overview.status_code == 200
-    assert original_overview.json()["data"]["follow_rate"] == 0.5
+    assert original_overview.json()["data"]["follow_rate"] == 0
+    # Keep this real submission inside the fixture publication's observation
+    # cutoff; the fixed 2026-10-19 builder cannot observe a later wall clock.
+    monkeypatch.setattr(data_module, "generated_at", lambda: _dt(1, 16))
 
     response = client.post(
         "/api/v1/clues/orders/order-2/follow-up",
@@ -1339,7 +1344,8 @@ def test_admin_can_record_current_follow_up_and_detail_returns_history(
     refreshed_overview = client.get(overview_url)
     assert refreshed_overview.json()["meta"]["publication"]["id"] == replacement.id
     assert replacement.id != original_publication.id
-    assert refreshed_overview.json()["data"]["follow_rate"] == 1
+    assert refreshed_overview.json()["data"]["follow_rate"] == 0.5
+    assert refreshed_overview.json()["data"]["follow_any_numerator"] == 1
 
 
 def test_admin_can_delete_follow_up_record_and_summary_rolls_back(

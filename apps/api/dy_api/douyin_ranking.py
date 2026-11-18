@@ -5,33 +5,28 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
-    ClueAssignmentRound,
     DimAwemeAccount,
     DimStore,
     DimStoreOrgAssignment,
     DimStorePoiMapping,
     DimSkuProductRule,
     RawAwemeBinding,
-    RawDouyinClue,
     RawDouyinOrder,
+    RawDouyinOrderCoupon,
+    RawDouyinVerifyRecord,
 )
-from apps.api.dy_api.clue_followup_metrics import (
-    AssignmentRoundEvidence,
-    load_clue_followup_evidence,
-)
-
-from apps.api.dy_api.ranking_legacy_followup import (
-    LEGACY_DEFINITIONS as CLUE_FOLLOWUP_METRIC_DEFINITIONS,
-    evaluate_legacy_ranking_round as evaluate_clue_followup_round,
-)
+from apps.api.dy_api.clue_task_metrics import load_self_store_verifications, load_store_task_totals
+from apps.api.dy_api.clue_product_scope import scope_predicate, validate_product_scope
+from apps.api.dy_api.ranking_snapshots import DEFINITIONS
 
 
 RANKING_LEVELS = {"group", "service_center", "district", "area", "store"}
-RANKING_SORT_FIELDS = {"order_count", "order_average", "follow_24h_rate", "verification_rate"}
+RANKING_SORT_FIELDS = {"order_count", "order_average", "follow_24h_rate", "follow_any_rate",
+                       "verification_rate", "self_store_verification_count"}
 
 
 @dataclass
@@ -51,14 +46,9 @@ class _StoreFacts:
     follow_action_denominator: int = 0
     follow_numerator: int = 0
     follow_denominator: int = 0
-    verification_order_ids: set[str] | None = None
-    verification_verified_order_ids: set[str] | None = None
-
-    def __post_init__(self) -> None:
-        if self.verification_order_ids is None:
-            self.verification_order_ids = set()
-        if self.verification_verified_order_ids is None:
-            self.verification_verified_order_ids = set()
+    verification_numerator: int = 0
+    verification_denominator: int = 0
+    self_store_verification_count: int = 0
 
 
 def _aware(value: datetime | None) -> datetime | None:
@@ -149,6 +139,7 @@ def _load_order_counts(
     facts_by_store: dict[str, _StoreFacts],
     period_start: datetime,
     period_end: datetime,
+    product_scope: str = "jingcheng",
 ) -> datetime | None:
     if not facts_by_store:
         return None
@@ -212,13 +203,13 @@ def _load_order_counts(
             RawDouyinOrder.owner_account_name,
             RawDouyinOrder.updated_at,
         )
-        .join(
+        .outerjoin(
             DimSkuProductRule,
             DimSkuProductRule.sku_id == RawDouyinOrder.sku_id,
         )
         .where(time_filter)
         .where(or_(*owner_filter))
-        .where(DimSkuProductRule.product_scope == "精诚养车")
+        .where(scope_predicate(product_scope, func.coalesce(DimSkuProductRule.product_scope == "精诚养车", False)))
     ).all()
     counted_orders: set[str] = set()
     latest_observed_at: datetime | None = None
@@ -246,131 +237,45 @@ def _load_clue_metrics(
     facts_by_store: dict[str, _StoreFacts],
     period_start: datetime,
     period_end: datetime,
+    product_scope: str = "jingcheng",
 ) -> datetime | None:
+    """Diagnostic calculation using the same task facts as publications.
+
+    Production dashboard routes never invoke this live calculator.
+    """
     if not facts_by_store:
         return None
-    # Keep the eligibility test in SQL instead of expanding every raw order ID
-    # into a Python ``IN (...)`` list.  Large local snapshots can contain more
-    # than SQLite's bind-variable limit, while the subqueries remain portable
-    # to PostgreSQL and preserve the exact product-scope rule.
-    eligible_order_ids = select(RawDouyinOrder.order_id).join(
-        DimSkuProductRule,
-        DimSkuProductRule.sku_id == RawDouyinOrder.sku_id,
-    ).where(
-        DimSkuProductRule.product_scope == "精诚养车",
-        RawDouyinOrder.order_id.is_not(None),
-    )
-    eligible_clue_order_ids = select(RawDouyinClue.order_id).join(
-        DimSkuProductRule,
-        DimSkuProductRule.product_id == RawDouyinClue.product_id,
-    ).where(
-        DimSkuProductRule.product_scope == "精诚养车",
-        RawDouyinClue.order_id.is_not(None),
-    )
-    rounds = list(
-        session.scalars(
-            select(ClueAssignmentRound)
-            .where(ClueAssignmentRound.execution_mode == "formal")
-            .where(ClueAssignmentRound.assigned_at >= period_start)
-            .where(ClueAssignmentRound.assigned_at < period_end)
-            .where(ClueAssignmentRound.assigned_store_id.in_(tuple(facts_by_store)))
-            .where(
-                or_(
-                    ClueAssignmentRound.order_id.in_(eligible_order_ids),
-                    ClueAssignmentRound.order_id.in_(eligible_clue_order_ids),
-                )
-            )
-        ).all()
-    )
-    if not rounds:
-        return None
     observed_at = datetime.now(timezone.utc)
-
-    order_ids = {row.order_id for row in rounds}
-    all_formal_rounds = list(
-        session.scalars(
-            select(ClueAssignmentRound)
-            .where(ClueAssignmentRound.execution_mode == "formal")
-            .where(ClueAssignmentRound.order_id.in_(tuple(order_ids)))
-        ).all()
-    )
-    rounds_by_order: defaultdict[str, list[ClueAssignmentRound]] = defaultdict(list)
-    for row in all_formal_rounds:
-        rounds_by_order[row.order_id].append(row)
-
-    follow_evidence = load_clue_followup_evidence(
-        session,
-        order_ids,
-        observed_through=observed_at,
-    )
-    # Reuse the one full evidence load above.  The pure evaluator is shared
-    # with the snapshot path and allocation worker; calling the bulk loader a
-    # second time here would duplicate every terminal/follow query.
-    follow_metrics = {}
-    for row in rounds:
-        round_evidence = follow_evidence.get(row.order_id)
-        round_value = row if isinstance(row, AssignmentRoundEvidence) else AssignmentRoundEvidence.from_row(row)
-        follow_metrics[row.assignment_round_id] = evaluate_clue_followup_round(
-            round_value,
-            follow_ups=(round_evidence.follow_ups_for(row.assignment_round_id) if round_evidence else ()),
-            observed_through=observed_at,
-        )
-    poi_to_store = {
-        poi_id: store_id
-        for poi_id, store_id in session.execute(
-            select(DimStorePoiMapping.poi_id, DimStorePoiMapping.store_id)
-            .where(DimStorePoiMapping.store_id.in_(tuple(facts_by_store)))
-        ).all()
-    }
-    verify_times_by_order: defaultdict[str, list[tuple[datetime, str]]] = defaultdict(list)
-    for order_id, evidence in follow_evidence.items():
-        for verification in evidence.verifications:
-            verified_at = _aware(verification.verified_at)
-            verify_store_id = verification.store_id or poi_to_store.get(verification.poi_id or "")
-            if verified_at is not None and verify_store_id:
-                verify_times_by_order[order_id].append((verified_at, verify_store_id))
-
-    attributed_stores_by_order: defaultdict[str, set[str]] = defaultdict(set)
-    for order_id, verify_times in verify_times_by_order.items():
-        candidates = sorted(
-            rounds_by_order.get(order_id, []),
-            key=lambda row: (_aware(row.assigned_at) or datetime.min.replace(tzinfo=timezone.utc), row.round_no),
-        )
-        for verify_time, verify_store_id in verify_times:
-            effective = [
-                row
-                for row in candidates
-                if (_aware(row.assigned_at) is not None and _aware(row.assigned_at) <= verify_time
-                    and row.assigned_store_id == verify_store_id)
-            ]
-            if effective:
-                assigned_store_id = effective[-1].assigned_store_id
-                if assigned_store_id in facts_by_store:
-                    attributed_stores_by_order[order_id].add(assigned_store_id)
-
-    latest_observed_at: datetime | None = None
-    for row in rounds:
-        assigned_store_id = row.assigned_store_id
-        if assigned_store_id not in facts_by_store:
-            continue
-        facts = facts_by_store[assigned_store_id]
-        metric = follow_metrics[row.assignment_round_id]
-        facts.follow_denominator += metric.denominator
-        facts.follow_numerator += metric.numerator
-        facts.follow_any_numerator += metric.follow_any_numerator
-        facts.follow_any_denominator += metric.follow_any_denominator
-        facts.follow_action_numerator += metric.follow_action_numerator
-        facts.follow_action_denominator += metric.follow_action_denominator
-        facts.verification_order_ids.add(row.order_id)
-        if row.order_id in attributed_stores_by_order and assigned_store_id in attributed_stores_by_order[row.order_id]:
-            facts.verification_verified_order_ids.add(row.order_id)
-        observed = _aware(row.updated_at)
-        if observed is not None and (latest_observed_at is None or observed > latest_observed_at):
-            latest_observed_at = observed
-        terminal_observed = _aware(follow_evidence.get(row.order_id).terminal.observed_at) if follow_evidence.get(row.order_id) else None
-        if terminal_observed is not None and (latest_observed_at is None or terminal_observed > latest_observed_at):
-            latest_observed_at = terminal_observed
-    return latest_observed_at
+    totals = load_store_task_totals(session, facts_by_store, period_start, period_end,
+        product_scope=product_scope, observed_through=observed_at)
+    for store_id, metric in totals.items():
+        facts = facts_by_store[store_id]
+        facts.follow_numerator = metric.follow_24h_numerator
+        facts.follow_denominator = metric.follow_24h_denominator
+        facts.follow_any_numerator = facts.follow_action_numerator = metric.follow_any_numerator
+        facts.follow_any_denominator = facts.follow_action_denominator = metric.follow_24h_denominator
+        facts.verification_numerator = metric.conversion_numerator
+        facts.verification_denominator = metric.conversion_denominator
+    # Candidate orders are bounded by actual verification time, while the
+    # evaluator chooses first order/store facts over complete source history.
+    candidates = select(RawDouyinOrderCoupon.order_id).join(RawDouyinVerifyRecord,
+        RawDouyinVerifyRecord.coupon_id == RawDouyinOrderCoupon.coupon_id).where(
+        RawDouyinVerifyRecord.verify_time >= period_start, RawDouyinVerifyRecord.verify_time < period_end,
+        RawDouyinVerifyRecord.verify_time <= observed_at).distinct().order_by(RawDouyinOrderCoupon.order_id)
+    last = None
+    while True:
+        query = candidates.limit(400)
+        if last is not None:
+            query = query.where(RawDouyinOrderCoupon.order_id > last)
+        order_ids = list(session.scalars(query))
+        if not order_ids:
+            break
+        for fact in load_self_store_verifications(session, order_ids, observed_through=observed_at):
+            if (fact.store_id in facts_by_store and period_start <= fact.verified_at < period_end
+                    and (product_scope == "all" or fact.product_scope == product_scope)):
+                facts_by_store[fact.store_id].self_store_verification_count += 1
+        last = order_ids[-1]
+    return None
 
 
 def build_douyin_ranking_report(
@@ -389,7 +294,9 @@ def build_douyin_ranking_report(
     page_size: int = 50,
     sort_by: str = "order_count",
     sort_order: str = "DESC",
+    product_scope: str = "jingcheng",
 ) -> dict[str, Any]:
+    validate_product_scope(product_scope)
     normalized_level = level.strip().lower()
     if normalized_level not in RANKING_LEVELS:
         raise ValueError("level must be group, service_center, district, area, or store")
@@ -409,8 +316,8 @@ def build_douyin_ranking_report(
     observed_values = [
         value
         for value in (
-            _load_order_counts(session, facts_by_store, period_start, period_end),
-            _load_clue_metrics(session, facts_by_store, period_start, period_end),
+            _load_order_counts(session, facts_by_store, period_start, period_end, product_scope),
+            _load_clue_metrics(session, facts_by_store, period_start, period_end, product_scope),
         )
         if value is not None
     ]
@@ -433,6 +340,7 @@ def build_douyin_ranking_report(
                 "follow_denominator": 0,
                 "verification_numerator": 0,
                 "verification_denominator": 0,
+                "self_store_verification_count": 0,
                 "store_ids": [],
             },
         )
@@ -444,14 +352,16 @@ def build_douyin_ranking_report(
         item["follow_action_denominator"] += row.follow_action_denominator
         item["follow_numerator"] += row.follow_numerator
         item["follow_denominator"] += row.follow_denominator
-        item["verification_numerator"] += len(row.verification_verified_order_ids or set())
-        item["verification_denominator"] += len(row.verification_order_ids or set())
+        item["verification_numerator"] += row.verification_numerator
+        item["verification_denominator"] += row.verification_denominator
+        item["self_store_verification_count"] += row.self_store_verification_count
         item["store_ids"].append(row.store_id)
 
     rows: list[dict[str, Any]] = []
     for item in grouped.values():
         item["order_average"] = round(item["order_count"] / item["store_count"], 6) if item["store_count"] else None
         item["follow_rate"] = _rate(item["follow_any_numerator"], item["follow_any_denominator"])
+        item["follow_any_rate"] = item["follow_rate"]
         item["follow_action_rate"] = _rate(item["follow_action_numerator"], item["follow_action_denominator"])
         item["follow_24h_rate"] = _rate(item["follow_numerator"], item["follow_denominator"])
         item["verification_rate"] = _rate(item["verification_numerator"], item["verification_denominator"])
@@ -474,9 +384,11 @@ def build_douyin_ranking_report(
         "follow_denominator": sum(item["follow_denominator"] for item in rows),
         "verification_numerator": sum(item["verification_numerator"] for item in rows),
         "verification_denominator": sum(item["verification_denominator"] for item in rows),
+        "self_store_verification_count": sum(item["self_store_verification_count"] for item in rows),
     }
     totals["order_average"] = round(totals["order_count"] / totals["store_count"], 6) if totals["store_count"] else None
     totals["follow_rate"] = _rate(totals["follow_any_numerator"], totals["follow_any_denominator"])
+    totals["follow_any_rate"] = totals["follow_rate"]
     totals["follow_action_rate"] = _rate(totals["follow_action_numerator"], totals["follow_action_denominator"])
     totals["follow_24h_rate"] = _rate(totals["follow_numerator"], totals["follow_denominator"])
     totals["verification_rate"] = _rate(totals["verification_numerator"], totals["verification_denominator"])
@@ -490,13 +402,5 @@ def build_douyin_ranking_report(
         "rows": paged_rows,
         "totals": totals,
         "latest_observed_at": max(observed_values) if observed_values else None,
-        "metric_definitions": {
-            "order_count": "统计期内门店账号及所属职人账号卖出的全渠道精诚养车商品订单，按订单ID去重；没有精诚养车商品口径的SKU不计入",
-            "order_average": "辖区精诚养车订单量除以辖区全部有效精诚养车门店数",
-            "follow_24h_rate": CLUE_FOLLOWUP_METRIC_DEFINITIONS["follow_24h_rate"],
-            "follow_any_rate": CLUE_FOLLOWUP_METRIC_DEFINITIONS["follow_any_rate"],
-            "follow_action_rate": CLUE_FOLLOWUP_METRIC_DEFINITIONS["follow_action_rate"],
-            "terminal_evidence": CLUE_FOLLOWUP_METRIC_DEFINITIONS["terminal_evidence"],
-            "verification_rate": "正式分配给本店的精诚养车线索关联订单中，在本店成功核销的订单数除以关联订单总数；上级累加门店分子分母",
-        },
+        "metric_definitions": dict(DEFINITIONS), "product_scope": product_scope,
     }

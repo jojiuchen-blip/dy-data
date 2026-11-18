@@ -161,11 +161,33 @@ def test_live_reader_auxiliary_follow_counts_after_24h(db_session):
 @pytest.fixture()
 def preview(db_session):
     from apps.api.dy_api.ranking_schema_v1 import metadata
-    from apps.worker.ranking_preview_fixture import seed_preview
+    from apps.worker.ranking_preview_fixture import AT, seed_preview
+    from apps.api.dy_api.models import ClueFollowUpRecord
+    metadata.create_all(db_session.bind)
+    seed_preview(db_session)
+    # Sequential responsibility is needed when exercising valid-period task
+    # metrics. Keep the original simultaneous history in the separate tie test.
+    db_session.get(ClueAssignmentRound, "RB1").assigned_at = AT + timedelta(hours=26)
+    db_session.get(ClueFollowUpRecord, "F3").created_at = AT + timedelta(hours=28)
+    for index, hour in enumerate((0, 26, 26.5, 27, 27.5, 28, 28.5), 2):
+        db_session.get(ClueAssignmentRound, "RB" + str(index)).assigned_at = AT + timedelta(hours=hour)
+    db_session.commit()
+    return db_session
+
+
+def test_original_simultaneous_history_has_deterministic_effective_tasks(db_session):
+    from apps.api.dy_api.clue_task_metrics import load_clue_task_facts
+    from apps.api.dy_api.ranking_schema_v1 import metadata
+    from apps.worker.ranking_preview_fixture import CUTOFF, seed_preview
     metadata.create_all(db_session.bind)
     seed_preview(db_session)
     db_session.commit()
-    return db_session
+    first = load_clue_task_facts(db_session, ("O1", "O2", "O3"), observed_through=CUTOFF)
+    second = load_clue_task_facts(db_session, ("O3", "O2", "O1"), observed_through=CUTOFF)
+    assert first == second
+    assert first["RA2"].follow_24h_numerator == 0
+    assert first["RB1"].follow_24h_numerator == 1
+    assert sum(row.follow_any_numerator for row in first.values()) == 2
 
 
 def calculate(session, run_id="baseline", **overrides):
@@ -193,7 +215,7 @@ def test_confirmed_arithmetic_and_zero_sales_eligibility(preview, level):
     assert totals["order_count"] == 10  # Includes refunded/all-channel/craftsman orders
     assert totals["order_average"] == 3.333333
     assert (totals["follow_numerator"], totals["follow_denominator"], totals["follow_24h_rate"]) == (3, 10, .3)
-    assert (totals["verification_numerator"], totals["verification_denominator"], totals["verification_rate"]) == (2, 4, .5)
+    assert (totals["verification_numerator"], totals["verification_denominator"], totals["verification_rate"]) == (2, 10, .2)
     if level == "store":
         rows = {row["key"]: row for row in result["rows"]}
         assert rows["A"]["verification_numerator"] == 1
@@ -378,7 +400,7 @@ def test_raw_numeric_verification_status_preserves_self_store_and_cancellation(p
     preview.commit()
     calculate(preview)
     assert report(preview)["totals"]["verification_numerator"] == 2
-    assert report(preview)["totals"]["verification_denominator"] == 4
+    assert report(preview)["totals"]["verification_denominator"] == 10
 
 
 def test_business_reader_never_returns_synthetic_snapshots(preview):
@@ -407,7 +429,7 @@ def test_period_query_keeps_old_assigned_order_without_loading_all_sales(preview
     totals = report(preview)["totals"]
     assert totals["order_count"] == 9
     assert totals["follow_denominator"] == 10
-    assert totals["verification_denominator"] == 4
+    assert totals["verification_denominator"] == 10
 
 
 @pytest.mark.parametrize("level", ["store", "area", "district", "service_center", "group"])
@@ -437,9 +459,11 @@ def test_business_follow_denominator_is_shared_in_snapshot_and_live(preview, lev
     for item in [totals, *result["rows"]]:
         assert item["follow_any_denominator"] == item["follow_denominator"]
         assert item["follow_numerator"] <= item["follow_any_numerator"] <= item["follow_denominator"]
-    assert (totals["follow_numerator"], totals["follow_denominator"], totals["follow_24h_rate"]) == (4, 11, .363636)
-    assert (totals["follow_any_numerator"], totals["follow_any_denominator"], totals["follow_rate"]) == (5, 11, .454545)
-    assert (totals["follow_action_numerator"], totals["follow_action_denominator"], totals["follow_action_rate"]) == (5, 11, .454545)
+    assert (totals["follow_numerator"], totals["follow_denominator"], totals["follow_24h_rate"]) == (3, 4, .75)
+    # The six later O3 tasks and EARLY end within 24 hours without a valid
+    # submission. Their post-terminal actions cannot restore the denominator.
+    assert (totals["follow_any_numerator"], totals["follow_any_denominator"], totals["follow_rate"]) == (4, 4, 1)
+    assert (totals["follow_action_numerator"], totals["follow_action_denominator"], totals["follow_action_rate"]) == (4, 4, 1)
     live = build_douyin_ranking_report(preview, period_start=START, period_end=END, level=level)["totals"]
     for key in ["follow_numerator", "follow_denominator", "follow_24h_rate", "follow_any_numerator",
                 "follow_any_denominator", "follow_rate", "follow_action_numerator",
@@ -454,7 +478,7 @@ def test_manual_action_counts_unreachable_and_lost_results(preview):
     for rid, result in [("RB4", "unreachable"), ("RB5", "lost")]:
         preview.add(ClueFollowUpRecord(follow_up_record_id=result, assignment_round_id=rid,
             order_id="O3", assigned_store_id="B", round_no=1, follow_result=result,
-            created_at=AT + timedelta(hours=50)))
+            created_at=preview.get(ClueAssignmentRound, rid).assigned_at + timedelta(minutes=5)))
     preview.commit()
     calculate(preview)
     rows = preview.execute(select(samples).where(samples.c.metric_key == "follow_action",

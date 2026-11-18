@@ -187,6 +187,20 @@ def test_store_scope_org_and_actual_verification_store_do_not_expand_access(boar
         {"organization_store_ids": org_scope})["self_store_verification_count"] == 1
 
 
+@pytest.mark.parametrize("scope", ["all", "jingcheng", "byd"])
+def test_diagnostic_and_published_counts_share_the_same_fact_contract(board_client, db_session, scope):
+    from apps.api.dy_api.douyin_ranking import build_douyin_ranking_report
+
+    _, _, publications = board_client
+    live = build_douyin_ranking_report(db_session, period_start=AT, period_end=CUTOFF,
+        product_scope=scope)["totals"]
+    frozen = ranking.read_report(db_session, publications["douyin-ranking"].id,
+        period_start=AT, period_end=CUTOFF, product_scope=scope)["totals"]
+    for field in ("follow_numerator", "follow_denominator", "follow_any_numerator", "follow_any_denominator",
+                  "verification_numerator", "verification_denominator", "self_store_verification_count"):
+        assert live[field] == frozen[field], field
+
+
 @pytest.mark.parametrize("day,expected", [("2026-11-17", 1), ("2026-11-18", 0)])
 def test_first_verification_date_before_date_filter_includes_no_clue_order(board_client, day, expected):
     client, _, _ = board_client
