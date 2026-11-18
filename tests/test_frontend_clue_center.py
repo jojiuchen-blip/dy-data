@@ -232,7 +232,8 @@ def test_clue_center_detail_follow_up_layout_and_actions() -> None:
     assert 'value="failed"' not in source
     assert "本次跟进结论/备注" in source
     assert "保存本次跟进" in source
-    assert "canDeleteFollowUpRecords" in source
+    assert "canDeleteRecordsForRound" in source
+    assert "round.can_delete_follow_up_records" in source
     assert 'currentUser.role === "admin"' in source
     assert "handleDeleteFollowUpRecord" in source
     assert "deleteClueFollowUpRecord(record.follow_up_record_id)" in source
@@ -378,8 +379,8 @@ def test_clue_center_filters_follow_store_scope_spec() -> None:
             'label="省份"',
             'label="城市"',
             'aria-label="门店筛选"',
-            'label="线索生成日期起"',
-            'label="线索生成日期止"',
+            'label={isDetailsView ? "线索生成日期起" : "统计日期起"}',
+            'label={isDetailsView ? "线索生成日期止" : "统计日期止"}',
             'label="线索状态"',
             'label="商品类型"',
             "清空筛选",
@@ -398,6 +399,10 @@ def test_clue_center_filters_follow_store_scope_spec() -> None:
     assert "store_display_status: storeDisplayStatus" in source
     assert "meta?.lead_statuses" not in filter_bar
     assert "storeDisplayStatusOptions.map" in filter_bar
+    assert 'label="商品范围"' in filter_bar
+    assert "CLUE_PRODUCT_SCOPE_OPTIONS" in filter_bar
+    assert "product_scope: productScope" in source
+    assert "product_type: activeProductType" in source
     assert_in_order(
         source,
         [
@@ -478,13 +483,20 @@ def test_clue_dashboard_metrics_use_current_business_labels() -> None:
         [
             'label="线索总数"',
             'label="可跟进线索"',
-            'label="线索跟进率"',
-            'label="核销数"',
-            'label="核销比例"',
-            'label="待处理"',
+            'label="24小时跟进率"',
+            'label="累计跟进率（辅助）"',
+            'label="核销率"',
+            'label="自店核销量"',
         ],
     )
-    assert "overview.verified_count" in metric_section
+    for field in ("follow_24h_rate", "follow_any_rate", "verification_rate", "self_store_verification_count"):
+        assert f"overview.{field}" in metric_section
+        assert f"{field}?: number | null;" in types_source
+    assert "overview.follow_success_rate" not in metric_section
+    assert "overview.self_store_verify_rate" not in metric_section
+    assert "metricsWarming" in metric_section
+    assert '"暂不可用"' in metric_section
+    assert 'overviewPublication.taskMetricsContract !== "clue-task-v3"' in source
 
 
 def test_clue_center_splits_dashboard_and_detail_routes() -> None:
@@ -1043,13 +1055,33 @@ def test_p3_follow_up_actions_and_permissions_are_frontend_gated() -> None:
     assert "保存本次跟进" in page_source
     assert "canOperateCurrentRound" in page_source
     assert 'currentUser.role === "admin"' in page_source
-    assert 'currentUser.store_ids.includes(record.assigned_store_id ?? "")' in page_source
+    delete_permissions = page_source[
+        page_source.index("const canDeleteRecordsForRound") : page_source.index("const handleExportClues")
+    ]
+    # Service capabilities are authoritative for new task records; the scoped
+    # admin fallback is retained only for legacy rounds without routing_mode.
+    assert_in_order(delete_permissions, [
+        'typeof round.can_delete_follow_up_records === "boolean"',
+        "return round.can_delete_follow_up_records",
+        "if (round.routing_mode != null) return false",
+        'currentUser.role === "admin"',
+        'currentUser.store_scope_mode === "all"',
+        'currentUser.store_ids.includes(round.assigned_store_id ?? "")',
+    ])
     assert 'title="删除跟进历史"' in page_source
-    assert "canDeleteFollowUpRecords && !record.is_deleted" in page_source
+    assert "canDeleteRecordsForRound(round) && !record.is_deleted" in page_source
     assert "已删除" in page_source
+    assert "if (!detail || !activeDetailRound || !canEditFollowUp)" in page_source
+    assert "本轮已结束，仅可查看跟进历史。" in page_source
+    assert 'followResult === "appointment" ? toShanghaiAppointmentAt(followAppointmentAt) : null' in page_source
+    assert 'type="datetime-local" required' in action_form
+    assert '...(followResult === "appointment" ? { appointment_at: appointmentAt } : {})' in page_source
+    assert "formatDateTime(record.appointment_at)" in page_source
 
     assert "is_highest_admin?: boolean;" in types_source
     assert "can_operate_current_round?: boolean;" in types_source
+    assert "can_delete_follow_up_records?: boolean;" in types_source
+    assert "appointment_at?: string | null;" in types_source
     assert '"appointment"' in types_source
     assert '"request_store_change"' in types_source
     assert "历史旧值：跟进成功" in page_source

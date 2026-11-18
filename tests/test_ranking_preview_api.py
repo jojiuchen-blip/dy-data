@@ -12,17 +12,20 @@ from dy_api.auth import AuthContext, get_current_user
 from dy_api.routes._data import get_session_dependency
 from apps.api.dy_api.ranking_schema_v1 import metadata, runs
 from apps.api.dy_api.ranking_snapshots import calculate_snapshot
-from apps.worker.ranking_preview_fixture import seed_preview, START, END, CUTOFF, ELIGIBILITY_VERSION
+from apps.worker.ranking_preview_fixture import START, END, CUTOFF, ELIGIBILITY_VERSION
+from test_ranking_snapshot_preview import preview
 
 
 @pytest.fixture()
-def preview_client(db_session, monkeypatch):
+def preview_client(preview, monkeypatch):
+    # Reuse the ordered responsibility fixture. The original same-time inputs
+    # remain covered by test_original_simultaneous_history_has_deterministic_effective_tasks.
+    db_session = preview
     monkeypatch.setenv("DY_API_TEST_MODE", "true")
     monkeypatch.setenv("DY_SUPER_ADMIN_USERNAME", "ranking_test_admin")
     monkeypatch.setenv("DY_TEST_ADMIN_PASSWORD", "synthetic-test-only")
     monkeypatch.setenv("DY_SESSION_COOKIE_SECURE", "false")
     metadata.create_all(db_session.bind)
-    seed_preview(db_session)
     calculate_snapshot(db_session, run_id="baseline", period_start=START, period_end=END,
                        observed_through=CUTOFF, roster_at=START, eligibility_version=ELIGIBILITY_VERSION)
     db_session.commit()
@@ -58,7 +61,10 @@ def test_preview_route_reads_snapshot_not_legacy_table(preview_client):
     assert data["totals"]["followActionRate"] == .4
     assert data["totals"]["followActionNumerator"] == 4
     assert data["totals"]["followActionDenominator"] == 10
-    assert data["totals"]["verificationRate"] == .5
+    # O1/A and O2/B convert; all ten formally received tasks retain their
+    # verification denominator, including O3's seven historical rounds.
+    assert (data["totals"]["verificationNumerator"], data["totals"]["verificationDenominator"], data["totals"]["verificationRate"]) == (2, 10, .2)
+    assert data["totals"]["selfStoreVerificationCount"] == 3
     assert "虚拟测试" in data["previewNote"]
 
 
@@ -103,7 +109,7 @@ def test_preview_ranking_is_global_for_store_accounts(preview_client):
     data = response.json()["data"]
     assert {row["key"] for row in data["rows"]} == {"A", "B", "C"}
     assert data["totals"]["orderCount"] == 10
-    assert data["totals"]["verificationRate"] == .5
+    assert (data["totals"]["verificationNumerator"], data["totals"]["verificationDenominator"], data["totals"]["verificationRate"]) == (2, 10, .2)
 
 
 def test_snapshot_read_never_creates_another_batch(preview_client, db_session):
@@ -177,7 +183,7 @@ def workbook(response):
 def test_export_three_metric_sheets_with_two_level_sections(preview_client):
     login(preview_client)
     book = workbook(preview_client.get(EXPORT, params={**PARAMS, "levels": "district,area"}))
-    assert book.sheetnames == ["抖音店均订单量排行", "24小时有效跟进率排行", "订单核销率排行"]
+    assert book.sheetnames == ["抖音店均订单量排行", "24小时有效跟进率排行", "任务核销率排行"]
     for sheet in book:
         values = [cell.value for row in sheet for cell in row]
         assert "大区排行" in values and "区域排行" in values
@@ -267,6 +273,7 @@ def test_api_and_export_share_business_denominator_keep_action_independent(previ
     book = workbook(preview_client.get(EXPORT, params={**PARAMS, "storeId": "A", "levels": "store", "metrics": "follow_24h_rate"}))
     rows = list(book.active.iter_rows(values_only=True))
     headers = next(row for row in rows if row[0] == "排名")
+    assert len(headers) == len(set(headers)), "Export headers must remain unique for existing column-name readers"
     exported = dict(zip(headers, next(row for row in rows if isinstance(row[0], int))))
     assert (exported["24小时有效跟进分母"], exported["跟进率分母"]) == (3, 3)
     assert "跟进动作衡量指标" not in headers
