@@ -4903,11 +4903,12 @@ def _clue_allocation_cycle_payload(
         actual_impact = {
             "assigned": int(counts["assigned"]),
             "headquarters": int(counts["headquarters"]),
-            "closed": int(counts["closed"]),
             "skipped": int(counts["skipped"]),
             "failed": int(counts["failed"]),
             "total": len(visible_items),
         }
+        if counts["closed"] or "closed" in (row.actual_impact_json or {}):
+            actual_impact["closed"] = int(counts["closed"])
         planned_impact = {
             "lead_keys": selected_lead_keys,
             "auto_expiry_enabled": bool(
