@@ -1,6 +1,7 @@
 """SQL filtering and aggregation of already interpreted ranking facts."""
 from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, case, func, literal, select, union_all
 from sqlalchemy.orm import Session
@@ -100,23 +101,40 @@ def read_report(
 
     eligible_fragment = fragment(roster, roster, {}, roster.c.service_store_code).where(
         roster.c.service_store_code.in_(select(eligible)))
-    selected_orders = select(orders).where(orders.c.publication_id == publication_id,
+    if legacy_contract:
+        order_query = select(orders)
+    else:
+        # Orders are unique within a publication. Reduce their additive counts
+        # by store and quality flags before both organization joins, rather
+        # than materialize and join the same full-year order rows twice.
+        order_query = select(orders.c.store_id, orders.c.reason, orders.c.historical_unverified,
+            func.count().label("sample_count")).group_by(orders.c.store_id, orders.c.reason, orders.c.historical_unverified)
+    selected_orders = order_query.where(orders.c.publication_id == publication_id,
         orders.c.occurred_at >= start, orders.c.occurred_at < end,
         scope_predicate(product_scope, orders.c.is_jingcheng)).cte("selected_orders")
     sales_source = selected_orders.join(roster, selected_orders.c.store_id == roster.c.store_id)
     # Sales are unique frozen orders. Fold additive counts before the UNION so
     # global rankings do not sort a wide fragment once for every source order.
-    sales_fragment = fragment(sales_source, roster, {"order_count": func.count()}).where(
+    sales_fragment = fragment(sales_source, roster, {
+        "order_count": func.count() if legacy_contract else func.sum(selected_orders.c.sample_count)}).where(
         selected_orders.c.reason.is_(None)).group_by(roster.c[key_field], roster.c[name_field])
 
     # Every actual received task contributes its own frozen numerator and
     # denominator. Never deduplicate order/store responsibility after filtering.
-    partition = (rounds.c.order_id, rounds.c.store_id)
-    selected_rounds = select(rounds,
-        func.row_number().over(partition_by=partition, order_by=(rounds.c.assigned_at, rounds.c.round_id)).label("position"),
-        func.min(func.coalesce(rounds.c.mapping_version, literal(""))).over(partition_by=partition).label("min_version"),
-        func.max(func.coalesce(rounds.c.mapping_version, literal(""))).over(partition_by=partition).label("max_version")
-    ).where(rounds.c.publication_id == publication_id,
+    if legacy_contract:
+        partition = (rounds.c.order_id, rounds.c.store_id)
+        round_query = select(rounds,
+            func.row_number().over(partition_by=partition, order_by=(rounds.c.assigned_at, rounds.c.round_id)).label("position"),
+            func.min(func.coalesce(rounds.c.mapping_version, literal(""))).over(partition_by=partition).label("min_version"),
+            func.max(func.coalesce(rounds.c.mapping_version, literal(""))).over(partition_by=partition).label("max_version"))
+    else:
+        # Task facts are additive. Their reader needs neither a responsibility
+        # window sort nor legacy columns in its materialized cohort.
+        round_query = select(*(rounds.c[field] for field in (
+            "order_id", "store_id", "mapping_version", "lead_key", "first_assignment_changed", "follow_any",
+            "task_follow_24h_numerator", "task_follow_any_numerator", "task_verification_numerator",
+            "follow_denominator", "verification_denominator", "task_under_observation")))
+    selected_rounds = round_query.where(rounds.c.publication_id == publication_id,
         rounds.c.assigned_at >= start, rounds.c.assigned_at < end,
         scope_predicate(product_scope, rounds.c.is_jingcheng)).cte("selected_rounds")
     responsibility_org = select(organizations).where(pub_org).subquery("responsibility_org")
@@ -136,6 +154,21 @@ def read_report(
     if legacy_contract:
         self_fragment = self_fragment.where(selected_rounds.c.position == 1,
             selected_rounds.c.min_version == selected_rounds.c.max_version)
+        task_fragments = (follow_fragment, self_fragment)
+    else:
+        # Fold all task counts once per organization before the UNION. Sending
+        # two wide rows per task into COUNT(DISTINCT store_code) would spill a
+        # large final sort even though only a few organization totals survive.
+        task_fragments = (fragment(responsibility_source, responsibility_org, {
+            "follow_numerator": func.sum(selected_rounds.c.task_follow_24h_numerator),
+            "follow_denominator": func.sum(selected_rounds.c.follow_denominator),
+            "follow_any_numerator": func.sum(selected_rounds.c.task_follow_any_numerator),
+            "follow_any_denominator": func.sum(selected_rounds.c.follow_denominator),
+            "follow_action_numerator": func.sum(selected_rounds.c.follow_any),
+            "follow_action_denominator": func.count(),
+            "verification_numerator": func.sum(selected_rounds.c.task_verification_numerator),
+            "verification_denominator": func.sum(selected_rounds.c.verification_denominator),
+        }).group_by(responsibility_org.c[key_field], responsibility_org.c[name_field]),)
     # First effective order/store facts were chosen over all source history by
     # the builder. A second coupon on another day cannot re-enter this sample.
     selected_verifications = select(self_store_verifications).where(
@@ -145,7 +178,7 @@ def read_report(
     verification_source = selected_verifications.join(roster, selected_verifications.c.store_id == roster.c.store_id)
     volume_fragment = fragment(verification_source, roster, {"self_store_verification_count": func.count()}).group_by(
         roster.c[key_field], roster.c[name_field])
-    fragments = union_all(eligible_fragment, sales_fragment, follow_fragment, self_fragment, volume_fragment).cte("ranking_fragments")
+    fragments = union_all(eligible_fragment, sales_fragment, *task_fragments, volume_fragment).cte("ranking_fragments")
     aggregates = [func.sum(fragments.c[field]).label(field) for field in FIELDS]
     store_count = func.count(func.distinct(fragments.c.service_store_code)).label("store_count")
     statements = [select(literal("group").label("kind"), fragments.c.key,
@@ -157,25 +190,34 @@ def read_report(
             *[values.get(field, literal(0)).label(field) for field in FIELDS]).select_from(source)
 
     if scope_store_ids is None:
+        order_weight = literal(1) if legacy_contract else selected_orders.c.sample_count
         orders_with_org = selected_orders.outerjoin(roster, selected_orders.c.store_id == roster.c.store_id).outerjoin(
             eligible, roster.c.service_store_code == eligible.c.service_store_code)
         quality_reason = case((selected_orders.c.reason.is_not(None), selected_orders.c.reason),
             (roster.c.store_id.is_(None), literal("missing_historical_store_mapping")))
         statements.append(quality_statement("order_quality", orders_with_org, {
-            "order_count": func.count(),
-            "follow_numerator": func.sum(case((selected_orders.c.historical_unverified, 1), else_=0)),
+            "order_count": func.count() if legacy_contract else func.sum(order_weight),
+            "follow_numerator": func.sum(case((selected_orders.c.historical_unverified, order_weight), else_=0)),
             "follow_denominator": func.sum(case((and_(selected_orders.c.reason.is_(None), roster.c.store_id.is_not(None),
-                eligible.c.service_store_code.is_(None)), 1), else_=0)),
+                eligible.c.service_store_code.is_(None)), order_weight), else_=0)),
         }, key=quality_reason).group_by(selected_orders.c.reason, roster.c.store_id.is_(None)))
         missing_org = responsibility_org.c.store_id.is_(None)
-        uniform = selected_rounds.c.min_version == selected_rounds.c.max_version
-        earliest = selected_rounds.c.position == 1
+        if legacy_contract:
+            uniform = selected_rounds.c.min_version == selected_rounds.c.max_version
+            earliest = selected_rounds.c.position == 1
+            conflict_count = func.sum(case((and_(earliest, ~uniform), 1), else_=0))
+        else:
+            conflicting = select(selected_rounds.c.order_id, selected_rounds.c.store_id).group_by(
+                selected_rounds.c.order_id, selected_rounds.c.store_id).having(
+                func.min(func.coalesce(selected_rounds.c.mapping_version, literal(""))) !=
+                func.max(func.coalesce(selected_rounds.c.mapping_version, literal("")))).subquery("conflicting_responsibilities")
+            conflict_count = select(func.count()).select_from(conflicting).correlate(None).scalar_subquery()
         quality_source = selected_rounds.outerjoin(responsibility_org, and_(
             selected_rounds.c.mapping_version == responsibility_org.c.mapping_version,
             selected_rounds.c.store_id == responsibility_org.c.store_id))
         statements.append(quality_statement("round_quality", quality_source, {
             "order_count": func.sum(case((missing_org, 4), else_=0)),
-            "follow_numerator": func.sum(case((and_(earliest, ~uniform), 1), else_=0)),
+            "follow_numerator": conflict_count,
             "follow_denominator": func.sum(case(((selected_rounds.c.under_observation if legacy_contract
                 else selected_rounds.c.task_under_observation), 1), else_=0)),
             "follow_any_numerator": func.count(func.distinct(case((selected_rounds.c.first_assignment_changed, selected_rounds.c.lead_key)))),
@@ -254,15 +296,10 @@ def read_filters(
     org_query = select(*[organizations.c[field] for field in fields]).where(
         organizations.c.publication_id == publication_id, organizations.c.mapping_version == version
     ).order_by(organizations.c.store_name, organizations.c.store_id)
-    # Aggregate months in the database, including Shanghai's month boundary.
-    month = (func.to_char(func.timezone("Asia/Shanghai", orders.c.occurred_at), "YYYY-MM")
-        if session.bind.dialect.name == "postgresql" else func.strftime("%Y-%m", orders.c.occurred_at, "+8 hours"))
-    month_query = select(month.label("month")).where(orders.c.publication_id == publication_id).distinct().order_by(month.desc())
     if scope_store_ids is not None:
         org_query = org_query.where(organizations.c.store_id.in_(scope_store_ids))
-        month_query = month_query.where(orders.c.store_id.in_(scope_store_ids))
     org_rows = [dict(row) for row in session.execute(org_query).mappings()]
-    months = [value for value in session.scalars(month_query) if value]
+    months = _month_choices(session, publication_id, scope_store_ids)
     return dict(snapshot_id=publication_id, stores=[{field: row[field] for field in ("store_id", "store_name")} for row in org_rows],
         organizations=org_rows,
         **{field + "s": sorted({row[field] for row in org_rows if row[field]})
@@ -271,3 +308,35 @@ def read_filters(
         product_scopes=list(PRODUCT_SCOPE_LABELS), product_types=[],
         product_scope_type_map={scope: [] for scope in PRODUCT_SCOPE_LABELS},
         default_product_type="all", default_product_scope="all", verify_months=[], timezone="Asia/Shanghai")
+
+
+def _month_choices(session, publication_id, scope_store_ids):
+    """Probe the existing date index without formatting every frozen order.
+
+    Bounds come from the whole authorized history. Empty months stay absent,
+    and Shanghai month boundaries are converted to UTC before either dialect
+    binds them. Chunking bounds SQL size without truncating historical years.
+    """
+    clauses = [orders.c.publication_id == publication_id]
+    if scope_store_ids is not None:
+        clauses.append(orders.c.store_id.in_(scope_store_ids))
+    first, last = session.execute(select(func.min(orders.c.occurred_at),
+        func.max(orders.c.occurred_at)).where(*clauses)).one()
+    if first is None:
+        return []
+    shanghai = ZoneInfo("Asia/Shanghai")
+    first, last = utc(first).astimezone(shanghai), utc(last).astimezone(shanghai)
+    at = first.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    probes, months = [], []
+    while at <= last:
+        following = at.replace(year=at.year + 1, month=1) if at.month == 12 else at.replace(month=at.month + 1)
+        found = select(literal(1)).select_from(orders).where(*clauses,
+            orders.c.occurred_at >= utc(at), orders.c.occurred_at < utc(following)).exists()
+        probes.append(select(literal(at.strftime("%Y-%m")).label("month")).where(found))
+        if len(probes) == 120:
+            months.extend(session.scalars(union_all(*probes)))
+            probes = []
+        at = following
+    if probes:
+        months.extend(session.scalars(union_all(*probes) if len(probes) > 1 else probes[0]))
+    return sorted(months, reverse=True)

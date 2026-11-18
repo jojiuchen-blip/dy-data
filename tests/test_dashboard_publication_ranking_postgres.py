@@ -109,6 +109,47 @@ def test_sql_aggregates_before_hydration_at_scale(pg):
         print(f"100k orders + 100k rounds; {len(statements)} SELECTs; max materialized rows={max(returned_rows)}; with EXPLAIN={elapsed:.3f}s; plain={plain_elapsed:.3f}s")
 
 
+def assert_order_aggregation_preserves_quality_weights(session):
+    seed_frozen(session, 4)
+    session.execute(frozen.organizations.insert().values(publication_id="pub", mapping_version="v1", store_id="C",
+        service_store_code="C", store_name="C", effective_from=START, group_key="outside", group_name="Outside"))
+    for prefix, count, store, membership, reason, historical in (
+        ("byd", 3, "B", False, None, False),
+        ("unresolved", 3, None, True, "missing_account_binding", True),
+        ("history", 2, "A", True, None, True),
+        ("outside", 2, "C", True, None, False),
+    ):
+        session.execute(frozen.orders.insert(), [dict(publication_id="pub", order_id=prefix + str(index),
+            occurred_at=AT, store_id=store, is_jingcheng=membership, reason=reason,
+            historical_unverified=historical) for index in range(count)])
+    session.commit()
+    reports = {}
+    for scope, count in (("all", 11), ("jingcheng", 8), ("byd", 3)):
+        filters = dict(period_start=START, period_end=END, product_scope=scope, level="store")
+        current = ranking.read_report(session, "pub", **filters)
+        legacy = ranking.read_report(session, "pub", **filters, legacy_contract=True)
+        assert current["totals"]["order_count"] == legacy["totals"]["order_count"] == count
+        assert current["quality_json"] == legacy["quality_json"]
+        reports[scope] = current
+    assert reports["all"]["quality_json"] == {"missing_account_binding": 3,
+        "orders_historical_binding_unverified": 5, "orders_outside_eligibility": 2}
+    assert reports["all"]["totals"]["order_count"] == sum(reports[scope]["totals"]["order_count"]
+        for scope in ("jingcheng", "byd"))
+    scoped = ranking.read_report(session, "pub", period_start=START, period_end=END,
+        product_scope="all", scope_store_ids=("A",))
+    assert scoped["totals"]["order_count"] == 6 and scoped["quality_json"] == {}
+
+
+def test_order_count_preaggregation_preserves_product_scope_and_quality_on_postgresql(pg):
+    with Session(pg) as session:
+        assert_order_aggregation_preserves_quality_weights(session)
+
+
+def test_order_count_preaggregation_preserves_product_scope_and_quality_on_sqlite(db_session):
+    metadata.create_all(db_session.bind)
+    assert_order_aggregation_preserves_quality_weights(db_session)
+
+
 def test_cascade_only_projection_and_persistent_first_binding(pg):
     with Session(pg) as session:
         seed_frozen(session, 2)
@@ -133,6 +174,37 @@ def test_filter_months_use_shanghai_not_postgres_session_timezone(pg):
         assert report["sale_months"] == ["2026-09", "2026-01", "2025-12"]
         assert report["years"] == [2026, 2025]
         assert report["snapshot_id"] == "pub"
+
+
+def assert_indexed_month_choices_preserve_authorized_history(session):
+    from datetime import datetime, timezone
+
+    seed_frozen(session, 2)
+    session.execute(frozen.orders.insert(), [dict(publication_id="pub", order_id=key,
+        occurred_at=at, store_id=store, is_jingcheng=member, reason=None, historical_unverified=False)
+        for key, at, store, member in (
+            ("old", datetime(2010, 1, 3, tzinfo=timezone.utc), "A", True),
+            ("dec", datetime(2025, 12, 31, 15, 59, tzinfo=timezone.utc), "A", True),
+            ("jan-byd", datetime(2025, 12, 31, 16, tzinfo=timezone.utc), "B", False),
+        )])
+    if session.bind.dialect.name == "postgresql":
+        session.execute(text("SET TIME ZONE 'America/Los_Angeles'"))
+    expected = [(None, ["2026-09", "2026-01", "2025-12", "2010-01"]),
+        (("A",), ["2026-09", "2025-12", "2010-01"]), (("B",), ["2026-01"]), ((), [])]
+    for scope, months in expected:
+        result = ranking.read_filters(session, "pub", scope_store_ids=scope)
+        assert result["sale_months"] == months
+        assert result["years"] == sorted({int(month[:4]) for month in months}, reverse=True)
+
+
+def test_indexed_month_choices_preserve_history_and_empty_months_on_postgresql(pg):
+    with Session(pg) as session:
+        assert_indexed_month_choices_preserve_authorized_history(session)
+
+
+def test_indexed_month_choices_preserve_history_and_empty_months_on_sqlite(db_session):
+    metadata.create_all(db_session.bind)
+    assert_indexed_month_choices_preserve_authorized_history(db_session)
 
 
 def test_real_builder_postgres_parity_rollback_and_source_independence(pg):
