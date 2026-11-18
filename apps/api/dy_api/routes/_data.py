@@ -4996,61 +4996,45 @@ class DashboardDataStore:
         if not stores:
             return []
 
-        placeholders, params = _in_clause_params("store_scope", scoped_store_ids)
-        if not placeholders:
+        if not scoped_store_ids:
             return []
-
-        clauses = [
-            "r.execution_mode = 'formal'",
-            "r.assigned_at >= :clue_min_assigned_at",
-            f"r.assigned_store_id IN ({placeholders})",
-        ]
-        params["clue_min_assigned_at"] = self._clue_query_datetime(CLUE_VISIBLE_ASSIGNED_AT)
-        visible_product_types = self._visible_product_types()
-        if visible_product_types is not None:
-            visible_placeholders, visible_params = _in_clause_params(
-                "clue_visible_product", visible_product_types
-            )
-            if visible_placeholders:
-                clauses.append(f"{self._clue_product_type_sql()} IN ({visible_placeholders})")
-                params.update(visible_params)
-            else:
-                clauses.append("1 = 0")
-        assigned_start = _parse_filter_datetime(assigned_date_start)
-        if assigned_start is not None:
-            clauses.append("r.assigned_at >= :assigned_date_start")
-            params["assigned_date_start"] = self._clue_query_datetime(assigned_start)
-        assigned_end_exclusive = _parse_filter_date_end(assigned_date_end)
-        if assigned_end_exclusive is not None:
-            clauses.append("r.assigned_at < :assigned_date_end_exclusive")
-            params["assigned_date_end_exclusive"] = self._clue_query_datetime(
-                assigned_end_exclusive
-            )
+        where_sql, params = self._clue_where({
+            "scope_store_ids": scoped_store_ids,
+            "assigned_date_start": assigned_date_start,
+            "assigned_date_end": assigned_date_end,
+        }, include_round=True)
 
         display_status_sql = self._store_display_status_sql(include_round=True)
-        rows = self._execute(
-            f"""
-            SELECT r.assigned_store_id,
-                   COUNT(*) AS total_count,
-                   COALESCE(SUM(CASE WHEN {display_status_sql} = '待跟进'
-                       THEN 1 ELSE 0 END), 0) AS pending_count,
-                   COALESCE(SUM(CASE WHEN {display_status_sql} = '已跟进'
-                       THEN 1 ELSE 0 END), 0) AS followed_count,
-                   COALESCE(SUM(CASE WHEN r.is_followed = true THEN 1 ELSE 0 END), 0)
-                       AS action_followed_count,
-                   COALESCE(SUM(CASE WHEN r.is_follow_success = true THEN 1 ELSE 0 END), 0)
-                       AS effective_followed_count
+        # The report's received-task denominator, status partitions and
+        # system-result flag are its existing v1 contract. A human action,
+        # however, needs a traceable valid submission, just like clue details
+        # and exports; a projection flag alone is not submission evidence.
+        # Derive both counts from the same selected task stream so concurrent
+        # receipt cannot add a numerator outside the report's denominator.
+        metrics_by_store: dict[str, dict[str, int]] = {}
+        cutoff = datetime.now(timezone.utc)
+        query = text(f"""
+            SELECT r.assignment_round_id, r.order_id, r.assigned_store_id,
+                   r.is_follow_success, {display_status_sql} AS store_display_status
             FROM clue_assignment_rounds r
             JOIN clue_center_orders c ON c.order_id = r.order_id
-            WHERE {' AND '.join(clauses)}
-            GROUP BY r.assigned_store_id
-            """,
-            params,
-        )
-        metrics_by_store = {
-            _to_str(row.get("assigned_store_id")): row
-            for row in rows
-        }
+            {where_sql}
+            ORDER BY r.order_id, r.assignment_round_id
+        """)
+        for batch in self.session.execute(query, params).mappings().partitions(400):
+            facts = load_clue_task_facts(self.session, {row["order_id"] for row in batch}, observed_through=cutoff)
+            for row in batch:
+                store_id = row["assigned_store_id"]
+                metrics = metrics_by_store.setdefault(store_id, dict.fromkeys((
+                    "total_count", "pending_count", "followed_count", "effective_followed_count", "action_followed_count",
+                ), 0))
+                metrics["total_count"] += 1
+                metrics["pending_count"] += int(row["store_display_status"] == "待跟进")
+                metrics["followed_count"] += int(row["store_display_status"] == "已跟进")
+                metrics["effective_followed_count"] += int(_to_bool(row["is_follow_success"]))
+                fact = facts.get(row["assignment_round_id"])
+                if fact is not None and fact.follow_any_record_ids:
+                    metrics["action_followed_count"] += 1
         summary_rows = []
         for store in stores:
             metrics = metrics_by_store.get(store["store_id"], {})
