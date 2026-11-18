@@ -35,6 +35,7 @@ from apps.worker.clue_allocation import (
     lock_clue_masters_for_update,
     load_product_store_scores,
     normalize_city_code,
+    refresh_product_routing_anchor,
     refresh_terminal_evidence_for_locked_lead,
 )
 from apps.worker.clue_headquarters_pool import (
@@ -656,6 +657,8 @@ def _allocate_product_routing_locked(
         is_terminal = refresh_terminal_evidence_for_locked_lead(session, lead, now=now)
     if is_terminal or lead.lifecycle_status != "active" or lead.normalized_order_status != "active":
         return AllocationResult(lead.lead_key, "skipped", "order_already_terminal" if is_terminal else "lead_not_active", None, None)
+    if allow_headquarters and not trial:
+        refresh_product_routing_anchor(session, lead, now=now)
 
     # The pointer alone is insufficient after a retry or a stale projection.
     active = session.scalar(select(ClueAssignmentRound)

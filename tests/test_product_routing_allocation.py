@@ -409,6 +409,48 @@ def test_first_invalid_anchor_can_be_repaired_once_then_freezes(db_session, ingr
     assert len(ingress["calls"]) == 1
 
 
+@pytest.mark.parametrize("missing", ["mapping", "coordinates"])
+def test_headquarters_resume_repairs_current_original_facts_without_new_raw_observation(db_session, ingress, lists, missing):
+    if missing == "coordinates":
+        store = db_session.get(clue_allocation.DimStore, "anchor")
+        store.latitude = store.longitude = None
+        db_session.flush()
+    poi = "poi-repaired" if missing == "mapping" else "poi-anchor"
+    lead = _ingest(db_session, poi=poi)
+    assert lead.pool_location == "headquarters_pool"
+    if missing == "mapping":
+        db_session.add(DimStorePoiMapping(store_id="anchor", poi_id=poi))
+    else:
+        store.latitude, store.longitude = Decimal("31.23"), Decimal("121.47")
+    db_session.flush()
+    # The unchanged source observation is deliberately skipped by collection.
+    _ingest(db_session, poi=poi)
+    assert lead.anchor_unavailable_reason is not None
+    lists["stores"] = {"anchor"}
+    result = engine.resume_product_routing(db_session, lead.lead_key, now=NOW + timedelta(minutes=1), actor="hq-admin")
+    assert result.status == "assigned"
+    assert lead.anchor_store_id == "anchor"
+    assert lead.anchor_unavailable_reason is None
+    assert lead.anchor_poi_id == poi
+    assert lead.anchor_latitude == Decimal("31.23")
+    assert lead.anchor_longitude == Decimal("121.47")
+
+
+def test_unmapped_original_poi_is_preserved_across_later_platform_store_change(db_session, ingress, lists):
+    lead = _ingest(db_session, poi="poi-original-unmapped")
+    assert lead.anchor_poi_id == "poi-original-unmapped"
+    _ingest(db_session, poi="poi-other", observed=NOW + timedelta(hours=1))
+    assert lead.anchor_poi_id == "poi-original-unmapped"
+    assert lead.anchor_store_id is None
+    db_session.add(DimStorePoiMapping(store_id="anchor", poi_id="poi-original-unmapped"))
+    db_session.flush()
+    lists["stores"] = {"anchor"}
+    result = engine.resume_product_routing(db_session, lead.lead_key, now=NOW + timedelta(hours=2), actor="hq-admin")
+    assert result.selected_store_id == "anchor"
+    assert lead.anchor_store_id == "anchor"
+    assert lead.anchor_poi_id == "poi-original-unmapped"
+
+
 def test_isolated_source_binding_survives_order_recovery(db_session, ingress):
     lead = _ingest(db_session, order_id=None)
     first_key = lead.lead_key

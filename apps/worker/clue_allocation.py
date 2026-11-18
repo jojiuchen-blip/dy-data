@@ -147,6 +147,8 @@ def _set_master_anchor(lead: ClueMasterLead, anchor: AnchorSnapshot) -> None:
 
 
 def _has_frozen_routing_anchor(lead: ClueMasterLead) -> bool:
+    if lead.routing_mode == "direct" and lead.anchor_poi_id and lead.anchor_store_id:
+        return True
     return bool(
         lead.anchor_poi_id and lead.anchor_store_id
         and normalize_city_code(lead.anchor_city_code)
@@ -158,6 +160,39 @@ def _has_frozen_routing_anchor(lead: ClueMasterLead) -> bool:
 def _is_product_business_closed(lead: ClueMasterLead) -> bool:
     return bool(lead.routing_mode is not None and lead.closed_at is not None
         and lead.allocation_state == "closed")
+
+
+def refresh_product_routing_anchor(session: Session, lead: ClueMasterLead, *, now: datetime) -> None:
+    """Repair missing original location facts without requiring a new raw pull.
+
+    The caller holds the master lock. A known original POI is never replaced
+    by a later platform store; complete anchor snapshots remain immutable.
+    """
+    if lead.routing_mode is None or _has_frozen_routing_anchor(lead):
+        return
+    original_poi = _clean(lead.anchor_poi_id)
+    if original_poi is None:
+        source = session.scalar(select(RawDouyinClue)
+            .where(RawDouyinClue.clue_row_key == lead.source_clue_row_key)
+            .execution_options(populate_existing=True))
+        if source is None or source.order_id != lead.order_id:
+            return
+        original_poi = _clean(source.follow_poi_id)
+    if original_poi is None:
+        return
+    mapping = session.scalar(select(DimStorePoiMapping)
+        .where(DimStorePoiMapping.poi_id == original_poi)
+        .execution_options(populate_existing=True))
+    store = session.scalar(select(DimStore).where(DimStore.store_id == mapping.store_id)
+        .execution_options(populate_existing=True)) if mapping is not None else None
+    anchor = _resolve_anchor(RawDouyinClue(follow_poi_id=original_poi),
+        {original_poi: mapping} if mapping is not None else {},
+        {store.store_id: store} if store is not None else {})
+    before = _master_anchor_snapshot(lead)
+    _set_master_anchor(lead, anchor)
+    if before != anchor:
+        lead.state_version = max(lead.state_version or 1, 1) + 1
+        lead.updated_at = now
 
 
 @dataclass
@@ -652,6 +687,9 @@ def materialize_clue_master_leads(
             else:
                 bind_product_routing(session, existing, raw_clue.product_id, now)
         elif existing.routing_mode is not None and _has_frozen_routing_anchor(existing):
+            anchor = _master_anchor_snapshot(existing)
+        elif existing.routing_mode is not None and existing.anchor_poi_id and anchor.poi_id != existing.anchor_poi_id:
+            refresh_product_routing_anchor(session, existing, now=now)
             anchor = _master_anchor_snapshot(existing)
 
         business_closed = _is_product_business_closed(existing)
