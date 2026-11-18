@@ -108,6 +108,96 @@ def test_fixed_24_hours_is_independent_of_sla_and_duplicate_records(db_session):
     assert fact.follow_any_record_ids == ("F", "repeat")
 
 
+@pytest.mark.parametrize("result", ["continue_following", "success", "failed"])
+@pytest.mark.parametrize("hour,expected_fast", [(1, 1), (30, 0)])
+def test_historical_schema_supported_manual_records_keep_fixed_window_counts(db_session, result, hour, expected_fast):
+    _order(db_session)
+    _task(db_session)
+    _follow(db_session, result=result, hour=hour)
+    db_session.commit()
+    fact = load_clue_task_facts(db_session, ["O"], observed_through=CUTOFF)["R"]
+    assert (fact.follow_24h_numerator, fact.follow_any_numerator, fact.follow_denominator) == (expected_fast, 1, 1)
+    assert fact.follow_any_record_ids == ("F",)
+    assert fact.verification_numerator == 0  # a historical success record is not a source verification
+
+
+@pytest.mark.parametrize("invalid", ["deleted", "wrong-store", "wrong-task", "before", "after-close", "unknown-value"])
+def test_historical_labels_do_not_bypass_record_validity(db_session, invalid):
+    _order(db_session)
+    row = _task(db_session)
+    if invalid == "after-close":
+        row.closed_at = AT + timedelta(hours=2)
+    _follow(db_session, result="need_follow_up" if invalid == "unknown-value" else "continue_following",
+            deleted=invalid == "deleted", store="B" if invalid == "wrong-store" else "A",
+            task="another-task" if invalid == "wrong-task" else "R",
+            hour=-1 if invalid == "before" else 3 if invalid == "after-close" else 1)
+    db_session.commit()
+    fact = load_clue_task_facts(db_session, ["O"], observed_through=CUTOFF)["R"]
+    assert fact.follow_24h_numerator == fact.follow_any_numerator == 0
+    assert fact.follow_denominator == 1
+
+
+def test_historical_success_record_at_its_projected_close_is_a_manual_submission(db_session):
+    _order(db_session)
+    row = _task(db_session, status="closed_order_verified")
+    row.closed_at = row.verified_at = AT + timedelta(hours=2)
+    row.verified_store_id = "A"
+    _follow(db_session, result="success", hour=2)
+    db_session.commit()
+    fact = load_clue_task_facts(db_session, ["O"], observed_through=CUTOFF)["R"]
+    assert (fact.follow_24h_numerator, fact.follow_any_numerator, fact.follow_denominator) == (1, 1, 1)
+    assert fact.verification_numerator == 0
+    assert load_self_store_verifications(db_session, ["O"], observed_through=CUTOFF) == ()
+
+
+def test_historical_failed_record_that_closes_its_task_counts_once(db_session):
+    _order(db_session)
+    row = _task(db_session, status="closed_lost")
+    row.closed_at = AT + timedelta(hours=2)
+    _close_lead(db_session, hour=2, reason="failed")
+    _follow(db_session, result="failed", hour=2)
+    _follow(db_session, "late-failed", result="failed", hour=3)
+    db_session.commit()
+    fact = load_clue_task_facts(db_session, ["O"], observed_through=CUTOFF)["R"]
+    assert fact.follow_any_record_ids == ("F",)
+    assert (fact.follow_24h_numerator, fact.follow_any_numerator, fact.follow_denominator) == (1, 1, 1)
+
+
+def test_historical_projection_flags_without_a_manual_record_do_not_count(db_session):
+    _order(db_session)
+    row = _task(db_session)
+    row.follow_result = "continue_following"
+    row.is_followed = row.is_follow_success = True
+    row.followed_at = AT + timedelta(hours=1)
+    db_session.commit()
+    fact = load_clue_task_facts(db_session, ["O"], observed_through=CUTOFF)["R"]
+    assert fact.follow_24h_numerator == fact.follow_any_numerator == 0
+    assert fact.follow_denominator == 1
+
+
+@pytest.mark.parametrize("result", ["success", "failed"])
+@pytest.mark.parametrize("terminal", ["verified", "refunded", "closed"])
+def test_actual_order_terminal_at_same_instant_precedes_historical_label(db_session, result, terminal):
+    _order(db_session)
+    row = _task(db_session, status="closed_order_verified" if terminal == "verified" else "closed_order")
+    row.closed_at = AT + timedelta(hours=2)
+    _follow(db_session, result=result, hour=2)
+    if terminal == "verified":
+        row.verified_at, row.verified_store_id = row.closed_at, "A"
+        _verify(db_session, hour=2)
+    else:
+        order = db_session.scalar(select(RawDouyinOrder))
+        order.order_status_normalized = terminal
+        order.raw_payload = {"refund_completed_at" if terminal == "refunded" else "closed_at": row.closed_at.isoformat()}
+    db_session.commit()
+    fact = load_clue_task_facts(db_session, ["O"], observed_through=CUTOFF)["R"]
+    assert fact.follow_24h_numerator == fact.follow_any_numerator == 0
+    assert fact.follow_denominator == (1 if terminal == "verified" else 0)
+    if terminal == "verified":
+        assert fact.verification_numerator == 1
+        assert fact.verification_facts[0].had_valid_follow_before_verify is False
+
+
 def test_early_self_verification_does_not_create_manual_follow(db_session):
     _order(db_session)
     row = _task(db_session)

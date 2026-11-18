@@ -39,9 +39,15 @@ from apps.api.dy_api.models import ClueAssignmentRound, ClueMasterLead
 TASK_METRIC_VERSION = "clue-task-v1-actual-time-attribution"
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 FOLLOW_WINDOW = timedelta(hours=24)
-MANUAL_FOLLOW_RESULTS = frozenset({
+CURRENT_MANUAL_FOLLOW_RESULTS = frozenset({
     "appointment", "further_follow_up", "unreachable", "lost", "request_store_change",
 })
+# Persisted historical manual records retain these schema-supported values.
+# Current commands still accept only the five current actions. A projection
+# flag or a source verification never creates any manual record here.
+LEGACY_MANUAL_FOLLOW_RESULTS = frozenset({"continue_following", "success", "failed"})
+MANUAL_FOLLOW_RESULTS = CURRENT_MANUAL_FOLLOW_RESULTS | LEGACY_MANUAL_FOLLOW_RESULTS
+MANUAL_CLOSE_RESULTS = frozenset({"lost", "request_store_change", "success", "failed"})
 ACTIVE_STATUSES = frozenset({"active_unfollowed", "active_followed"})
 PENDING_HANDOFF_STATUSES = frozenset({"expired_pending_reassign", "failed_pending_reassign"})
 CLUE_TASK_METRIC_DEFINITIONS = {
@@ -196,6 +202,7 @@ def _valid_follows(
     end_at: datetime | None,
     next_at: datetime | None,
     terminal_at: datetime | None,
+    allow_legacy_success_at_close: bool = False,
 ) -> tuple[FollowUpEvidence, ...]:
     valid: dict[str, FollowUpEvidence] = {}
     for record in records:
@@ -206,17 +213,23 @@ def _valid_follows(
                 or record.assigned_store_id != round_value.assigned_store_id
                 or at < round_value.assigned_at or at > cutoff):
             continue
+        closes_task = at == end_at and record.follow_result in MANUAL_CLOSE_RESULTS
         if terminal_at is not None and at >= terminal_at:
-            continue
+            # A historical manual "success" record can share its timestamp
+            # with a round-only verification summary. That summary cannot
+            # erase the actual human record. An independently timed verification,
+            # full refund or invalid order still wins the exact-time boundary.
+            legacy_manual_close = (
+                allow_legacy_success_at_close and record.follow_result == "success"
+                and at == terminal_at and closes_task
+            )
+            if not legacy_manual_close:
+                continue
         if next_at is not None and at >= next_at:
             continue
         if end_at is not None and at >= end_at:
             # The action that actually closes a task is itself a valid
             # submission. Later immutable records cannot extend its period.
-            closes_task = (
-                at == end_at and at == round_value.closed_at
-                and record.follow_result in {"lost", "request_store_change"}
-            )
             if not closes_task:
                 continue
         valid.setdefault(record.follow_up_record_id, record)
@@ -255,6 +268,16 @@ def _evaluate_order(
         terminal_at, terminal_kind = min(terminal_candidates, key=lambda item: (item[0], item[1] != "verified"))
     else:
         terminal_at, terminal_kind = None, terminal.kind
+    independent_terminal_at = _minimum(
+        first_verify_at,
+        nonverify.terminal_at if nonverify.source != "assignment_round" else None,
+        terminal.terminal_at if terminal.source != "assignment_round" else None,
+        *(item.verified_at for item in evidence.verifications if item.source != "assignment_round"),
+    )
+    allow_legacy_success_at_close = (
+        terminal.kind == "verified" and terminal.source == "assignment_round" and terminal_at is not None
+        and (independent_terminal_at is None or terminal_at < independent_terminal_at)
+    )
     lead_close_at = min((item.at for item in lead_closes), default=None)
     overall_close_at = _minimum(lead_close_at, terminal_at)
     last = rounds[-1]
@@ -275,6 +298,7 @@ def _evaluate_order(
             row, evidence.follow_ups_for(row.assignment_round_id), cutoff=cutoff,
             end_at=ends[row.assignment_round_id], next_at=next_times[row.assignment_round_id],
             terminal_at=terminal_at,
+            allow_legacy_success_at_close=allow_legacy_success_at_close,
         )
 
     attributed: list[tuple[EffectiveVerification, str | None, str | None, bool, bool]] = []
