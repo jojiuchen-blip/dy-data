@@ -85,7 +85,8 @@ def test_list_publish_default_off_enable_needs_authorization_and_readback(client
     failed = client.post(f"{BASE}/products/batch", json={"product_ids": ["byd-product"], "action": "enable", "preview": False})
     assert failed.json()["data"]["results"][0]["error"]["code"] == "AUTHORIZATION_REQUIRED"
     enabled = client.post(f"{BASE}/products/batch", json={"product_ids": ["byd-product"], "action": "enable", "preview": False,
-        "authorization_note": "业务负责人核对有效名单并授权开启"})
+        "authorization_note": "业务负责人核对有效名单并授权开启",
+        "expected_list_versions": {"byd-product": first.json()["data"]["results"][0]["after"]["list_version"]}})
     assert enabled.json()["data"]["results"][0]["after"]["routing_enabled"] is True
     db_session.expire_all()
     assert db_session.get(ClueProductRoutingConfig, "byd-product").routing_enabled is True

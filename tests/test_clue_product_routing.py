@@ -33,6 +33,11 @@ def _seed(session):
 
 
 def _batch(session, action, ids=("p-jc",), **extra):
+    if action == "enable" and "expected_list_versions" not in extra:
+        extra["expected_list_versions"] = {
+            product_id: config.active_list_version_id if (config := session.get(ClueProductRoutingConfig, product_id)) else None
+            for product_id in ids
+        }
     return batch_product_changes(session, ADMIN, {"product_ids": list(ids), "action": action, "preview": False, **extra})
 
 
@@ -148,3 +153,32 @@ def test_byd_uses_identified_shared_base_and_never_a_pilot_exception(db_session)
     assert version.snapshot["base_rule_version_id"] == base_id
     publish_shared_rule(db_session, ADMIN, {"first_follow_up_sla_hours": 24}, preview=False)
     assert version.first_follow_up_sla_hours == 36
+
+
+def test_enable_requires_preview_of_the_exact_still_published_list(db_session):
+    _seed(db_session)
+    _batch(db_session, "publish_list", ids=("p-byd",), store_ids=["001"])
+    body = {"product_ids": ["p-byd"], "action": "enable", "authorization_note": "确认预览名单并授权", "preview": True}
+    preview = batch_product_changes(db_session, ADMIN, body)
+    approved_version = preview["results"][0]["before"]["list_version"]
+    missing = batch_product_changes(db_session, ADMIN, {**body, "preview": False})
+    assert missing["results"][0]["error"]["code"] == "PREVIEW_REQUIRED"
+    _batch(db_session, "publish_list", ids=("p-byd",), store_ids=["002"])
+    stale = batch_product_changes(db_session, ADMIN, {**body, "preview": False,
+        "expected_list_versions": {"p-byd": approved_version}})
+    assert stale["results"][0]["error"]["code"] == "LIST_VERSION_CHANGED"
+    assert not db_session.get(ClueProductRoutingConfig, "p-byd").routing_enabled
+    latest = db_session.get(ClueProductRoutingConfig, "p-byd").active_list_version_id
+    assert batch_product_changes(db_session, ADMIN, {**body, "preview": False,
+        "expected_list_versions": {"p-byd": latest}})["succeeded"] == 1
+
+
+def test_all_matching_selection_over_5000_is_processed_in_chunks(db_session):
+    db_session.add_all([DimSkuProductRule(sku_id=f"sku-{index}", product_id=f"p-{index:05}",
+        product_name="大批商品", product_scope="比亚迪本品") for index in range(5001)])
+    db_session.commit()
+    response = batch_product_changes(db_session, ADMIN, {"all_matching": True,
+        "filters": {"q": "大批商品", "product_scope": "byd"}, "action": "disable", "preview": True})
+    assert response["total"] == response["succeeded"] == 5001
+    assert response["failed"] == 0
+    assert db_session.scalar(select(func.count()).select_from(ClueProductRoutingConfig)) == 0

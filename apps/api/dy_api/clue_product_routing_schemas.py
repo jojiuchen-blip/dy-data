@@ -48,14 +48,15 @@ class ProductStoreListInput(StrictRoutingModel):
 class ProductRoutingBatchRequest(StrictRoutingModel):
     """An explicit preview or commit, with independent product outcomes."""
 
-    product_ids: list[str] = Field(default_factory=list, max_length=5000)
+    product_ids: list[str] = Field(default_factory=list)
     all_matching: bool = False
     filters: ProductRoutingFilters = Field(default_factory=ProductRoutingFilters)
     action: Literal["publish_list", "publish_rule", "enable", "disable"]
     store_ids: list[str] | None = Field(default=None, max_length=20000)
-    lists: list[ProductStoreListInput] | None = Field(default=None, max_length=5000)
+    lists: list[ProductStoreListInput] | None = None
     rules: ProductRulePatch | None = None
     authorization_note: str | None = Field(default=None, max_length=2000)
+    expected_list_versions: dict[str, str | None] | None = None
     preview: bool = True
 
     @model_validator(mode="after")

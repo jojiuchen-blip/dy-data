@@ -7,6 +7,7 @@ All mutation functions participate in their caller's transaction.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime
 from decimal import Decimal
@@ -28,13 +29,13 @@ from apps.api.dy_api.models import (
     DimStore, RawDouyinClue, User, utcnow,
 )
 from apps.worker.clue_rule_versions import (
-    bind_lead_rule_version, create_rule_version, publish_rule_version,
+    RuleVersionError, bind_lead_rule_version, create_rule_version, publish_rule_version,
     resolve_published_rule_version, rule_version_snapshot,
 )
 
 
 SHARED_BASE_SCOPE_KEY = "product_base:jingcheng"
-MAX_BATCH_PRODUCTS = 5000
+PRODUCT_PROCESSING_CHUNK_SIZE = 200
 RULE_PATCH_KEYS = frozenset(DEFAULT_FOLLOW_UP_POLICY) | {"first_follow_up_sla_hours", "follow_up_policy"}
 
 
@@ -67,6 +68,7 @@ def has_published_product_store_list(session: Session, product_id: str | None) -
         ClueProductRoutingConfig.product_id == product_id,
         ClueProductStoreListVersion.list_version_id == ClueProductRoutingConfig.active_list_version_id,
         ClueProductStoreListVersion.product_id == product_id,
+        ClueProductStoreListMember.list_version_id == ClueProductStoreListVersion.list_version_id,
     ))))
 
 
@@ -195,16 +197,13 @@ def batch_product_changes(
         product_ids = list(session.scalars(select(matching.c.product_id).order_by(matching.c.product_id)))
     else:
         product_ids = _normalized_ids(payload.get("product_ids") or ())
-    if len(product_ids) > MAX_BATCH_PRODUCTS:
-        raise ProductRoutingError("PRODUCT_LIMIT_EXCEEDED", "一次最多处理 5000 个商品，请缩小筛选范围", http_status=422)
     results = []
-    for product_id in product_ids:
+    for product_id, catalog_row, cached_preview in _product_change_rows(session, actor, product_ids, preview=preview):
         before: dict[str, Any] = {}
         try:
-            with session.begin_nested():
-                if not can_manage_product(session, actor, product_id):
+            with (nullcontext() if preview else session.begin_nested()):
+                if not (cached_preview.get("can_manage", False) if preview and cached_preview else can_manage_product(session, actor, product_id)):
                     raise ProductRoutingError("PRODUCT_FORBIDDEN", "该商品不存在或无管理权限", http_status=403)
-                catalog_row = _catalog_row(session, product_id)
                 if catalog_row is None:
                     raise ProductRoutingError("PRODUCT_NOT_FOUND", "商品不存在")
                 if not preview:
@@ -212,11 +211,17 @@ def batch_product_changes(
                     # Grants can be revoked between preview and commit.
                     if not can_manage_product(session, actor, product_id):
                         raise ProductRoutingError("PRODUCT_FORBIDDEN", "该商品不存在或无管理权限", http_status=403)
-                before = _product_snapshot(session, actor, catalog_row)
+                before = cached_preview if preview and cached_preview else _product_snapshot(session, actor, catalog_row)
                 after = _preview_change(session, before, payload)
                 if not preview:
-                    _apply_change(session, actor, product_id, payload, after)
-                    after = _product_snapshot(session, actor, catalog_row)
+                    config = _apply_change(session, actor, product_id, payload, after)
+                    after.pop("proposed_change", None)
+                    after.update({"routing_enabled": config.routing_enabled,
+                                  "rule_version_id": config.rule_version_id,
+                                  "list_version": config.active_list_version_id})
+                    if config.rule_version_id:
+                        applied_version = session.get(ClueAllocationRuleVersion, config.rule_version_id)
+                        after.update(_rule_settings(_shared_snapshot(session, applied_version)))
                     _audit(session, actor, f"product_routing_{payload['action']}", product_id,
                            before, after, request_id=request_id,
                            detail={"authorization_note": str(payload.get("authorization_note") or "").strip()})
@@ -228,6 +233,12 @@ def batch_product_changes(
             if not preview:
                 _audit(session, actor, f"product_routing_{payload['action']}", product_id,
                        before, before, request_id=request_id, error=exc.code)
+        except RuleVersionError:
+            results.append({"product_id": product_id, "status": "failed", "before": before, "after": before,
+                            "error": {"code": "INVALID_RULE", "message": "规则发布校验失败，原配置已保留，请检查后重试"}})
+            if not preview:
+                _audit(session, actor, f"product_routing_{payload['action']}", product_id,
+                       before, before, request_id=request_id, error="INVALID_RULE")
         except SQLAlchemyError:
             results.append({"product_id": product_id, "status": "failed", "before": before, "after": before,
                             "error": {"code": "CONFLICT", "message": "商品发布冲突，原配置已保留，请单独重试"}})
@@ -239,7 +250,8 @@ def batch_product_changes(
                 "failed": sum(row["status"] == "failed" for row in results)}
     if operation is not None:
         operation.result_json = deepcopy(response)
-    session.flush()
+    if not preview:
+        session.flush()
     return response
 
 
@@ -338,6 +350,19 @@ def _catalog_row(session: Session, product_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+def _product_change_rows(session: Session, actor: Any, product_ids: list[str], *, preview: bool):
+    # A processing chunk is a database/memory boundary, never a selection cap.
+    # The full authorized filter result can span any number of these chunks.
+    for offset in range(0, len(product_ids), PRODUCT_PROCESSING_CHUNK_SIZE):
+        chunk = product_ids[offset:offset + PRODUCT_PROCESSING_CHUNK_SIZE]
+        catalog = _catalog()
+        rows = [dict(row) for row in session.execute(select(catalog).where(catalog.c.product_id.in_(chunk))).mappings()]
+        catalogs = {row["product_id"]: row for row in rows}
+        previews = {row["product_id"]: row for row in _product_snapshots(session, actor, rows)} if preview else {}
+        for product_id in chunk:
+            yield product_id, catalogs.get(product_id), previews.get(product_id)
+
+
 def _product_snapshot(session: Session, actor: Any, catalog_row: Mapping[str, Any]) -> dict[str, Any]:
     return _product_snapshots(session, actor, [catalog_row])[0]
 
@@ -408,6 +433,12 @@ def _preview_change(session: Session, before: Mapping[str, Any], payload: Mappin
             raise ProductRoutingError("AUTHORIZATION_REQUIRED", "正式开启前须填写业务负责人确认名单并授权开启的说明")
         if not has_published_product_store_list(session, before["product_id"]) or not before["store_ids"]:
             raise ProductRoutingError("PUBLISHED_LIST_REQUIRED", "请先发布该商品的有效适用门店名单")
+        if not payload.get("preview", True):
+            expected = (payload.get("expected_list_versions") or {}).get(before["product_id"])
+            if not isinstance(expected, str) or not expected:
+                raise ProductRoutingError("PREVIEW_REQUIRED", "请先预览并确认该商品已发布的有效名单，再授权开启")
+            if expected != before["list_version"]:
+                raise ProductRoutingError("LIST_VERSION_CHANGED", "名单已在预览后换版，商品保持原开关状态，请重新预览确认")
         after["routing_enabled"] = True
     elif action == "disable":
         after["routing_enabled"] = False
@@ -417,8 +448,10 @@ def _preview_change(session: Session, before: Mapping[str, Any], payload: Mappin
     return after
 
 
-def _apply_change(session: Session, actor: Any, product_id: str, payload: Mapping[str, Any], after: Mapping[str, Any]) -> None:
-    config = _locked_config(session, product_id)
+def _apply_change(session: Session, actor: Any, product_id: str, payload: Mapping[str, Any], after: Mapping[str, Any]) -> ClueProductRoutingConfig:
+    # The caller already holds this product row lock and has rechecked grants.
+    config = session.get(ClueProductRoutingConfig, product_id)
+    assert config is not None
     action = payload["action"]
     if action == "publish_list":
         store_ids = after["store_ids"]
@@ -446,7 +479,12 @@ def _apply_change(session: Session, actor: Any, product_id: str, payload: Mappin
                 session.flush()
                 config.rule_id = rule.rule_id
             inherited_base_id = (old_version.snapshot or {}).get("base_rule_version_id") if old_version else base_version.rule_version_id
-            version = _publish_version(session, rule, actor, after, product_scope=after["product_scope"],
+            effective_settings = after
+            if old_version is None:
+                effective_settings = _shared_snapshot(session, base_version)
+                if action == "publish_rule":
+                    effective_settings.update(_patched_rule(effective_settings, payload.get("rules") or {}))
+            version = _publish_version(session, rule, actor, effective_settings, product_scope=after["product_scope"],
                                        base_version_id=inherited_base_id)
             config.rule_version_id = version.rule_version_id
     if action in {"enable", "disable"}:
@@ -454,6 +492,7 @@ def _apply_change(session: Session, actor: Any, product_id: str, payload: Mappin
     config.updated_by = _actor_key(actor)
     config.updated_at = utcnow()
     session.flush()
+    return config
 
 
 def _patched_rule(before: Mapping[str, Any], rules: Mapping[str, Any]) -> dict[str, Any]:
