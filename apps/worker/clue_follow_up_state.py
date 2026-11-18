@@ -294,6 +294,16 @@ def _process_product_due_round(
         session, lead.lead_key, now=now,
         transition_key=f"follow-up-due:{round_row.assignment_round_id}:{cause}",
     )
+    if lead.normalized_order_status in TERMINAL_ORDER_STATUSES:
+        # Continuation rechecks source facts too. A terminal committed after
+        # our first check must persist its closure rather than roll it back as
+        # a failed allocation. The tentative expiry above was not committed.
+        terminal_at = _aware(lead.closed_at) if lead.closed_at is not None else now
+        round_row.closed_at = min(_aware(round_row.closed_at), terminal_at)
+        round_row.reassigned_at = None
+        round_row.reassign_reason = None
+        _close_for_terminal_order(lead, round_row, now, session)
+        return "terminal_closed", None
     if result.status not in {"assigned", "headquarters", "closed"}:
         raise RuntimeError("product continuation did not resolve the expired task")
     return result.status, cause

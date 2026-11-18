@@ -188,3 +188,30 @@ def test_competing_real_due_consumers_create_only_one_next_task(product_factory,
         assert len(rows) == 2
         assert sum(row.round_status in {"active_unfollowed", "active_followed"} for row in rows) == 1
         assert session.get(ClueAssignmentRound, first.assignment_round_id).closed_at == due_at
+
+
+def test_terminal_discovered_by_real_continuation_is_committed_without_retry(product_factory, monkeypatch):
+    factory, _ = product_factory
+    with factory() as session:
+        first = clue_allocation_engine.allocate_lead(session, "lead-1", now=NOW)
+        session.commit()
+    original = clue_allocation_engine.continue_product_routing
+    def terminal_before_continuation(session, lead_key, **kwargs):
+        with factory() as source:
+            source.add(RawDouyinOrder(order_id="order-1", order_status="201", updated_at=NOW))
+            source.flush()
+            source.add(RawDouyinOrderCoupon(order_id="order-1", coupon_id="late-terminal",
+                coupon_status="301", coupon_status_normalized="refunded",
+                latest_refund_at=NOW + timedelta(hours=2), source_observed_at=NOW + timedelta(hours=3)))
+            source.commit()
+        return original(session, lead_key, **kwargs)
+    monkeypatch.setattr(clue_allocation_engine, "continue_product_routing", terminal_before_continuation)
+    result = clue_follow_up_state.run_product_follow_up_batch(factory, now=NOW + timedelta(days=1))
+    assert result["terminal_closed"] == 1 and result["failed"] == result["assigned"] == 0
+    with factory() as session:
+        assert session.query(ClueAssignmentRound).count() == 1
+        row = session.get(ClueAssignmentRound, first.assignment_round_id)
+        assert row.round_status == "closed_order_refunded"
+        assert row.closed_at == NOW + timedelta(hours=2)
+        assert row.reassigned_at is None and row.reassign_reason is None
+        assert session.get(ClueMasterLead, "lead-1").allocation_state == "closed"
