@@ -23,11 +23,12 @@ from apps.api.dy_api.clue_followup_metrics import (
     TerminalEvidence,
     load_clue_followup_evidence,
 )
-from apps.api.dy_api.clue_product_scope import validate_product_scope
+from apps.api.dy_api.clue_product_scope import scope_predicate, validate_product_scope
 from apps.api.dy_api.clue_task_metrics_sources import (
     EffectiveVerification,
     OrderProductClassification,
     batches,
+    jingcheng_order_predicate,
     load_effective_verifications,
     load_order_product_classifications,
     utc,
@@ -454,6 +455,7 @@ def load_store_task_totals(
             ClueAssignmentRound.execution_mode == "formal",
             ClueAssignmentRound.assigned_at >= start, ClueAssignmentRound.assigned_at < end,
             ClueAssignmentRound.assigned_at <= cutoff,
+            scope_predicate(product_scope, jingcheng_order_predicate(ClueAssignmentRound.order_id)),
         )).all())
     counters = {store_id: [0, 0, 0, 0, 0] for store_id in stores}
     for fact in load_clue_task_facts(session, order_ids, observed_through=cutoff).values():

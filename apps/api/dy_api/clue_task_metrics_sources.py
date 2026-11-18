@@ -12,7 +12,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import or_, select
+from sqlalchemy import literal, or_, select, union
+from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.clue_followup_metrics import VERIFY_SUCCESS_STATUSES
@@ -71,6 +72,29 @@ class EffectiveVerification:
     observed_at: datetime | None
 
 
+def jingcheng_order_predicate(order_id: ColumnElement[str]) -> ColumnElement[bool]:
+    """Filter the same three-source partition before loading task history.
+
+    Each source lookup correlates to an already date/store-scoped order. The
+    predicate is an EXISTS, so multiple clues or catalog SKUs never multiply
+    received-task denominators.
+    """
+    rule = DimSkuProductRule.__table__
+    order = RawDouyinOrder.__table__
+    clue = RawDouyinClue.__table__
+    center = ClueCenterOrder.__table__
+    from_order = select(literal(1)).select_from(order.join(rule, rule.c.sku_id == order.c.sku_id)).where(
+        order.c.order_id == order_id, rule.c.product_scope == "精诚养车",
+    ).correlate_except(order, rule).exists()
+    from_clue = select(literal(1)).select_from(clue.join(rule, or_(
+        rule.c.product_id == clue.c.product_id, rule.c.sku_id == clue.c.product_id,
+    ))).where(clue.c.order_id == order_id, rule.c.product_scope == "精诚养车").correlate_except(clue, rule).exists()
+    from_center = select(literal(1)).select_from(center.join(rule, or_(
+        rule.c.product_id == center.c.product_id, rule.c.sku_id == center.c.product_id,
+    ))).where(center.c.order_id == order_id, rule.c.product_scope == "精诚养车").correlate_except(center, rule).exists()
+    return or_(from_order, from_clue, from_center)
+
+
 def load_order_product_classifications(
     session: Session,
     order_ids: Iterable[str],
@@ -97,19 +121,24 @@ def load_order_product_classifications(
         ).where(RawDouyinClue.order_id.in_(batch))):
             if row.product_id:
                 clue_products[str(row.order_id)].add(str(row.product_id))
-        keys = {str(value) for value in order_skus.values() if value}
-        keys.update(str(row.product_id) for row in centers.values() if row.product_id)
-        keys.update(value for values in clue_products.values() for value in values)
+        # Resolve catalog keys through the same bounded order sources instead
+        # of issuing independent catalog lookups. A paginated live request
+        # cannot widen this query to unrelated products or the whole catalog.
+        source_keys = union(
+            select(RawDouyinOrder.sku_id.label("product_key")).where(RawDouyinOrder.order_id.in_(batch)),
+            select(ClueCenterOrder.product_id.label("product_key")).where(ClueCenterOrder.order_id.in_(batch)),
+            select(RawDouyinClue.product_id.label("product_key")).where(RawDouyinClue.order_id.in_(batch)),
+        ).subquery("task_product_sources")
         rules_by_sku: dict[str, object] = {}
         rules_by_product: defaultdict[str, dict[str, object]] = defaultdict(dict)
-        for key_batch in batches(keys):
-            for row in session.execute(select(
-                DimSkuProductRule.sku_id, DimSkuProductRule.product_id,
-                DimSkuProductRule.product_type, DimSkuProductRule.product_scope,
-            ).where(or_(DimSkuProductRule.sku_id.in_(key_batch), DimSkuProductRule.product_id.in_(key_batch)))):
-                rules_by_sku[str(row.sku_id)] = row
-                if row.product_id:
-                    rules_by_product[str(row.product_id)][str(row.sku_id)] = row
+        for row in session.execute(select(
+            DimSkuProductRule.sku_id, DimSkuProductRule.product_id,
+            DimSkuProductRule.product_type, DimSkuProductRule.product_scope,
+        ).join(source_keys, or_(DimSkuProductRule.sku_id == source_keys.c.product_key,
+                              DimSkuProductRule.product_id == source_keys.c.product_key))):
+            rules_by_sku[str(row.sku_id)] = row
+            if row.product_id:
+                rules_by_product[str(row.product_id)][str(row.sku_id)] = row
 
         def valid_type(row: object | None) -> str | None:
             value = str(getattr(row, "product_type", "") or "").strip()

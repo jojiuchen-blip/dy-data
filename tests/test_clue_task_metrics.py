@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import event, select
+from sqlalchemy.orm import load_only
 
 from apps.api.dy_api.clue_followup_metrics import (
     AssignmentRoundEvidence, ClueFollowUpEvidence, FollowUpEvidence,
@@ -17,7 +18,7 @@ from apps.api.dy_api.clue_task_metrics import (
     load_store_task_totals,
 )
 from apps.api.dy_api.clue_task_metrics_sources import (
-    OrderProductClassification, load_order_product_classifications,
+    OrderProductClassification, jingcheng_order_predicate, load_order_product_classifications,
 )
 from apps.api.dy_api.clue_verification_facts import enrich_verification_facts
 from apps.api.dy_api.models import (
@@ -300,12 +301,17 @@ def test_marketing_partition_keeps_three_source_membership_and_precise_type(db_s
     if source.startswith("center-"):
         db_session.add(ClueCenterOrder(order_id="O", lead_status="active", current_round_status="unassigned",
                                        product_id="P" if source == "center-product" else "JC"))
+    _task(db_session)
     db_session.commit()
     classification = load_order_product_classifications(db_session, ["O"])["O"]
     assert classification.is_jingcheng is (source != "unknown")
     assert classification.product_scope == ("byd" if source == "unknown" else "jingcheng")
     if source != "unknown":
         assert classification.product_type == "268保养"
+    selected = db_session.scalars(select(ClueAssignmentRound.order_id).where(
+        jingcheng_order_predicate(ClueAssignmentRound.order_id),
+    )).all()
+    assert selected == (["O"] if source != "unknown" else [])
 
 
 def test_allocation_totals_use_merged_counts_and_exclude_byd_samples(db_session):
@@ -454,3 +460,90 @@ def test_bulk_task_facts_have_constant_queries_per_identifier_batch(db_session):
         assert len(one) == 1 and len(many) == 12
     finally:
         event.remove(bind, "before_cursor_execute", capture)
+
+
+def test_catalog_resolution_is_joined_to_only_requested_order_sources(db_session):
+    _order(db_session, "selected")
+    for index in range(8):
+        _order(db_session, "unrelated-" + str(index), scope="比亚迪本品", product_type="保养")
+    db_session.commit()
+    captured = []
+
+    def capture(_connection, _cursor, statement, parameters, _context, _many):
+        if "dim_sku_product_rules" in statement:
+            captured.append((statement, parameters))
+
+    bind = db_session.get_bind()
+    event.listen(bind, "before_cursor_execute", capture)
+    try:
+        result = load_order_product_classifications(db_session, ["selected"])
+    finally:
+        event.remove(bind, "before_cursor_execute", capture)
+    assert set(result) == {"selected"}
+    assert result["selected"].is_jingcheng
+    assert len(captured) == 1
+    statement, parameters = captured[0]
+    assert all(source + ".order_id IN" in statement for source in (
+        "raw_douyin_orders", "raw_douyin_clues", "clue_center_orders",
+    ))
+    assert "JOIN (SELECT" in statement and "UNION" in statement
+    assert parameters == ("selected", "selected", "selected")
+
+
+def test_additive_evidence_metadata_respects_legacy_raiseload_projection(db_session):
+    _order(db_session)
+    _task(db_session)
+    _follow(db_session)
+    db_session.commit()
+    db_session.expunge_all()
+    round_row = db_session.scalar(select(ClueAssignmentRound).options(load_only(
+        ClueAssignmentRound.assignment_round_id, ClueAssignmentRound.order_id,
+        ClueAssignmentRound.round_no, ClueAssignmentRound.assigned_store_id,
+        ClueAssignmentRound.assigned_at, ClueAssignmentRound.execution_mode,
+        ClueAssignmentRound.verified_store_id, ClueAssignmentRound.verified_at,
+        ClueAssignmentRound.updated_at, raiseload=True,
+    )))
+    follow_row = db_session.scalar(select(ClueFollowUpRecord).options(load_only(
+        ClueFollowUpRecord.follow_up_record_id, ClueFollowUpRecord.order_id,
+        ClueFollowUpRecord.assignment_round_id, ClueFollowUpRecord.assigned_store_id,
+        ClueFollowUpRecord.created_at, ClueFollowUpRecord.deleted_at, raiseload=True,
+    )))
+    statements = []
+
+    def capture(_connection, _cursor, statement, _params, _context, _many):
+        statements.append(statement)
+
+    bind = db_session.get_bind()
+    event.listen(bind, "before_cursor_execute", capture)
+    try:
+        round_evidence = AssignmentRoundEvidence.from_row(round_row)
+        follow_evidence = FollowUpEvidence.from_row(follow_row)
+    finally:
+        event.remove(bind, "before_cursor_execute", capture)
+    assert round_evidence.assignment_round_id == "R" and round_evidence.assigned_store_id == "A"
+    assert round_evidence.closed_at is None and round_evidence.round_status is None
+    assert follow_evidence.follow_result is None
+    assert statements == []  # conversion never triggers a lazy SELECT
+
+
+def test_allocation_filters_product_scope_before_loading_order_histories(db_session, monkeypatch):
+    import apps.api.dy_api.clue_task_metrics as task_metrics
+
+    _order(db_session, "JC")
+    _task(db_session, "JC-task", order_id="JC")
+    _order(db_session, "BYD", scope="比亚迪本品", product_type="保养")
+    _task(db_session, "BYD-task", order_id="BYD")
+    db_session.commit()
+    loaded = []
+    original = task_metrics.load_clue_task_facts
+
+    def capture(session, order_ids, **kwargs):
+        selected = set(order_ids)
+        loaded.append(selected)
+        return original(session, selected, **kwargs)
+
+    monkeypatch.setattr(task_metrics, "load_clue_task_facts", capture)
+    task_metrics.load_store_task_totals(db_session, ["A"], AT, CUTOFF, product_scope="jingcheng", observed_through=CUTOFF)
+    task_metrics.load_store_task_totals(db_session, ["A"], AT, CUTOFF, product_scope="byd", observed_through=CUTOFF)
+    task_metrics.load_store_task_totals(db_session, ["A"], AT, CUTOFF, product_scope="all", observed_through=CUTOFF)
+    assert loaded == [{"JC"}, {"BYD"}, {"JC", "BYD"}]

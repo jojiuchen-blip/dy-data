@@ -24,7 +24,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any, Iterable, Literal, Mapping, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
@@ -98,6 +98,19 @@ def _text(value: object | None) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _optional_loaded_attr(row: Any, name: str) -> Any:
+    """Read additive evidence metadata without expanding a caller's load_only.
+
+    Legacy ranking callers intentionally raise on unselected ORM columns.
+    Their original projection need not hydrate new task metadata; the full
+    canonical bulk loader loads those columns explicitly with the round.
+    """
+    state = inspect(row, raiseerr=False)
+    if state is not None and name in getattr(state, "unloaded", ()):
+        return None
+    return getattr(row, name, None)
 
 
 def _normal_status(value: object | None) -> str:
@@ -228,11 +241,11 @@ class AssignmentRoundEvidence:
             verified_store_id=_text(getattr(row, "verified_store_id", None)),
             verified_at=_aware(getattr(row, "verified_at", None)),
             updated_at=_aware(getattr(row, "updated_at", None)),
-            lead_key=_text(getattr(row, "lead_key", None)),
-            closed_at=_aware(getattr(row, "closed_at", None)),
-            reassigned_at=_aware(getattr(row, "reassigned_at", None)),
-            round_status=_text(getattr(row, "round_status", None)),
-            terminal_reason=_text(getattr(row, "terminal_reason", None)),
+            lead_key=_text(_optional_loaded_attr(row, "lead_key")),
+            closed_at=_aware(_optional_loaded_attr(row, "closed_at")),
+            reassigned_at=_aware(_optional_loaded_attr(row, "reassigned_at")),
+            round_status=_text(_optional_loaded_attr(row, "round_status")),
+            terminal_reason=_text(_optional_loaded_attr(row, "terminal_reason")),
         )
 
 
@@ -255,7 +268,7 @@ class FollowUpEvidence:
             assigned_store_id=_text(getattr(row, "assigned_store_id", None)),
             created_at=_aware(getattr(row, "created_at", None)),
             deleted_at=_aware(getattr(row, "deleted_at", None)),
-            follow_result=_text(getattr(row, "follow_result", None)),
+            follow_result=_text(_optional_loaded_attr(row, "follow_result")),
         )
 
 
