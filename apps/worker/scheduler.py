@@ -534,19 +534,29 @@ def _clue_phone_recovery_loop(factory, stop: Event) -> None:
         stop.wait(60)
 
 
+def _run_clue_follow_up_tick(factory) -> None:
+    """Run an independent deadline batch without aborting scheduler work."""
+
+    if factory is None:
+        return
+    try:
+        from apps.worker.clue_follow_up_state import run_product_follow_up_batch
+
+        result = run_product_follow_up_batch(factory)
+        if result.get("processed") or result.get("failed"):
+            _log(f"clue_follow_up_result {json.dumps(result, sort_keys=True)}")
+    except Exception as exc:
+        # Keep the same safe signal in once and resident modes. SQL driver
+        # messages can contain source values or credentials; retain the error
+        # class while allowing the independent maintenance budget to proceed.
+        _log(f"clue_follow_up_failed type={type(exc).__name__}")
+
+
 def _clue_follow_up_loop(factory, stop: Event) -> None:
     """Run product flow deadlines independently of collection and settlement."""
 
-    from apps.worker.clue_follow_up_state import run_product_follow_up_batch
-
     while not stop.is_set() and not _STOP:
-        try:
-            if factory is not None:
-                result = run_product_follow_up_batch(factory)
-                if result.get("processed") or result.get("failed"):
-                    _log(f"clue_follow_up_result {json.dumps(result, sort_keys=True)}")
-        except Exception as exc:
-            _log(f"clue_follow_up_failed type={type(exc).__name__}")
+        _run_clue_follow_up_tick(factory)
         stop.wait(60)
 
 
@@ -581,10 +591,7 @@ def _run_priority_daily_ticks(factory) -> None:
     run_once_only = _truthy(os.getenv("WORKER_RUN_ONCE"))
     run_on_start = _truthy(os.getenv("WORKER_RUN_ON_START", "true"))
     if run_once_only:
-        if factory is not None:
-            from apps.worker.clue_follow_up_state import run_product_follow_up_batch
-
-            run_product_follow_up_batch(factory)
+        _run_clue_follow_up_tick(factory)
         _run_priority_tick_with_maintenance(factory)
         return
 
@@ -651,10 +658,7 @@ def main() -> None:
 
 def _run_legacy_scheduler(factory, *, run_once_only: bool, run_on_start: bool) -> None:
     if run_once_only:
-        if factory is not None:
-            from apps.worker.clue_follow_up_state import run_product_follow_up_batch
-
-            run_product_follow_up_batch(factory)
+        _run_clue_follow_up_tick(factory)
         run_once()
         return
     auto_enabled = _auto_sync_enabled(factory)
