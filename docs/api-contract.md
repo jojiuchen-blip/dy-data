@@ -182,7 +182,7 @@ DYDATA-88 修复后的运行约定：
 - 商品与归属规则：`/sku-rules*`、`/non-commission-owner-accounts*`、`/product-type-visibility*`。
 - 线索分配：`/clue-allocation/master-leads`、`decisions*`、`eligible-leads`、`headquarters-pool`、`cycles*`、`cycle-previews`、`trial-cycles`、`rebuild-cycles`、`audit-logs`、`store-scores*`、`rules*`、`rule-versions*`、`store-groups*`。
   - `GET /clue-routing/products` 返回当前人员有权管理的商品。`POST /clue-routing/products/batch` 预览并逐商品发布名单、规则或启停结果。正式开启要求有效名单和业务授权说明。后台与交互式管理 CLI 共用这些接口。
-  - `GET/PUT /clue-routing/products/{product_id}/grants` 由全范围管理员管理逐商品授权。`GET/PUT /clue-routing/shared-rule` 维护精诚共享规则版本，供商品首次启用时复制。
+  - 全范围管理员通过 `GET/PUT /clue-routing/products/{product_id}/grants` 管理逐商品授权，通过 `GET/PUT /clue-routing/shared-rule/grants` 管理精诚共享规则维护人。只获共享规则维护权的项目组成员可以使用 `GET/PUT /clue-routing/shared-rule` 预览和发布基座，其可管理商品仍由逐商品授权决定。商品列表返回独立的 `can_manage_shared_rule` 和 `can_manage_grants`。
   - `POST /clue-allocation/headquarters-pool/{entry_id}/resume` 由总部管理员确认指定待处理记录。服务端在锁内复核待处理项、订单终态和当前商品名单，响应返回实际处理结果及新任务 ID。
   - `POST /clue-allocation/cycle-previews` 生成 10 分钟有效的短时预览，并绑定线索状态版本、规则版本和目标范围。
   - `POST /clue-allocation/trial-cycles` 与 `POST /clue-allocation/rebuild-cycles` 仅供最高管理员显式确认后执行，必须携带 `Idempotency-Key`；同键同请求重放原结果，同键不同请求返回冲突。
