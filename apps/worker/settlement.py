@@ -3495,9 +3495,12 @@ def _materialize_dual_fee_direction(
 
     sale_owner_account_id = _first_text(order.owner_account_id)
     try:
-        attribution_decision = (resolve_historical_sale_attribution(
+        # An existing exact historical approval still fences its coupon when a
+        # later verification moves into the name-based monthly policy. New
+        # October orders without a decision continue to the frozen-name path.
+        attribution_decision = resolve_historical_sale_attribution(
             session, order=order, coupon=coupon, verify=verify, current_result=current,
-        ) if verify_month is None or verify_month < "2026-10" else None)
+        )
     except HistoricalAttributionError:
         reject_or_block(
             session, calculation_run_id, coupon, order,
