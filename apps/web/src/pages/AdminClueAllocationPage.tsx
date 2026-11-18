@@ -1,4 +1,5 @@
 import { PublicationTime } from "../components/PublicationTime";
+import { clueHeadquartersResumeError, clueRoutingFailureMessage, resumeClueHeadquartersEntry } from "../api/clueRouting";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   ApiRequestError,
@@ -66,6 +67,12 @@ const scopeLabels: Record<ClueAllocationRuleScope["scope_type"], string> = {
   city: "城市",
   store_group: "门店组",
   anchor_store: "锚点门店",
+};
+
+type ResumableHeadquartersEntry = ClueHeadquartersPoolEntry & {
+  routing_product_id?: string | null;
+  pending_round_no?: number | null;
+  can_resume?: boolean;
 };
 
 export type AllocationSubview = "rules" | "trial" | "records" | "headquarters";
@@ -234,17 +241,28 @@ function displayCycleItemStatus(value: string): string {
   if (value === "skipped") return "已跳过";
   if (value === "failed") return "执行失败";
   if (value === "running") return "执行中";
-  return value;
+  if (value === "closed") return "已关闭";
+  return "未知处理结果";
 }
 
 function summaryLabel(summary: Record<string, number> | undefined): string {
   if (!summary) {
     return "-";
   }
-  return `分配 ${summary.assigned ?? 0}，总部池 ${summary.headquarters ?? 0}，跳过 ${summary.skipped ?? 0}`;
+  return `分配 ${summary.assigned ?? 0}，总部池 ${summary.headquarters ?? 0}，关闭 ${summary.closed ?? 0}，跳过 ${summary.skipped ?? 0}，失败 ${summary.failed ?? 0}`;
 }
 
 function displayAuditSummary(row: ClueAllocationAuditLog): string {
+  if (row.event_type.startsWith("product_routing_")) {
+    if (row.result_status === "failed") return `未完成：${clueRoutingFailureMessage({ code: row.reason_code ?? "" })}`;
+    const after = row.after_snapshot;
+    if (row.event_type === "product_routing_grants") return `已授权 ${Array.isArray(after.user_ids) ? after.user_ids.length : 0} 个商品负责人账号`;
+    if (row.event_type === "product_routing_shared_rule") return `共享基座版本：${typeof after.rule_version_id === "string" ? after.rule_version_id : "未发布"}`;
+    const product = typeof after.product_id === "string" ? `商品 ${after.product_id}` : "商品配置";
+    if (row.event_type === "product_routing_publish_list") return `${product}，名单版本：${typeof after.list_version === "string" || typeof after.list_version === "number" ? after.list_version : "未发布"}`;
+    if (row.event_type === "product_routing_publish_rule") return `${product}，规则版本：${typeof after.rule_version_id === "string" ? after.rule_version_id : "未发布"}`;
+    return `${product}，流转${after.routing_enabled === true ? "已开启" : "已关闭"}`;
+  }
   const after = row.after_snapshot as Record<string, number>;
   return summaryLabel(after);
 }
@@ -349,6 +367,9 @@ export function AdminClueAllocationPage({
   const [headquartersFilters, setHeadquartersFilters] =
     useState<ClueHeadquartersPoolFilters>(defaultHeadquartersFilters);
   const [headquartersLoading, setHeadquartersLoading] = useState(false);
+  const [pendingHeadquartersResume, setPendingHeadquartersResume] = useState<ResumableHeadquartersEntry | null>(null);
+  const [resumingHeadquarters, setResumingHeadquarters] = useState(false);
+  const [headquartersResumeError, setHeadquartersResumeError] = useState("");
   const [cycles, setCycles] = useState<ClueAllocationCycle[]>([]);
   const [cyclesPagination, setCyclesPagination] = useState<Pagination>(
     emptyAllocationPagination,
@@ -1142,6 +1163,15 @@ export function AdminClueAllocationPage({
       render: (entry) => displayValue(entry.order_id),
     },
     {
+      key: "routing-product",
+      title: "流转商品 / 待处理轮次",
+      minWidth: 180,
+      render: (entry) => {
+        const routing = entry as ResumableHeadquartersEntry;
+        return routing.routing_product_id ? <div><span>{routing.routing_product_id}</span><p className="admin-muted">{routing.pending_round_no === null || routing.pending_round_no === undefined ? "待确认阶段" : `第 ${routing.pending_round_no} 轮待确认`}</p></div> : "原规则线索";
+      },
+    },
+    {
       key: "pool-status",
       title: "总部池状态",
       minWidth: 120,
@@ -1177,6 +1207,13 @@ export function AdminClueAllocationPage({
       minWidth: 180,
       render: (entry) => displayValue(entry.allocation_cycle_id),
     },
+    ...(canManageGlobalSettings ? [{
+      key: "resume", title: "处理", minWidth: 130,
+      render: (entry: ClueHeadquartersPoolEntry) => {
+        const routing = entry as ResumableHeadquartersEntry;
+        return routing.can_resume ? <Button disabled={!isWritable || headquartersLoading || resumingHeadquarters} onClick={() => { setHeadquartersResumeError(""); setPendingHeadquartersResume(routing); }} size="sm">确认资料并续派</Button> : <span className="admin-muted">暂无续派操作</span>;
+      },
+    }] : []),
   ];
 
   const decisionColumns: Column<ClueAllocationDecision>[] = [
@@ -1436,6 +1473,7 @@ export function AdminClueAllocationPage({
           <p className="admin-muted">统一管理规则版本、试运行、分配记录和总部池。</p>
         </div>
         <div className="admin-header-actions">
+          <a href="/admin/clue-routing/products">商品线索流转配置</a>
           <Button
             icon="sync"
             disabled={loading || action !== null}
@@ -2111,7 +2149,7 @@ export function AdminClueAllocationPage({
           <div className="section-title">
             <div>
               <h2>总部线索池</h2>
-              <p>没有锚点、无可分配门店或候选轮次耗尽的线索会保留在总部池。</p>
+              <p>新流转线索缺有效名单或必要锚点资料时在此待确认，不计门店任务。资料齐全但无合格候选时按绑定规则关闭；原规则条目继续保留其历史处理方式。</p>
             </div>
             <div className="clue-headquarters-summary" aria-label="总部池库存摘要">
               <span className="source-pill">
@@ -2263,6 +2301,27 @@ export function AdminClueAllocationPage({
       ) : null}
 
       <Dialog
+        actions={<><Button disabled={resumingHeadquarters} onClick={() => setPendingHeadquartersResume(null)}>取消</Button><Button loading={resumingHeadquarters} onClick={() => {
+          if (!pendingHeadquartersResume || resumingHeadquarters) return;
+          setResumingHeadquarters(true); setHeadquartersResumeError("");
+          void resumeClueHeadquartersEntry(pendingHeadquartersResume.headquarters_pool_entry_id).then(async (result) => {
+            setStatusText(result.selected_store_id ? `已续派至门店 ${result.selected_store_id}。` : result.status === "closed" ? `线索已关闭。${result.reason ? displayClueReason(result.reason) : "订单状态或候选结果已重新核验。"}` : `续派复核已完成。${result.reason ? displayClueReason(result.reason) : "请查看总部池最新状态。"}`);
+            setPendingHeadquartersResume(null);
+            await refreshHeadquartersPool(headquartersFilters, headquartersPool.pagination.page, headquartersPool.pagination.page_size);
+          }).catch((error) => setHeadquartersResumeError(clueHeadquartersResumeError(error)))
+            .finally(() => setResumingHeadquarters(false));
+        }} variant="primary">确认复核并续派</Button></>}
+        closeDisabled={resumingHeadquarters}
+        description="仅可续派新流转规则下待资料确认的条目。服务端将重新核验订单终态、有效名单、锚点和承接资格，资料未齐时继续保留待确认；无合格候选时按正常轮次规则关闭。"
+        onClose={() => setPendingHeadquartersResume(null)} open={Boolean(pendingHeadquartersResume)} title="确认总部池资料并续派"
+      >
+        <p>订单：{pendingHeadquartersResume?.order_id ?? "未关联订单"}</p>
+        <p>商品：{pendingHeadquartersResume?.routing_product_id ?? "未关联商品"}</p>
+        <p>待处理阶段：第 {pendingHeadquartersResume?.pending_round_no ?? "待确认"} 轮</p>
+        {headquartersResumeError ? <p className="admin-error" role="alert">{headquartersResumeError}</p> : null}
+      </Dialog>
+
+      <Dialog
         bodyClassName="clue-allocation-cycle-dialog__body"
         description={
           selectedCycleDetail
@@ -2291,6 +2350,9 @@ export function AdminClueAllocationPage({
               </span>
               <span className="source-pill">
                 总部池 {selectedCycleDetail.cycle.headquarters_pool_count} 条
+              </span>
+              <span className="source-pill">
+                关闭 {typeof selectedCycleDetail.cycle.actual_impact.closed === "number" ? selectedCycleDetail.cycle.actual_impact.closed : 0} 条
               </span>
               <span className="source-pill">
                 失败 {selectedCycleDetail.cycle.failed_lead_count} 条
