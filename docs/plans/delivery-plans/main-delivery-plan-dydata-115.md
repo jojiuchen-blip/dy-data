@@ -5,10 +5,10 @@
 > **前序版本**：v1 开工计划；本次回写已集成实现与工程验证进度，T1.1 保持进行中。
 > **适用范围**：[DYDATA-115](https://linear.app/keith-lim/issue/DYDATA-115) 正文及 2026-11-18 自店核销量评论。
 > **开发模式**：团队协作；主 Codex 统一分解、集成和验收，隔离 worker 负责非重叠写集，Keith 审核业务结果。
-> **代码基线**：开发起点 `678429d6`；本次已核对主集成快照 `9ab820c0`（含 `97fa2932` 的人工 CLI HTTP 回归与静态投影兼容增量）。各 worker 使用隔离工作树，不覆盖其他任务修改。
+> **代码基线**：从主线 `678429d6` 开发，候选提交及持续集成记录见 [PR #82](https://github.com/jojiuchen-blip/dy-data/pull/82)。
 > **上游发现结论**：`collect-upstream-context.mjs` 于 2026-11-18T05:24:52.907Z 扫描；slug=dy-data，mode=pipeline，canProceed=true，requiredMissing=[]，未进入失败分支。警告为大文件与拆分 Foundation：大文件按章节定位，Foundation 从索引进入任务所需子文件。
 > **当前需求基线与授权**：用户已授权完整实施本 issue；本计划记录既有开工授权，不声称用户另行审阅过此新文件。正文与最新评论是本轮规则权威，历史 BRD/Foundation 用于理解契约与现状。
-> **执行约束**：本次仅回写计划、画像和 Foundation 待改请求，不执行生产迁移、部署或开关操作。生产交付默认 OFF；名单发布、部署和验收均不自动开启，正式开启仍须本 issue 规定的负责人确认与明确授权。
+> **执行约束**：研发使用隔离工作树与测试数据库。生产交付默认关闭，业务负责人确认有效名单并明确授权后，方可手动开启对应商品。
 > **目标**：在自有引擎交付商品规则/名单、三轮流转、门店跟进、两处看板与核销归属；生产默认关闭流转。
 
 ## 0. 本计划使用指南
@@ -52,10 +52,10 @@
 
 ### 0.4 当前实施与验证快照（2026-11-18）
 
-- 核心模块已集成，工程验证中，待负责人验收。商品配置/授权与0069迁移、首次入库绑定、三轮分配与接续、商品保护期、共享任务指标及核销归属、API和人工交互 CLI 已进入主集成；两看板冻结指标与0070兼容增量已提交并继续做最终复验。
-- CLI 分支最新回执为 `PYTHONPATH=apps/api;apps/cli/src;src` 下运行 `python -m pytest tests/cli tests/test_cli_contract_registry.py tests/test_api_cli_readonly.py tests/test_api_cli_auth.py -q`，296 passed、0 skipped、5 warnings（13.77秒），已读取原始pytest回执核对。持久用例为 `tests/cli/test_human_products_http.py`；CLI提交 `d407ec16` 对应商品服务 `f671b9ed`/`5578fecd`，覆盖名单换版拒绝开启、重新预览确认后只重试失败商品。此为真实本地API+SQLite、11轮模拟输入登录/注销验证，不等同真人TTY、生产或最终集成验收。
-- 独立本地 PostgreSQL 16.15 验证资产已具备，已取得新连接、真实行锁55P03/提交解锁、错误密码与跨库访问拒绝，以及开发起点迁移至0068的回执。0069/0070及各分支锁/迁移、最终全仓、浏览器和部署证据继续由主线程逐项核验，不以基础环境可用代替业务通过。
-- 静态投影保留旧物理合同和旧窄列算法，新增任务列及 `task_metrics_contract` 能力标记；HTTP可合法展示旧完整投影，新增指标缺能力时为 `null`，严格发布就绪检查仍要求新能力。GET不构建、不写入、不扫描业务来源补算；发布切换与旧进程兼容须继续验证。
+- 商品授权、共享规则维护人、名单与规则版本、三轮分配、跟进保护期、两看板及交互式 CLI 已集成。验收回执按候选版本写入[研发验收记录](../../verification/dydata-115-verification.md)及 [PR #82](https://github.com/jojiuchen-blip/dy-data/pull/82)。
+- 人工交互式 CLI 与既有只读 CLI/API 的 300 项回归通过。真实登录覆盖商品负责人、共享规则维护人和全范围管理员，包含取消预览、名单换版后拒绝旧确认及失败项重试。
+- PostgreSQL 16.15 已验证存量升级及全新数据库的并发迁移，最终 head 为 `20261118_0070`。全新库的已开启商品及共享规则维护人均为 0。
+- 两张看板按相同样本与商品范围完成对账，`task_metrics_contract` 表明新版任务字段可用。真实 PostgreSQL 已验证冻结旧发布可回读，旧版应用可读取新发布的原有列。
 - Foundation 漂移已提请回捞：[待改请求](../foundation-plans/foundation-change-requests-dydata-115.md)。实际结果统一由主线程写入 `docs/verification/dydata-115-verification.md` 与 `docs/devlog/20261118_refactor_log_Keith_Chen.md`；本计划不复制第二份验收台账。
 - T1.1 与 Linear 均保持进行中；CI、实际迁移/部署、生产默认 OFF 读回和负责人接受尚须分别留证。DYDATA-104原待验收及受保护事项继续由原计划管理。
 
