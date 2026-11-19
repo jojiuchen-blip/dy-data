@@ -1196,3 +1196,259 @@ for (const scenario of ["normalized-success", "normalized-errors", "unchanged"])
     }
   }));
 }
+
+
+// DYDATA-104 exposes only scoped, pinned collection and close evidence.
+const monthlyProgressClose = { status: "waiting", publishedStoreCount: 0, blockedStoreCount: 2, scopeUnresolved: true };
+const monthlyProgressUnavailable = { status: 503, json: { detail: { code: "PUBLICATION_PERIOD_NOT_READY", message: "period incomplete", requestId: "monthly-progress-request" } } };
+const monthlyProgressFilters = (close = monthlyProgressClose, days = { ready: true, successDays: 31, totalDays: 31 }) => ({
+  ...filterMeta,
+  statementMonths: ["2026-10", "2026-09"],
+  periodReadiness: { months: { "2026-10": { ...days, monthlyClose: close } } },
+});
+const monthlyProgressRows = {
+  periodType: "MONTHLY", periodKey: "2026-10", productType: "all", scopeMode: "AUTHORIZED",
+  list: [{ storeId: "s1", storeName: "已出账授权门店", rank: 1, promotionMonthFeeCent: 12345,
+    salesAmountCumulativeCent: null, verifiedAmountCumulativeCent: null, promotionCumulativeFeeCent: null }],
+  totals: { promotionMonthFeeCent: 12345, salesAmountCumulativeCent: null,
+    verifiedAmountCumulativeCent: null, promotionCumulativeFeeCent: null },
+  total: 1, page: 1, pageSize: 20,
+};
+const monthlyProgressView = {
+  store: { storeId: "s1", storeName: "已出账授权门店" }, month: "2026-10", isFormalPeriod: true,
+  metrics: { salesOrderCount: 1, salesAmountCent: 123450, verifiedOrderCount: 1, verifiedAmountCent: 123450,
+    promotionBaseCent: 123450, promotionOriginalFeeCent: 12345, promotionAdjustmentFeeCent: 0,
+    promotionNetFeeCent: 12345, managementBaseCent: 10000, managementOriginalFeeCent: 1000,
+    managementAdjustmentFeeCent: 0, managementNetFeeCent: 1000 },
+  computedCumulative: { promotionNetFeeCent: null, managementNetFeeCent: null }, lines: [],
+};
+function installMonthlyProgress(handle, { close = monthlyProgressClose, days, ready = false, statements = [], incompleteMonths = ["2026-10"] } = {}) {
+  handle(async (route, url) => {
+    const id = url.searchParams.get("publication_id") ?? "progress1";
+    if (url.pathname.endsWith("/publications/settlement/filters")) {
+      await route.fulfill({ json: payload(monthlyProgressFilters(close, days), "settlement", id) }); return true;
+    }
+    if (url.pathname.endsWith("/dashboard/store-ranking")) {
+      const availability = { monthlyReady: true, cumulativeReady: false, incompleteMonths, monthlyClose: close };
+      await route.fulfill(ready ? { json: payload({ ...monthlyProgressRows, periodAvailability: availability }, "settlement", id) } : monthlyProgressUnavailable);
+      return true;
+    }
+    if (url.pathname.endsWith("/monthly-settlement")) {
+      const availability = { monthlyReady: true, cumulativeReady: false, incompleteMonths, monthlyClose: close };
+      await route.fulfill(ready ? { json: payload({ ...monthlyProgressView, periodAvailability: availability }, "settlement", id) } : monthlyProgressUnavailable);
+      return true;
+    }
+    if (url.pathname.endsWith("/store-settlements")) {
+      await route.fulfill({ json: payload({ list: statements, total: statements.length }) }); return true;
+    }
+    if (url.pathname.endsWith("/order-fee-details") || url.pathname.endsWith("/disputes")) {
+      await route.fulfill({ json: payload({ list: [], total: 0, page: 1, pageSize: 50 }) }); return true;
+    }
+    return false;
+  });
+}
+
+test("monthly progress zero-published ranking explains known reviews without rendering amounts", async () => withPage(async ({ page, requests, handle }) => {
+  installMonthlyProgress(handle);
+  await page.goto(`${baseUrl}/ranking?periodKey=2026-10`);
+  const progress = page.locator('[aria-label="账期处理进度"]');
+  await progress.getByText("已知待核验门店数 2 家", { exact: false }).waitFor();
+  assert.match(await progress.innerText(), /2026-10 已完成 31\/31 天的数据采集/);
+  assert.match(await progress.innerText(), /已出账门店数 0 家/);
+  assert.match(await progress.innerText(), /仍有数据归属或影响范围待核验/);
+  assert.equal(await page.locator(".metric-card").count(), 0);
+  assert.equal(await page.locator("tbody tr").count(), 0);
+  assert.equal(await page.getByLabel("账期", { exact: true }).isEnabled(), true);
+  assert.doesNotMatch(await page.locator("body").innerText(), /榜单暂不可用，请稍后重试|月结核验已完成/);
+  assert.equal(await page.locator(".resource-notice--error").count(), 0);
+  assert.equal((await page.locator("body").innerText()).match(/PUBLICATION_PERIOD_NOT_READY/g).length, 1);
+  assert.match(await progress.innerText(), /monthly-progress-request/);
+  const reads = requests.filter((url) => url.pathname.endsWith("/dashboard/store-ranking"));
+  assert.equal(reads.length, 1);
+  assert.equal(reads[0].searchParams.get("publication_id"), "progress1");
+  const before = requests.length;
+  await page.waitForTimeout(150);
+  assert.equal(requests.length, before, "progress does not retry an unready period");
+}));
+
+test("monthly progress zero-published store keeps fees and confirmation unavailable", async () => withPage(async ({ page, requests, handle }) => {
+  installMonthlyProgress(handle);
+  await page.goto(`${baseUrl}/settlement?storeId=s1&month=2026-10`);
+  await page.locator('[aria-label="账期处理进度"]').getByText("已知待核验门店数 2 家", { exact: false }).waitFor();
+  await page.getByText("本账期费用明细尚未就绪。", { exact: true }).waitFor();
+  assert.doesNotMatch(await page.getByLabel("分账指标", { exact: true }).innerText(), /0\.00/);
+  const buttons = page.getByRole("button", { name: "尚未生成", exact: true });
+  assert.equal(await buttons.count(), 2);
+  assert.equal(await buttons.nth(0).isDisabled(), true);
+  assert.equal(await buttons.nth(1).isDisabled(), true);
+  assert.equal(requests.filter((url) => url.pathname.endsWith("/order-fee-details")).length, 0);
+  assert.equal(await page.getByRole("button", { name: "下载抵扣明细", exact: true }).count(), 0);
+}));
+
+for (const [days, dayMessage] of [
+  [{ ready: false, successDays: 28, totalDays: 31 }, "已完成 28/31 天的数据采集"],
+  [{ ready: true, successDays: 31, totalDays: 31 }, "已完成 31/31 天的数据采集"],
+]) {
+  test(`monthly progress collection ${days.successDays}/31 keeps absent calculation evidence explicit`, async () => withPage(async ({ page, handle }) => {
+    installMonthlyProgress(handle, {
+      close: { status: "waiting", publishedStoreCount: 0, blockedStoreCount: 0, scopeUnresolved: true }, days,
+    });
+    await page.goto(`${baseUrl}/ranking?periodKey=2026-10`);
+    const progress = page.locator('[aria-label="账期处理进度"]');
+    await progress.getByText(dayMessage, { exact: false }).waitFor();
+    assert.match(await progress.innerText(), /月结核算与核验结果尚未就绪，门店影响范围待确认/);
+    assert.doesNotMatch(await progress.innerText(), /月结核验已完成|已发现待核验数据|仍有数据归属|缺失日期|采集失败/);
+    assert.equal(await page.locator(".metric-card").count(), 0);
+  }));
+}
+
+test("monthly progress scoped counts clear when same-version metadata permission is revoked", async () => withPage(async ({ page, handle }) => {
+  let denied = false;
+  handle(async (route, url) => {
+    if (url.pathname.endsWith("/publications/settlement/filters")) {
+      await route.fulfill(denied ? { status: 403, json: { detail: { message: "permission revoked" } } }
+        : { json: payload({ ...monthlyProgressFilters({ ...monthlyProgressClose, blockedStoreCount: 1 }),
+          stores: [{ storeId: "s1", storeName: "本账号授权门店" }] }, "settlement", "scoped1") });
+      return true;
+    }
+    if (url.pathname.endsWith("/dashboard/store-ranking")) {
+      await route.fulfill(periodUnavailable); return true;
+    }
+    return false;
+  });
+  await page.route("**/api/v1/auth/me", (route) => route.fulfill({ json: payload({
+    ...user, role: "store", is_highest_admin: false, can_manage_global_settings: false,
+    store_scope_mode: "assigned", store_ids: ["s1"], page_keys: ["B01", "B02"],
+  }) }));
+  await page.goto(`${baseUrl}/ranking?periodKey=2026-10`);
+  await page.locator('[aria-label="账期处理进度"]').getByText("已知待核验门店数 1 家", { exact: false }).waitFor();
+  assert.doesNotMatch(await page.locator("body").innerText(), /已知待核验门店数 2 家|其他门店/);
+  denied = true;
+  await page.getByRole("button", { name: "读取最新结果", exact: true }).click();
+  await page.getByText("当前账号没有查看该榜单的权限", { exact: false }).waitFor();
+  assert.equal(await page.locator('[aria-label="账期处理进度"]').count(), 0);
+}));
+
+test("monthly progress partially published ranking retains certified rows and pending counts", async () => withPage(async ({ page, handle }) => {
+  installMonthlyProgress(handle, {
+    close: { status: "partial", publishedStoreCount: 1, blockedStoreCount: 2, scopeUnresolved: false }, ready: true,
+  });
+  await page.goto(`${baseUrl}/ranking?periodKey=2026-10`);
+  await page.locator("tbody").getByText("已出账授权门店", { exact: true }).waitFor();
+  const progress = page.locator('[aria-label="账期处理进度"]');
+  assert.match(await progress.innerText(), /已出账门店数 1 家，已知待核验门店数 2 家/);
+  assert.match(await progress.innerText(), /当前显示已出账的门店/);
+  assert.match(await page.locator("tbody").innerText(), /123\.45/);
+  assert.doesNotMatch(await progress.innerText(), /影响范围待核验/);
+}));
+
+test("monthly progress store confirmations continue to use actual live billing", async () => withPage(async ({ page, requests, handle }) => {
+  installMonthlyProgress(handle, {
+    close: { status: "partial", publishedStoreCount: 1, blockedStoreCount: 2, scopeUnresolved: false }, ready: true,
+    statements: [{
+      statementId: "progress-statement", storeId: "s1", storeName: "已出账授权门店",
+      month: "2026-10", versionNo: 2, isCurrent: true, status: "CONFIRMED",
+      promotionConfirmableAmountCent: 12345, managementConfirmableAmountCent: 1000,
+      promotionConfirmation: { status: "CONFIRMED", confirmedAt: "2026-11-19T02:00:00Z", confirmedAmountCent: 12345 },
+      managementConfirmation: null,
+    }],
+  });
+  await page.goto(`${baseUrl}/settlement?storeId=s1&month=2026-10`);
+  await page.getByRole("link", { name: "进入推广费开票", exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "确认管理服务费", exact: true }).isEnabled(), true);
+  assert.match(await page.locator(".store-finance-confirmation-grid").innerText(), /已确认/);
+  assert.match(await page.locator('[aria-label="账期处理进度"]').innerText(), /已出账门店数 1 家/);
+  const details = requests.filter((url) => url.pathname.endsWith("/order-fee-details"));
+  assert.equal(details.length, 2);
+  assert.ok(details.every((url) => url.searchParams.get("publication_id") === "progress1"));
+  assert.ok(requests.filter((url) => url.pathname.endsWith("/store-settlements")).every((url) => !url.searchParams.has("publication_id")));
+}));
+
+test("monthly progress missing day evidence never invents collection completion", async () => withPage(async ({ page, handle }) => {
+  installMonthlyProgress(handle, { days: {} });
+  await page.goto(`${baseUrl}/ranking?periodKey=2026-10`);
+  const progress = page.locator('[aria-label="账期处理进度"]');
+  await progress.getByText("已知待核验门店数 2 家", { exact: false }).waitFor();
+  assert.doesNotMatch(await progress.innerText(), /日采集|31\/31|已完整/);
+}));
+
+
+test("monthly progress month changes never reuse the previous month status", async () => withPage(async ({ page, handle }) => {
+  handle(async (route, url) => {
+    const id = url.searchParams.get("publication_id") ?? "progress-month1";
+    if (url.pathname.endsWith("/publications/settlement/filters")) {
+      await route.fulfill({ json: payload(monthlyProgressFilters(), "settlement", id) }); return true;
+    }
+    if (!url.pathname.endsWith("/dashboard/store-ranking")) return false;
+    await route.fulfill(url.searchParams.get("periodKey") === "2026-10" ? periodUnavailable
+      : { json: payload({ ...monthlyProgressRows, periodKey: "2026-09" }, "settlement", id) });
+    return true;
+  });
+  await page.goto(`${baseUrl}/ranking?periodKey=2026-10`);
+  await page.locator('[aria-label="账期处理进度"]').getByText("已知待核验门店数 2 家", { exact: false }).waitFor();
+  await page.getByLabel("账期", { exact: true }).click();
+  await page.getByRole("option", { name: "2026-09", exact: true }).click();
+  await page.locator("tbody").getByText("已出账授权门店", { exact: true }).waitFor();
+  assert.equal(await page.locator('[aria-label="账期处理进度"]').count(), 0);
+  await page.getByLabel("账期", { exact: true }).click();
+  await page.getByRole("option", { name: "2026-10", exact: true }).click();
+  await page.locator('[aria-label="账期处理进度"]').getByText("已知待核验门店数 2 家", { exact: false }).waitFor();
+  assert.equal(await page.locator("tbody tr").count(), 0);
+}));
+
+test("monthly progress never exposes candidate metadata from a mismatched data version", async () => withPage(async ({ page, handle }) => {
+  handle(async (route, url) => {
+    if (url.pathname.endsWith("/publications/settlement/filters")) {
+      await route.fulfill({ json: payload(monthlyProgressFilters(), "settlement", "expected-progress") }); return true;
+    }
+    if (!url.pathname.endsWith("/dashboard/store-ranking")) return false;
+    await route.fulfill({ json: payload(monthlyProgressRows, "settlement", "wrong-progress") }); return true;
+  });
+  await page.goto(`${baseUrl}/ranking?periodKey=2026-10`);
+  await page.locator(".resource-notice--error").getByText("榜单暂不可用", { exact: false }).waitFor();
+  assert.equal(await page.locator('[aria-label="账期处理进度"]').count(), 0);
+  assert.equal(await page.locator("tbody tr").count(), 0);
+}));
+
+
+for (const routeName of ["ranking", "settlement"]) {
+  test(`monthly progress ${routeName} retains incomplete-prefix cumulative notice after this month completes`, async () => withPage(async ({ page, handle }) => {
+    installMonthlyProgress(handle, {
+      close: { status: "complete", publishedStoreCount: 1, blockedStoreCount: 0, scopeUnresolved: false },
+      ready: true, incompleteMonths: ["2026-09"],
+    });
+    await page.goto(`${baseUrl}${routeName === "ranking" ? "/ranking?periodKey=2026-10" : "/settlement?storeId=s1&month=2026-10"}`);
+    await page.getByText("本月数据已完整", { exact: false }).waitFor();
+    assert.match(await page.getByText("本月数据已完整", { exact: false }).innerText(), /2026-09 尚未完成/);
+    assert.match(await page.locator('[aria-label="账期处理进度"]').innerText(), /本月月结核验已完成/);
+  }));
+}
+
+for (const failure of ["network", "publication"]) {
+  test(`monthly progress fresh failure ${failure} is never replaced by an earlier unavailable-period error`, async () => withPage(async ({ page, handle }) => {
+    let failed = false;
+    handle(async (route, url) => {
+      const id = url.searchParams.get("publication_id") ?? "latest-progress";
+      if (url.pathname.endsWith("/publications/settlement/filters")) {
+        await route.fulfill({ json: payload(monthlyProgressFilters(), "settlement", id) }); return true;
+      }
+      if (!url.pathname.endsWith("/dashboard/store-ranking")) return false;
+      if (!failed) {
+        await route.fulfill(periodUnavailable);
+      } else if (failure === "network") {
+        await route.abort("connectionfailed");
+      } else {
+        await route.fulfill({ status: 503, json: { detail: { code: "PUBLICATION_NOT_READY", message: "not published" } } });
+      }
+      return true;
+    });
+    await page.goto(`${baseUrl}/ranking?periodKey=2026-10`);
+    await page.locator('[aria-label="账期处理进度"]').getByText("已知待核验门店数 2 家", { exact: false }).waitFor();
+    failed = true;
+    await page.getByRole("button", { name: "读取最新结果", exact: true }).click();
+    await page.locator(".resource-notice--error").getByText(failure === "network" ? "榜单暂不可用" : "分析结果尚未发布", { exact: false }).waitFor();
+    assert.doesNotMatch(await page.locator("body").innerText(), /PUBLICATION_PERIOD_NOT_READY/);
+    assert.equal(await page.locator('[aria-label="账期处理进度"]').locator("..").getAttribute("role"), "status");
+    assert.equal(await page.locator(".metric-card").count(), 0);
+  }));
+}
