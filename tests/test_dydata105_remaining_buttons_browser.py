@@ -11,6 +11,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from io import StringIO
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -115,11 +116,13 @@ def test_remaining_details_months_states_pagination_adjustment_and_invalid_retur
         expect(adjustment.locator("p")).not_to_be_visible()
         choose(page, "数据状态", "全部")
         expect(nav).to_contain_text("共 61 条", timeout=20000)
-        with page.expect_download() as pending:
-            page.get_by_role("button", name="导出", exact=True).click()
+        with page.expect_response(lambda response: "/export?" in response.url) as exported:
+            with page.expect_download() as pending:
+                page.get_by_role("button", name="导出", exact=True).click()
+        assert parse_qs(urlparse(exported.value.url).query)["locale"] == ["zh-CN"]
         rows = list(csv.DictReader(StringIO(Path(pending.value.path()).read_bytes().decode("utf-8-sig"))))
         assert len(rows) == 61
-        assert sum(int(row["调整后净额"]) for row in rows) == 61 * 128641 - 1
+        assert sum(Decimal(row["调整后净额（元）"]) for row in rows) * 100 == 61 * 128641 - 1
         page.screenshot(path=tmp_path / "remaining-details-real.png", full_page=True)
         page.goto(vite_live_admin_api_base_url + "/details?storeId=store-1&month=2026-08&feeRates=0.999999")
         page.get_by_role("button", name="返回单店分账", exact=True).click()

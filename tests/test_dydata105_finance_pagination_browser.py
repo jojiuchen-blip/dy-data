@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from io import StringIO
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from playwright.sync_api import expect
@@ -151,20 +152,23 @@ def test_dydata105_real_pagination_and_all_rows_download(
         assert listed.status == 200, listed.text()
         data = listed.json()["data"]
         assert data["total"] == 61 and len(data["list"]) == 11
-        with page.expect_download() as download_info:
-            page.get_by_role("button", name=export_label, exact=True).click()
+        with page.expect_response(lambda response: "/export?" in response.url) as exported:
+            with page.expect_download() as download_info:
+                page.get_by_role("button", name=export_label, exact=True).click()
+        assert parse_qs(urlparse(exported.value.url).query)["locale"] == ["zh-CN"]
         download = download_info.value
         content = Path(download.path()).read_bytes()
         assert content.startswith(b"\xef\xbb\xbf")
         records = list(csv.DictReader(StringIO(content.decode("utf-8-sig"))))
         assert len(records) == 61
-        key = {"disputes": "dispute_id", "stores": "门店ID"}.get(name, "store_id")
+        key = "异议ID" if name == "disputes" else "门店ID"
         assert {row[key] for row in records} == {f"{PREFIX}{index:03d}" for index in range(61)}
         if name in {"promotion", "management"}:
             base = 20001 if name == "management" else 10001
-            assert sum(int(row["statement_amount_cent"]) for row in records) == sum(base + index for index in range(61))
+            amount_column = "管理费总额（元）" if name == "management" else "推广费总额（元）"
+            assert sum(Decimal(row[amount_column]) for row in records) * 100 == sum(base + index for index in range(61))
         if name == "disputes":
-            assert sum(int(row["disputed_amount_cent"]) for row in records) == sum(101 + index for index in range(61))
+            assert sum(Decimal(row["异议金额（元）"]) for row in records) * 100 == sum(101 + index for index in range(61))
         if name != "disputes":
             page.get_by_label("指标口径", exact=True).click()
             page.get_by_role("option", name="累计", exact=True).click()
@@ -247,15 +251,17 @@ def test_dydata105_finance_orders_every_page_size_downloads_all_61(
             pagination.get_by_label("每页条数", exact=True).click()
             page.get_by_role("option", name=f"每页 {size} 条", exact=True).click()
             expect(pagination).to_contain_text(f"显示 1-{min(size, 61)} / 共 61 条", timeout=20000)
-        with page.expect_download() as pending:
-            page.get_by_role("button", name="导出全部命中结果", exact=True).click()
+        with page.expect_response(lambda response: "/export?" in response.url) as exported:
+            with page.expect_download() as pending:
+                page.get_by_role("button", name="导出全部命中结果", exact=True).click()
+        assert parse_qs(urlparse(exported.value.url).query)["locale"] == ["zh-CN"]
         data = Path(pending.value.path()).read_bytes()
         assert data.startswith(b"\xef\xbb\xbf")
         rows = list(csv.DictReader(StringIO(data.decode("utf-8-sig"))))
         assert len(rows) == 61
-        assert {row["fee_direction"] for row in rows} == {direction.upper()}
-        assert {row["store_id"] for row in rows} == {f"{PREFIX}{index:03d}" for index in range(61)}
-        assert sum(int(row["frozen_fee_amount_cent"]) for row in rows) == sum(base + index for index in range(61))
+        assert {row["费用方向"] for row in rows} == {"管理服务费" if direction == "management" else "推广服务费"}
+        assert {row["门店ID"] for row in rows} == {f"{PREFIX}{index:03d}" for index in range(61)}
+        assert sum(Decimal(row["冻结费用金额（元）"]) for row in rows) * 100 == sum(base + index for index in range(61))
         page.screenshot(path=tmp_path / f"orders-{direction}-all-61.png", full_page=True)
     finally:
         context.close()
