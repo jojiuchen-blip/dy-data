@@ -14,7 +14,9 @@ from dy_api.main import create_app
 from dy_api.routes import dashboard as dashboard_routes
 from dy_api.routes._data import get_session_dependency
 from apps.api.dy_api.models import InvoiceRecord
+from apps.api.dy_api.dashboard_publications import finance
 from publication_fixture_helpers import publish_fixture
+from test_dydata104_finance_state_matrix import db_session  # noqa: F401
 from test_api_finance_g2 import _seed_management_periods
 
 
@@ -59,7 +61,7 @@ def _forbid_calculation(*args, **kwargs):
     pytest.fail("Current invoice GET must not calculate business values")
 
 
-def test_current_v2_reads_without_writes_while_publication_and_post_version_stay_pinned(
+def test_current_v2_reads_without_writes_while_published_fees_and_post_version_stay_pinned(
     current_client, db_session, monkeypatch,
 ):
     client, _ = current_client
@@ -71,6 +73,9 @@ def test_current_v2_reads_without_writes_while_publication_and_post_version_stay
     assert before.status_code == 200, before.text
     frozen = before.json()["data"]
     assert frozen["list"][0]["invoiceId"] == first.invoice_id
+    stored_rows = list(db_session.execute(select(finance.invoices).where(
+        finance.invoices.c.publication_id == publication.id,
+    )))
 
     first.is_current = False
     db_session.flush()
@@ -113,7 +118,15 @@ def test_current_v2_reads_without_writes_while_publication_and_post_version_stay
     assert not db_session.new and not db_session.dirty and not db_session.deleted
     after = client.get(FROZEN_URL, params=params)
     assert after.status_code == 200, after.text
-    assert after.json()["data"] == frozen
+    assert after.json()["meta"]["publication"]["id"] == publication.id
+    assert after.json()["data"] == frozen | {"list": [frozen["list"][0] | {
+        "invoiceId": "current-invoice-v2", "versionNo": 2,
+        "invoiceNumber": "22345678901234567890", "invoiceAmountCent": 1000,
+        "factoryDeductionAmountCent": 1000,
+    }]}
+    assert list(db_session.execute(select(finance.invoices).where(
+        finance.invoices.c.publication_id == publication.id,
+    ))) == stored_rows
 
     stale = client.post(CORRECTION_URL, headers={"Idempotency-Key": "live-current-stale-version"},
         json={"readVersion": 1, "invoiceNumber": "32345678901234567890",

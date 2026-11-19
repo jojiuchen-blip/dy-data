@@ -2383,7 +2383,7 @@ def _finance_import_reversal_plan(session, batch: FinanceImportBatch, request: R
             "原批次业务目标不完整，无法安全撤销",
         )
     if batch.import_type in (1, 4):
-        _lock_finance_import_profile_stores(session, batch.batch_id)
+        _lock_finance_import_profile_stores(session, batch.batch_id, request, reversal=True)
     plan: list[dict] = []
     for row in rows:
         if not row.target_record_id:
@@ -3105,7 +3105,7 @@ def _execute_finance_import_commit(
     ).yield_per(500)
 
     if batch.import_type in (1, 4):
-        _lock_finance_import_profile_stores(session, batch.batch_id)
+        _lock_finance_import_profile_stores(session, batch.batch_id, request)
     elif batch.import_type == 3:
         numbers = session.scalars(select(FinanceImportRow.normalized_payload).where(
             FinanceImportRow.batch_id == batch.batch_id,
@@ -8088,20 +8088,63 @@ def _commit_final_finance_import_row(
         )
 
 
-def _lock_finance_import_profile_stores(session, batch_id: str) -> None:
+def _lock_finance_import_profile_stores(
+    session, batch_id: str, request: Request, *, reversal: bool = False,
+) -> None:
     """Serialize profile batches in a consistent store order across slots."""
-    targets = session.scalars(select(FinanceImportRow.normalized_payload).where(
-        FinanceImportRow.batch_id == batch_id,
-    ))
-    store_ids = {item["storeId"] for item in targets}
+    query = select(
+        FinanceImportRow.normalized_payload["storeId"],
+        FinanceImportRow.target_record_id, FinanceImportRow.business_key,
+        StoreFinanceProfile.store_id,
+    ).outerjoin(
+        StoreFinanceProfile,
+        StoreFinanceProfile.profile_id == FinanceImportRow.target_record_id,
+    ).where(FinanceImportRow.batch_id == batch_id)
+    if reversal:
+        query = query.where(FinanceImportRow.row_status == 5)
+    store_ids: set[str] = set()
+    for payload_store_id, target_record_id, business_key, target_store_id in session.execute(
+        query.execution_options(yield_per=500),
+    ):
+        if reversal:
+            if not target_record_id:
+                _raise_reporting_error(
+                    request, status.HTTP_409_CONFLICT, "REVERSAL_TARGET_MISSING",
+                    "原批次存在未关联业务版本的行",
+                )
+            if target_store_id is None or (
+                payload_store_id is not None and payload_store_id != target_store_id
+            ) or (
+                business_key is not None and business_key != target_store_id
+            ):
+                _raise_reporting_error(
+                    request, status.HTTP_409_CONFLICT, "REVERSAL_BUSINESS_VERSION_CONFLICT",
+                    "原批次门店与关联财务资料不一致，无法安全撤销",
+                    data={"business_key": business_key},
+                )
+        # Older committed rows only kept businessKey. Their immutable target
+        # profile supplies the store identity before any profile row is locked.
+        store_id = target_store_id if reversal else payload_store_id
+        if not isinstance(store_id, str) or not store_id:
+            _raise_reporting_error(
+                request, status.HTTP_409_CONFLICT, "IMPORT_PREVIEW_STALE",
+                "导入行缺少可核验门店，请重新上传并核对后提交",
+            )
+        store_ids.add(store_id)
     # A different template/month can update the same profiles. Reversals must
     # take these locks as well before locking or writing individual profiles.
-    list(session.scalars(
+    locked_store_ids = set(session.scalars(
         select(DimStore.store_id)
         .where(DimStore.store_id.in_(store_ids))
         .order_by(DimStore.store_id)
         .with_for_update()
     ))
+    if locked_store_ids != store_ids:
+        _raise_reporting_error(
+            request, status.HTTP_409_CONFLICT,
+            "REVERSAL_TARGET_MISSING" if reversal else "IMPORT_PREVIEW_STALE",
+            "导入行关联门店已不存在，请重新核对门店资料",
+        )
 
 
 def _commit_store_finance_profile_row(
