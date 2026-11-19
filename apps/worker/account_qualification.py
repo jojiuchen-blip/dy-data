@@ -1,4 +1,4 @@
-"""Frozen settlement account eligibility; independent of ranking and store attribution.
+"""Frozen monthly settlement sales attribution and account eligibility.
 
 The engineering contract uses the last complete collection on the Shanghai
 month-end day, completed strictly before cutoff and within its final two hours.
@@ -23,21 +23,53 @@ from apps.api.dy_api.models import (
     AccountQualificationObservation as Observation,
     AccountQualificationSnapshot as Snapshot,
     AccountQualificationVersion as Version,
+    DimStore,
+    DimStorePoiMapping,
 )
 from apps.worker.collectors.normalizers import get_path, text as source_text
 
 POLICY_VERSION = "settlement-monthend-cn-v2"
 FIRST_MONTH = "2026-10"
+SALE_ACCOUNT_MATCH_POLICY = "settlement-monthend-sale-name-v1"
+SALE_NAME_PATHS = (
+    "owner_account_name", "sale_info.transfer_nickName", "sale_info.transfer_nickname",
+    "order_sale_info.transfer_nickName", "order_sale_info.transfer_nickname",
+)
+ROSTER_NAME_FIELDS = ("抖音昵称", "抖音号昵称", "nickname", "douyin_nickname")
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 MAX_AGE = timedelta(hours=2)
 MAX_AUTOMATIC_MONTH_ATTEMPTS = 8
 MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024
 ELIGIBLE_TYPES = {"子机构门店号", "子机构区域号"}
-ORDER_IDENTITY_CONTRACT_URL = "https://partner.open-douyin.com/docs/resource/zh-CN/local-life/develop/OpenAPI/general-capabilities/order.query/query"
 
 
 class AccountQualificationError(RuntimeError):
     """Missing, partial or unprovable month-end evidence."""
+
+
+@dataclass(frozen=True)
+class FrozenSaleMatch:
+    account_id: str
+    douyin_id: str
+    store_id: str
+    poi_ids: tuple[str, ...]
+    account_name: str
+    source_field: str
+    qualification_version_id: str
+    content_sha256: str
+
+    def as_context(self) -> dict:
+        return {
+            "policy": SALE_ACCOUNT_MATCH_POLICY,
+            "qualification_version_id": self.qualification_version_id,
+            "content_sha256": self.content_sha256,
+            "source_field": self.source_field,
+            "account_name": self.account_name,
+            "account_id": self.account_id,
+            "douyin_id": self.douyin_id,
+            "poi_ids": list(self.poi_ids),
+            "store_id": self.store_id,
+        }
 
 
 @dataclass(frozen=True)
@@ -133,7 +165,7 @@ def begin_automatic_observation(session: Session, *, source_run_id: str, started
 
 def canonical_records(records: list) -> list[dict]:
     result = []
-    identities = set()
+    seen_records = set()
     for record in records:
         payload = record.get("raw_payload") or {}
         def field(*keys):
@@ -165,15 +197,17 @@ def canonical_records(records: list) -> list[dict]:
         if account is None:
             reasons.append("nonqualifying_record_without_account_id")
         row = {"account_id": account, "douyin_id": record.get("douyin_id"),
+               "douyin_nickname": record.get("douyin_nickname") or field(*ROSTER_NAME_FIELDS),
+               "store_id": record.get("store_id"),
                "douyin_uid": field("douyin_uid"), "poi_id": record.get("poi_id"),
                "account_type": kind, "binding_status": status, "raw_payload": payload,
                "qualification_status": "ineligible" if reasons else "eligible", "reason_codes": reasons}
-        identity = (account, row["douyin_id"], row["poi_id"], kind)
-        identifiable = any(identity[:3])
-        if identifiable and identity in identities:
-            raise AccountQualificationError("duplicate_or_conflicting_binding_identity")
-        if identifiable:
-            identities.add(identity)
+        # Identical exported rows may be repeated. Distinct rows remain in the
+        # evidence so a name conflict affects its own scope at calculation time.
+        fingerprint = digest(row)
+        if fingerprint in seen_records:
+            continue
+        seen_records.add(fingerprint)
         result.append(row)
     return sorted(result, key=digest)
 
@@ -283,62 +317,137 @@ def qualified_version(session: Session, *, month: str, order, pinned_version_id:
     return version
 
 
-def qualified_records(session: Session, *, version: Version, order) -> list[dict]:
-    cache = session.info.setdefault("account_qualification_indexes", {})
+def order_sale_name(order) -> tuple[str, str]:
+    """Read the selected sales-name source with the order collector's priority."""
+    payload = getattr(order, "raw_payload", None) or {}
+    for source_field in SALE_NAME_PATHS:
+        raw = get_path(payload, source_field) if isinstance(payload, dict) else None
+        if raw in (None, ""):
+            continue
+        name = source_text(raw)
+        if not isinstance(raw, str) or not name:
+            raise AccountQualificationError("qualification_sale_name_source_invalid")
+        if source_text(getattr(order, "owner_account_name", None)) != name:
+            raise AccountQualificationError("qualification_sale_name_source_conflict")
+        return source_field, name
+    raise AccountQualificationError("qualification_sale_name_source_missing")
+
+
+def _roster_names(row: dict) -> set[str]:
+    payload = row.get("raw_payload") or {}
+    values = {source_text(payload.get(key)) for key in ROSTER_NAME_FIELDS
+              if payload.get(key) not in (None, "")}
+    if row.get("douyin_nickname"):
+        values.add(source_text(row["douyin_nickname"]))
+    return values
+
+
+def _frozen_name_candidates(session: Session, *, version: Version, order) -> list[dict]:
+    """Read exact-name candidates without granting eligibility or attribution."""
+    _, name = order_sale_name(order)
+    cache = session.info.setdefault("account_qualification_name_indexes", {})
     if version.content_sha256 not in cache:
         snapshot = session.get(Snapshot, version.content_sha256)
         if snapshot is None or digest({"policy": version.policy_version, "records": snapshot.records_json}) != version.content_sha256:
             raise AccountQualificationError("qualification_source_digest_mismatch")
-        accounts, uids, short_ids = {}, {}, {}
+        names = {}
+        conflicting_names = set()
         for row in snapshot.records_json:
-            accounts.setdefault(row["account_id"], []).append(row)
-            if row.get("douyin_uid"):
-                uids.setdefault(row["douyin_uid"], []).append(row)
-            if row.get("douyin_id"):
-                short_ids.setdefault(row["douyin_id"], []).append(row)
-        cache[version.content_sha256] = accounts, uids, short_ids
-    accounts, uids, short_ids = cache[version.content_sha256]
-    account_id, uid = str(order.owner_account_id or "").strip(), str(order.owner_douyin_uid or "").strip()
-    payload = getattr(order, "raw_payload", None) or {}
-
-    def selected_origin(*paths):
-        # Match first()/text() exactly, including its first nonempty raw value
-        # priority rather than searching lower-priority fields for a match.
-        for path in paths:
-            value = get_path(payload, path) if isinstance(payload, dict) else None
-            if value not in (None, ""):
-                return path, source_text(value)
-        return None, None
-
-    account_origin, source_account = selected_origin(
-        "owner_account_id", "sale_info.transfer_uid", "sale_info.account_id", "order_sale_info.transfer_uid")
-    uid_origin, source_uid = selected_origin(
-        "owner_douyin_uid", "sale_info.transfer_douyin_uid", "order_sale_info.transfer_douyin_uid")
-    if ((account_origin is not None and (source_account or "") != account_id)
-            or (uid_origin is not None and (source_uid or "") != uid)):
-        raise AccountQualificationError("qualification_identity_source_conflict")
-    opaque_origin = account_origin in {"sale_info.transfer_uid", "order_sale_info.transfer_uid"}
-    account_candidates = [] if opaque_origin else accounts.get(account_id, [])
-    # Official order-query schema: transfer_douyin_uid is the order owner's
-    # Douyin short handle, while transfer_uid is encrypted and is not a Douyin
-    # UID. Only this proven selected origin may match workbook douyin_id.
-    # Source: ORDER_IDENTITY_CONTRACT_URL; a generic owner_douyin_uid is not
-    # silently reclassified into the short-handle namespace.
-    short_origin = uid_origin in {"sale_info.transfer_douyin_uid", "order_sale_info.transfer_douyin_uid"}
-    secondary_candidates = short_ids.get(uid, []) if short_origin else uids.get(uid, [])
-    if account_candidates and secondary_candidates:
-        common = {row["account_id"] for row in account_candidates} & {row["account_id"] for row in secondary_candidates}
-        if not common:
-            raise AccountQualificationError("qualification_identity_ambiguous")
-        candidates = [row for row in secondary_candidates if row["account_id"] in common]
-    else:
-        candidates = account_candidates + secondary_candidates
+            source_names = _roster_names(row)
+            if len(source_names) > 1:
+                conflicting_names.update(source_names)
+            for roster_name in source_names:
+                names.setdefault(roster_name, {})[digest(row)] = row
+        cache[version.content_sha256] = ({key: list(rows.values()) for key, rows in names.items()}, conflicting_names)
+    names, conflicting_names = cache[version.content_sha256]
+    if name in conflicting_names:
+        raise AccountQualificationError("qualification_roster_name_source_conflict")
+    candidates = names.get(name, [])
     if not candidates:
-        raise AccountQualificationError("qualification_identity_unresolved")
-    eligible = [row for row in candidates if row["account_type"] in ELIGIBLE_TYPES
-                and row["binding_status"] == "认证成功"]
-    if not eligible:
+        raise AccountQualificationError("qualification_sale_name_unmatched")
+    return candidates
+
+
+def qualified_records(session: Session, *, version: Version, order) -> list[dict]:
+    """Match one exact original sales name to one frozen account identity."""
+    candidates = _frozen_name_candidates(session, version=version, order=order)
+    accounts = {(row.get("account_id"), row.get("douyin_id")) for row in candidates}
+    if any(not account_id or not douyin_id for account_id, douyin_id in accounts):
+        raise AccountQualificationError("qualification_name_account_missing")
+    if len(accounts) != 1:
+        raise AccountQualificationError("qualification_name_multiple_accounts")
+    merchant_states = {}
+    for row in candidates:
+        if row["account_type"] in ELIGIBLE_TYPES:
+            merchant_states.setdefault(row["account_type"], set()).add(row["binding_status"])
+    if any(len(statuses) > 1 for statuses in merchant_states.values()):
+        raise AccountQualificationError("qualification_name_record_conflict")
+    if not any(statuses == {"认证成功"} for statuses in merchant_states.values()):
         raise AccountQualificationError("account_not_qualified_in_frozen_month")
-    if len({row["account_id"] for row in eligible}) != 1:
-        raise AccountQualificationError("qualification_identity_ambiguous")
-    return eligible
+    return candidates
+
+
+def _candidate_store_ids(session: Session, candidates: list[dict]) -> frozenset[str]:
+    stores = set()
+    for row in candidates:
+        store_id = source_text(row.get("store_id"))
+        poi_id = source_text(row.get("poi_id"))
+        if poi_id:
+            mappings = set(session.scalars(select(DimStorePoiMapping.store_id).where(
+                DimStorePoiMapping.poi_id == poi_id,
+            )))
+            if not mappings:
+                raise AccountQualificationError("qualification_name_store_unmapped")
+            if len(mappings) != 1:
+                raise AccountQualificationError("qualification_name_multiple_stores")
+            mapped_store = next(iter(mappings))
+            if store_id and store_id != mapped_store:
+                raise AccountQualificationError("qualification_name_store_conflict")
+            store_id = mapped_store
+        if not store_id:
+            raise AccountQualificationError("qualification_name_store_missing")
+        if session.get(DimStore, store_id) is None:
+            raise AccountQualificationError("qualification_name_store_unmapped")
+        stores.add(store_id)
+    return frozenset(stores)
+
+
+def frozen_sale_candidate_stores(session: Session, *, version: Version, order) -> frozenset[str] | None:
+    """Bound exception impact to all proven candidate stores without granting fees."""
+    try:
+        candidates = _frozen_name_candidates(session, version=version, order=order)
+        return _candidate_store_ids(session, candidates)
+    except AccountQualificationError:
+        return None
+
+
+def qualified_sale_match(
+    session: Session, *, version: Version, order, pinned_context: dict | None = None,
+) -> FrozenSaleMatch:
+    """Resolve the frozen account's explicit store/POI without live nickname lookup."""
+    source_field, name = order_sale_name(order)
+    candidates = qualified_records(session, version=version, order=order)
+    poi_ids = tuple(sorted({source_text(row.get("poi_id")) for row in candidates if row.get("poi_id")}))
+    if (pinned_context
+            and pinned_context.get("policy") == SALE_ACCOUNT_MATCH_POLICY
+            and pinned_context.get("qualification_version_id") == version.version_id
+            and pinned_context.get("content_sha256") == version.content_sha256
+            and pinned_context.get("account_name") == name
+            and pinned_context.get("account_id") == candidates[0]["account_id"]
+            and pinned_context.get("douyin_id") == candidates[0]["douyin_id"]
+            and pinned_context.get("poi_ids") == list(poi_ids)
+            and pinned_context.get("store_id")):
+        return FrozenSaleMatch(
+            account_id=candidates[0]["account_id"], douyin_id=candidates[0]["douyin_id"],
+            store_id=pinned_context["store_id"], poi_ids=poi_ids, account_name=name,
+            source_field=source_field, qualification_version_id=version.version_id,
+            content_sha256=version.content_sha256,
+        )
+    stores = _candidate_store_ids(session, candidates)
+    if len(stores) != 1:
+        raise AccountQualificationError("qualification_name_multiple_stores")
+    return FrozenSaleMatch(
+        account_id=candidates[0]["account_id"], douyin_id=candidates[0]["douyin_id"], store_id=next(iter(stores)),
+        poi_ids=tuple(sorted(poi_ids)), account_name=name, source_field=source_field,
+        qualification_version_id=version.version_id, content_sha256=version.content_sha256,
+    )

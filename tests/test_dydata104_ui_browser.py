@@ -10,8 +10,10 @@ from __future__ import annotations
 import os
 import threading
 import csv
+import re
 from datetime import datetime
 from io import StringIO
+from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -194,16 +196,16 @@ def test_dydata104_store_page_displays_published_bill_window(browser, dy104_web)
 
 
 DOWNLOADS = [
-    ("product", "下载模板", "/admin/sku-product-imports/template", "sku-product-template.csv"),
-    ("drawer", "下载标准模板", "/admin/sku-fee-rule-imports/template", "sku-fee-rule-template.csv"),
-    ("drawer", "下载结果文件", "result", "ui104-errors-result.csv"),
-    ("governance", "下载标准模板", "/admin/sku-fee-rule-imports/template", "sku-fee-rule-template.csv"),
-    ("governance", "下载结果文件", "result", "ui104-errors-result.csv"),
+    ("product", "下载模板", "/admin/sku-product-imports/template", "SKU商品分类导入模板.csv"),
+    ("drawer", "下载标准模板", "/admin/sku-fee-rule-imports/template", "SKU服务费率导入模板.csv"),
+    ("drawer", "下载结果文件", "result", "SKU费率导入结果_{batch_id}.csv"),
+    ("governance", "下载标准模板", "/admin/sku-fee-rule-imports/template", "SKU服务费率导入模板.csv"),
+    ("governance", "下载结果文件", "result", "SKU费率导入结果_{batch_id}.csv"),
 ]
 
-PRODUCT_FIELDS = ["skuId", "productType"]
-FEE_FIELDS = ["skuName", "skuId", "promotionServiceFeeRate", "managementServiceFeeRate"]
-RESULT_FIELDS = FEE_FIELDS + ["validationStatus", "errorFields", "errorMessages", "createdRuleVersion"]
+PRODUCT_FIELDS = ["SKU ID", "商品类型"]
+FEE_FIELDS = ["SKU名称", "SKU ID", "推广服务费率", "管理服务费率"]
+RESULT_FIELDS = FEE_FIELDS + ["校验状态", "错误字段", "错误说明", "生成规则版本"]
 
 
 def prepare_download(page, web, surface):
@@ -222,17 +224,20 @@ def test_dy104_download_real_bytes_filename_and_busy(browser, dy104_web, dy104_a
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     endpoint = f"/admin/sku-fee-rule-imports/{dy104_batch['batchId']}/result-file" if endpoint == "result" else endpoint
+    filename = filename.format(batch_id=dy104_batch["batchId"])
     try:
         prepare_download(page, dy104_web, surface)
         button = page.get_by_role("button", name=label, exact=True)
         # Hold a real API response in transit to verify duplicate-click protection.
         pending = []
-        page.route(f"**/api/v1{endpoint}", lambda route: pending.append(route))
+        pattern = re.compile(rf"^https?://[^/]+/api/v1{re.escape(endpoint)}(?:\?.*)?$")
+        page.route(pattern, lambda route: pending.append(route))
         button.click()
         expect(button).to_be_disabled()
         page.wait_for_timeout(100)
         button.evaluate("button => button.click()")
         assert len(pending) == 1
+        assert parse_qs(urlsplit(pending[0].request.url).query)["locale"] == ["zh-CN"]
         actual = pending[0].fetch()
         assert actual.ok, actual.text()
         expected = actual.body()
@@ -247,8 +252,10 @@ def test_dy104_download_real_bytes_filename_and_busy(browser, dy104_web, dy104_a
                            PRODUCT_FIELDS if surface == "product" else FEE_FIELDS)
         if endpoint.endswith("result-file"):
             assert len(rows) == 2
-            assert rows[1][4:6] == ["INVALID", "template"]
+            assert rows[1][4:6] == ["校验失败", "template"]
             assert "四个标准业务列" in rows[1][6]
+        else:
+            assert len(rows) == 1
         expect(button).to_be_enabled()
         expect(page.get_by_role("status").filter(has_text="已下载")).to_be_visible()
         assert errors == []
@@ -269,10 +276,11 @@ def test_dy104_download_errors_are_visible_and_retry_real_api(browser, dy104_web
     page.on("response", lambda response: failed_statuses.append(response.status)
             if response.status >= 400 and "/api/v1/admin/sku-" in response.url else None)
     endpoint = f"/admin/sku-fee-rule-imports/{dy104_batch['batchId']}/result-file" if endpoint == "result" else endpoint
+    filename = filename.format(batch_id=dy104_batch["batchId"])
     try:
         prepare_download(page, dy104_web, surface)
         button = page.get_by_role("button", name=label, exact=True)
-        pattern = f"**/api/v1{endpoint}"
+        pattern = re.compile(rf"^https?://[^/]+/api/v1{re.escape(endpoint)}(?:\?.*)?$")
         if fault == "403":
             context.add_cookies([{"name": "dy104_role", "value": "store", "url": dy104_api}])
         else:
@@ -291,7 +299,7 @@ def test_dy104_download_errors_are_visible_and_retry_real_api(browser, dy104_web
         expect(button).to_be_enabled()
         page.unroute(pattern)
         context.clear_cookies()
-        expected = context.request.get(f"{dy104_api}/api/v1{endpoint}")
+        expected = context.request.get(f"{dy104_api}/api/v1{endpoint}", params={"locale": "zh-CN"})
         assert expected.ok
         with page.expect_download() as download:
             button.click()

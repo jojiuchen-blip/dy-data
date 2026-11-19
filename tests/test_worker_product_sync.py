@@ -819,5 +819,13 @@ def test_twenty_three_product_partial_sku_reply_preserves_all_current_catalog(db
     current = list(db_session.scalars(select(DimSkuProductRule)))
     assert len(current) == 23
     assert all(row.sku_name == "Trusted before scan" and row.sync_status == "SUCCESS" and row.is_active_product for row in current)
-    assert client.id_calls == [product_ids[:10]]
-    assert client.sku_calls == [(product_ids[0], [f"{product_ids[0]}-missing"])] * 3
+    assert client.id_calls == [product_ids[:10], product_ids[10:20], product_ids[20:]]
+    assert client.sku_calls == [
+        (product_id, [f"{product_id}-missing"])
+        for product_id in product_ids for _attempt in range(3)
+    ]
+    assert len(list(db_session.scalars(select(SkuProductSyncHistory)))) == 23
+    job = db_session.get(JobRun, "product-sync-1")
+    assert job.metadata_json["lookup_scan"]["unresolvedProductCount"] == 23
+    assert job.metadata_json["lookup_scan"]["enumerationCompleted"] is True
+    assert job.metadata_json["lookup_scan"]["coverageComplete"] is False

@@ -101,6 +101,7 @@ class NewFeeQuote:
     sale_attribution_decision_id: str | None
     account_qualification_version_id: str | None
     reverification_anchor_id: str | None = None
+    sale_account_match_json: dict[str, Any] | None = None
 
 
 def _plain(value: Any) -> Any:

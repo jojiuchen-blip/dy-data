@@ -42,7 +42,7 @@ export function usePublishedView<F, T>(
   }, dependencies, options);
 
   const complete = resource.data;
-  const periodError = complete?.data.state === "period-not-ready" ? complete.data.error : undefined;
+  const periodError = resource.rawError === undefined && complete?.data.state === "period-not-ready" ? complete.data.error : undefined;
   return {
     ...resource,
     data: complete?.data.state === "ready" ? { ...complete, data: complete.data.result } : undefined,

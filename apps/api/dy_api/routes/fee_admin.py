@@ -14,6 +14,13 @@ import re
 from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo
+from urllib.parse import quote
+
+from apps.api.dy_api.download_localization import (
+    chinese_download,
+    localized_header,
+    localized_value,
+)
 
 from fastapi import (
     APIRouter,
@@ -303,12 +310,16 @@ def download_sku_product_import_template(
     _username: str = Depends(get_current_admin),
 ) -> Response:
     output = StringIO(newline="")
-    csv.writer(output).writerow(PRODUCT_IMPORT_HEADERS)
+    headers = tuple(localized_header(field) for field in PRODUCT_IMPORT_HEADERS) if chinese_download(request) else PRODUCT_IMPORT_HEADERS
+    csv.writer(output).writerow(headers)
     return Response(
         content=("\ufeff" + output.getvalue()).encode("utf-8"),
         media_type="text/csv; charset=utf-8",
         headers={
-            "Content-Disposition": 'attachment; filename="sku-product-template.csv"',
+            "Content-Disposition": (
+                f"attachment; filename*=UTF-8''{quote('SKU商品分类导入模板.csv')}"
+                if chinese_download(request) else 'attachment; filename="sku-product-template.csv"'
+            ),
             "X-Request-ID": _request_id(request),
         },
     )
@@ -958,13 +969,16 @@ def download_sku_fee_rule_import_template(
 ) -> Response:
     output = StringIO(newline="")
     writer = csv.writer(output)
-    writer.writerow(IMPORT_HEADERS)
+    writer.writerow(tuple(localized_header(field) for field in IMPORT_HEADERS) if chinese_download(request) else IMPORT_HEADERS)
     content = ("\ufeff" + output.getvalue()).encode("utf-8")
     return Response(
         content=content,
         media_type="text/csv; charset=utf-8",
         headers={
-            "Content-Disposition": 'attachment; filename="sku-fee-rule-template.csv"',
+            "Content-Disposition": (
+                f"attachment; filename*=UTF-8''{quote('SKU服务费率导入模板.csv')}"
+                if chinese_download(request) else 'attachment; filename="sku-fee-rule-template.csv"'
+            ),
             "X-Request-ID": _request_id(request),
         },
     )
@@ -1456,13 +1470,17 @@ def download_sku_fee_rule_import_result(
         )
     )
     extension = Path(batch.file_name).suffix.lower()
-    content, media_type = _render_result_file(rows, extension)
+    content, media_type = _render_result_file(rows, extension, chinese=chinese_download(request))
     filename = f"{Path(batch.file_name).stem}-result{extension}"
+    disposition = f'attachment; filename="{filename}"'
+    if chinese_download(request):
+        filename = f"SKU费率导入结果_{batch_id}{extension}"
+        disposition = f"attachment; filename*=UTF-8''{quote(filename)}"
     return Response(
         content=content,
         media_type=media_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": disposition,
             "X-Request-ID": _request_id(request),
         },
     )
@@ -1861,9 +1879,10 @@ def _read_import_rows(content: bytes, extension: str) -> list[dict[str, Any]]:
         except UnicodeDecodeError as exc:
             raise ValueError("CSV 必须使用 UTF-8 编码") from exc
         reader = csv.DictReader(StringIO(text))
-        if tuple(reader.fieldnames or ()) != IMPORT_HEADERS:
+        fields = tuple(reader.fieldnames or ())
+        if fields not in (IMPORT_HEADERS, tuple(localized_header(field) for field in IMPORT_HEADERS)):
             raise ValueError("导入模板必须且只能包含四个标准业务列")
-        rows = [dict(row) for row in reader]
+        rows = [dict(zip(IMPORT_HEADERS, (row.get(field) for field in fields))) for row in reader]
         if not rows:
             raise ValueError("导入文件至少包含一条数据行")
         return rows
@@ -1874,7 +1893,7 @@ def _read_import_rows(content: bytes, extension: str) -> list[dict[str, Any]]:
     sheet = workbook.active
     iterator = sheet.iter_rows(values_only=True)
     header_row = next(iterator, None)
-    if tuple(_clean_text(value) for value in (header_row or ())) != IMPORT_HEADERS:
+    if tuple(_clean_text(value) for value in (header_row or ())) not in (IMPORT_HEADERS, tuple(localized_header(field) for field in IMPORT_HEADERS)):
         raise ValueError("导入模板必须且只能包含四个标准业务列")
     rows = [dict(zip(IMPORT_HEADERS, row)) for row in iterator]
     if not rows:
@@ -1895,6 +1914,8 @@ def _read_tabular_rows(
         except UnicodeDecodeError as exc:
             raise ValueError("CSV 必须使用 UTF-8 编码") from exc
         reader = csv.DictReader(StringIO(text))
+        aliases = {localized_header(field): field for field in headers}
+        reader.fieldnames = [aliases.get(field, field) for field in reader.fieldnames or []]
         if tuple(reader.fieldnames or ()) not in (headers, *compatible_headers):
             raise ValueError("导入模板列不正确")
         rows = [dict(row) for row in reader]
@@ -1905,7 +1926,8 @@ def _read_tabular_rows(
             raise ValueError("XLSX 文件无法解析") from exc
         iterator = workbook.active.iter_rows(values_only=True)
         header_row = next(iterator, None)
-        source_headers = tuple(_clean_text(value) for value in (header_row or ()))
+        aliases = {localized_header(field): field for field in headers}
+        source_headers = tuple(aliases.get(_clean_text(value), _clean_text(value)) for value in (header_row or ()))
         if source_headers not in (headers, *compatible_headers):
             raise ValueError("导入模板列不正确")
         rows = [dict(zip(source_headers, row)) for row in iterator]
@@ -2080,7 +2102,7 @@ def _get_import_batch(session, batch_id: str, request: Request) -> SkuFeeRuleImp
 
 
 def _render_result_file(
-    rows: list[SkuFeeRuleImportRow], extension: str
+    rows: list[SkuFeeRuleImportRow], extension: str, *, chinese: bool = False
 ) -> tuple[bytes, str]:
     headers = (
         *IMPORT_HEADERS,
@@ -2104,6 +2126,12 @@ def _render_result_file(
                 row.created_rule_version or "",
             )
         )
+    if chinese:
+        rendered_rows = [
+            tuple(localized_value(field, value) for field, value in zip(headers, row))
+            for row in rendered_rows
+        ]
+        headers = tuple(localized_header(field) for field in headers)
     if extension == ".xlsx":
         workbook = Workbook()
         sheet = workbook.active

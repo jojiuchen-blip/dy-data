@@ -1,8 +1,8 @@
 """Immutable settlement and finance display projections.
 
-Builders alone consult business facts and the request-pinned settlement lineage.
-Readers only select publication tables. Confirmation, dispute and invoice write
-eligibility must continue to be checked against current facts by the routes.
+Builders alone calculate operating facts from the pinned settlement lineage.
+Finance readers retain published bill scope/amounts and join current legal
+document states. Write eligibility remains checked against current facts.
 """
 
 from __future__ import annotations
@@ -472,11 +472,16 @@ def _same_commission_totals(baseline, classified, metrics) -> bool:
         int(baseline.get(key) or 0) == int(classified[key]) for key in metrics)
 
 
-def _finance_display_context(session):
+def _finance_display_context(session, *, store_ids=None, invoice_ids=None):
     from ..models import DimStore, InvoiceStatusEvent, StoreFinanceProfile
 
-    names = dict(session.execute(select(DimStore.store_id, DimStore.store_name)).all())
-    profiles = list(session.scalars(select(StoreFinanceProfile).where(StoreFinanceProfile.is_current.is_(True))))
+    names_query = select(DimStore.store_id, DimStore.store_name)
+    profiles_query = select(StoreFinanceProfile).where(StoreFinanceProfile.is_current.is_(True))
+    if store_ids is not None:
+        names_query = names_query.where(DimStore.store_id.in_(store_ids))
+        profiles_query = profiles_query.where(StoreFinanceProfile.store_id.in_(store_ids))
+    names = dict(session.execute(names_query).all())
+    profiles = list(session.scalars(profiles_query))
     saps, effective, candidates = {}, {}, {}
     for profile in profiles:
         if not profile.is_tombstone:
@@ -489,8 +494,12 @@ def _finance_display_context(session):
         if store_id not in effective:
             effective[store_id] = max(rows, key=lambda row: (row.version_no, row.updated_at)).sap_code
     rejection_reasons = {}
-    for row in session.execute(select(InvoiceStatusEvent.invoice_id, InvoiceStatusEvent.result_reason).where(
-        InvoiceStatusEvent.to_status == 4).order_by(InvoiceStatusEvent.occurred_at.desc(), InvoiceStatusEvent.event_id.desc())):
+    rejections_query = select(InvoiceStatusEvent.invoice_id, InvoiceStatusEvent.result_reason).where(
+        InvoiceStatusEvent.to_status == 4)
+    if invoice_ids is not None:
+        rejections_query = rejections_query.where(InvoiceStatusEvent.invoice_id.in_(invoice_ids))
+    for row in session.execute(rejections_query.order_by(
+        InvoiceStatusEvent.occurred_at.desc(), InvoiceStatusEvent.event_id.desc())):
         rejection_reasons.setdefault(row.invoice_id, row.result_reason)
     return {"names": names, "search_saps": saps, "effective_saps": effective, "rejections": rejection_reasons}
 
@@ -901,53 +910,31 @@ def _period(column, month, metric_scope):
     return and_(column >= FORMAL_START, column <= month) if metric_scope == "CUMULATIVE" else column == month
 
 
-def _invoice_conditions(publication_id, *, month, fee_direction, metric_scope="MONTH",
-                        store_id=None, q=None, invoice_status=None,
-                        include_history=False, scope_store_ids=None):
-    conditions = [invoices.c.publication_id == publication_id,
-        invoices.c.fee_direction == fee_direction, _period(invoices.c.month, month, metric_scope),
-        or_(invoices.c.is_projection.is_(True), invoices.c.is_history.is_(
-            include_history if fee_direction == "MANAGEMENT" else False)),
-        *_scope(invoices, scope_store_ids)]
-    if store_id is not None:
-        conditions.append(invoices.c.store_id == store_id)
-    if (q or "").strip():
-        conditions.append(invoices.c.search_text.contains(q.strip().lower()))
-    if invoice_status is not None:
-        conditions.append(invoices.c.is_projection.is_(False))
-        if fee_direction == "PROMOTION":
-            conditions.append(or_(invoices.c.status_code.is_(None), invoices.c.status_code.in_((1, 4)))
-                if invoice_status == 1 else invoices.c.status_code == invoice_status)
-        else:
-            conditions.append(and_(invoices.c.status_code.is_(None), invoices.c.confirmed.is_(True))
-                if invoice_status == 1 else invoices.c.status_code.is_not(None))
-    return conditions
-
-
 def read_finance_invoices(session: Session, publication_id: str, *, page: int = 1,
                           page_size: int = 20, **filters: Any) -> dict:
-    """Return a page from precisely the same frozen row set used by export."""
+    """Page published bill amounts with current legal finance state."""
+    from .finance_live import invoice_query, invoice_items
     _require_period(session, publication_id, filters["month"],
         cumulative=filters.get("metric_scope", "MONTH") == "CUMULATIVE",
         store_id=filters.get("store_id"), scope_store_ids=filters.get("scope_store_ids"))
-    conditions = _invoice_conditions(publication_id, **filters)
-    total = session.scalar(select(func.count()).select_from(invoices).where(*conditions)) or 0
-    items = list(session.scalars(select(invoices.c.item).where(*conditions).order_by(
-        invoices.c.position).offset((page - 1) * page_size).limit(page_size)))
+    query = invoice_query(publication_id, **filters)
+    total = session.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0
+    rows = session.execute(query.offset((page - 1) * page_size).limit(page_size)).mappings()
+    items = invoice_items(session, list(rows), filters["fee_direction"])
     return {"list": items, "total": total, "page": page, "page_size": page_size}
 
 
 def export_finance_invoices(session: Session, publication_id: str, *,
                             limit: int | None = None, **filters: Any) -> list[dict]:
-    """Materialize the list's frozen rows; callers retain export size/audit policy."""
+    """Use the same bill universe and current state filters as the list."""
+    from .finance_live import invoice_query, invoice_items
     _require_period(session, publication_id, filters["month"],
         cumulative=filters.get("metric_scope", "MONTH") == "CUMULATIVE",
         store_id=filters.get("store_id"), scope_store_ids=filters.get("scope_store_ids"))
-    query = select(invoices.c.item).where(*_invoice_conditions(publication_id, **filters)).order_by(
-        invoices.c.position)
+    query = invoice_query(publication_id, **filters)
     if limit is not None:
         query = query.limit(limit)
-    return list(session.scalars(query))
+    return invoice_items(session, list(session.execute(query).mappings()), filters["fee_direction"])
 
 
 def read_finance_summary(session: Session, publication_id: str, *, month: str,
@@ -955,53 +942,10 @@ def read_finance_summary(session: Session, publication_id: str, *, month: str,
                          store_id: str | None = None, q: str | None = None,
                          invoice_status: int | None = None,
                          scope_store_ids: tuple[str, ...] | None = None) -> dict:
-    """Sum frozen statement facts and pre-evaluated balances after row filtering."""
+    """Keep published fee amounts while applying current confirmations/invoices."""
+    from .finance_live import summary_metrics
     _require_period(session, publication_id, month, cumulative=metric_scope == "CUMULATIVE",
                     store_id=store_id, scope_store_ids=scope_store_ids)
-    row_filters = bool((q or "").strip()) or invoice_status is not None or scope_store_ids is not None
-    filters = dict(month=month, fee_direction=fee_direction, metric_scope=metric_scope,
-        store_id=store_id, q=q, invoice_status=invoice_status, scope_store_ids=scope_store_ids)
-    matching = select(invoices.c.statement_id).where(*_invoice_conditions(publication_id, **filters),
-        invoices.c.statement_id.is_not(None)).distinct()
-    conditions = [statements.c.publication_id == publication_id,
-        statements.c.fee_direction == fee_direction, *_scope(statements, scope_store_ids)]
-    if store_id is not None:
-        conditions.append(statements.c.store_id == store_id)
-    if row_filters:
-        conditions.append(statements.c.statement_id.in_(matching))
-    amounts = session.execute(select(
-        func.coalesce(func.sum(case((_period(statements.c.month, month, metric_scope),
-            statements.c.amount_cent), else_=0)), 0).label("statement_total_cent"),
-        func.coalesce(func.sum(case((statements.c.month == month,
-            statements.c.confirmed_cent), else_=0)), 0).label("confirmed_amount_cent"),
-        func.coalesce(func.sum(case((_period(statements.c.month, month, metric_scope),
-            statements.c.issued_cent), else_=0)), 0).label("issued_amount_cent"),
-        func.coalesce(func.sum(case((_period(statements.c.month, month, metric_scope),
-            statements.c.settled_cent), else_=0)), 0).label("settled_or_deducted_amount_cent"),
-    ).where(*conditions)).mappings().one()
-    metrics = {key: int(value) for key, value in amounts.items()}
-    metrics["statement_total_cent"] += int(session.scalar(select(func.coalesce(func.sum(
-        invoices.c.amount_cent), 0)).where(*_invoice_conditions(publication_id, **filters),
-        invoices.c.is_projection.is_(True))) or 0)
-    pending_conditions = [pending.c.publication_id == publication_id,
-        pending.c.fee_direction == fee_direction, *_scope(pending, scope_store_ids)]
-    if store_id is not None:
-        pending_conditions.append(pending.c.store_id == store_id)
-    if fee_direction == "PROMOTION":
-        pending_conditions.append(_period(pending.c.month, month, metric_scope))
-    else:
-        available_month = session.scalar(select(func.max(pending.c.as_of_month)).where(
-            pending.c.publication_id == publication_id,
-            pending.c.fee_direction == fee_direction, pending.c.as_of_month <= month))
-        pending_conditions.extend([pending.c.as_of_month == available_month,
-            _period(pending.c.month, month, metric_scope)])
-    if row_filters:
-        pending_conditions.append(select(pending_members.c.position).where(
-            pending_members.c.publication_id == publication_id,
-            pending_members.c.position == pending.c.position,
-            pending_members.c.statement_id.in_(matching)).exists())
-    pending_total = int(session.scalar(select(func.coalesce(func.sum(pending.c.amount_cent), 0)).where(
-        *pending_conditions)) or 0)
-    metrics["pending_invoice_amount_cent"] = pending_total if fee_direction == "PROMOTION" else max(pending_total, 0)
-    return {"month": month, "store_id": store_id, "fee_direction": fee_direction,
-            "metric_scope": metric_scope, "metrics": metrics}
+    return summary_metrics(session, publication_id, month=month, fee_direction=fee_direction,
+        metric_scope=metric_scope, store_id=store_id, q=q, invoice_status=invoice_status,
+        scope_store_ids=scope_store_ids)

@@ -1495,6 +1495,11 @@ class SettlementFeeResult(Base):
     calculation_run_id: Mapped[str] = mapped_column(String(128))
     input_fingerprint: Mapped[str | None] = mapped_column(String(64))
     account_qualification_version_id: Mapped[str | None] = mapped_column(String(128), ForeignKey("account_qualification_version.version_id", ondelete="RESTRICT"))
+    sale_account_match_json: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON(none_as_null=True).with_variant(
+            postgresql.JSONB(none_as_null=True, astext_type=Text()), "postgresql"
+        )
+    )
     sale_attribution_decision_id: Mapped[str | None] = mapped_column(
         String(128), ForeignKey("historical_sale_attribution_decisions.decision_id", name="fk_fee_result_historical_sale_attribution", ondelete="RESTRICT")
     )

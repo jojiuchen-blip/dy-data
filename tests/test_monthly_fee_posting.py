@@ -272,7 +272,8 @@ def test_unresolved_prior_period_and_unsettled_old_credit_do_not_become_zero(db_
         freeze_statement_balances(db_session, december, first_month="2026-10")
 
 
-def test_visible_version_exports_direction_breakdown_in_yuan_and_chinese(client, db_session):
+@pytest.mark.parametrize("locale", [None, "zh-CN"])
+def test_visible_version_exports_direction_breakdown_in_yuan_and_chinese(client, db_session, locale):
     first = _bill(db_session, "store-1", "2026-10", -101, 1)
     second = _bill(db_session, "store-1", "2026-11", 202, 13)
     path = f"/api/v1/store-settlements/{second.statement_id}/balances/export"
@@ -284,10 +285,17 @@ def test_visible_version_exports_direction_breakdown_in_yuan_and_chinese(client,
         first_visible_at=datetime(2026, 12, 5, tzinfo=timezone.utc),
     ))
     db_session.commit()
-    response = client.get(path)
+    response = client.get(path, params={"locale": locale} if locale else {})
     assert response.status_code == 200
-    assert "门店账单抵扣明细-2026-11-v1" in unquote(response.headers["content-disposition"])
+    filename = unquote(response.headers["content-disposition"])
+    if locale:
+        assert "门店账单抵扣明细_2026年11月_第1版_" in filename
+        assert "2026-11" not in filename
+    else:
+        assert "门店账单抵扣明细-2026-11-v1" in filename
     rows = list(DictReader(StringIO(response.content.decode("utf-8-sig"))))
+    assert {row["账期"] for row in rows} == ({"2026年11月"} if locale else {"2026-11"})
+    assert b"'-1.01" not in response.content
     assert [(row["费用方向"], row["本期净费用（元）"], row["上期结转（元）"], row["抵扣后净额（元）"])
             for row in rows] == [("推广服务费", "2.02", "-1.01", "1.01"), ("管理服务费", "0.13", "0.00", "0.13")]
     assert db_session.get(SettlementStatementBalance, (first.statement_id, 1)).closing_balance_cent == -101

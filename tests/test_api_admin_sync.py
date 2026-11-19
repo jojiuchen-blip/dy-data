@@ -6,8 +6,9 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
@@ -16,6 +17,8 @@ from dy_api.main import create_app  # noqa: E402
 from dy_api.routes import admin as admin_routes  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
 from apps.worker.collectors.types import CollectionWindow  # noqa: E402
+from apps.ops_agent.resources import ResourceAction, ResourceDecision  # noqa: E402
+from apps.worker import product_sync, scheduler  # noqa: E402
 from apps.worker.repositories import finish_job_run, queue_job_run, start_job_run  # noqa: E402
 from dy_api.models import (  # noqa: E402
     ComponentHeartbeat,
@@ -372,11 +375,17 @@ def test_product_sync_admin_endpoints_require_login(client: TestClient) -> None:
     assert client.get("/api/v1/admin/sku-products/sku-1/sync-history").status_code == 401
 
 
+@pytest.mark.parametrize("scheduler_mode", ("legacy", "priority_daily"))
+@pytest.mark.parametrize("mode", ("FULL", "INCREMENTAL"))
 def test_admin_can_trigger_product_sync_idempotently(
     client: TestClient,
     db_session: Session,
     monkeypatch: pytest.MonkeyPatch,
+    scheduler_mode: str,
+    mode: str,
 ) -> None:
+    monkeypatch.setenv("WORKER_SCHEDULER_MODE", scheduler_mode)
+    monkeypatch.setenv("WORKER_AUTO_SYNC_ENABLED", "false")
     calls: list[str] = []
 
     def fake_product_sync_job(*, job_id: str) -> None:
@@ -385,7 +394,7 @@ def test_admin_can_trigger_product_sync_idempotently(
     monkeypatch.setattr(admin_routes, "run_product_sync_job", fake_product_sync_job)
     _login(client)
     headers = {"Idempotency-Key": "product-sync-key-0001"}
-    request = {"mode": "FULL", "reason": "首次全量同步"}
+    request = {"mode": mode, "reason": "手动商品同步"}
 
     first = client.post("/api/v1/admin/product-sync-runs", headers=headers, json=request)
     second = client.post("/api/v1/admin/product-sync-runs", headers=headers, json=request)
@@ -394,8 +403,8 @@ def test_admin_can_trigger_product_sync_idempotently(
     assert second.status_code == 200
     assert first.json()["data"] == second.json()["data"]
     assert first.json()["data"]["status"] == "QUEUED"
-    assert first.json()["data"]["mode"] == "FULL"
-    assert calls == [first.json()["data"]["syncRunId"]]
+    assert first.json()["data"]["mode"] == mode
+    assert calls == ([] if scheduler_mode == "priority_daily" else [first.json()["data"]["syncRunId"]])
 
     completed = db_session.get(JobRun, first.json()["data"]["syncRunId"])
     assert completed is not None
@@ -413,10 +422,90 @@ def test_admin_can_trigger_product_sync_idempotently(
     assert completed_replay.json()["data"] == first.json()["data"]
 
 
+@pytest.mark.parametrize("mode", ("FULL", "INCREMENTAL"))
+@pytest.mark.parametrize("blocker", ("resource", "heavy_job"))
+def test_priority_product_request_is_consumed_by_worker_after_admission_recovers(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    blocker: str,
+) -> None:
+    monkeypatch.setenv("WORKER_SCHEDULER_MODE", "priority_daily")
+    for name in ("DOUYIN_APP_ID", "DOUYIN_APP_SECRET", "DOUYIN_ACCOUNT_ID"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(admin_routes, "run_product_sync_job", lambda **_kwargs:
+                        pytest.fail("priority product execution reached the API process"))
+    _login(client)
+    response = client.post(
+        "/api/v1/admin/product-sync-runs",
+        headers={"Idempotency-Key": "product-worker-entry-0001"},
+        json={"mode": mode, "reason": "手动商品任务由 worker 执行"},
+    )
+    assert response.status_code == 200
+    job_id = response.json()["data"]["syncRunId"]
+    queued = db_session.get(JobRun, job_id)
+    assert queued.status == "queued" and queued.metadata_json["mode"] == mode
+    before_metadata = dict(queued.metadata_json)
+    db_session.add(DimSkuProductRule(sku_id="untouched-entry-sku", sku_name="保留人工资料"))
+    if blocker == "heavy_job":
+        db_session.add(JobRun(job_id="entry-heavy-blocker", job_name="settlement_compaction",
+                              status="running", execution_slot="heavy_sync"))
+    db_session.commit()
+
+    factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, expire_on_commit=False)
+    monkeypatch.setenv("DOUYIN_PRODUCT_SYNC_ENABLED", "true")
+    monkeypatch.setattr(scheduler, "douyin_app_id", lambda: "synthetic-app")
+    monkeypatch.setattr(scheduler, "douyin_app_secret", lambda: "synthetic-secret")
+    monkeypatch.setattr(scheduler, "douyin_account_id", lambda: "synthetic-account")
+    resource_action = ResourceAction.DRAIN if blocker == "resource" else ResourceAction.ALLOW
+    monkeypatch.setattr(product_sync, "current_resource_decision",
+                        lambda: ResourceDecision(resource_action, ()))
+    calls = []
+
+    def source_page(*, mode, cursor):
+        calls.append((mode, cursor))
+        return {"items": [{"skuId": "verified-entry-sku", "productId": "verified-entry-product",
+                           "skuName": "来源规格", "productStatus": "ACTIVE", "syncStatus": "SUCCESS"}],
+                "hasMore": False, "nextCursor": None}
+
+    adapter = product_sync.NormalizedProductSyncAdapter(source_page)
+    monkeypatch.setattr(scheduler, "run_product_sync_job", lambda *, job_id, factory:
+                        product_sync.run_product_sync_job(job_id=job_id, factory=factory, adapter=adapter))
+    now = datetime.now(timezone.utc)
+    assert scheduler.run_scheduled_product_sync(factory, now=now) == job_id
+    db_session.expire_all()
+    deferred = db_session.get(JobRun, job_id)
+    assert deferred.status == "queued" and deferred.metadata_json == before_metadata
+    assert deferred.execution_slot is None and calls == []
+    if blocker == "heavy_job":
+        finish_job_run(db_session, "entry-heavy-blocker", status="success")
+    db_session.commit()
+    resource_action = ResourceAction.ALLOW
+
+    assert scheduler.run_scheduled_product_sync(factory, now=now + timedelta(seconds=1)) == job_id
+    db_session.expire_all()
+    assert calls == [(mode, None)]
+    assert db_session.get(JobRun, job_id).status == "success"
+    assert db_session.scalar(select(func.count()).select_from(JobRun).where(JobRun.job_name == "product_sync")) == 1
+    current = db_session.scalar(select(DimSkuProductRule).where(DimSkuProductRule.sku_id == "verified-entry-sku"))
+    assert current.sync_run_id == job_id and current.last_synced_at is not None
+    untouched = db_session.scalar(select(DimSkuProductRule).where(DimSkuProductRule.sku_id == "untouched-entry-sku"))
+    assert untouched.sku_name == "保留人工资料"
+    detail = client.get(f"/api/v1/admin/product-sync-runs/{job_id}")
+    assert detail.status_code == 200
+    assert detail.json()["data"]["run"]["status"] == "SUCCESS"
+    assert detail.json()["data"]["run"]["mode"] == mode
+    assert detail.json()["data"]["phaseCounts"]["current"] == 1
+
+
+@pytest.mark.parametrize("scheduler_mode", ("legacy", "priority_daily"))
 def test_product_sync_trigger_rejects_same_key_with_different_request(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
+    scheduler_mode: str,
 ) -> None:
+    monkeypatch.setenv("WORKER_SCHEDULER_MODE", scheduler_mode)
     monkeypatch.setattr(admin_routes, "run_product_sync_job", lambda **_: None)
     _login(client)
     headers = {"Idempotency-Key": "product-sync-key-0001"}
@@ -474,10 +563,13 @@ def test_product_sync_invalid_filter_uses_structured_contract_error(
     }
 
 
+@pytest.mark.parametrize("scheduler_mode", ("legacy", "priority_daily"))
 def test_product_sync_trigger_rejects_a_second_active_run(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
+    scheduler_mode: str,
 ) -> None:
+    monkeypatch.setenv("WORKER_SCHEDULER_MODE", scheduler_mode)
     monkeypatch.setattr(admin_routes, "run_product_sync_job", lambda **_: None)
     _login(client)
     first = client.post(
@@ -747,7 +839,9 @@ def test_product_sync_failure_detail_returns_only_safe_lookup_diagnostics(client
     assert diagnostic["batchProductIds"] == ["product-exact"]
     assert diagnostic["batchMissingCount"] == 1
     assert diagnostic["remainingProductLookupCount"] == 23
-    assert diagnostic["attempts"][0]["products"] == [{"productId": "product-exact", "skuCount": 0}]
+    assert diagnostic["attempts"][0]["products"] == [
+        {"productId": "product-exact", "skuCount": 0, "productStatus": "UNKNOWN"}
+    ]
     assert diagnostic["attempts"][0]["errorCodes"] == {"data": 0}
     assert "DO-NOT-SAVE" not in response.text
 

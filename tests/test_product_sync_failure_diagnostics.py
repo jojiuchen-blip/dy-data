@@ -16,6 +16,7 @@ from apps.worker.product_sync import (
     DouyinProductSyncAdapter,
     ProductSyncPayloadError,
     execute_product_sync,
+    product_sync_latest_success_at,
     sanitize_product_lookup_diagnostics,
 )
 from test_data_settlement_incremental_postgres import POSTGRES_URL, postgres_stack  # noqa: F401
@@ -58,35 +59,49 @@ def _execute(session, client, known):
     return result, session.get(JobRun, "product-sync-1")
 
 
-def _assert_failure_preserves_catalog(session, expected_count):
+def _assert_failure_preserves_catalog(session, expected_count, *, expected_history=0):
     rows = list(session.scalars(select(DimSkuProductRule)))
     assert len(rows) == expected_count
     assert all((row.sku_name, row.sync_status, row.sync_run_id) == (
         "Trusted", "SUCCESS", "prior-good-run"
     ) for row in rows)
-    assert list(session.scalars(select(SkuProductSyncHistory))) == []
+    assert len(list(session.scalars(select(SkuProductSyncHistory)))) == expected_history
 
 
-def test_first_failed_product_batch_persists_exact_ids_and_global_remaining_count(diagnostic_session):
+def test_failed_product_batches_all_persist_exact_ids_and_final_scan_counts(diagnostic_session):
     session = diagnostic_session
     known = _prepare(session)
     client = SkuCoverageClient({}, {})
     result, job = _execute(session, client, known)
     assert (result.status, result.error_code) == ("FAILED", "INCOMPLETE_RESPONSE")
-    diagnostic = job.metadata_json["lookup_diagnostics"]
-    first_batch = sorted(known)[:10]
-    assert diagnostic["batchProductIds"] == diagnostic["pendingProductIds"] == first_batch
-    assert diagnostic["frozenProductCount"] == diagnostic["remainingProductLookupCount"] == 23
-    assert diagnostic["batchOffset"] == 0
-    assert diagnostic["batchMissingCount"] == 10
-    assert diagnostic["unvisitedProductCount"] == 13
-    assert [item["requestedProductIds"] for item in diagnostic["attempts"]] == [first_batch] * 3
-    assert all(item["responseReceived"] and item["returnedProductCount"] == 0 for item in diagnostic["attempts"])
-    assert client.id_calls == [first_batch] * 3 and client.sku_calls == []
-    issue = session.scalar(select(DataQualityIssue).where(
+    issues = list(session.scalars(select(DataQualityIssue).where(
         DataQualityIssue.issue_type == "product_sync_incomplete_response",
-    ))
-    assert issue.raw_context_json["lookup_diagnostics"] == diagnostic
+    )))
+    assert len(issues) == 3
+    diagnostics = sorted((issue.raw_context_json["lookup_diagnostics"] for issue in issues),
+                         key=lambda item: item["batchOffset"])
+    expected_calls = []
+    for diagnostic, offset in zip(diagnostics, (0, 10, 20)):
+        batch = sorted(known)[offset:offset + 10]
+        assert diagnostic["batchProductIds"] == diagnostic["pendingProductIds"] == batch
+        assert diagnostic["frozenProductCount"] == 23
+        assert diagnostic["remainingProductLookupCount"] == 23 - offset
+        assert diagnostic["batchOffset"] == offset
+        assert diagnostic["batchMissingCount"] == len(batch)
+        assert diagnostic["unvisitedProductCount"] == max(0, 23 - offset - 10)
+        assert [item["requestedProductIds"] for item in diagnostic["attempts"]] == [batch] * 3
+        assert all(item["responseReceived"] and item["returnedProductCount"] == 0 for item in diagnostic["attempts"])
+        expected_calls.extend([batch] * 3)
+    assert client.id_calls == expected_calls and client.sku_calls == []
+    final_diagnostic = job.metadata_json["lookup_diagnostics"]
+    assert final_diagnostic == {
+        **diagnostics[-1], "unvisitedProductCount": 0, "remainingProductLookupCount": 23,
+    }
+    assert job.metadata_json["lookup_scan"] == {
+        "frozenProductCount": 23, "visitedProductCount": 23, "unvisitedProductCount": 0,
+        "unresolvedProductCount": 23, "incompleteBatchCount": 3,
+        "enumerationCompleted": True, "coverageComplete": False,
+    }
     _assert_failure_preserves_catalog(session, 23)
 
 
@@ -108,7 +123,10 @@ def test_partial_and_later_batch_failures_keep_exact_attempt_scope(diagnostic_se
 
     client.query_online_products_by_id = reply
     result, job = _execute(session, client, known)
-    diagnostic = job.metadata_json["lookup_diagnostics"]
+    diagnostics = [issue.raw_context_json["lookup_diagnostics"] for issue in session.scalars(
+        select(DataQualityIssue).where(DataQualityIssue.issue_type == "product_sync_incomplete_response")
+    )]
+    diagnostic = next(item for item in diagnostics if item["batchOffset"] == offset)
     batch = sorted(known)[offset:offset + 10]
     missing = batch if offset else batch[1:]
     assert result.error_code == "INCOMPLETE_RESPONSE"
@@ -121,11 +139,17 @@ def test_partial_and_later_batch_failures_keep_exact_attempt_scope(diagnostic_se
     assert len(diagnostic["attempts"]) == 3
     assert diagnostic["attempts"][0]["requestedProductIds"] == batch
     if not offset:
-        assert diagnostic["attempts"][0]["products"] == [{"productId": batch[0], "skuCount": 1}]
+        assert diagnostic["attempts"][0]["products"] == [
+            {"productId": batch[0], "skuCount": 1, "productStatus": "ACTIVE"}
+        ]
     assert diagnostic["attempts"][1]["requestedProductIds"] == missing
     assert "DO-NOT-SAVE" not in json.dumps(job.metadata_json)
-    assert len(client.id_calls) == (4 if offset else 3)
-    _assert_failure_preserves_catalog(session, 23)
+    assert len(client.id_calls) == (7 if offset else 9)
+    assert job.metadata_json["lookup_scan"]["visitedProductCount"] == 23
+    assert job.metadata_json["lookup_scan"]["unvisitedProductCount"] == 0
+    assert job.metadata_json["lookup_scan"]["unresolvedProductCount"] == (13 if offset else 22)
+    assert job.metadata_json["lookup_diagnostics"]["remainingProductLookupCount"] == (13 if offset else 22)
+    _assert_failure_preserves_catalog(session, 23, expected_history=10 if offset else 1)
 
 
 @pytest.mark.parametrize("failure", ("business-code", "invalid-code", "malformed", "unexpected-id", "transport"))
@@ -178,7 +202,7 @@ def test_unknown_empty_envelopes_remain_pending_with_zero_sku_evidence(diagnosti
     diagnostic = job.metadata_json["lookup_diagnostics"]
     assert result.error_code == "INCOMPLETE_RESPONSE"
     assert diagnostic["batchMissingCount"] == diagnostic["remainingProductLookupCount"] == 1
-    assert all(item["products"] == [{"productId": "unknown-product", "skuCount": 0}]
+    assert all(item["products"] == [{"productId": "unknown-product", "skuCount": 0, "productStatus": "ACTIVE"}]
                for item in diagnostic["attempts"])
 
 
@@ -206,7 +230,8 @@ def test_diagnostic_projection_bounds_every_collection_and_rejects_unlisted_fiel
         "pendingProductIds": product_ids + ["not-requested"], "access_token": "DO-NOT-SAVE",
         "attempts": [{
             "attempt": index + 1, "requestedProductIds": product_ids,
-            "products": [{"productId": item, "skuCount": 1, "secret": "DO-NOT-SAVE"}
+            "products": [{"productId": item, "skuCount": 1, "secret": "DO-NOT-SAVE",
+                          "productStatus": ["DO-NOT-SAVE"]}
                          for item in product_ids],
             "errorCodes": {"response": 0, "data": "DO-NOT-SAVE", "extra": True, "secret": 1},
             "raw_payload": "DO-NOT-SAVE",
@@ -217,6 +242,7 @@ def test_diagnostic_projection_bounds_every_collection_and_rejects_unlisted_fiel
     assert all(len(item["requestedProductIds"]) == len(item["products"]) == 10
                for item in diagnostic["attempts"])
     assert all(item["errorCodes"] == {"response": 0} for item in diagnostic["attempts"])
+    assert all(row["productStatus"] == "UNKNOWN" for item in diagnostic["attempts"] for row in item["products"])
     assert "DO-NOT-SAVE" not in json.dumps(diagnostic)
 
 
@@ -239,4 +265,94 @@ def test_reused_adapter_cannot_attribute_old_failed_batch_to_a_new_list_failure(
     session.expire_all()
     assert result.error_code == "INVALID_RESPONSE"
     assert session.get(JobRun, "product-sync-2").metadata_json.get("lookup_diagnostics") is None
+    assert session.get(JobRun, "product-sync-2").metadata_json.get("lookup_scan") is None
     assert session.get(JobRun, "product-sync-1").metadata_json["lookup_diagnostics"]
+
+
+def test_inactive_unknown_skus_do_not_starve_later_products_or_refresh_current_catalog(diagnostic_session):
+    session = diagnostic_session
+    product_ids = [f"product-{index:02}" for index in range(23)]
+    known = _prepare(session)
+    missing_ids = product_ids[:10]
+    for product_id in missing_ids:
+        session.execute(delete(DimSkuProductRule).where(
+            DimSkuProductRule.product_id == product_id,
+        ))
+        del known[product_id]
+    empty = [_platform_product(product_id, []) for product_id in missing_ids]
+    for record in empty:
+        record["online_status"] = 2
+    detail = {record["product"]["product_id"]: record for record in empty}
+    detail.update({product_id: _platform_product(product_id, list(sku_ids))
+                   for product_id, sku_ids in known.items()})
+    client = SkuCoverageClient({(2, None): {"products": empty, "has_more": False}}, detail)
+    result, job = _execute(session, client, known)
+    assert (result.status, result.error_code, result.failed_count) == ("FAILED", "INCOMPLETE_RESPONSE", 10)
+    assert client.id_calls == [missing_ids] * 3 + [product_ids[10:20], product_ids[20:]]
+    assert client.sku_calls == []
+    _assert_failure_preserves_catalog(session, 13, expected_history=13)
+    assert product_sync_latest_success_at(session, job.job_id) is None
+    assert job.metadata_json["lookup_scan"] == {
+        "frozenProductCount": 23, "visitedProductCount": 23, "unvisitedProductCount": 0,
+        "unresolvedProductCount": 10, "incompleteBatchCount": 1,
+        "enumerationCompleted": True, "coverageComplete": False,
+    }
+    diagnostic = job.metadata_json["lookup_diagnostics"]
+    assert diagnostic["pendingProductIds"] == missing_ids
+    assert all(product["skuCount"] == 0 and product["productStatus"] == "INACTIVE"
+               for attempt in diagnostic["attempts"] for product in attempt["products"])
+
+
+def test_fatal_later_batch_preserves_verified_history_and_does_not_restart_retry_budgets(diagnostic_session):
+    session = diagnostic_session
+    known = _prepare(session)
+    product_ids = sorted(known)
+    client = SkuCoverageClient({}, {})
+
+    def reply(requested):
+        client.id_calls.append(list(requested))
+        if len(client.id_calls) == 1:
+            rows = [_platform_product(product_id, list(known[product_id])) for product_id in requested]
+        elif len(client.id_calls) == 2:
+            rows = [_platform_product(requested[0], list(known[requested[0]]))]
+        elif len(client.id_calls) < 5:
+            rows = []
+        else:
+            raise RuntimeError("synthetic transport exhausted")
+        return {"data": {"product_onlines": rows}}
+
+    client.query_online_products_by_id = reply
+    result, job = _execute(session, client, known)
+    assert (result.status, result.error_code) == ("FAILED", "UPSTREAM_ERROR")
+    assert client.id_calls == [product_ids[:10], product_ids[10:20], product_ids[11:20],
+                               product_ids[11:20], product_ids[20:]]
+    _assert_failure_preserves_catalog(session, 23, expected_history=11)
+    assert product_sync_latest_success_at(session, job.job_id) is None
+    assert job.metadata_json["lookup_scan"]["visitedProductCount"] == 20
+    assert job.metadata_json["lookup_scan"]["unvisitedProductCount"] == 3
+    assert job.metadata_json["lookup_scan"]["unresolvedProductCount"] == 9
+    assert job.metadata_json["lookup_diagnostics"]["attempts"][0]["responseReceived"] is False
+    assert job.metadata_json["lookup_diagnostics"]["unvisitedProductCount"] == 3
+    assert job.metadata_json["lookup_diagnostics"]["remainingProductLookupCount"] == 12
+
+
+def test_exhausted_sku_retry_retains_exact_partial_sku_proof_in_history(diagnostic_session):
+    session = diagnostic_session
+    known = _prepare(session, count=1)
+    known["product-00"].add("missing-sku")
+    client = SkuCoverageClient({}, {"product-00": _platform_product("product-00", [])})
+
+    def partial(product_id, sku_ids):
+        client.sku_calls.append((product_id, list(sku_ids)))
+        rows = [{"sku_id": "sku-00", "sku_name": "Verified source", "status": 1}] if len(client.sku_calls) == 1 else []
+        return {"data": {"skus": rows}}
+
+    client.query_product_skus = partial
+    result, job = _execute(session, client, known)
+    assert (result.status, result.error_code) == ("FAILED", "INCOMPLETE_RESPONSE")
+    assert client.sku_calls == [("product-00", ["missing-sku", "sku-00"]),
+                                ("product-00", ["missing-sku"]), ("product-00", ["missing-sku"])]
+    _assert_failure_preserves_catalog(session, 1, expected_history=1)
+    history = session.scalar(select(SkuProductSyncHistory))
+    assert (history.sku_id, history.sku_name, history.product_id) == ("sku-00", "Verified source", "product-00")
+    assert product_sync_latest_success_at(session, job.job_id) is None

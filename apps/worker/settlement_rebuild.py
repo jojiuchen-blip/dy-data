@@ -542,13 +542,19 @@ def _lock_billing_publication_base(session: Session, base_generation_id: str) ->
 
 def _require_publication_qualification(session: Session, months: tuple[str, ...]) -> None:
     from apps.worker.month_close import require_current_month_qualification
-    from apps.worker.account_qualification import AccountQualificationError
+    from apps.worker.account_qualification import FIRST_MONTH, AccountQualificationError
 
     for month in months:
         try:
             require_current_month_qualification(session, month)
         except AccountQualificationError as exc:
             raise SettlementSourceNotReady(f"{month} month-end qualification publication blocked: {exc}") from exc
+        if month >= FIRST_MONTH:
+            certification = session.get(SettlementMonthClose, month)
+            if certification is None or not certification.is_complete:
+                raise SettlementSourceNotReady(
+                    f"{month} month-end qualification publication blocked: requires a certified store-scoped monthly close"
+                )
 
 
 def _verify_month_calculation_input(session: Session, business_month: str, job: JobRun | None) -> None:
@@ -1346,9 +1352,11 @@ def run_settlement_rebuild_job(
                     source_run_id=active_source_run_id,
                     progress_callback=report_progress,
                 )
-                economic_months = set(session.scalars(select(SettlementFeeResult.original_business_month).join(
-                    SettlementFeeResultCurrent, SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.fee_result_id,
-                ).where(SettlementFeeResult.original_business_month >= "2026-10").distinct()))
+                # A rejected recomputation can retire every current pointer.
+                # Its original fee history still proves which months it touched.
+                economic_months = set(session.scalars(select(SettlementFeeResult.original_business_month).where(
+                    SettlementFeeResult.original_business_month >= "2026-10",
+                ).distinct()))
                 economic_months.update(session.scalars(select(SettlementStatement.statement_month).where(
                     SettlementStatement.is_current.is_(True), SettlementStatement.statement_month >= "2026-10",
                 ).distinct()))
@@ -1440,7 +1448,12 @@ def run_settlement_month_rebuild_job(
             job = session.get(JobRun, job_id)
             metadata = (job.metadata_json or {}) if job is not None else {}
         official_monthly = metadata.get("monthly_close_policy") == MONTHLY_CLOSE_POLICY
-        if monthly_settlement_enabled() and not official_monthly:
+        monthly_enabled = monthly_settlement_enabled()
+        if metadata.get("monthly_close_policy") and not official_monthly:
+            raise SettlementSourceNotReady("monthly close policy changed; await a new source-versioned close job")
+        if official_monthly and (business_month < "2026-10" or not monthly_enabled):
+            raise SettlementSourceNotReady("certified monthly close is not enabled for this business month")
+        if monthly_enabled and not official_monthly and business_month >= "2026-10":
             raise SettlementMonthLockedError("legacy settlement close superseded by monthly calculation")
         if official_monthly:
             return _run_certified_month_close(
