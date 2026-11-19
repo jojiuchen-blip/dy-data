@@ -1,5 +1,5 @@
 <!-- DYDATA-115 current increment: 2026-11-19 -->
-> **2026-11-19 当前交付**：【主入口回写】DYDATA-115 / S4 / T1.1 核心开发已集成，正在合并主线并复验生产迁移链。商品授权/规则与名单、首次入库绑定、三轮接续、保护期、共享任务指标/核销归属、Web与人工交互 CLI 进入统一复验；静态投影保留旧物理合同/旧窄列，新增任务能力标记另行检查。生产交付默认 OFF，部署、验收及名单发布不构成开启授权。本轮未操作生产。
+> **2026-11-19 当前交付**：【主入口回写】DYDATA-115 / S4 / T1.1 已部署生产，技术验证通过，待负责人业务试点验收。线上源码 `ae40d26e`，数据库 `20261119_0071`。已开启商品为 0，两张看板已发布新版任务指标。[生产发布记录](docs/verification/20261119-clue-engine-release.md)
 >
 > 当前入口：[115主计划](docs/plans/delivery-plans/main-delivery-plan-dydata-115.md)、[任务看板](docs/plans/delivery-plans/task-kanban-dydata-115.md)、[T1.1](docs/plans/delivery-plans/sub-delivery-plan-dydata-115-T1.1-engine.md)；Foundation差异见[待改请求](docs/plans/foundation-plans/foundation-change-requests-dydata-115.md)。主线程统一维护 `docs/verification/dydata-115-verification.md` 与 `docs/devlog/20261118_refactor_log_Keith_Chen.md`。本轮专用人工管理 CLI 使用Web登录/商品授权，不扩大通用只读CLI/MCP凭据写权限。
 >
