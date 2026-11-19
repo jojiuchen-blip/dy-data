@@ -49,9 +49,19 @@ import type {
   ClueFollowUpAction,
   ClueFollowUpRecord,
   ClueOrderDetail,
+  ClueProductScope,
   AdminUser,
 } from "../types/dashboard";
 import { formatDateTime, formatInteger, formatPercent } from "../utils/format";
+import { toShanghaiAppointmentAt, toShanghaiAppointmentInput } from "../utils/clueAppointment";
+import {
+  CLUE_PRODUCT_SCOPE_OPTIONS,
+  FOLLOW_24H_DESCRIPTION,
+  FOLLOW_ANY_DESCRIPTION,
+  SELF_STORE_VERIFICATION_DESCRIPTION,
+  VERIFICATION_RATE_DESCRIPTION,
+  normalizeClueProductScope,
+} from "../utils/clueMetrics";
 import { userFacingError } from "../utils/userFacingError";
 import {
   displayClueReason,
@@ -59,6 +69,7 @@ import {
   displayOrderStatus,
 } from "../utils/userFacingLabels";
 import "./ClueOnboarding.css";
+import "./ClueFollowUp.css";
 
 interface ClueCenterPageProps {
   currentUser: AdminUser;
@@ -91,6 +102,7 @@ type ClueFilterKey =
   | "storeDisplayStatus"
   | "selfStoreVerified"
   | "productType"
+  | "productScope"
   | "organization"
   | "phone";
 
@@ -118,7 +130,7 @@ const verificationStatusLabels: Record<string, string> = {
 
 const followResultLabels: Record<string, string> = {
   pending: "-",
-  unreachable: "未接通",
+  unreachable: "未联系上",
   lost: "线索战败",
   request_store_change: "客户要求换门店",
   appointment: "已预约",
@@ -237,6 +249,7 @@ function canOperateCurrentRound(row: ClueAssignmentRound): boolean {
   if (typeof row.can_operate_current_round === "boolean") {
     return row.can_operate_current_round;
   }
+  if (row.routing_mode != null) return false;
   return (
     row.is_current_round &&
     row.round_effective_status === "active" &&
@@ -267,6 +280,9 @@ function getPhoneUnavailableReason(row: ClueAssignmentRound): string {
 }
 
 function getFollowUpUnavailableReason(row: ClueAssignmentRound): string {
+  if (!row.is_current_round || row.round_effective_status === "inactive") {
+    return "本轮已结束，仅可查看跟进历史。";
+  }
   const status = getStoreDisplayStatus(row);
   if (status === "超期失效") {
     return "已失效不可跟进";
@@ -331,6 +347,9 @@ function currentDetailRound(
   if (!detail) {
     return selectedRound;
   }
+  if (selectedRoundId) {
+    return detail.rounds.find((round) => round.assignment_round_id === selectedRoundId) ?? null;
+  }
   return (
     detail.rounds.find((round) => round.assignment_round_id === selectedRoundId) ??
     detail.rounds.find((round) => round.round_effective_status === "active") ??
@@ -342,6 +361,20 @@ function currentDetailRound(
 function verificationStoreText(row: ClueAssignmentRound): string {
   return row.verified_store_name?.trim() || row.verified_store_id?.trim() ||
     (row.verified_at || getStoreDisplayStatus(row) === "已核销" ? "核销门店暂缺" : "—");
+}
+
+function verificationSummary(row: ClueAssignmentRound): string {
+  return row.verification_summary?.trim() || (row.verified_at || getStoreDisplayStatus(row) === "已核销" ? "已核销" : "未核销");
+}
+
+function overviewRate(value: number | null | undefined): string {
+  return value === undefined ? "暂不可用" : value === null ? "暂无样本" : formatPercent(value);
+}
+
+function metricSample(numerator: number | null | undefined, denominator: number | null | undefined): string {
+  return numerator == null || denominator == null
+    ? "按实际接收任务统计"
+    : `${formatInteger(numerator)} / ${formatInteger(denominator)} 个接收任务`;
 }
 
 function recordsForRound(
@@ -402,6 +435,9 @@ export function ClueCenterPage({
   const [productType, setProductType] = useState(
     searchParams.get("product_type") ?? "",
   );
+  const [productScope, setProductScope] = useState<ClueProductScope>(() =>
+    normalizeClueProductScope(searchParams.get("product_scope")),
+  );
   const [page, setPage] = useState(1);
   // Sensitive selections remain in component memory, never URL/storage.
   const [phoneInput, setPhoneInput] = useState("");
@@ -440,6 +476,7 @@ export function ClueCenterPage({
   const [followResult, setFollowResult] =
     useState<ClueFollowUpAction>("further_follow_up");
   const [followNote, setFollowNote] = useState("");
+  const [followAppointmentAt, setFollowAppointmentAt] = useState("");
   const [followUpError, setFollowUpError] = useState<string | null>(null);
   const [deletingFollowUpRecordId, setDeletingFollowUpRecordId] =
     useState<string | null>(null);
@@ -452,6 +489,7 @@ export function ClueCenterPage({
   const overviewResource = usePublishedView(
     fetchPublishedClueFilters,
     (metadata, id) => fetchClueOverview({
+      product_scope: productScope,
       assigned_store_id: showStoreLocationFilters ? assignedStoreId : "",
       assigned_date_start: assignedDateStart,
       assigned_date_end: assignedDateEnd,
@@ -462,13 +500,14 @@ export function ClueCenterPage({
       province: showStoreLocationFilters ? province : "",
       city: showStoreLocationFilters ? city : "",
     }, id),
-    [assignedStoreId, assignedDateEnd, assignedDateStart, productType, city, province, showStoreLocationFilters, storeDisplayStatus],
+    [assignedStoreId, assignedDateEnd, assignedDateStart, productType, productScope, city, province, showStoreLocationFilters, storeDisplayStatus],
     { enabled: !isDetailsView },
   );
   const filterResource = isDetailsView ? liveFilterResource : { ...overviewResource, data: overviewResource.filters };
   const meta = filterResource.data?.data;
   const activeProductType = productType || clueDefaultProductType(meta);
-  useEffect(() => replaceBusinessFiltersInUrl({ product_type: productType || undefined }), [productType]);
+  useEffect(() => replaceBusinessFiltersInUrl({ product_type: productType || undefined,
+    product_scope: !isDetailsView && productScope !== "all" ? productScope : undefined }), [productType, productScope, isDetailsView]);
   const liveStoreOptionsResource = useApiResource(
     () => fetchClueStoreOptions({ cacheScope: currentUser.user_id ?? currentUser.username,
       city, limit: 50, province, q: debouncedStoreOptionQuery, selected_store_id: assignedStoreId }),
@@ -571,10 +610,14 @@ export function ClueCenterPage({
     if (activeProductType && activeProductType !== "all") {
       chips.push({ key: "productType", label: "商品", value: activeProductType });
     }
+    if (!isDetailsView && productScope !== "all") {
+      chips.push({ key: "productScope", label: "商品范围", value: CLUE_PRODUCT_SCOPE_OPTIONS.find((item) => item.value === productScope)?.label ?? "全部商品" });
+    }
     return chips;
   }, [
     selectedStores, phone,
     activeProductType,
+    productScope,
     selfStoreVerified,
     isDetailsView, orgKey, orgResource.data,
     assignedDateEnd,
@@ -609,6 +652,8 @@ export function ClueCenterPage({
     { enabled: isDetailsView, clearOnReload: true },
   );
   const overview = overviewResource.data?.data;
+  const overviewPublication = overviewResource.data?.meta.publication;
+  const metricsWarming = Boolean(overviewPublication && overviewPublication.taskMetricsContract !== "clue-task-v3");
   const rows = roundsResource.data?.data.rows ?? [];
   const pagination = roundsResource.data?.data.pagination;
   const selectedRoundIndex = selectedRound
@@ -668,7 +713,11 @@ export function ClueCenterPage({
   const canEditFollowUp = activeDetailRound
     ? canOperateCurrentRound(activeDetailRound)
     : false;
-  const canDeleteFollowUpRecords = currentUser.role === "admin";
+  const canDeleteRecordsForRound = (round: ClueAssignmentRound): boolean => {
+    if (typeof round.can_delete_follow_up_records === "boolean") return round.can_delete_follow_up_records;
+    if (round.routing_mode != null) return false;
+    return currentUser.role === "admin" && (currentUser.store_scope_mode === "all" || currentUser.store_ids.includes(round.assigned_store_id ?? ""));
+  };
   const handleExportClues = async () => {
     setExportingClues(true);
     setExportError(null);
@@ -991,7 +1040,11 @@ export function ClueCenterPage({
     setFollowUpError(null);
     setPhoneRevealError(null);
     setPhoneActionMessage(null);
-  }, [selectedOrderId]);
+  }, [selectedOrderId, selectedRoundId]);
+
+  useEffect(() => {
+    setFollowAppointmentAt(toShanghaiAppointmentInput(activeDetailRound?.appointment_at));
+  }, [activeDetailRound?.assignment_round_id, activeDetailRound?.appointment_at]);
 
   useEffect(() => {
     if (!phoneActionMessage) {
@@ -1016,6 +1069,7 @@ export function ClueCenterPage({
     setStoreDisplayStatus("");
     setSelfStoreVerified(false);
     setProductType("");
+    setProductScope("all");
     setPage(1);
   };
 
@@ -1045,12 +1099,19 @@ export function ClueCenterPage({
       setSelfStoreVerified(false);
     } else if (key === "productType") {
       setProductType("all");
+    } else if (key === "productScope") {
+      setProductScope("all");
     }
   };
 
   const handleSaveFollowUp = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!detail || !activeDetailRound || !canEditFollowUp) {
+      return;
+    }
+    const appointmentAt = followResult === "appointment" ? toShanghaiAppointmentAt(followAppointmentAt) : null;
+    if (followResult === "appointment" && !appointmentAt) {
+      setFollowUpError("请选择有效的预约到店日期时间（北京时间）。");
       return;
     }
 
@@ -1062,6 +1123,7 @@ export function ClueCenterPage({
         assignment_round_id: activeDetailRound.assignment_round_id,
         follow_result: followResult,
         note: followNote.trim() || null,
+        ...(followResult === "appointment" ? { appointment_at: appointmentAt } : {}),
       });
       if (followResult === "lost" || followResult === "request_store_change") {
         setRevealedPhones((current) => {
@@ -1086,7 +1148,8 @@ export function ClueCenterPage({
   };
 
   const handleDeleteFollowUpRecord = async (record: ClueFollowUpRecord) => {
-    if (!canDeleteFollowUpRecords || deletingFollowUpRecordId) {
+    const round = detail?.rounds.find((item) => item.assignment_round_id === record.assignment_round_id);
+    if (!round || !canDeleteRecordsForRound(round) || deletingFollowUpRecordId) {
       return;
     }
     const confirmed = window.confirm("确认删除这条跟进历史记录？");
@@ -1143,6 +1206,12 @@ export function ClueCenterPage({
         const status = getStoreDisplayStatus(row);
         return <StatusChip tone={clueStatusTone(status)}>{status}</StatusChip>;
       },
+    },
+    {
+      key: "verification_summary",
+      title: "核销状态",
+      minWidth: 150,
+      render: (row) => <span className="clue-verification-summary">{verificationSummary(row)}</span>,
     },
     {
       key: "verified_store_name",
@@ -1209,7 +1278,7 @@ export function ClueCenterPage({
       <section className="page-heading">
         <div>
           <h1>{pageHeadingTitle}</h1>
-          {!isDetailsView && <p>该指标与考核标准不完全一致，如需查看考核指标请以指标看板板块为准。</p>}
+          {!isDetailsView && <p>与指标看板使用相同口径。跟进和核销率按接收日期取样，自店核销量按该店首次有效核销日期取样；时间均为北京时间。</p>}
         </div>
         <div className="clue-onboarding-heading-actions" ref={(element) => {
           onboarding.replayRef.current = element?.querySelector("button") ?? null;
@@ -1358,7 +1427,7 @@ export function ClueCenterPage({
           <Button type="button" onClick={applyPhoneFilter}>查询手机号</Button>
           {phoneFilterError && <span id="clue-phone-filter-error" role="alert">{phoneFilterError}</span>}
         </FilterField>}
-        <FilterField label="线索生成日期起">
+        <FilterField label={isDetailsView ? "线索生成日期起" : "统计日期起"}>
           <FieldInput
             onChange={(event) => {
               setPage(1);
@@ -1368,7 +1437,7 @@ export function ClueCenterPage({
             value={assignedDateStart}
           />
         </FilterField>
-        <FilterField label="线索生成日期止">
+        <FilterField label={isDetailsView ? "线索生成日期止" : "统计日期止"}>
           <FieldInput
             onChange={(event) => {
               setPage(1);
@@ -1395,6 +1464,8 @@ export function ClueCenterPage({
           ]}
           value={storeDisplayStatus}
         />
+        {!isDetailsView && <SelectField label="商品范围" value={productScope} options={CLUE_PRODUCT_SCOPE_OPTIONS}
+          onChange={(value) => setProductScope(normalizeClueProductScope(value))} />}
         <SelectField
           label="商品类型"
           onChange={(value) => {
@@ -1437,7 +1508,7 @@ export function ClueCenterPage({
         <section className="metric-grid clue-metric-grid">
           <MetricCard
             label="线索总数"
-            meta="筛选范围内订单粒度"
+            meta="当前筛选范围"
             value={formatInteger(overview.total_clues)}
           />
           <MetricCard
@@ -1446,24 +1517,32 @@ export function ClueCenterPage({
             value={formatInteger(overview.active_clues)}
           />
           <MetricCard
-            label="线索跟进率"
-            meta="成功跟进 / 全部线索"
-            value={formatPercent(overview.follow_success_rate)}
+            label="24小时跟进率"
+            meta={metricsWarming ? "统一指标暂不可用" : metricSample(overview.follow_24h_numerator, overview.follow_denominator)}
+            value={overviewRate(metricsWarming ? undefined : overview.follow_24h_rate)}
+            description={FOLLOW_24H_DESCRIPTION}
+            interactiveTooltip
           />
           <MetricCard
-            label="核销数"
-            meta="进入跟进池后已核销"
-            value={formatInteger(overview.verified_count)}
+            label="累计跟进率（辅助）"
+            meta={metricsWarming ? "统一指标暂不可用" : metricSample(overview.follow_any_numerator, overview.follow_denominator)}
+            value={overviewRate(metricsWarming ? undefined : overview.follow_any_rate)}
+            description={FOLLOW_ANY_DESCRIPTION}
+            interactiveTooltip
           />
           <MetricCard
-            label="核销比例"
-            meta="成功且完成核销"
-            value={formatPercent(overview.self_store_verify_rate)}
+            label="核销率"
+            meta={metricsWarming ? "统一指标暂不可用" : metricSample(overview.verification_numerator, overview.verification_denominator)}
+            value={overviewRate(metricsWarming ? undefined : overview.verification_rate)}
+            description={VERIFICATION_RATE_DESCRIPTION}
+            interactiveTooltip
           />
           <MetricCard
-            label="待处理"
-            meta="战败或超期"
-            value={formatInteger(overview.pending_reassign_count)}
+            label="自店核销量"
+            meta="按该店首次有效核销日期计单"
+            value={metricsWarming || overview.self_store_verification_count == null ? "暂不可用" : formatInteger(overview.self_store_verification_count)}
+            description={SELF_STORE_VERIFICATION_DESCRIPTION}
+            interactiveTooltip
           />
         </section>
       ) : null}
@@ -1538,6 +1617,10 @@ export function ClueCenterPage({
                           <span>{displayValue(row.product_type)}</span>
                         </div>
                         <dl className="clue-card__meta">
+                          <div>
+                            <dt>核销状态</dt>
+                            <dd>{verificationSummary(row)}</dd>
+                          </div>
                           <div>
                             <dt>核销门店</dt>
                             <dd>{verificationStoreText(row)}</dd>
@@ -1728,14 +1811,24 @@ export function ClueCenterPage({
                               客户要求换门店
                             </label>
                           </fieldset>
+                          {followResult === "appointment" ? (
+                            <FilterField label="预约到店时间（北京时间，必填）">
+                              <FieldInput aria-label="预约到店时间（北京时间，必填）" type="datetime-local" required step={60}
+                                value={followAppointmentAt} onChange={(event) => setFollowAppointmentAt(event.target.value)} />
+                            </FilterField>
+                          ) : null}
                           <label className="clue-followup-note">
-                            <span>本次跟进结论/备注</span>
+                            <span>本次跟进结论/备注（选填）</span>
                             <FieldTextarea
                               onChange={(event) => setFollowNote(event.target.value)}
                               rows={5}
                               value={followNote}
                             />
                           </label>
+                          {activeDetailRound.routing_mode != null ? <p className="clue-followup-help">每次提交会保留为一条历史记录，提交后不可撤回、修改或删除。</p> : null}
+                          {followResult === "lost" || followResult === "request_store_change" ? (
+                            <p className="clue-followup-help">{activeDetailRound.routing_mode != null ? "提交后将关闭该线索。" : "提交后将结束本轮跟进。"}{followResult === "request_store_change" ? "请客户自行联系意向门店。" : ""}</p>
+                          ) : null}
                           <Button
                             data-clue-tour="save"
                             disabled={savingFollowUp}
@@ -1801,7 +1894,7 @@ export function ClueCenterPage({
                             const roundRecords = recordsForRound(
                               detail,
                               round.assignment_round_id,
-                              canDeleteFollowUpRecords,
+                              canDeleteRecordsForRound(round),
                             );
                             return (
                               <li
@@ -1846,6 +1939,14 @@ export function ClueCenterPage({
                                     <dt>最近结果</dt>
                                     <dd>{labelFor(round.follow_result, followResultLabels)}</dd>
                                   </div>
+                                  {round.appointment_at ? <div>
+                                    <dt>预约到店时间</dt>
+                                    <dd>{formatDateTime(round.appointment_at)}</dd>
+                                  </div> : null}
+                                  {round.expires_at && round.round_effective_status === "active" ? <div>
+                                    <dt>本轮截止时间</dt>
+                                    <dd>{formatDateTime(round.expires_at)}</dd>
+                                  </div> : null}
                                 </dl>
                                 <div className="clue-followup-round-records">
                                   {roundRecords.length ? (
@@ -1862,7 +1963,10 @@ export function ClueCenterPage({
                                               followResultLabels,
                                             )}
                                           </span>
-                                          <p>{displayValue(record.note)}</p>
+                                          <div className="clue-followup-record-content">
+                                            {record.appointment_at ? <p>预约到店：{formatDateTime(record.appointment_at)}</p> : null}
+                                            <p>{record.note?.trim() || "未填写备注"}</p>
+                                          </div>
                                           {record.is_deleted ? (
                                             <p>
                                               已删除
@@ -1881,7 +1985,7 @@ export function ClueCenterPage({
                                                 .join(" · ")}
                                             </p>
                                           ) : null}
-                                          {canDeleteFollowUpRecords && !record.is_deleted && (currentUser.store_scope_mode === "all" || currentUser.store_ids.includes(record.assigned_store_id ?? "")) ? (
+                                          {canDeleteRecordsForRound(round) && !record.is_deleted ? (
                                             <IconButton
                                               className="clue-followup-delete-record"
                                               disabled={
@@ -1912,6 +2016,21 @@ export function ClueCenterPage({
                                     </ol>
                                   )}
                                 </div>
+                                {round.verification_facts?.length ? (
+                                  <section className="clue-round-verifications" aria-label={`${roundLabel(round.round_no)}核销明细`}>
+                                    <h4>核销明细 · {verificationSummary(round)}</h4>
+                                    {round.verification_facts.map((fact) => {
+                                      const creditedRound = detail.rounds.find((item) => item.assignment_round_id === fact.credited_assignment_round_id);
+                                      return <dl className="clue-followup-history-fields" key={`${fact.verify_id}:${fact.assignment_round_id}`}>
+                                        <div><dt>核销门店</dt><dd>{fact.verified_store_name || fact.verified_store_id || "核销门店暂缺"}</dd></div>
+                                        <div><dt>实际核销时间</dt><dd>{formatDateTime(fact.verified_at)}</dd></div>
+                                        <div><dt>核销前有效跟进</dt><dd>{fact.had_valid_follow_before_verify ? "是" : "否"}</dd></div>
+                                        <div><dt>计入本轮门店核销率</dt><dd>{fact.counts_for_store_verification_rate ? "是" : "否"}</dd></div>
+                                        <div><dt>补计轮次</dt><dd>{fact.is_back_credit ? (creditedRound ? roundLabel(creditedRound.round_no) : "原承接轮次") : "无"}</dd></div>
+                                      </dl>;
+                                    })}
+                                  </section>
+                                ) : null}
                               </li>
                             );
                           })}
@@ -1947,7 +2066,7 @@ export function ClueCenterPage({
                   </Button>
                 </nav>
               </>
-            ) : null}
+            ) : <ResourcePanel>本轮详情暂不可用，请关闭后重新打开。</ResourcePanel>}
           </div>
         </Dialog>
       ) : null}

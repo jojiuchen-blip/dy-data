@@ -1325,7 +1325,7 @@ def browser() -> Generator[Browser]:
             browser.close()
 
 
-def api_payload(data: object, *, publication_module: str | None = None) -> str:
+def api_payload(data: object, *, publication_module: str | None = None, task_metrics_contract: str | None = None) -> str:
     meta = {"generated_at": "2026-06-25T00:00:00Z", "source": "visual-smoke"}
     if publication_module is not None:
         meta["publication"] = {
@@ -1333,6 +1333,8 @@ def api_payload(data: object, *, publication_module: str | None = None) -> str:
             "dataAsOf": None, "publishedAt": "2026-06-25T00:00:00Z",
             "status": "available", "nextRefreshAt": None,
         }
+        if task_metrics_contract is not None:
+            meta["publication"]["taskMetricsContract"] = task_metrics_contract
     return json.dumps({"data": data, "meta": meta}, ensure_ascii=False)
 
 
@@ -2867,14 +2869,15 @@ def test_douyin_board_dates_levels_and_auxiliary_follow(browser, vite_real_api_b
             requested.append(query)
             metrics = dict(storeCount=3, orderCount=10, orderAverage=3.333333,
                 followNumerator=3, followDenominator=10, follow24hRate=.3,
-                followRate=.4, followAnyNumerator=4,
-                verificationNumerator=2, verificationDenominator=4, verificationRate=.5)
+                followRate=.4, followAnyRate=.4, followAnyNumerator=4, followAnyDenominator=10,
+                verificationNumerator=2, verificationDenominator=10, verificationRate=.2,
+                selfStoreVerificationCount=3)
             route.fulfill(status=200, content_type="application/json", body=api_payload(dict(
                 dataMode="business", snapshotId="visual-sample", qualityJson={"followRoundsUnderObservation":449},
                 periodStart=query["periodStart"][0], periodEnd=query["periodEnd"][0], level=query["level"][0],
                 total=51, page=int(query["page"][0]), pageSize=50, totals=metrics,
                 rows=[dict(metrics, key="visual-group", name="第二页门店" if query["page"] == ["2"] else "测试集团", rank=51 if query["page"] == ["2"] else 1)],
-                latestObservedAt="2026-09-11T06:00:00Z", metricDefinitions={}), publication_module="douyin-ranking"))
+                latestObservedAt="2026-09-11T06:00:00Z", metricDefinitions={}), publication_module="douyin-ranking", task_metrics_contract="clue-task-v1"))
 
         page.route("**/api/v1/dashboard/douyin-ranking?*", ranking_response)
         page.goto(f"{vite_real_api_base_url}/metrics/douyin-ranking?periodStart=2026-09-07&periodEnd=2026-09-10",
@@ -2885,6 +2888,10 @@ def test_douyin_board_dates_levels_and_auxiliary_follow(browser, vite_real_api_b
         expect(page.get_by_label("结束日期", exact=True)).to_have_value("2026-09-10")
         expect(page.get_by_text("当前排名仅供参考", exact=False)).to_have_count(0)
         assert page.locator("small").filter(has_text="跟进率").count() >= 2
+        follow_card = page.locator(".metric-card").filter(has_text="24小时跟进率")
+        expect(follow_card.locator(".metric-card__value")).to_have_text("30%")
+        expect(follow_card).to_contain_text("40%（4/10）")
+        expect(page.locator(".metric-card").filter(has_text="自店核销量").locator(".metric-card__value")).to_have_text("3")
         page.get_by_label("结束日期", exact=True).fill("2026-09-09")
         expect(page.get_by_role("link", name="测试集团", exact=True)).to_have_attribute("href", re.compile("periodEnd=2026-09-09"))
         page.get_by_label("查看层级", exact=True).click()
@@ -2905,8 +2912,8 @@ def test_douyin_board_dates_levels_and_auxiliary_follow(browser, vite_real_api_b
         expect(page.get_by_role("button", name="上一页", exact=True)).to_be_disabled()
         assert requested[-1]["page"] == ["1"]
         page.get_by_label("排名依据", exact=True).click()
-        page.get_by_role("option", name="24小时有效跟进率", exact=True).click()
-        expect(page.get_by_role("heading", name="门店排名 · 24小时有效跟进率", exact=True)).to_be_visible()
+        page.get_by_role("option", name="24小时跟进率", exact=True).click()
+        expect(page.get_by_role("heading", name="门店排名 · 24小时跟进率", exact=True)).to_be_visible()
         assert requested[-1]["sortBy"] == ["follow_24h_rate"]
         assert requested[-1]["page"] == ["1"]
         page.get_by_role("button", name="导出排行", exact=True).click()

@@ -2,6 +2,7 @@
 from alembic import command
 import pytest
 from sqlalchemy import inspect, select, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import sessionmaker
 
 from apps.api.dy_api.models import RawDouyinOrder, RawDouyinVerifyRecord, SettlementFeeResult
@@ -11,12 +12,12 @@ from test_dashboard_publication_migration import full_pg_stack
 from test_data_settlement import _add_scope_rule, _dual_time, _load_dual_fee_fixture
 
 
-def test_real_postgres_name_proof_survives_commit_and_blocks_destructive_downgrade(full_pg_stack):
+def test_real_postgres_name_proof_survives_clue_upgrade_and_blocks_destructive_downgrade(full_pg_stack):
     config, engine = full_pg_stack
-    command.upgrade(config, "head")
+    command.upgrade(config, "20261118_0069")
     column = next(column for column in inspect(engine).get_columns("settlement_fee_result")
                   if column["name"] == "sale_account_match_json")
-    assert column["nullable"]
+    assert column["nullable"] and isinstance(column["type"], JSONB)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     with factory.begin() as session:
         _load_dual_fee_fixture(session)
@@ -28,6 +29,7 @@ def test_real_postgres_name_proof_survives_commit_and_blocks_destructive_downgra
         session.flush()
         settlement.rebuild_dual_fee_results(session, calculation_run_id="pg-frozen-name")
         frozen_hash = version.content_sha256
+    command.upgrade(config, "head")
     with factory() as session:
         results = list(session.scalars(select(SettlementFeeResult)))
         assert len(results) == 2

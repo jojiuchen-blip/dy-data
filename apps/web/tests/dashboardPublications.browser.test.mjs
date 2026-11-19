@@ -968,10 +968,10 @@ test("ordinary sales uses actual type options and removes old scope bookmarks", 
   assert.equal(requests.filter((url) => url.pathname.endsWith("/dashboard/sales")).at(-1).searchParams.get("product_type"), "自定义类型A");
 }));
 
-test("clue ordinary filter displays real product types including historical names", async () => withPage(async ({ page, requests, handle }) => {
+test("clue product scope and historical product types stay independent on the pinned publication", async () => withPage(async ({ page, requests, handle }) => {
   handle(async (route, url) => {
     if (url.pathname.endsWith("/publications/clue-overview/filters")) { await route.fulfill({ json: payload({ assigned_stores: [], assigned_provinces: [], assigned_cities: [], product_types: realTypes, default_product_type: "all", lead_statuses: [], round_statuses: [], verification_statuses: [] }, "clue-overview", "ct1") }); return true; }
-    if (url.pathname.endsWith("/clues/overview")) { await route.fulfill({ json: payload({ total_count: 0, status_counts: {}, follow_up_rate: 0, verification_rate: 0 }, "clue-overview", "ct1") }); return true; }
+    if (url.pathname.endsWith("/clues/overview")) { await route.fulfill({ json: payload(clueOverview, "clue-overview", "ct1") }); return true; }
     return false;
   });
   await page.goto(`${baseUrl}/clues?productScope=旧范围`);
@@ -979,8 +979,22 @@ test("clue ordinary filter displays real product types including historical name
   await page.waitForTimeout(100);
   const data = requests.filter((url) => url.pathname.endsWith("/clues/overview"));
   assert.equal(data.at(-1).searchParams.get("product_type"), "历史类型B");
-  data.forEach(assertNoScope);
+  assert.ok(data.every((url) => url.searchParams.get("product_scope") === "all"));
   assertNoScope(new URL(page.url()));
+  const scoped = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname.endsWith("/clues/overview") && url.searchParams.get("product_scope") === "byd";
+  });
+  await choose(page, "商品范围", "比亚迪本品");
+  await scoped;
+  const scopedData = requests.filter((url) => url.pathname.endsWith("/clues/overview"));
+  assert.equal(scopedData.at(-1).searchParams.get("product_type"), "历史类型B");
+  assert.equal(scopedData.at(-1).searchParams.get("product_scope"), "byd");
+  for (const url of scopedData) {
+    assert.equal(url.searchParams.get("publication_id"), "ct1", url.href);
+    assert.equal(url.searchParams.has("productScope"), false, url.href);
+    assert.ok(["all", "byd"].includes(url.searchParams.get("product_scope")), url.href);
+  }
 }));
 
 test("monthly ranking defaults to completed Shanghai month and preserves selection through paging refresh and drilldown", async () => withPage(async ({ page, requests, handle }) => {

@@ -17,6 +17,13 @@ interface AdminModule {
 
 const adminModules: AdminModule[] = [
   {
+    href: "/admin/clue-routing/products",
+    title: "商品线索流转",
+    description: "按授权商品发布适用门店名单与独立规则，预览变更并手动开启、关闭或重新开启流转。",
+    meta: "商品配置与启停",
+    pageKey: "D05",
+  },
+  {
     href: "/admin/accounts",
     title: "账号管理",
     description: "创建、编辑、启用或停用账号，绑定单店或多店门店权限，并重置账号密码。",

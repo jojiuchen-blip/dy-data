@@ -4223,6 +4223,10 @@ class ClueMasterLead(Base):
     lead_key: Mapped[str] = mapped_column(Text, primary_key=True)
     source_clue_row_key: Mapped[str] = mapped_column(Text)
     source_identity_key: Mapped[str] = mapped_column(Text)
+    # NULL preserves the legacy lifecycle. New ingress freezes one of the
+    # explicit modes before allocation, including disabled products.
+    routing_mode: Mapped[str | None] = mapped_column(String(16), index=True)
+    routing_product_id: Mapped[str | None] = mapped_column(Text, index=True)
     master_kind: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default="1"
     )
@@ -4495,6 +4499,8 @@ class ClueAssignmentRound(Base):
     assigned_store_id: Mapped[str | None] = mapped_column(Text, index=True)
     assigned_store_name: Mapped[str | None] = mapped_column(Text)
     followed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    appointment_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     follow_result: Mapped[str] = mapped_column(String(32), default="pending", index=True)
     is_followed: Mapped[bool] = mapped_column(Boolean, default=False)
     is_follow_success: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -4534,6 +4540,7 @@ class ClueFollowUpRecord(Base):
     round_no: Mapped[int] = mapped_column(Integer)
     assigned_store_id: Mapped[str | None] = mapped_column(Text)
     follow_result: Mapped[str] = mapped_column(String(32))
+    appointment_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     note: Mapped[str | None] = mapped_column(Text)
     operator_user_id: Mapped[str | None] = mapped_column(Text)
     operator_username: Mapped[str | None] = mapped_column(Text)
@@ -4679,6 +4686,7 @@ class ClueAllocationRuleVersion(Base):
     follow_24h_weight: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))
     lookback_days: Mapped[int | None] = mapped_column(Integer)
     min_samples: Mapped[int | None] = mapped_column(Integer)
+    snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, server_default="{}")
     created_by: Mapped[str | None] = mapped_column(Text)
     updated_by: Mapped[str | None] = mapped_column(Text)
     published_by: Mapped[str | None] = mapped_column(Text)
@@ -4687,6 +4695,78 @@ class ClueAllocationRuleVersion(Base):
     retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class ClueProductRoutingConfig(Base):
+    """Current product routing pointers; publication never enables routing."""
+
+    __tablename__ = "clue_product_routing_configs"
+
+    product_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    routing_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    first_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rule_id: Mapped[str | None] = mapped_column(Text, ForeignKey("clue_allocation_rules.rule_id", ondelete="RESTRICT"))
+    rule_version_id: Mapped[str | None] = mapped_column(Text, ForeignKey("clue_allocation_rule_versions.rule_version_id", ondelete="RESTRICT"))
+    active_list_version_id: Mapped[str | None] = mapped_column(Text)
+    updated_by: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class ClueProductStoreListVersion(Base):
+    """An immutable validated store-list publication for one product."""
+
+    __tablename__ = "clue_product_store_list_versions"
+    __table_args__ = (UniqueConstraint("product_id", "version_no", name="uq_clue_product_store_list_version"),)
+
+    list_version_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    product_id: Mapped[str] = mapped_column(Text, ForeignKey("clue_product_routing_configs.product_id", ondelete="RESTRICT"), index=True)
+    version_no: Mapped[int] = mapped_column(Integer)
+    content_sha256: Mapped[str] = mapped_column(String(64))
+    published_by: Mapped[str] = mapped_column(Text)
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ClueProductStoreListMember(Base):
+    """Store membership belonging to a published list version."""
+
+    __tablename__ = "clue_product_store_list_members"
+
+    list_version_id: Mapped[str] = mapped_column(Text, ForeignKey("clue_product_store_list_versions.list_version_id", ondelete="RESTRICT"), primary_key=True)
+    store_id: Mapped[str] = mapped_column(Text, ForeignKey("dim_stores.store_id", ondelete="RESTRICT"), primary_key=True)
+
+
+class ClueProductRoutingGrant(Base):
+    """Explicit product management, without authority to delegate grants."""
+
+    __tablename__ = "clue_product_routing_grants"
+
+    product_id: Mapped[str] = mapped_column(Text, ForeignKey("clue_product_routing_configs.product_id", ondelete="RESTRICT"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(Text, ForeignKey("users.user_id", ondelete="RESTRICT"), primary_key=True, index=True)
+    granted_by: Mapped[str] = mapped_column(Text)
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ClueSharedRuleMaintainer(Base):
+    """Explicit shared-base maintenance, independent of store/product grants."""
+
+    __tablename__ = "clue_shared_rule_maintainers"
+
+    user_id: Mapped[str] = mapped_column(Text, ForeignKey("users.user_id", ondelete="RESTRICT"), primary_key=True)
+    granted_by: Mapped[str] = mapped_column(Text)
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ClueProductRoutingOperation(Base):
+    """Persist a batch response for safe retries after transport uncertainty."""
+
+    __tablename__ = "clue_product_routing_operations"
+
+    actor_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    idempotency_key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    request_sha256: Mapped[str] = mapped_column(String(64))
+    result_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class ClueAllocationStrategyConfig(Base):

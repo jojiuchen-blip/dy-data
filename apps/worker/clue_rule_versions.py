@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from copy import deepcopy
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Sequence
 from uuid import uuid4
@@ -19,9 +20,10 @@ from apps.api.dy_api.models import (
     DimStore,
     utcnow,
 )
+from apps.api.dy_api.clue_product_routing_policy import normalize_follow_up_policy
 
 
-SCOPE_TYPES = {"global", "city", "store_group", "anchor_store"}
+SCOPE_TYPES = {"global", "city", "store_group", "anchor_store", "product_base"}
 STRATEGY_TYPES = {"sales_store_priority", "nearby_city_optimization", "city_fallback"}
 DISTANCE_STRATEGY_TYPES = {"sales_store_priority", "nearby_city_optimization"}
 MAX_SLA_HOURS = 168
@@ -164,6 +166,7 @@ def create_rule_version(
     min_samples: int | None,
     strategy_configs: Sequence[Mapping[str, Any]],
     created_by: str | None = None,
+    snapshot: Mapping[str, Any] | None = None,
 ) -> ClueAllocationRuleVersion:
     session.flush()
     rule = _get_rule(session, rule_id)
@@ -184,6 +187,7 @@ def create_rule_version(
         min_samples=min_samples,
         created_by=created_by,
         updated_by=created_by,
+        snapshot=deepcopy(dict(snapshot or {})),
     )
     session.add(version)
     _replace_strategy_configs(session, version.rule_version_id, strategy_configs)
@@ -208,6 +212,7 @@ def update_rule_version(
         "lookback_days",
         "min_samples",
         "updated_by",
+        "snapshot",
     }
     unknown_fields = set(changes) - mutable_fields - {"strategy_configs"}
     if unknown_fields:
@@ -216,6 +221,8 @@ def update_rule_version(
         if field_name not in changes:
             continue
         value = changes[field_name]
+        if field_name == "snapshot":
+            value = deepcopy(dict(value or {}))
         if field_name in {"conversion_weight", "follow_24h_weight"}:
             value = _as_decimal_or_none(value, field_name)
         setattr(version, field_name, value)
@@ -280,7 +287,7 @@ def retire_rule_version(
     if version.status != "published":
         raise RuleImmutableError("only published versions can be retired")
     rule = _get_rule(session, version.rule_id)
-    if rule.scope_type == "global":
+    if rule.scope_type in {"global", "product_base"}:
         raise RuleImmutableError("the current global default can only be replaced by publishing a new version")
     now = utcnow()
     version.status = "retired"
@@ -410,12 +417,12 @@ def _normalize_scope(
         "store_group": normalized_group,
         "anchor_store": normalized_anchor,
     }
-    if scope_type == "global":
+    if scope_type in {"global", "product_base"}:
         if any(targets.values()):
             raise RuleValidationError("global scope cannot include a city, store group, or anchor store")
         return {
             "scope_type": scope_type,
-            "scope_key": "global",
+            "scope_key": "global" if scope_type == "global" else "product_base:jingcheng",
             "scope_city_code": None,
             "scope_store_group_id": None,
             "scope_anchor_store_id": None,
@@ -472,7 +479,7 @@ def _validate_for_publish(
     rule: ClueAllocationRule,
     version: ClueAllocationRuleVersion,
 ) -> None:
-    if rule.scope_type != "global":
+    if rule.scope_type not in {"global", "product", "product_base"}:
         has_global_default = session.scalar(
             select(ClueAllocationRuleVersion.rule_version_id)
             .join(ClueAllocationRule, ClueAllocationRule.rule_id == ClueAllocationRuleVersion.rule_id)
@@ -485,6 +492,11 @@ def _validate_for_publish(
 
     if version.auto_expiry_enabled is None:
         raise RuleValidationError("auto_expiry_enabled must be explicit")
+    if (version.snapshot or {}).get("schema_version") == 2:
+        try:
+            normalize_follow_up_policy(version.snapshot.get("follow_up_policy"))
+        except ValueError as exc:
+            raise RuleValidationError(str(exc)) from None
     if not isinstance(version.auto_expiry_enabled, bool):
         raise RuleValidationError("auto_expiry_enabled must be a boolean")
     if version.auto_expiry_enabled or version.first_follow_up_sla_hours is not None:
@@ -568,6 +580,7 @@ def _rule_version_snapshot(session: Session, version: ClueAllocationRuleVersion)
         .order_by(ClueAllocationStrategyConfig.execution_order, ClueAllocationStrategyConfig.strategy_config_id)
     ).all()
     return {
+        **deepcopy(version.snapshot or {}),
         "rule_version_id": version.rule_version_id,
         "version_no": version.version_no,
         "auto_expiry_enabled": version.auto_expiry_enabled,

@@ -16,7 +16,9 @@ from apps.api.dy_api.models import (
 )
 from apps.api.dy_api.ranking_identity import OrderAttributionIndex
 from apps.api.dy_api.ranking_history import load_confirmed_aliases, restore_missing_poi
+from apps.api.dy_api.clue_task_metrics import load_clue_task_facts
 from apps.api.dy_api.ranking_legacy_followup import bulk_evaluate_legacy_ranking_followup
+from apps.api.dy_api.dashboard_publications.verifications import build as build_verifications, self_store_verifications
 from apps.api.dy_api.ranking_schema_v1 import eligibility, lead_bindings, org_history
 from apps.api.dy_api.ranking_snapshots import utc
 
@@ -27,7 +29,7 @@ DIMENSION_LIMIT = 250000
 def _analyze_projection(session: Session) -> None:
     """Publish usable planner statistics with the facts, before any first read."""
     if session.get_bind().dialect.name == "postgresql":
-        for table in (frozen.orders, frozen.rounds, frozen.organizations, frozen.eligibility, frozen.info):
+        for table in (frozen.orders, frozen.rounds, frozen.organizations, frozen.eligibility, frozen.info, self_store_verifications):
             session.execute(text("ANALYZE " + table.name))
 
 
@@ -58,8 +60,10 @@ def _unique_poi_stores(poi_rows):
 
 
 def _verification_by_store(session, order_ids, poi_to_store, cutoff):
-    # Restrict coupons to this order batch before aggregating. Joining the POI
-    # dimension here can make PG scan all verifications for each round batch.
+    """Preserve legacy narrow columns for an API still serving during warmup.
+
+    New readers never use this order/store projection for task attribution.
+    """
     by_store = {}
     statement = select(RawDouyinOrderCoupon.order_id, RawDouyinVerifyRecord.poi_id,
         func.max(RawDouyinVerifyRecord.verify_time)).join(RawDouyinVerifyRecord,
@@ -176,6 +180,7 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
     no_lead = or_(ClueAssignmentRound.lead_key.is_(None), ClueAssignmentRound.lead_key == "")
     first_at = select(func.min(first_round.assigned_at)).where(
         first_round.execution_mode == "formal", first_round.assigned_at <= cutoff,
+        first_round.assigned_store_id.is_not(None), first_round.assigned_store_id != "",
         or_(and_(has_lead, first_round.lead_key == ClueAssignmentRound.lead_key),
             and_(no_lead, or_(first_round.lead_key.is_(None), first_round.lead_key == ""),
                 first_round.order_id == ClueAssignmentRound.order_id))
@@ -183,7 +188,8 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
     round_count, last_round = 0, None
     while True:
         statement = select(ClueAssignmentRound, first_at).where(
-            ClueAssignmentRound.execution_mode == "formal", ClueAssignmentRound.assigned_at <= cutoff
+            ClueAssignmentRound.execution_mode == "formal", ClueAssignmentRound.assigned_at <= cutoff,
+            ClueAssignmentRound.assigned_store_id.is_not(None), ClueAssignmentRound.assigned_store_id != "",
         ).order_by(ClueAssignmentRound.assignment_round_id).limit(BATCH_SIZE).options(load_only(
             ClueAssignmentRound.assignment_round_id, ClueAssignmentRound.order_id, ClueAssignmentRound.lead_key,
             ClueAssignmentRound.assigned_at, ClueAssignmentRound.assigned_store_id, ClueAssignmentRound.execution_mode,
@@ -196,7 +202,6 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
         if not batch:
             break
         rows = [item[0] for item in batch]
-        member_order_ids = _membership_order_ids(session, {row.order_id for row in rows}, skus, products)
         lead_keys = {row.lead_key or "order:" + row.order_id for row in rows}
         pinned = {row["lead_key"]: row for row in session.execute(select(lead_bindings).where(
             lead_bindings.c.lead_key.in_(lead_keys))).mappings()}
@@ -216,24 +221,37 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
                 list(new_bindings.values()))
             pinned.update({row["lead_key"]: row for row in session.execute(select(frozen.lead_bindings).where(
                 frozen.lead_bindings.c.lead_key.in_(lead_keys))).mappings()})
-        follow = bulk_evaluate_legacy_ranking_followup(session, {row.order_id for row in rows}, round_rows=rows, observed_through=cutoff)
-        verify = _verification_by_store(session, {row.order_id for row in rows}, unique_pois, cutoff)
+        facts = load_clue_task_facts(session, {row.order_id for row in rows}, observed_through=cutoff)
+        legacy_follow = bulk_evaluate_legacy_ranking_followup(session, {row.order_id for row in rows},
+            round_rows=rows, observed_through=cutoff)
+        legacy_verify = _verification_by_store(session, {row.order_id for row in rows}, unique_pois, cutoff)
         values = []
         for row, earliest_at in batch:
             key = row.lead_key or "order:" + row.order_id
             binding = pinned.get(key)
             version = binding["mapping_version"] if binding else version_at(earliest_at)
-            metric = follow[row.assignment_round_id]
+            metric = facts.get(row.assignment_round_id)
+            if metric is None:
+                continue
             at = utc(row.assigned_at)
-            verified_at = verify.get((row.order_id, row.assigned_store_id))
+            legacy = legacy_follow[row.assignment_round_id]
+            legacy_verified_at = legacy_verify.get((row.order_id, row.assigned_store_id))
             values.append(dict(publication_id=publication_id, round_id=row.assignment_round_id, order_id=row.order_id,
                 lead_key=key, store_id=row.assigned_store_id, mapping_version=version, assigned_at=at,
-                is_jingcheng=row.order_id in member_order_ids, follow_24h=metric.numerator, follow_any=metric.follow_any_numerator,
-                self_verified=int(verified_at is not None and verified_at >= at), under_observation=metric.under_observation,
+                is_jingcheng=metric.is_jingcheng, follow_24h=legacy.numerator, follow_any=legacy.follow_any_numerator,
+                self_verified=int(legacy_verified_at is not None and legacy_verified_at >= at),
+                task_follow_24h_numerator=metric.follow_24h_numerator,
+                task_follow_any_numerator=metric.follow_any_numerator,
+                task_verification_numerator=metric.verification_numerator,
+                follow_denominator=metric.follow_denominator, verification_denominator=metric.verification_denominator,
+                under_observation=legacy.under_observation, task_under_observation=metric.under_observation,
                 first_assignment_changed=bool(binding and utc(binding["first_assigned_at"]) != utc(earliest_at))))
-        session.execute(frozen.rounds.insert(), values)
+        if values:
+            session.execute(frozen.rounds.insert(), values)
         round_count += len(values)
         last_round = rows[-1].assignment_round_id
+    verification_count = build_verifications(session, publication_id, cutoff)
     _analyze_projection(session)
-    return dict(row_count=order_count + round_count + org_count + eligibility_count,
-        orders=order_count, rounds=round_count, organizations=org_count, eligibility=eligibility_count, data_as_of=None)
+    return dict(row_count=order_count + round_count + org_count + eligibility_count + verification_count,
+        orders=order_count, rounds=round_count, organizations=org_count, eligibility=eligibility_count,
+        self_store_verifications=verification_count, data_as_of=None)

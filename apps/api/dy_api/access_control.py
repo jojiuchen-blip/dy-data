@@ -5,11 +5,13 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 from uuid import uuid4
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, exists, func, or_, select
 
 from apps.api.dy_api.models import (
     AccessPage,
     AccountPermissionAuditLog,
+    ClueProductRoutingGrant,
+    ClueSharedRuleMaintainer,
     RolePagePermission,
     User,
     UserPagePermissionOverride,
@@ -36,7 +38,7 @@ PAGE_DEFINITIONS = (
     PageDefinition("D02", "账号管理", "管理后台", ("/admin/accounts",)),
     PageDefinition("D03", "分佣规则", "管理后台", ("/admin/rules", "/rule-admin")),
     PageDefinition("D04", "商品口径", "管理后台", ("/admin/product-types",)),
-    PageDefinition("D05", "线索分配规则", "管理后台", ("/admin/clue-allocation", "/admin/clue-allocation/rules")),
+    PageDefinition("D05", "线索分配规则", "管理后台", ("/admin/clue-allocation", "/admin/clue-allocation/rules", "/admin/clue-routing/products")),
     PageDefinition("D06", "分配试运行", "管理后台", ("/admin/clue-allocation/trial",)),
     PageDefinition("D07", "分配记录", "管理后台", ("/admin/clue-allocation/records",)),
     PageDefinition("D08", "总部线索池", "管理后台", ("/admin/clue-allocation/headquarters",)),
@@ -69,6 +71,11 @@ def ensure_access_control_seed(session: Any) -> None:
     existing = set(session.scalars(select(AccessPage.page_key)).all())
     now = utcnow()
     for sort_order, page in enumerate(PAGE_DEFINITIONS, start=1):
+        if page.page_key == "D05" and page.page_key in existing:
+            stored_page = session.get(AccessPage, page.page_key)
+            if stored_page is not None and stored_page.route_patterns != list(page.route_patterns):
+                stored_page.route_patterns = list(page.route_patterns)
+                stored_page.updated_at = now
         if page.page_key not in existing:
             session.add(
                 AccessPage(
@@ -159,6 +166,14 @@ def effective_page_keys(session: Any, user: User | None, *, role: str | None = N
         return tuple(key for key in ALL_PAGE_KEYS if key in defaults)
     allow, deny = user_override_sets(session, user.user_id)
     values = (defaults | allow) - deny
+    # A product management grant is a separate business authorization. Expose
+    # its dedicated page while its service still enforces every product ID;
+    # the old global-rule write dependencies remain administrator-only.
+    if session.scalar(select(or_(
+        exists().where(ClueProductRoutingGrant.user_id == user.user_id),
+        exists().where(ClueSharedRuleMaintainer.user_id == user.user_id),
+    ))):
+        values.add("D05")
     values.add("A03")
     values.discard("D10")
     return tuple(key for key in ALL_PAGE_KEYS if key in values)
@@ -356,7 +371,7 @@ def required_page_keys_for_api_path(path: str, method: str = "GET") -> tuple[str
         or path.startswith("/api/v1/admin/clue-allocation/rebuild-cycles")
     ):
         return ("D06",)
-    if path.startswith("/api/v1/admin/clue-allocation"):
+    if path.startswith("/api/v1/admin/clue-allocation") or path.startswith("/api/v1/admin/clue-routing"):
         return ("D05",)
     if (
         path.startswith("/api/v1/admin/sync")

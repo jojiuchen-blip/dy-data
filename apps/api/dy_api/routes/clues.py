@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Literal
 from urllib.parse import quote
 
 from apps.api.dy_api.clue_organization import organization_options, organization_filter_store_ids
@@ -55,6 +56,7 @@ def _published_clue_access(store) -> dict:
         "current_headquarters_order_ids": select(ClueMasterLead.order_id).where(
             ClueMasterLead.lifecycle_status == "active",
             ClueMasterLead.pool_location == "headquarters_pool",
+            ClueMasterLead.routing_mode.is_(None),
             ClueMasterLead.order_id.is_not(None),
         ),
     }
@@ -217,6 +219,7 @@ def clue_overview(
     store_display_status: str | None = None,
     round_status: str | None = None,
     product_type: str | None = None,
+    product_scope: Literal["all", "jingcheng", "byd"] = "all",
     org_level: str = "all",
     org_key: str = "",
     province: str | None = None,
@@ -242,12 +245,13 @@ def clue_overview(
                 "store_display_status": store_display_status,
                 "round_status": round_status,
                 "product_type": product_type,
+                "product_scope": product_scope,
                 "province": province,
                 "city": city,
                 "verification_status": verification_status,
                 "scope_store_ids": _scope_store_ids(current_user),
                 "organization_store_ids": org_scope,
-            }, **_published_clue_access(store)))
+            }, legacy_contract=publication.task_metrics_contract != "clue-task-v3", **_published_clue_access(store)))
     return attach_publication({
         "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "postgres"},
@@ -408,9 +412,18 @@ def clue_order_follow_up(
             detail="Clue order not found",
         )
     if result_status == "conflict":
+        # A terminal source fact may have closed the task while refusing the
+        # submission. Preserve that reconciliation even though POST conflicts.
+        store.session.commit()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Current clue round is not active",
+        )
+    if result_status in {"appointment_required", "appointment_invalid"}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=("Appointment date and time are required" if result_status == "appointment_required"
+                    else "Appointment date and time must include a timezone"),
         )
     data = ClueFollowUpResponseData(**(record or {}))
     store.session.commit()
@@ -447,6 +460,11 @@ def delete_clue_follow_up_record(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Follow-up record has already been deleted",
+        )
+    if result_status == "immutable":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Follow-up submissions are immutable and cannot be deleted",
         )
     data = ClueFollowUpResponseData(**(record or {}))
     store.session.commit()

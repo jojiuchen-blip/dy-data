@@ -70,6 +70,7 @@ from apps.api.dy_api.account_permissions import (
     manageable_user_condition, protect_last_global_admin,
 )
 from apps.worker.backfill import iter_backfill_windows, successful_window_keys
+from apps.worker import clue_allocation_engine
 from apps.worker.collectors.types import CollectionWindow
 from apps.worker.collectors.windows import resolve_collection_window
 from apps.worker.clue_allocation import refresh_store_score_snapshots
@@ -244,6 +245,7 @@ router = APIRouter()
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 
 HEADQUARTERS_POOL_REASON_LABELS = {
+    "product_store_list_missing": "商品尚无已发布的适用门店名单",
     "missing_follow_poi": "缺少位置锚点",
     "anchor_store_unmapped": "锚点门店无法匹配",
     "anchor_geo_invalid": "锚点城市或经纬度不可用",
@@ -253,6 +255,7 @@ HEADQUARTERS_POOL_REASON_LABELS = {
     "all_strategies_exhausted": "所有启用策略均已结束",
     "data_inconsistency": "关键事实不一致，待总部治理",
 }
+LEGACY_RULE_SCOPES = ("global", "city", "store_group", "anchor_store")
 WORKER_STATUS_JOB_NAMES = (
     "collect_and_settle",
     "backend_aweme_export",
@@ -373,7 +376,7 @@ def _lead_scope_condition(current_user: AuthContext):
 def _rule_scope_condition(current_user: AuthContext):
     store_ids = _clue_scope_store_ids(current_user)
     if store_ids is None:
-        return None
+        return ClueAllocationRule.scope_type.in_(LEGACY_RULE_SCOPES)
     if not store_ids:
         return false()
     city_codes = select(DimStore.city_code).where(
@@ -389,6 +392,18 @@ def _rule_scope_condition(current_user: AuthContext):
         ClueAllocationRule.scope_city_code.in_(city_codes),
         ClueAllocationRule.scope_store_group_id.in_(store_group_ids),
     )
+
+
+def _legacy_rule_version(session, rule_version_id: str) -> ClueAllocationRuleVersion:
+    version = session.scalar(
+        select(ClueAllocationRuleVersion).join(ClueAllocationRule).where(
+            ClueAllocationRuleVersion.rule_version_id == rule_version_id,
+            ClueAllocationRule.scope_type.in_(LEGACY_RULE_SCOPES),
+        )
+    )
+    if version is None:
+        raise HTTPException(status_code=404, detail="线索分配规则版本不存在")
+    return version
 
 
 def _decision_scope_condition(current_user: AuthContext):
@@ -1644,7 +1659,7 @@ def list_clue_headquarters_pool(
     data = ClueHeadquartersPoolData(
         rows=[
             ClueHeadquartersPoolEntryRow(
-                **_clue_headquarters_pool_entry_payload(entry, lead)
+                **_clue_headquarters_pool_entry_payload(entry, lead, current_user)
             )
             for entry, lead in rows
         ],
@@ -1679,6 +1694,38 @@ def list_clue_headquarters_pool(
         "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "postgres"},
     }
+
+
+@router.post("/clue-allocation/headquarters-pool/{entry_id}/resume")
+def resume_clue_headquarters_entry(
+    entry_id: str,
+    request: Request,
+    current_user: AuthContext = Depends(_require_clue_super_admin_context),
+    store=Depends(get_data_store),
+):
+    session = _require_available_store(store).session
+    entry = session.get(ClueHeadquartersPoolEntry, entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="总部待确认记录不存在")
+    lead = session.get(ClueMasterLead, entry.lead_key)
+    if entry.status != "active" or lead is None or lead.routing_mode not in {"direct", "flow"}:
+        raise HTTPException(status_code=409, detail="该记录当前不可续派，请刷新总部池")
+    result = clue_allocation_engine.resume_product_routing(
+        session, lead.lead_key, now=datetime.now(timezone.utc),
+        actor=current_user.username, expected_entry_id=entry_id,
+    )
+    data = {
+        "status": result.status,
+        "selected_store_id": result.selected_store_id,
+        "assignment_round_id": result.assignment_round_id,
+        "reason": result.reason,
+    }
+    _record_clue_admin_audit(
+        session, request=request, current_user=current_user, event_type="headquarters_routing_review",
+        detail={"entry_id": entry_id, "lead_key": entry.lead_key, **data},
+    )
+    session.commit()
+    return {"data": data, "meta": {"generated_at": generated_at(), "source": "postgres"}}
 
 
 @router.get("/clue-allocation/cycles")
@@ -2717,9 +2764,7 @@ def refresh_store_scores(
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
-    version = store.session.get(ClueAllocationRuleVersion, payload.rule_version_id)
-    if version is None:
-        raise HTTPException(status_code=404, detail="线索分配规则版本不存在")
+    version = _legacy_rule_version(store.session, payload.rule_version_id)
     if version.status != "published":
         raise HTTPException(status_code=409, detail="仅已发布规则版本可以刷新门店评分")
     result = refresh_store_score_snapshots(
@@ -2855,6 +2900,10 @@ def create_clue_allocation_rule_version_route(
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
+    if not store.session.scalar(select(ClueAllocationRule.rule_id).where(
+        ClueAllocationRule.rule_id == rule_id, ClueAllocationRule.scope_type.in_(LEGACY_RULE_SCOPES),
+    )):
+        raise HTTPException(status_code=404, detail="线索分配规则不存在")
     try:
         version = create_rule_version(
             store.session,
@@ -2890,12 +2939,8 @@ def update_clue_allocation_rule_version_route(
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
-    existing_version = store.session.get(ClueAllocationRuleVersion, rule_version_id)
-    before_snapshot = (
-        _clue_allocation_rule_version_payload(store.session, existing_version)
-        if existing_version is not None
-        else None
-    )
+    existing_version = _legacy_rule_version(store.session, rule_version_id)
+    before_snapshot = _clue_allocation_rule_version_payload(store.session, existing_version)
     try:
         version = update_rule_version(
             store.session,
@@ -2930,12 +2975,8 @@ def delete_clue_allocation_rule_version_route(
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
-    existing_version = store.session.get(ClueAllocationRuleVersion, rule_version_id)
-    before_snapshot = (
-        _clue_allocation_rule_version_payload(store.session, existing_version)
-        if existing_version is not None
-        else None
-    )
+    existing_version = _legacy_rule_version(store.session, rule_version_id)
+    before_snapshot = _clue_allocation_rule_version_payload(store.session, existing_version)
     try:
         delete_rule_version(store.session, rule_version_id)
     except RuleVersionError as exc:
@@ -2964,12 +3005,8 @@ def publish_clue_allocation_rule_version_route(
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
-    existing_version = store.session.get(ClueAllocationRuleVersion, rule_version_id)
-    before_snapshot = (
-        _clue_allocation_rule_version_payload(store.session, existing_version)
-        if existing_version is not None
-        else None
-    )
+    existing_version = _legacy_rule_version(store.session, rule_version_id)
+    before_snapshot = _clue_allocation_rule_version_payload(store.session, existing_version)
     try:
         version = publish_rule_version(
             store.session,
@@ -3003,12 +3040,8 @@ def retire_clue_allocation_rule_version_route(
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
-    existing_version = store.session.get(ClueAllocationRuleVersion, rule_version_id)
-    before_snapshot = (
-        _clue_allocation_rule_version_payload(store.session, existing_version)
-        if existing_version is not None
-        else None
-    )
+    existing_version = _legacy_rule_version(store.session, rule_version_id)
+    before_snapshot = _clue_allocation_rule_version_payload(store.session, existing_version)
     try:
         version = retire_rule_version(
             store.session,
@@ -4819,6 +4852,7 @@ def _clue_allocation_eligible_lead_payload(row: ClueMasterLead) -> dict:
 def _clue_headquarters_pool_entry_payload(
     row: ClueHeadquartersPoolEntry,
     lead: ClueMasterLead,
+    current_user: AuthContext,
 ) -> dict:
     reason_code = canonical_headquarters_pool_reason(row.reason)
     return {
@@ -4832,7 +4866,7 @@ def _clue_headquarters_pool_entry_payload(
         "entry_status": row.status,
         "status": row.status,
         "reason_code": reason_code,
-        "reason_label": HEADQUARTERS_POOL_REASON_LABELS[reason_code],
+        "reason_label": HEADQUARTERS_POOL_REASON_LABELS.get(reason_code, "资料待确认"),
         "reason": reason_code,
         "entered_at": row.entered_at,
         "closed_at": row.closed_at,
@@ -4844,6 +4878,9 @@ def _clue_headquarters_pool_entry_payload(
         "source_decision_id": row.source_decision_id,
         "source_rule_version_id": row.source_rule_version_id,
         "allocation_cycle_id": row.allocation_cycle_id,
+        "routing_product_id": lead.routing_product_id,
+        "pending_round_no": ((row.source_snapshot or {}).get("product_routing") or {}).get("pending_round_no"),
+        "can_resume": current_user.is_highest_admin and row.status == "active" and lead.routing_mode in {"direct", "flow"},
     }
 
 
@@ -4871,6 +4908,8 @@ def _clue_allocation_cycle_payload(
             "failed": int(counts["failed"]),
             "total": len(visible_items),
         }
+        if counts["closed"] or "closed" in (row.actual_impact_json or {}):
+            actual_impact["closed"] = int(counts["closed"])
         planned_impact = {
             "lead_keys": selected_lead_keys,
             "auto_expiry_enabled": bool(

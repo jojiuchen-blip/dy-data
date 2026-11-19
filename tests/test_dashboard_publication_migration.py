@@ -33,6 +33,14 @@ def migration():
     return module
 
 
+def task_publication_migration():
+    path = ROOT / "alembic/versions/20261119_0071_clue_task_publications.py"
+    spec = importlib.util.spec_from_file_location("publication_migration_0070", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _ddl_lines(table, dialect):
     return sorted(line.strip().rstrip(",") for line in str(CreateTable(table).compile(dialect=dialect)).splitlines() if line.strip())
 
@@ -41,11 +49,25 @@ def test_frozen_migration_has_no_runtime_import_and_matches_final_schema():
     source = MIGRATION_PATH.read_text(encoding="utf-8")
     assert "from apps." not in source and "import apps." not in source
     frozen = migration().frozen_metadata_0063()
+    later = task_publication_migration()
+    assert "from apps." not in Path(later.__file__).read_text(encoding="utf-8")
+    # Compare the current sidecar against immutable 0063 plus the additive
+    # frozen revision. Never edit the executed 0063 schema to match new code.
+    import sqlalchemy as sa
+    for table, fields in (("dashboard_publication_clue_rounds", later.TASK_COLUMNS),
+                          ("dashboard_ranking_rounds", later.RANKING_COLUMNS)):
+        for field in fields:
+            assert field not in frozen.tables[table].c
+            frozen.tables[table].append_column(sa.Column(field, sa.Integer(), nullable=False, server_default="0"))
+    frozen.tables["dashboard_ranking_rounds"].append_column(sa.Column("task_under_observation", sa.Boolean(),
+        nullable=False, server_default=sa.false()))
+    later.frozen_metadata_0070().tables[later.VERIFICATION_TABLE].to_metadata(frozen)
     assert set(frozen.tables) == set(metadata.tables)
     # Later additive migrations own these counters; the 0063 DDL stays frozen.
     later_sources = {
         "historical_sale_attribution_decisions", "account_qualification_version", "ranking_area_corrections",
         "settlement_month_close", "settlement_statement_balance", "settlement_statement_visibility",
+        "raw_douyin_refund_records", "douyin_refund_event",
     }
     assert later_sources <= set(SOURCE_TABLES)
     assert set(migration().SOURCE_TABLES_0063) == set(SOURCE_TABLES) - later_sources
@@ -126,7 +148,7 @@ def test_clean_and_populated_full_postgres_chain_upgrade(full_pg_stack, populate
             session.commit()
     command.upgrade(config, "head")
     with Session(engine) as session:
-        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261118_0069"
+        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261119_0071"
         assert session.scalar(text("SELECT count(*) FROM dashboard_publication_source_counters")) == len(SOURCE_TABLES)
         assert source_fingerprint(session, "sales")
         if populated:

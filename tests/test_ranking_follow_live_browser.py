@@ -74,7 +74,9 @@ def seed_ranking_orders(session):
         ))
     session.add(ClueFollowUpRecord(
         follow_up_record_id="manual-action", order_id="active", assignment_round_id="round-active",
-        round_no=1, assigned_store_id="ranking-store", follow_result="connected",
+        # Persisted legacy commands used this value; "connected" was never
+        # supported by either the old schema or the current five actions.
+        round_no=1, assigned_store_id="ranking-store", follow_result="continue_following",
         created_at=assigned_at + timedelta(hours=2),
     ))
     session.flush()
@@ -151,27 +153,32 @@ def test_ranking_live_api_independent_follow_rates_and_empty_filter(
         assert data["snapshotId"] == response.json()["meta"]["publication"]["id"]
         assert data["total"] == 1
         for metrics in (data["totals"], data["rows"][0]):
-            assert (metrics["followNumerator"], metrics["followDenominator"]) == (1, 4)
-            assert metrics["follow24hRate"] == pytest.approx(1 / 4, abs=1e-6)
-            assert (metrics["followAnyNumerator"], metrics["followAnyDenominator"], metrics["followRate"]) == (1, 4, .25)
+            # The 4h full refund has no valid submission, so 115 excludes it
+            # from both follow denominators; 30h refund and verification remain.
+            assert (metrics["followNumerator"], metrics["followDenominator"]) == (1, 3)
+            assert metrics["follow24hRate"] == pytest.approx(1 / 3, abs=1e-6)
+            assert (metrics["followAnyNumerator"], metrics["followAnyDenominator"]) == (1, 3)
+            assert metrics["followRate"] == metrics["followAnyRate"] == pytest.approx(1 / 3, abs=1e-6)
             assert metrics["followAnyDenominator"] == metrics["followDenominator"]
             assert metrics["followRate"] >= metrics["follow24hRate"]
             assert (metrics["followActionNumerator"], metrics["followActionDenominator"], metrics["followActionRate"]) == (1, 4, .25)
-        card = page.locator(".metric-card").filter(has_text="线索24小时有效跟进率")
-        expect(card).to_contain_text("25%")
-        expect(card).to_contain_text("有效 1 / 分配 4")
-        expect(card).to_contain_text("25%（1/4）")
+            assert (metrics["verificationNumerator"], metrics["verificationDenominator"], metrics["verificationRate"]) == (1, 4, .25)
+            assert metrics["selfStoreVerificationCount"] == 1
+        card = page.locator(".metric-card").filter(has_text="24小时跟进率")
+        expect(card).to_contain_text("33.33%")
+        expect(card).to_contain_text("有效 1 / 接收 3")
+        expect(card).to_contain_text("33.33%（1/3）")
         row = page.locator("tbody tr").first if width == 1440 else page.locator(".data-table-mobile-card").first
-        expect(row).to_contain_text("25%（1/4）")
-        help_button = row.get_by_role("button", name="跟进率口径说明", exact=True)
-        expect(help_button).to_have_text("跟进率")
+        expect(row).to_contain_text("33.33%（1/3）")
+        help_button = row.get_by_role("button", name="累计跟进率（辅助）口径说明", exact=True)
+        expect(help_button).to_have_text("累计跟进率（辅助）")
         expect(page.locator(".tooltip-trigger").filter(has_text="?")).to_have_count(0)
         if width == 390:
             help_button.tap()
         else:
             help_button.hover()
         tooltip = page.locator('[role="tooltip"]:popover-open')
-        expect(tooltip).to_contain_text("核销不自动计入")
+        expect(tooltip).to_contain_text("核销本身不算跟进")
         page.keyboard.press("Escape")
         expect(tooltip).to_have_count(0)
         page.screenshot(path=str(tmp_path / f"ranking-live-{width}.png"), full_page=True)

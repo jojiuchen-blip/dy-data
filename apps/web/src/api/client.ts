@@ -1055,6 +1055,7 @@ function mockClueFollowUpResponse(
     assigned_store_id: row?.assigned_store_id ?? null,
     assigned_store_name: row?.assigned_store_name ?? null,
     follow_result: payload.follow_result,
+    appointment_at: payload.follow_result === "appointment" ? payload.appointment_at ?? null : null,
     note: payload.note,
     timing_state:
       payload.follow_result === "appointment" ? "protected" : "active",
@@ -1071,6 +1072,7 @@ function mockClueFollowUpResponse(
   if (row) {
     row.followed_at = createdAt;
     row.follow_result = payload.follow_result;
+    row.appointment_at = record.appointment_at;
     row.round_status =
       payload.follow_result === "lost" ||
       payload.follow_result === "request_store_change"

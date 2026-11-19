@@ -1,3 +1,10 @@
+<!-- DYDATA-115 current increment: 2026-11-19 -->
+> **2026-11-19 当前交付**：【主入口回写】DYDATA-115 / S4 / T1.1 核心开发已集成，正在合并主线并复验生产迁移链。商品授权/规则与名单、首次入库绑定、三轮接续、保护期、共享任务指标/核销归属、Web与人工交互 CLI 进入统一复验；静态投影保留旧物理合同/旧窄列，新增任务能力标记另行检查。生产交付默认 OFF，部署、验收及名单发布不构成开启授权。本轮未操作生产。
+>
+> 当前入口：[115主计划](docs/plans/delivery-plans/main-delivery-plan-dydata-115.md)、[任务看板](docs/plans/delivery-plans/task-kanban-dydata-115.md)、[T1.1](docs/plans/delivery-plans/sub-delivery-plan-dydata-115-T1.1-engine.md)；Foundation差异见[待改请求](docs/plans/foundation-plans/foundation-change-requests-dydata-115.md)。主线程统一维护 `docs/verification/dydata-115-verification.md` 与 `docs/devlog/20261118_refactor_log_Keith_Chen.md`。本轮专用人工管理 CLI 使用Web登录/商品授权，不扩大通用只读CLI/MCP凭据写权限。
+>
+> DYDATA-104 的待验收、历史资格/账务依据及既定保护边界继续在[原计划](docs/plans/delivery-plans/main-delivery-plan-dydata-104-followthrough.md)管理；以下历史快照保留，不因115回写而关闭104或认可旧阶段结果为本轮验收。
+
 > **2026-11-18 验收整改**　DYDATA-104 仍在 S4 / T3.1。已核对十月财务展示金额的费用来源、月末冻结名单、用户原账单与首次确认范围。候选修复和生产观测按时点记录。[本轮证据](docs/verification/20261118-monthly-finance-acceptance.md)
 
 > **2026-11-17 当前交付**：DYDATA-104 继续 S4 / T3.1。四项月结规则已部署到生产，源码 `678429d6`，数据库 `20261117_0068`。月结、无人值守确认保持关闭，10 月正式账单为 0，真实采集、身份覆盖与业务验收继续。[发布记录](docs/verification/20261117-monthly-settlement-release.md)

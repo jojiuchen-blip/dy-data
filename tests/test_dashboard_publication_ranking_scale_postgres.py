@@ -7,6 +7,7 @@ Python allocation tracing is a separate diagnostic opt-in via
 DYDATA_PUBLICATION_RANKING_TRACE=1 because it can exceed the normal runtime.
 """
 from datetime import datetime, timezone
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -31,6 +32,8 @@ if str(ROOT) not in sys.path:
 
 from apps.api.dy_api.dashboard_publications import ranking, ranking_build, ranking_schema as frozen
 from apps.api.dy_api.dashboard_publications.schema import metadata, runs
+from apps.api.dy_api.dashboard_publications.verifications import self_store_verifications
+from apps.api.dy_api.clue_task_metrics_sources import SOURCE_BATCH_SIZE
 from apps.api.dy_api.models import (
     Base, ClueAssignmentRound, ClueCenterOrder, ClueFollowUpRecord, ClueMasterLead,
     DimAwemeAccount, DimSkuProductRule, DimStore, DimStorePoiMapping,
@@ -138,6 +141,7 @@ def _measure(schema, trace_memory):
     engine = create_engine(os.environ["DYDATA_PUBLICATION_TEST_DATABASE_URL"], connect_args={"options": f"-csearch_path={schema}"})
     statements, slowest, sql_seconds, first_round_start = 0, [], 0.0, None
     membership_queries, max_membership_batch = 0, 0
+    classification_queries, max_classification_batch = 0, 0
     attribution_calls, attribution_seconds = 0, 0.0
     original_resolve = OrderAttributionIndex.resolve
 
@@ -151,7 +155,7 @@ def _measure(schema, trace_memory):
             attribution_seconds += perf_counter() - attribution_started
 
     def before(connection, cursor, statement, parameters, context, executemany):
-        nonlocal first_round_start, membership_queries, max_membership_batch
+        nonlocal first_round_start, membership_queries, max_membership_batch, classification_queries, max_classification_batch
         context.ranking_started = perf_counter()
         if first_round_start is None and statement.startswith("SELECT clue_assignment_rounds."):
             first_round_start = context.ranking_started
@@ -161,6 +165,11 @@ def _measure(schema, trace_memory):
             assert 1 <= len(batch) <= ranking_build.BATCH_SIZE
             membership_queries += 1
             max_membership_batch = max(max_membership_batch, len(batch))
+        if "task_product_sources" in statement:
+            batch = {value for key, value in parameters.items() if key.startswith("order_id_")}
+            assert 1 <= len(batch) <= SOURCE_BATCH_SIZE
+            classification_queries += 1
+            max_classification_batch = max(max_classification_batch, len(batch))
 
     def after(connection, cursor, statement, parameters, context, executemany):
         nonlocal statements, sql_seconds
@@ -207,12 +216,14 @@ def _measure(schema, trace_memory):
             SELECT relname,pg_relation_size(c.oid) AS table_bytes,pg_indexes_size(c.oid) AS index_bytes,
                    pg_total_relation_size(c.oid) AS total_bytes
             FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname=:schema AND c.relkind='r' AND c.relname LIKE 'dashboard_ranking_%'
+            WHERE n.nspname=:schema AND c.relkind='r' AND (c.relname LIKE 'dashboard_ranking_%'
+                OR c.relname='dashboard_publication_self_store_verifications')
             ORDER BY c.relname
         """), {"schema": schema}).mappings()]
         print("RANKING_BUILD_SCALE=" + json.dumps(dict(orders=stats["orders"], rounds=stats["rounds"],
             stores=STORE_COUNT, center_orders=CENTER_COUNT, raw_clues=RAW_CLUE_COUNT, build_seconds=elapsed, cpu_seconds=cpu_seconds,
             membership_queries=membership_queries, max_membership_batch=max_membership_batch,
+            classification_queries=classification_queries, max_classification_batch=max_classification_batch,
             python_cpu_limit="unrestricted local process; not a 0.5-CPU container result",
             build_sql=statements, rss_peak_bytes=rss,
             attribution_calls=attribution_calls, attribution_seconds=attribution_seconds,
@@ -342,6 +353,37 @@ def _diagnose_global_jit(engine, evidence_path):
         print("RANKING_GLOBAL_JIT=" + json.dumps(summary), flush=True)
 
 
+def _compare_legacy_global_reads(session, evidence_path):
+    """Compare unchanged 678429d6 SQL and task SQL over the same real build."""
+    def module_at(name, path):
+        spec = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    legacy = module_at("apps.api.dy_api.dashboard_publications._legacy_scale_reader",
+        ROOT / "tests/fixtures/dydata_115_legacy/ranking_read.py")
+    frozen_0063 = module_at("frozen_scale_schema_0063",
+        ROOT / "alembic/versions/20261019_0063_dashboard_publications.py").frozen_metadata_0063()
+    # The old binary's Table objects contain only old columns. Importing its
+    # SQL with today's wider metadata would overstate the old materialization.
+    for name in ("eligibility", "info", "orders", "organizations", "rounds"):
+        setattr(legacy, name, frozen_0063.tables[getattr(frozen, name).name])
+    measurements = []
+    for iteration in (1, 2, 3):
+        for name, reader in (("678429d6", legacy.read_report), ("task_contract", ranking.read_report)):
+            began = perf_counter()
+            report = reader(session, "scale", period_start=START, period_end=CUTOFF,
+                product_scope="all", level="group")
+            row = dict(reader=name, iteration=iteration, seconds=perf_counter() - began,
+                orders=int(report["totals"]["order_count"]))
+            assert row["orders"] == ORDER_COUNT
+            measurements.append(row)
+            print("RANKING_SAME_FIXTURE_COMPARE=" + json.dumps(row), flush=True)
+    evidence_path.write_text(json.dumps(measurements, indent=2), encoding="utf-8")
+    return measurements
+
+
 @pytest.mark.parametrize("trace_memory", [False, True], ids=["normal", "python-memory-tracing"])
 def test_real_source_build_at_production_scale(tmp_path, trace_memory):
     if os.getenv("DYDATA_PUBLICATION_RANKING_SCALE") != "1":
@@ -401,12 +443,15 @@ def test_real_source_build_at_production_scale(tmp_path, trace_memory):
         # Read validation has a separate per-statement 120s bound.
         with Session(engine) as session:
             report.update(_measure_reads(session, engine, evidence_path))
+            report["same_fixture_comparison"] = _compare_legacy_global_reads(session, tmp_path / "ranking-legacy-task-comparison.json")
         (tmp_path / "ranking-build-scale.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
         if not trace_memory:
             _diagnose_global_jit(engine, tmp_path / "ranking-global-read-plan.json")
         assert report["orders"] == ORDER_COUNT and report["rounds"] == ROUND_COUNT
-        assert report["membership_queries"] == 3 * ((ROUND_COUNT + ranking_build.BATCH_SIZE - 1) // ranking_build.BATCH_SIZE)
-        assert 1 <= report["max_membership_batch"] <= ranking_build.BATCH_SIZE
+        # 170 round batches plus 4 classifier batches for the unchanged 1000
+        # coupon orders. The old three-DISTINCT loader is no longer the path.
+        assert report["classification_queries"] == ((ROUND_COUNT + ranking_build.BATCH_SIZE - 1) // ranking_build.BATCH_SIZE) + 4
+        assert 1 <= report["max_classification_batch"] <= SOURCE_BATCH_SIZE
         assert report["build_seconds"] < 180
         assert report["rss_peak_bytes"] < 768 * 1024 * 1024
         assert all(row["seconds"] < 1 for row in report["reads"]), report["reads"]
@@ -420,13 +465,13 @@ def test_real_source_build_at_production_scale(tmp_path, trace_memory):
 
 
 @pytest.mark.parametrize("dialect", ["postgresql", "sqlite"])
-def test_analyze_only_five_owned_projection_tables(dialect):
+def test_analyze_only_six_owned_projection_tables(dialect):
     session = Mock()
     session.get_bind.return_value = SimpleNamespace(dialect=SimpleNamespace(name=dialect))
     ranking_build._analyze_projection(session)
     statements = [str(call.args[0]) for call in session.execute.call_args_list]
     expected = ["ANALYZE " + table.name for table in
-        (frozen.orders, frozen.rounds, frozen.organizations, frozen.eligibility, frozen.info)]
+        (frozen.orders, frozen.rounds, frozen.organizations, frozen.eligibility, frozen.info, self_store_verifications)]
     assert statements == (expected if dialect == "postgresql" else [])
     session.commit.assert_not_called()
     session.rollback.assert_not_called()
@@ -438,6 +483,22 @@ def test_analyze_failure_propagates_without_commit():
     session.execute.side_effect = RuntimeError("analyze failed")
     with pytest.raises(RuntimeError, match="analyze failed"):
         ranking_build._analyze_projection(session)
+    session.commit.assert_not_called()
+    session.rollback.assert_not_called()
+
+
+def test_self_store_statistics_failure_propagates_before_publication():
+    session = Mock()
+    session.get_bind.return_value = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+    def execute(statement):
+        if str(statement) == "ANALYZE " + self_store_verifications.name:
+            raise RuntimeError("self-store analyze failed")
+
+    session.execute.side_effect = execute
+    with pytest.raises(RuntimeError, match="self-store analyze failed"):
+        ranking_build._analyze_projection(session)
+    assert len(session.execute.call_args_list) == 6
     session.commit.assert_not_called()
     session.rollback.assert_not_called()
 
@@ -455,7 +516,7 @@ def test_new_projection_statistics_before_commit(tmp_path):
     with admin.begin() as connection:
         connection.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
-    tables = (frozen.orders, frozen.rounds, frozen.organizations, frozen.eligibility, frozen.info)
+    tables = (frozen.orders, frozen.rounds, frozen.organizations, frozen.eligibility, frozen.info, self_store_verifications)
     report = {}
     try:
         metadata.create_all(engine, tables=[runs, *tables])
@@ -478,10 +539,11 @@ def test_new_projection_statistics_before_commit(tmp_path):
                 SELECT c.relname,c.reltuples,count(s.attname) AS columns_with_statistics
                 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
                 LEFT JOIN pg_stats s ON s.schemaname=n.nspname AND s.tablename=c.relname
-                WHERE n.nspname=:schema AND c.relkind='r' AND c.relname LIKE 'dashboard_ranking_%'
+                WHERE n.nspname=:schema AND c.relkind='r' AND (c.relname LIKE 'dashboard_ranking_%'
+                    OR c.relname='dashboard_publication_self_store_verifications')
                 GROUP BY c.relname,c.reltuples ORDER BY c.relname
             """), {"schema": schema}).mappings()]
-            assert len(report["statistics"]) == 5
+            assert len(report["statistics"]) == 6
             assert all(row["columns_with_statistics"] > 0 for row in report["statistics"])
             # New facts are still invisible outside the build transaction.
             with engine.connect() as other:

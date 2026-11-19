@@ -424,3 +424,20 @@ Mode: `json`.
 ### Examples
 
 `dydata version --json`
+
+## Human product management console
+
+`dydata-products manage` is a separate, human-only command in the same package.
+It uses a fresh Web login cookie held in memory and requires a secure interactive terminal,
+item-by-item server preview and explicit typed confirmation. It does not use or expand
+the read-only `dydata` / Agent / MCP registry, token audience, capabilities or API allowlist.
+
+Supported changes: product lists, rule field patches, explicit business-authorized
+enable/disable, and product manager grants for full-scope administrators.
+`dydata-products shared-rule` previews and publishes the Jingcheng shared rule base.
+Explicitly authorized Jingcheng project maintainers can use that command without product grants.
+`dydata-products shared-rule-grants` lets full-scope administrators preview and replace maintainers.
+List/rule publication never automatically enables product routing.
+
+See [human product console](cli-human-products.md) for input files, selection,
+partial failure retry, audit receipts and credential handling.

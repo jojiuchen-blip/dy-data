@@ -24,13 +24,10 @@ from apps.api.dy_api.ranking_schema_v1 import (
 from apps.api.dy_api.ranking_identity import OrderAttributionIndex
 from apps.api.dy_api.ranking_history import load_confirmed_aliases, restore_missing_poi
 from apps.api.dy_api.clue_product_scope import PRODUCT_SCOPE_LABELS, scope_predicate, validate_product_scope
-from apps.api.dy_api.ranking_legacy_followup import (
-    LEGACY_DEFINITIONS as CLUE_FOLLOWUP_METRIC_DEFINITIONS,
-    LEGACY_RANKING_VERSION,
-    bulk_evaluate_legacy_ranking_followup as bulk_evaluate_clue_followup_metrics,
-)
+from apps.api.dy_api.clue_task_metrics import load_clue_task_facts, load_self_store_verifications
+from apps.api.dy_api.ranking_legacy_followup import LEGACY_DEFINITIONS, bulk_evaluate_legacy_ranking_followup
 
-METRIC_VERSION = "douyin-ranking-self-store-v8-historical-owner-" + LEGACY_RANKING_VERSION
+METRIC_VERSION = "douyin-ranking-clue-task-v1-independent-action-v1"
 
 
 
@@ -54,11 +51,12 @@ LEVEL_FIELDS = {
 DEFINITIONS = {
     "order_count": "全渠道精诚养车订单，门店及有明确绑定的职人归属，订单ID去重；组织归属固定为统计开始日",
     "order_average": "订单量÷统计开始日适用名单中的精诚养车门店数（含零销量店）",
-    "follow_24h_rate": CLUE_FOLLOWUP_METRIC_DEFINITIONS["follow_24h_rate"],
-    "follow_any_rate": CLUE_FOLLOWUP_METRIC_DEFINITIONS["follow_any_rate"],
-    "follow_action_rate": CLUE_FOLLOWUP_METRIC_DEFINITIONS["follow_action_rate"],
-    "terminal_evidence": CLUE_FOLLOWUP_METRIC_DEFINITIONS["terminal_evidence"],
-    "verification_rate": "正式分配给本店且成功自店核销的订单数÷正式分配给本店的关联订单数；上级累加门店责任样本",
+    "follow_24h_rate": "本店正式接收任务中，正式分配后固定24小时内首次有效人工提交的任务数÷跟进任务分母；24小时内全额退款或失效且结束前无有效提交时排除，核销不视为跟进",
+    "follow_any_rate": "本轮有效期间有过有效人工提交的任务数÷跟进任务分母；与24小时跟进率共用分母，每任务最多计一次",
+    "follow_action_rate": LEGACY_DEFINITIONS["follow_action_rate"],
+    "terminal_evidence": "有效核销、全额退款和订单失效按实际业务发生时间认定；提前核销仍保留跟进分母",
+    "verification_rate": "按实际核销时间匹配有效承接轮次的本店核销任务数÷本店实际接收任务数；跨店核销不回补前轮，整体关单后可补计实际核销店曾承接的原轮次",
+    "self_store_verification_count": "实际核销店按订单全期去重的有效核销量，归入该店首次有效核销业务日期（北京时间）；包含未生成或未分配线索的订单",
 }
 
 
@@ -213,6 +211,7 @@ def calculate_snapshot(
         ClueCenterOrder.product_id.in_(products | skus)).correlate(ClueAssignmentRound).exists()
     selected = bounded(select(ClueAssignmentRound).where(
         ClueAssignmentRound.execution_mode == "formal",
+        ClueAssignmentRound.assigned_store_id.is_not(None), ClueAssignmentRound.assigned_store_id != "",
         ClueAssignmentRound.assigned_at >= start, ClueAssignmentRound.assigned_at < end,
         ClueAssignmentRound.assigned_at <= cutoff,
         scope_predicate(product_scope, or_(known_orders, known_raw_clues, known_center_clues)),
@@ -288,21 +287,21 @@ def calculate_snapshot(
             if versions[key]:
                 new_bindings.append(dict(lead_key=key, first_assigned_at=at, mapping_version=versions[key]))
 
-    follow_metrics = bulk_evaluate_clue_followup_metrics(
-        session,
-        {row.order_id for row in selected},
-        round_rows=selected,
-        observed_through=cutoff,
-    )
-    responsibilities: defaultdict[tuple[str, str], list[Any]] = defaultdict(list)
+    task_metrics = load_clue_task_facts(session, {row.order_id for row in selected}, observed_through=cutoff)
+    legacy_actions = bulk_evaluate_legacy_ranking_followup(session, {row.order_id for row in selected},
+        round_rows=selected, observed_through=cutoff)
+    responsibility_versions = defaultdict(set)
     for row in selected:
         at, version = utc(row.assigned_at), versions.get(_lead(row))
-        metric = follow_metrics[row.assignment_round_id]
+        metric = task_metrics.get(row.assignment_round_id)
+        if metric is None:
+            continue
+        responsibility_versions[(row.order_id, row.assigned_store_id)].add(version)
         if metric.reason_code == "terminal_time_unknown":
             quality["terminal_time_unknown"] += 1
         evidence = list(metric.follow_record_ids)
         add("follow_24h", row.assignment_round_id, row.assigned_store_id, version, at,
-            metric.numerator, metric.denominator, {"order_id": row.order_id, "lead_key": _lead(row),
+            metric.follow_24h_numerator, metric.follow_denominator, {"order_id": row.order_id, "lead_key": _lead(row),
                                    "round_id": row.assignment_round_id,
                                    "follow_record_ids": evidence,
                                    # Keep the time-driven cache boundary with
@@ -315,41 +314,40 @@ def calculate_snapshot(
                                    "terminal_at": metric.terminal_at.isoformat() if metric.terminal_at else None})
         any_evidence = list(metric.follow_any_record_ids)
         add("follow_any", row.assignment_round_id, row.assigned_store_id, version, at,
-            metric.follow_any_numerator, metric.follow_any_denominator,
+            metric.follow_any_numerator, metric.follow_denominator,
             {"order_id": row.order_id, "follow_record_ids": any_evidence,
              "reason_code": metric.reason_code,
              "terminal_kind": metric.terminal_kind,
              "terminal_at": metric.terminal_at.isoformat() if metric.terminal_at else None})
         add("follow_action", row.assignment_round_id, row.assigned_store_id, version, at,
-            metric.follow_action_numerator, metric.follow_action_denominator,
+            legacy_actions[row.assignment_round_id].follow_action_numerator,
+            legacy_actions[row.assignment_round_id].follow_action_denominator,
             {"order_id": row.order_id,
-             "follow_record_ids": list(metric.follow_action_record_ids)})
+             "follow_record_ids": list(legacy_actions[row.assignment_round_id].follow_action_record_ids)})
         if metric.under_observation:
             quality["follow_rounds_under_observation"] += 1
-        responsibilities[(row.order_id, row.assigned_store_id)].append(row)
+        add("self_verification", row.assignment_round_id, row.assigned_store_id, version, at,
+            metric.verification_numerator, metric.verification_denominator,
+            {"order_id": row.order_id, "round_ids": [row.assignment_round_id]})
+    conflicts = sum(len(versions) > 1 for versions in responsibility_versions.values())
+    if conflicts:
+        quality["conflicting_responsibility_versions"] += conflicts
 
-    # Coupons are the authoritative bridge: verification has no order_id column.
-    verify_by_order: defaultdict[str, list[Any]] = defaultdict(list)
-    verification_rows = bounded(
-        select(RawDouyinOrderCoupon.order_id, RawDouyinVerifyRecord)
-        .join(RawDouyinVerifyRecord, RawDouyinVerifyRecord.coupon_id == RawDouyinOrderCoupon.coupon_id)
-        .where(RawDouyinOrderCoupon.order_id.in_({key[0] for key in responsibilities}))
-        , scalar=False)
-    for order_id, record in verification_rows:
-        verify_by_order[order_id].append(record)
-    for (order_id, store), assigned in responsibilities.items():
-        earliest = min(assigned, key=lambda row: (utc(row.assigned_at), row.assignment_round_id))
-        at, version = utc(earliest.assigned_at), versions.get(_lead(earliest))
-        successful = [record for record in verify_by_order[order_id]
-                      if record.verify_status in {"1", "success", "verified", "已核销"}
-                      and record.verify_time and at <= utc(record.verify_time) <= cutoff
-                      and (not record.cancel_time or utc(record.cancel_time) > cutoff)
-                      and poi_stores.get(record.poi_id) == store]
-        reason = "conflicting_responsibility_versions" if len({versions.get(_lead(row)) for row in assigned}) > 1 else None
-        add("self_verification", _key(order_id, store or ""), store, version, at,
-            int(bool(successful)), 1,
-            {"order_id": order_id, "round_ids": [row.assignment_round_id for row in assigned],
-             "self_verify_ids": [row.verify_id for row in successful]}, reason)
+    # Select candidate orders by a verification in this window, then evaluate
+    # their complete history. Date filtering before first-fact selection would
+    # count a multi-coupon order again on its later verification date.
+    verification_orders = bounded(select(RawDouyinOrderCoupon.order_id).join(RawDouyinVerifyRecord,
+        RawDouyinVerifyRecord.coupon_id == RawDouyinOrderCoupon.coupon_id).where(
+        RawDouyinVerifyRecord.verify_time >= start, RawDouyinVerifyRecord.verify_time < end,
+        RawDouyinVerifyRecord.verify_time <= cutoff).distinct())
+    for fact in load_self_store_verifications(session, verification_orders, observed_through=cutoff):
+        if not start <= fact.verified_at < end:
+            continue
+        if product_scope != "all" and fact.is_jingcheng != (product_scope == "jingcheng"):
+            continue
+        add("self_store_verification_count", _key(fact.order_id, fact.store_id), fact.store_id, roster_version,
+            fact.verified_at, 1, 0, {"order_id": fact.order_id, "verify_id": fact.verify_id,
+                                  "business_date": fact.business_date.isoformat()})
 
     counters: defaultdict[tuple[str, str, str], list[int]] = defaultdict(lambda: [0, 0])
     for item in pending:
@@ -387,7 +385,8 @@ def read_snapshot_report(
     run_id: str | None = None, data_mode: str | None = None, product_scope: str = "jingcheng",
 ) -> dict[str, Any]:
     """Aggregate only authorized frozen store fragments, then rank and paginate."""
-    if level not in LEVEL_FIELDS or sort_by not in {"order_count", "order_average", "follow_24h_rate", "verification_rate"}:
+    if level not in LEVEL_FIELDS or sort_by not in {"order_count", "order_average", "follow_24h_rate",
+            "follow_any_rate", "verification_rate", "self_store_verification_count"}:
         raise ValueError("invalid level or sort")
     query = select(runs).where(runs.c.metric_version == metric_version(product_scope), runs.c.status == "success", runs.c.period_start == utc(period_start),
                                runs.c.period_end == utc(period_end))
@@ -413,7 +412,7 @@ def read_snapshot_report(
         if value:
             query = query.where(column == value)
     grouped = {}
-    fields = ("order_count", "follow_numerator", "follow_denominator", "follow_any_numerator", "follow_any_denominator", "follow_action_numerator", "follow_action_denominator", "verification_numerator", "verification_denominator")
+    fields = ("order_count", "follow_numerator", "follow_denominator", "follow_any_numerator", "follow_any_denominator", "follow_action_numerator", "follow_action_denominator", "verification_numerator", "verification_denominator", "self_store_verification_count")
 
     def empty(key: str, name: str) -> dict:
         return {"key": key, "name": name, "_stores": set(), **dict.fromkeys(fields, 0)}
@@ -441,11 +440,14 @@ def read_snapshot_report(
             elif metric == "self_verification":
                 target["verification_numerator"] += row["numerator"]
                 target["verification_denominator"] += row["denominator"]
+            elif metric == "self_store_verification_count":
+                target["self_store_verification_count"] += row["numerator"]
 
     def finish(item: dict) -> dict:
         item["store_count"] = len(item.pop("_stores"))
         for result, num, den in [("order_average", "order_count", "store_count"),
                                  ("follow_rate", "follow_any_numerator", "follow_any_denominator"),
+                                 ("follow_any_rate", "follow_any_numerator", "follow_any_denominator"),
                                  ("follow_action_rate", "follow_action_numerator", "follow_action_denominator"),
                                  ("follow_24h_rate", "follow_numerator", "follow_denominator"),
                                  ("verification_rate", "verification_numerator", "verification_denominator")]:

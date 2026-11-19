@@ -10,6 +10,7 @@ dependencies = [
 
 [project.scripts]
 dydata = "dydata_cli.main:main"
+dydata-products = "dydata_cli.human_products:main"
 
 [build-system]
 requires = ["setuptools>=69", "wheel"]

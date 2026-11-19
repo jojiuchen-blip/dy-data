@@ -455,24 +455,26 @@ def _prepare_timed_sources(factory):
     from apps.api.dy_api.models import Base
     from apps.api.dy_api.ranking_schema_v1 import metadata as ranking_metadata
     from apps.api.dy_api.dashboard_publications.schema import source_counters
-    from apps.api.dy_api.dashboard_publications.sources import SOURCE_TABLES
+    from apps.api.dy_api.dashboard_publications.sources import MODULE_SOURCE_TABLES, SOURCE_TABLES
     with factory() as session:
         engine = session.get_bind()
-    # Create this reproduction's real source relations and their FK closure,
-    # rather than rebuilding unrelated billing/admin schemas for every case.
-    names = {"dim_stores", "dim_sku_product_rules", "raw_douyin_orders", "raw_douyin_clues",
-             "clue_center_orders", "clue_master_leads", "clue_assignment_rounds",
-             "dim_store_org_assignments", "job_runs"}
+    # Follow the real builder's declared source footprint, including task and
+    # verification sources even when this fixture has no received tasks.
+    # Keep unrelated billing/admin tables out of this focused schema.
+    source_tables = {**Base.metadata.tables, **ranking_metadata.tables}
+    names = set(MODULE_SOURCE_TABLES["clue-overview"]) | {"job_runs"}
     pending = list(names)
     while pending:
-        table = Base.metadata.tables[pending.pop()]
+        table = source_tables[pending.pop()]
         for foreign_key in table.foreign_keys:
             target = foreign_key.column.table.name
             if target not in names:
                 names.add(target)
                 pending.append(target)
-    Base.metadata.create_all(engine, tables=[Base.metadata.tables[name] for name in names])
-    ranking_metadata.tables["ranking_store_org_history"].create(engine)
+    Base.metadata.create_all(engine, tables=[Base.metadata.tables[name] for name in sorted(names)
+                                            if name in Base.metadata.tables])
+    ranking_metadata.create_all(engine, tables=[ranking_metadata.tables[name] for name in sorted(names)
+                                               if name in ranking_metadata.tables])
     metadata.create_all(engine)
     with factory.begin() as session:
         session.execute(source_counters.insert(), [

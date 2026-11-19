@@ -57,6 +57,9 @@ def test_priority_startup_and_poll_share_budget(monkeypatch, entry, consumed):
     monkeypatch.setenv("WORKER_RUN_ONCE", str(entry == "once"))
     monkeypatch.setenv("WORKER_RUN_ON_START", str(entry == "start"))
     monkeypatch.setattr(scheduler, "_STOP", False)
+    # This fixture owns the heavy-work budget. The independent clue deadline
+    # consumer has its own failure/retry coverage and does not use this DB sentinel.
+    monkeypatch.setattr(scheduler, "_run_clue_follow_up_tick", lambda _factory: None)
     monkeypatch.setattr(resource_monitor, "current_resource_decision", lambda: ResourceDecision(ResourceAction.ALLOW, ()))
 
     def queue(_factory):

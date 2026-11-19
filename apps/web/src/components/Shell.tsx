@@ -34,6 +34,7 @@ const adminPaths = new Set([
   "/admin/rules",
   "/admin/sync",
   "/admin/clue-allocation",
+  "/admin/clue-routing/products",
   "/admin/feedback",
   "/admin/product-types",
   "/rule-admin",
@@ -144,6 +145,7 @@ const adminNavItems: NavItem[] = [
   { href: "/admin/accounts", label: "账号管理", pageKey: "D02" },
   { href: "/admin/rules", label: "分佣规则", pageKey: "D03" },
   { href: "/admin/product-types", label: "商品口径", pageKey: "D04" },
+  { href: "/admin/clue-routing/products", label: "商品线索流转", pageKey: "D05" },
   { href: "/admin/clue-allocation", label: "线索分配规则", pageKey: "D05" },
   { href: "/admin/clue-allocation/trial", label: "分配试运行", pageKey: "D06" },
   { href: "/admin/clue-allocation/records", label: "分配记录", pageKey: "D07" },
@@ -260,6 +262,7 @@ const pageKeyByNavHref: Record<string, string> = {
   "/admin/rules": "D03",
   "/admin/product-types": "D04",
   "/admin/clue-allocation": "D05",
+  "/admin/clue-routing/products": "D05",
   "/admin/feedback": "D09",
   "/admin/sync": "D10",
 };
@@ -320,6 +323,7 @@ export function Shell({
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const section = activeSection(currentPath);
   const sectionNavItems = secondaryNav(section).filter((item) => {
+    if (currentUser?.role === "store" && item.pageKey === "D05" && item.href !== "/admin/clue-routing/products") return false;
     const pageKey = item.pageKey ?? pageKeyByNavHref[item.href];
     return pageKey ? currentUser?.page_keys.includes(pageKey) : false;
   });

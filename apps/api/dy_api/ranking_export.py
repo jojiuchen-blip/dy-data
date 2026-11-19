@@ -12,16 +12,23 @@ from apps.api.dy_api.ranking_snapshots import read_snapshot_report, sort_ranking
 from apps.api.dy_api.clue_product_scope import PRODUCT_SCOPE_LABELS
 
 LEVEL_LABELS = {"group": "集团", "service_center": "中心", "district": "大区", "area": "区域", "store": "门店"}
-METRIC_LABELS = {"order_average": "抖音店均订单量排行", "follow_24h_rate": "24小时有效跟进率排行", "verification_rate": "订单核销率排行"}
+METRIC_LABELS = {"order_average": "抖音店均订单量排行", "follow_24h_rate": "24小时有效跟进率排行",
+    "verification_rate": "任务核销率排行", "follow_any_rate": "累计跟进率排行",
+    "self_store_verification_count": "自店核销量排行"}
 METRIC_COLUMNS = {
     "order_average": [("order_average", "店均订单量", "0.00"), ("order_count", "抖音订单量（辅助）", "0"), ("store_count", "适用门店数", "0")],
     "follow_24h_rate": [
         ("follow_24h_rate", "24小时有效跟进率", "0.00%"),
         ("follow_numerator", "24小时有效跟进轮次", "0"), ("follow_denominator", "24小时有效跟进分母", "0"),
-        ("follow_rate", "跟进率", "0.00%"),
+        ("follow_any_rate", "跟进率", "0.00%"),
         ("follow_any_numerator", "跟进率分子", "0"), ("follow_any_denominator", "跟进率分母", "0"),
         ],
-    "verification_rate": [("verification_rate", "订单核销率", "0.00%"), ("verification_numerator", "本店成功核销订单数", "0"), ("verification_denominator", "正式分配关联订单数", "0")],
+    "verification_rate": [("verification_rate", "核销率", "0.00%"),
+        ("verification_numerator", "本店核销任务数", "0"), ("verification_denominator", "实际接收任务数", "0"),
+        ("self_store_verification_count", "自店核销量（按首次有效核销日期）", "0")],
+    "follow_any_rate": [("follow_any_rate", "累计跟进率", "0.00%"),
+        ("follow_any_numerator", "累计有效跟进任务数", "0"), ("follow_any_denominator", "跟进任务分母", "0")],
+    "self_store_verification_count": [("self_store_verification_count", "自店核销量（订单去重）", "0")],
 }
 
 
@@ -81,7 +88,10 @@ def build_ranking_workbook(session, *, levels: list[str], metrics: list[str],
             banner(f"数据更新时间：{observed.astimezone(ZoneInfo('Asia/Shanghai')):%Y-%m-%d %H:%M:%S}；快照：{first['snapshot_id']}" if observed else f"快照：{first['snapshot_id']}")
         filters = [(label, report_args.get(key)) for key, label in [("group_name", "集团"), ("service_center_name", "中心"), ("district_name", "大区"), ("area_name", "区域"), ("store_id", "门店")]]
         banner("商品范围：" + PRODUCT_SCOPE_LABELS[first["product_scope"]] + "；" + "；".join(f"{label}：{value}" for label, value in filters if value))
-        banner(first["metric_definitions"][metric] + "。由高到低排列，同值并列，无样本不排名。")
+        definition = first["metric_definitions"][metric]
+        if metric == "follow_24h_rate":
+            definition += "。表内跟进率为累计跟进率，两项共用跟进任务分母"
+        banner(definition + "。由高到低排列，同值并列，无样本不排名。")
         if first["preview_note"]:
             banner(first["preview_note"])
         if any(count > 0 and key != "follow_rounds_under_observation" for key, count in first["quality_json"].items()):

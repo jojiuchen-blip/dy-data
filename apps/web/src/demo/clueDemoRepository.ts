@@ -293,6 +293,7 @@ export class ClueDemoRepository {
       assigned_store_id: round.assigned_store_id,
       assigned_store_name: round.assigned_store_name,
       follow_result: payload.follow_result,
+      appointment_at: payload.follow_result === "appointment" ? payload.appointment_at ?? null : null,
       note: payload.note,
       timing_state: "protected",
       status_reason: "核销保护期内",
@@ -309,6 +310,7 @@ export class ClueDemoRepository {
     detail.follow_up_records.push(record);
     round.followed_at = createdAt;
     round.follow_result = payload.follow_result;
+    round.appointment_at = record.appointment_at;
 
     if (
       payload.follow_result === "lost" ||

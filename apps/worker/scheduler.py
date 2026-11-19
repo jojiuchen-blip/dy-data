@@ -534,6 +534,32 @@ def _clue_phone_recovery_loop(factory, stop: Event) -> None:
         stop.wait(60)
 
 
+def _run_clue_follow_up_tick(factory) -> None:
+    """Run an independent deadline batch without aborting scheduler work."""
+
+    if factory is None:
+        return
+    try:
+        from apps.worker.clue_follow_up_state import run_product_follow_up_batch
+
+        result = run_product_follow_up_batch(factory)
+        if result.get("processed") or result.get("failed"):
+            _log(f"clue_follow_up_result {json.dumps(result, sort_keys=True)}")
+    except Exception as exc:
+        # Keep the same safe signal in once and resident modes. SQL driver
+        # messages can contain source values or credentials; retain the error
+        # class while allowing the independent maintenance budget to proceed.
+        _log(f"clue_follow_up_failed type={type(exc).__name__}")
+
+
+def _clue_follow_up_loop(factory, stop: Event) -> None:
+    """Run product flow deadlines independently of collection and settlement."""
+
+    while not stop.is_set() and not _STOP:
+        _run_clue_follow_up_tick(factory)
+        stop.wait(60)
+
+
 def _run_priority_daily_mode(factory) -> None:
     from apps.worker.resource_monitor import start_resource_monitor
 
@@ -565,6 +591,7 @@ def _run_priority_daily_ticks(factory) -> None:
     run_once_only = _truthy(os.getenv("WORKER_RUN_ONCE"))
     run_on_start = _truthy(os.getenv("WORKER_RUN_ON_START", "true"))
     if run_once_only:
+        _run_clue_follow_up_tick(factory)
         _run_priority_tick_with_maintenance(factory)
         return
 
@@ -604,23 +631,34 @@ def main() -> None:
     run_on_start = _truthy(os.getenv("WORKER_RUN_ON_START", "true"))
     run_once_only = _truthy(os.getenv("WORKER_RUN_ONCE"))
     factory = get_session_factory()
-
-    if resolve_scheduler_mode() == "priority_daily":
-        _run_priority_daily_mode(factory)
-        return
-
-    from apps.worker.resource_monitor import start_resource_monitor
-
-    monitor = start_resource_monitor(factory)
+    follow_up_stop = Event()
+    follow_up_thread = Thread(
+        target=_clue_follow_up_loop, args=(factory, follow_up_stop), daemon=True,
+        name="clue-follow-up-transitions",
+    )
+    if not run_once_only and factory is not None:
+        follow_up_thread.start()
     try:
-        _run_legacy_scheduler(factory, run_once_only=run_once_only, run_on_start=run_on_start)
+        if resolve_scheduler_mode() == "priority_daily":
+            _run_priority_daily_mode(factory)
+            return
+        from apps.worker.resource_monitor import start_resource_monitor
+
+        monitor = start_resource_monitor(factory)
+        try:
+            _run_legacy_scheduler(factory, run_once_only=run_once_only, run_on_start=run_on_start)
+        finally:
+            if monitor is not None:
+                monitor.stop()
     finally:
-        if monitor is not None:
-            monitor.stop()
+        follow_up_stop.set()
+        if follow_up_thread.is_alive():
+            follow_up_thread.join(timeout=5)
 
 
 def _run_legacy_scheduler(factory, *, run_once_only: bool, run_on_start: bool) -> None:
     if run_once_only:
+        _run_clue_follow_up_tick(factory)
         run_once()
         return
     auto_enabled = _auto_sync_enabled(factory)

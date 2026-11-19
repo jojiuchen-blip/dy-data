@@ -14,9 +14,13 @@ from sqlalchemy import (Boolean, Column, DateTime, ForeignKey, Index, Integer,
 from sqlalchemy.orm import Session
 
 from .schema import metadata
+from .verifications import self_store_verifications
+from ..clue_product_scope import scope_predicate
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 VISIBLE_START = datetime(2026, 9, 1, tzinfo=SHANGHAI)
+TASK_FIELDS = ("follow_24h_numerator", "follow_any_numerator", "follow_denominator",
+               "verification_numerator", "verification_denominator")
 rounds = Table(
     "dashboard_publication_clue_rounds", metadata,
     Column("publication_id", String(64), ForeignKey("dashboard_publication_runs.id", ondelete="CASCADE"), primary_key=True),
@@ -30,6 +34,7 @@ rounds = Table(
     Column("active_clue", Integer, nullable=False), Column("followed_clue", Integer, nullable=False),
     Column("successful_follow_clue", Integer, nullable=False), Column("self_store_verified_clue", Integer, nullable=False),
     Column("pending_reassign_clue", Integer, nullable=False),
+    *(Column(name, Integer, nullable=False, server_default="0") for name in TASK_FIELDS),
     Index("ix_pub_clues_store_date", "publication_id", "assigned_store_id", "assigned_at", "order_id"),
     Index("ix_pub_clues_date_product", "publication_id", "assigned_at", "product_type"),
     Index("ix_pub_clues_order", "publication_id", "order_id"),
@@ -77,14 +82,17 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
                           DimStore, DimStoreOrgAssignment)
     from ..ranking_schema_v1 import org_history
     from .sources import effective_organization_version
+    from ..clue_task_metrics import load_clue_task_facts
+    from .verifications import build as build_verifications
 
     source = ClueAssignmentRound.__table__
     center = ClueCenterOrder.__table__.alias("c")
     lead = ClueMasterLead.__table__
     frozen_type = literal_column(current_product_type_sql())
     membership = frozen_type == "精诚养车"
-    headquarters = exists(select(1).select_from(lead).where(lead.c.order_id == center.c.order_id,
-        lead.c.lifecycle_status == "active", lead.c.pool_location == "headquarters_pool")).correlate(center)
+    headquarters = exists(select(1).select_from(lead).where(lead.c.order_id == source.c.order_id,
+        lead.c.lifecycle_status == "active", lead.c.pool_location == "headquarters_pool",
+        lead.c.routing_mode.is_(None))).correlate(source)
     current = source.c.assignment_round_id == center.c.current_assignment_round_id
     flag = lambda condition: case((condition, 1), else_=0)
     display = case(
@@ -94,7 +102,7 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
         (or_(source.c.round_status == "failed_pending_reassign", source.c.follow_result.in_(["lost", "failed"])), "主动战败"),
         (and_(center.c.lead_status == "active", source.c.round_status == "active_followed"), "已跟进"),
         (and_(center.c.lead_status == "active", source.c.round_status == "active_unfollowed"), "待跟进"), else_="不可跟进")
-    query = select(literal(publication_id), source.c.assignment_round_id, center.c.order_id,
+    query = select(literal(publication_id), source.c.assignment_round_id, source.c.order_id,
         source.c.assigned_at, source.c.assigned_store_id, source.c.assigned_store_name, center.c.assigned_store_name,
         center.c.assigned_province, center.c.assigned_city, frozen_type, func.coalesce(membership, False), headquarters,
         center.c.lead_status, source.c.round_status, display, source.c.verified_at, source.c.is_self_store_verified,
@@ -102,9 +110,28 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
         flag(source.c.is_followed.is_(True)), flag(source.c.is_follow_success.is_(True)),
         flag(and_(source.c.is_follow_success.is_(True), source.c.is_self_store_verified.is_(True))),
         flag(and_(current, or_(center.c.lead_status == "pending_reassign", source.c.round_status.in_(["failed_pending_reassign", "expired_pending_reassign"]))))
-    ).select_from(source.join(center, source.c.order_id == center.c.order_id)).where(
-        source.c.execution_mode == "formal", source.c.assigned_at >= _bind_time(session, VISIBLE_START))
-    session.execute(insert(rounds).from_select(list(rounds.c.keys()), query))
+    ).select_from(source.outerjoin(center, source.c.order_id == center.c.order_id)).where(
+        source.c.execution_mode == "formal", source.c.assigned_at >= _bind_time(session, VISIBLE_START),
+        source.c.assigned_at <= _bind_time(session, cutoff), source.c.assigned_store_id.is_not(None),
+        source.c.assigned_store_id != "")
+    base_columns = [name for name in rounds.c.keys() if name not in TASK_FIELDS]
+    row_count = 0
+    for batch in session.execute(query.execution_options(yield_per=500)).partitions(500):
+        values = [dict(zip(base_columns, row)) for row in batch]
+        facts = load_clue_task_facts(session, {row["order_id"] for row in values}, observed_through=cutoff)
+        frozen = []
+        for row in values:
+            fact = facts.get(row["assignment_round_id"])
+            if fact is None:
+                continue
+            row.update({field: getattr(fact, field) for field in TASK_FIELDS})
+            # Keep legacy columns unchanged for an already-running API during
+            # prewarm. New task rates use only the independent integer facts.
+            row.update(product_type=fact.product_type, is_jingcheng=fact.is_jingcheng)
+            frozen.append(row)
+        if frozen:
+            session.execute(rounds.insert(), frozen)
+            row_count += len(frozen)
     organization_mode, organization_version = effective_organization_version(session, cutoff)
     if organization_mode == "history":
         organization_source = select(org_history).where(
@@ -119,7 +146,9 @@ def build(session: Session, publication_id: str, cutoff: datetime) -> dict[str, 
         literal(publication_id), store.c.store_id, store.c.store_name,
         *(func.coalesce(organization_source.c[field], "") for field in ("group_name", "service_center_name", "district_name", "area_name"))
     ).select_from(store.outerjoin(organization_source, organization_join)).where(store.c.is_active.is_(True))))
-    return {"row_count": session.scalar(select(func.count()).select_from(rounds).where(rounds.c.publication_id == publication_id)), "data_as_of": None}
+    verification_count = build_verifications(session, publication_id, cutoff)
+    return {"row_count": row_count + verification_count, "rounds": row_count,
+            "self_store_verifications": verification_count, "data_as_of": None}
 
 
 def _date(value, *, end=False):
@@ -147,6 +176,7 @@ def _where(session, publication_id, filters, visible_product_types, current_head
     product = str(filters.get("product_type") or "").strip()
     if product and product != "all":
         clauses.append(col.product_type == product)
+    clauses.append(scope_predicate(filters.get("product_scope") or "all", col.is_jingcheng))
     if visible_product_types is not None:
         clauses.append(col.product_type.in_(visible_product_types))
     status = filters.get("verification_status")
@@ -174,7 +204,8 @@ def _where(session, publication_id, filters, visible_product_types, current_head
 
 def read(session: Session, publication_id: str, filters: dict[str, Any], *,
          visible_product_types: Sequence[str] | None = None,
-         current_headquarters_order_ids: Sequence[str] | None = None) -> dict[str, Any]:
+         current_headquarters_order_ids: Sequence[str] | None = None,
+         legacy_contract: bool = False) -> dict[str, Any]:
     """Aggregate frozen rounds with current store/org/product permissions.
 
     Restricted callers must supply current headquarters order IDs so a pool move
@@ -187,10 +218,54 @@ def read(session: Session, publication_id: str, filters: dict[str, Any], *,
     orders = select(rounds.c.order_id, *(func.max(rounds.c[name]).label(name) for name in names)).where(*clauses).group_by(rounds.c.order_id).subquery()
     row = session.execute(select(func.count().label("total"), *(func.coalesce(func.sum(orders.c[name]), 0).label(name) for name in names))).mappings().one()
     total = row["total"]
-    ratio = lambda value: round(value / total, 4) if total else 0
-    return {"total_clues": total, "active_clues": row["active_clue"], "follow_rate": ratio(row["followed_clue"]),
+    if legacy_contract:
+        ratio = lambda value: round(value / total, 4) if total else 0
+        return {"total_clues": total, "active_clues": row["active_clue"], "follow_rate": ratio(row["followed_clue"]),
             "follow_success_rate": ratio(row["successful_follow_clue"]), "verified_count": row["self_store_verified_clue"],
-            "self_store_verify_rate": ratio(row["self_store_verified_clue"]), "pending_reassign_count": row["pending_reassign_clue"]}
+            "self_store_verify_rate": ratio(row["self_store_verified_clue"]), "pending_reassign_count": row["pending_reassign_clue"],
+            **dict.fromkeys((*TASK_FIELDS, "received_task_count", "follow_24h_rate", "follow_any_rate",
+                            "verification_rate", "self_store_verification_count"), None)}
+    metrics = dict(session.execute(select(*(func.coalesce(func.sum(rounds.c[field]), 0).label(field)
+        for field in TASK_FIELDS), func.count().label("received_task_count")).where(*clauses)).mappings().one())
+    metrics = {key: int(value) for key, value in metrics.items()}
+    ratio = lambda numerator, denominator: round(numerator / denominator, 6) if denominator else 0
+    rates = {"follow_24h_rate": ratio(metrics["follow_24h_numerator"], metrics["follow_denominator"]),
+        "follow_any_rate": ratio(metrics["follow_any_numerator"], metrics["follow_denominator"]),
+        "verification_rate": ratio(metrics["verification_numerator"], metrics["verification_denominator"])}
+    return {"total_clues": total, "active_clues": row["active_clue"], "follow_rate": rates["follow_any_rate"],
+            "follow_success_rate": round(row["successful_follow_clue"] / total, 4) if total else 0,
+            "verified_count": metrics["verification_numerator"],
+            "self_store_verify_rate": rates["verification_rate"], "pending_reassign_count": row["pending_reassign_clue"],
+            **metrics, **rates, "self_store_verification_count": _self_store_count(
+                session, publication_id, filters, visible_product_types=visible_product_types)}
+
+
+def _self_store_count(session, publication_id, filters, *, visible_product_types):
+    """Use actual-store dates, independently of task assignment or existence."""
+    col = self_store_verifications.c
+    clauses = [col.publication_id == publication_id,
+               col.business_date >= VISIBLE_START.date(),
+               scope_predicate(filters.get("product_scope") or "all", col.is_jingcheng)]
+    for key, column in (("assigned_store_id", col.store_id), ("province", col.province), ("city", col.city),
+                        ("product_type", col.product_type)):
+        value = str(filters.get(key) or "").strip()
+        if value and value != "all":
+            clauses.append(column == value)
+    if visible_product_types is not None:
+        clauses.append(col.product_type.in_(visible_product_types))
+    for key in ("organization_store_ids", "scope_store_ids"):
+        if filters.get(key) is not None:
+            clauses.append(col.store_id.in_(filters[key]))
+    for key, is_end in (("assigned_date_start", False), ("assigned_date_end", True)):
+        at = _date(filters.get(key), end=is_end)
+        if at is not None:
+            # Keep the same exclusive-end convention as the assignment sample.
+            clauses.append(col.verified_at < _bind_time(session, at) if is_end
+                           else col.verified_at >= _bind_time(session, at))
+    query = str(filters.get("q") or "").strip().lower()
+    if query:
+        clauses.append(or_(func.lower(col.order_id).like(f"%{query}%"), func.lower(col.store_name).like(f"%{query}%")))
+    return int(session.scalar(select(func.count()).select_from(self_store_verifications).where(*clauses)) or 0)
 
 
 def read_filters(session: Session, publication_id: str, scope_store_ids: Sequence[str] | None = None, *,
@@ -211,6 +286,7 @@ def read_filters(session: Session, publication_id: str, scope_store_ids: Sequenc
     return {"assigned_stores": assigned_stores, "assigned_provinces": values(rounds.c.assigned_province),
         "assigned_cities": values(rounds.c.assigned_city), "product_types": values(rounds.c.product_type),
         "default_product_type": "all", "lead_statuses": values(rounds.c.lead_status),
+        "product_scopes": ["all", "jingcheng", "byd"], "default_product_scope": "all",
         "round_statuses": values(rounds.c.round_status),
         "verification_statuses": ["unverified", "self_store_verified", "other_store_verified"]}
 

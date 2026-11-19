@@ -82,6 +82,11 @@ const clueReasonLabels: LabelMap = {
   anchor_city_code_missing: "锚点城市或经纬度不可用",
   no_candidate: "所有启用策略均无可用门店",
   strategies_exhausted: "所有启用策略均已结束",
+  product_store_list_missing: "商品尚无有效适用门店名单，待总部确认",
+  product_routing_no_candidate: "商品适用范围内无合格门店，线索关闭",
+  source_store_ineligible: "原始就近门店暂不具备承接资格",
+  direct_task_already_completed: "原始门店任务已结束",
+  order_already_terminal: "订单已进入终态",
   "核销保护期内": "核销保护期内",
   "线索战败": "线索战败",
 };
@@ -137,8 +142,10 @@ const workerModeLabels: LabelMap = {
 
 const allocationStrategyLabels: LabelMap = {
   sales_store_priority: "销售店优先（10 公里）",
-  nearby_city_optimization: "15 公里城市优选",
+  nearby_city_optimization: "同城附近优选",
   city_fallback: "城市兜底",
+  original_store_direct: "原始就近门店直派",
+  product_routing_finalization: "商品流转结束",
 };
 
 const allocationDecisionStatusLabels: LabelMap = {
@@ -146,6 +153,7 @@ const allocationDecisionStatusLabels: LabelMap = {
   selected: "已分配",
   skipped: "已跳过",
   headquarters: "进入总部线索池",
+  closed: "已关闭",
 };
 
 const allocationCycleStatusLabels: LabelMap = {
@@ -164,6 +172,12 @@ const allocationEventTypeLabels: LabelMap = {
   rule_version_created: "已创建规则版本",
   rule_version_published: "已发布规则版本",
   rule_version_retired: "已停用规则版本",
+  product_routing_publish_list: "已处理商品名单发布",
+  product_routing_publish_rule: "已处理商品规则发布",
+  product_routing_enable: "已处理商品流转开启",
+  product_routing_disable: "已处理商品流转关闭",
+  product_routing_grants: "已变更商品负责人授权",
+  product_routing_shared_rule: "已发布精诚养车共享基座",
 };
 
 const allocationExecutionModeLabels: LabelMap = {

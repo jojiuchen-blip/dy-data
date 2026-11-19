@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from pathlib import Path
 import re
 import shutil
@@ -14,26 +15,33 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 
 from test_dashboard_publication_sales_postgres import publication_postgres_session
-from test_dashboard_publication_ranking_postgres import seed_frozen
+from test_dashboard_publication_ranking_postgres import AT, seed_frozen
 from test_dashboard_publication_sales import prepare_sales
-from test_dashboard_publication_clues import prepare_clues
+from test_dashboard_publication_clues import CUTOFF as CLUE_CUTOFF, prepare_clues
 from test_dashboard_publication_finance import _seed_finance, _seed_settlement, _run, NOW
 from publication_fixture_helpers import ready_periods_fixture
-from apps.api.dy_api.dashboard_publications import finance
+from apps.api.dy_api.dashboard_publications import clues, finance
+from apps.api.dy_api.dashboard_publications import ranking_schema as frozen_ranking
+from apps.api.dy_api.dashboard_publications.verifications import self_store_verifications
 from apps.api.dy_api.dashboard_publications.lifecycle import pin_publication
 from apps.api.dy_api.dashboard_publications.schema import metadata, runs, heads
-from apps.api.dy_api.dashboard_publications.sources import MODULE_CONTRACT_VERSIONS
+from apps.api.dy_api.dashboard_publications.sources import MODULE_CONTRACT_VERSIONS, TASK_METRICS_CONTRACT_VERSIONS
 from apps.api.dy_api.access_control import ALL_PAGE_KEYS
+from apps.api.dy_api.models import ClueAssignmentRound, ClueFollowUpRecord
 from apps.worker.dashboard_publications import check_ready
 from dy_api.auth import AuthContext, get_current_user
 from dy_api.main import create_app
 from dy_api.routes._data import get_session_dependency
 
 
-def _publish(session, publication_id, module):
+def _publish(session, publication_id, module, *, task_metrics=False):
     stats = dict(session.scalar(select(runs.c.stats_json).where(runs.c.id == publication_id)) or {})
     if module in MODULE_CONTRACT_VERSIONS:
         stats["contract_version"] = MODULE_CONTRACT_VERSIONS[module]
+    if task_metrics:
+        stats["task_metrics_contract"] = TASK_METRICS_CONTRACT_VERSIONS[module]
+    else:
+        stats.pop("task_metrics_contract", None)
     session.execute(runs.update().where(runs.c.id == publication_id).values(
         module=module, status="success", published_at=NOW, stats_json=stats))
     session.execute(heads.insert().values(module=module, publication_id=publication_id))
@@ -54,11 +62,33 @@ def http_client(publication_postgres_session, monkeypatch):
 
 @pytest.fixture
 def ranking_http(publication_postgres_session, http_client):
-    metadata.create_all(publication_postgres_session.get_bind())
-    seed_frozen(publication_postgres_session, 3)
-    _publish(publication_postgres_session, "pub", "douyin-ranking")
+    _prepare_ranking_wire(publication_postgres_session)
+    return _ranking_response(http_client)
+
+
+def _prepare_ranking_wire(session, *, task_metrics=True, zero=False):
+    """Populate both physical contracts; the marker selects task interpretation."""
+    metadata.create_all(session.get_bind())
+    seed_frozen(session, 3, include_self_verification=False)
+    session.execute(frozen_ranking.rounds.update().where(
+        frozen_ranking.rounds.c.publication_id == "pub",
+    ).values(
+        task_follow_24h_numerator=0 if zero else frozen_ranking.rounds.c.follow_24h,
+        task_follow_any_numerator=0 if zero else frozen_ranking.rounds.c.follow_any,
+        task_verification_numerator=0 if zero else frozen_ranking.rounds.c.self_verified,
+        follow_denominator=1, verification_denominator=1,
+    ))
+    if not zero:
+        session.execute(self_store_verifications.insert(), [dict(
+            publication_id="pub", order_id=order_id, store_id="A", verify_id="wire-" + order_id,
+            verified_at=AT, business_date=AT.date(), is_jingcheng=True,
+        ) for order_id in ("0", "2")])
+    _publish(session, "pub", "douyin-ranking", task_metrics=task_metrics)
+
+
+def _ranking_response(http_client, **params):
     response = http_client.get("/api/v1/dashboard/douyin-ranking", params={
-        "periodStart": "2026-09-01", "periodEnd": "2026-09-30", "level": "group"})
+        "periodStart": "2026-09-01", "periodEnd": "2026-09-30", "level": "group", **params})
     assert response.status_code == 200, response.text
     return response
 
@@ -67,8 +97,9 @@ def test_postgres_ranking_http_counts_and_ratios_are_json_numbers(ranking_http, 
     data = ranking_http.json()["data"]
     counts = ("storeCount", "orderCount", "followNumerator", "followDenominator",
         "followAnyNumerator", "followAnyDenominator", "followActionNumerator",
-        "followActionDenominator", "verificationNumerator", "verificationDenominator")
-    ratios = ("orderAverage", "followRate", "followActionRate", "follow24hRate", "verificationRate")
+        "followActionDenominator", "verificationNumerator", "verificationDenominator", "selfStoreVerificationCount")
+    ratios = ("orderAverage", "followRate", "followAnyRate", "followActionRate", "follow24hRate", "verificationRate")
+    assert ranking_http.json()["meta"]["publication"]["taskMetricsContract"] == TASK_METRICS_CONTRACT_VERSIONS["douyin-ranking"]
     for row in [*data["rows"], data["totals"]]:
         for key in counts:
             assert type(row[key]) is int, (key, row[key], type(row[key]).__name__)
@@ -76,10 +107,42 @@ def test_postgres_ranking_http_counts_and_ratios_are_json_numbers(ranking_http, 
             assert type(row[key]) in (int, float), (key, row[key], type(row[key]).__name__)
         assert row["orderAverage"] == 1.5
         assert row["follow24hRate"] == .333333
+        assert row["followNumerator"] == 1 and row["followDenominator"] == 3
+        assert row["followAnyNumerator"] == 3 and row["followAnyRate"] == 1
+        assert row["verificationNumerator"] == row["verificationDenominator"] == 3
+        assert row["selfStoreVerificationCount"] == 2
     empty = http_client.get("/api/v1/dashboard/douyin-ranking", params={
         "periodStart": "2026-09-01", "periodEnd": "2026-09-30", "groupName": "absent"})
     assert empty.status_code == 200, empty.text
     assert empty.json()["data"]["totals"]["follow24hRate"] is None
+
+
+def test_postgres_ranking_current_marker_preserves_legitimate_zero_metrics(publication_postgres_session, http_client):
+    _prepare_ranking_wire(publication_postgres_session, zero=True)
+    response = _ranking_response(http_client)
+    for row in [*response.json()["data"]["rows"], response.json()["data"]["totals"]]:
+        assert row["followDenominator"] == row["followAnyDenominator"] == row["verificationDenominator"] == 3
+        for key in ("followNumerator", "followAnyNumerator", "verificationNumerator", "selfStoreVerificationCount"):
+            assert type(row[key]) is int and row[key] == 0, (key, row[key])
+        for key in ("follow24hRate", "followAnyRate", "verificationRate"):
+            assert type(row[key]) in (int, float) and row[key] == 0, (key, row[key])
+
+
+def test_postgres_ranking_prior_marker_keeps_new_task_fields_null(publication_postgres_session, http_client):
+    _prepare_ranking_wire(publication_postgres_session, task_metrics=False, zero=True)
+    response = _ranking_response(http_client)
+    publication = response.json()["meta"]["publication"]
+    assert publication["status"] == "refreshing" and publication["taskMetricsContract"] is None
+    for row in [*response.json()["data"]["rows"], response.json()["data"]["totals"]]:
+        # Old frozen cells still carry a 1/3 fast-follow sample and 3/3
+        # cumulative follow, independently from the new zero-valued columns.
+        assert row["storeCount"] == 2 and row["orderCount"] == 3 and row["orderAverage"] == 1.5
+        assert row["followActionNumerator"] == row["followActionDenominator"] == 3
+        assert row["followRate"] == row["followActionRate"] == 1
+        for key in ("followNumerator", "followDenominator", "followAnyNumerator", "followAnyDenominator",
+                    "verificationNumerator", "verificationDenominator", "follow24hRate", "followAnyRate",
+                    "verificationRate", "selfStoreVerificationCount"):
+            assert row[key] is None, (key, row[key])
 
 
 def test_postgres_ranking_http_payload_runs_actual_frontend_average_formatter(ranking_http):
@@ -117,12 +180,57 @@ def test_postgres_sales_http_cycle_statistics_are_json_numbers(publication_postg
 
 
 def test_postgres_clue_http_metrics_are_json_numbers(publication_postgres_session, http_client):
-    prepare_clues(publication_postgres_session)
-    _publish(publication_postgres_session, "c1", "clue-overview")
+    _prepare_clue_wire(publication_postgres_session)
     response = http_client.get("/api/v1/clues/overview")
     assert response.status_code == 200, response.text
+    assert response.json()["meta"]["publication"]["taskMetricsContract"] == TASK_METRICS_CONTRACT_VERSIONS["clue-overview"]
     for key, value in response.json()["data"].items():
         assert type(value) in (int, float), (key, value)
+    data = response.json()["data"]
+    assert data["total_clues"] == 3 and data["received_task_count"] == 4
+    assert data["follow_denominator"] == data["verification_denominator"] == 4
+    assert data["follow_24h_numerator"] == data["follow_any_numerator"] == 1
+    assert data["follow_24h_rate"] == data["follow_any_rate"] == .25
+    assert data["verification_numerator"] == data["self_store_verification_count"] == 0
+    assert data["verification_rate"] == 0
+
+    zero = http_client.get("/api/v1/clues/overview", params={"assigned_store_id": "B"})
+    assert zero.status_code == 200, zero.text
+    zero_data = zero.json()["data"]
+    assert zero_data["received_task_count"] == zero_data["follow_denominator"] == 2
+    for key in ("follow_24h_numerator", "follow_any_numerator", "verification_numerator", "self_store_verification_count"):
+        assert type(zero_data[key]) is int and zero_data[key] == 0, (key, zero_data[key])
+    for key in ("follow_24h_rate", "follow_any_rate", "verification_rate"):
+        assert type(zero_data[key]) in (int, float) and zero_data[key] == 0, (key, zero_data[key])
+
+
+def _prepare_clue_wire(session, *, task_metrics=True):
+    """Use the real clue builder and a timed manual record for a 1/4 rate."""
+    prepare_clues(session)
+    assigned_at = session.scalar(select(ClueAssignmentRound.assigned_at).where(
+        ClueAssignmentRound.assignment_round_id == "r1"))
+    session.add(ClueFollowUpRecord(follow_up_record_id="wire-follow", order_id="o1", assignment_round_id="r1",
+        assigned_store_id="A", round_no=1, follow_result="further_follow_up", created_at=assigned_at + timedelta(hours=1)))
+    session.flush()
+    clues.build(session, "c2", CLUE_CUTOFF)
+    _publish(session, "c2", "clue-overview", task_metrics=task_metrics)
+
+
+def test_postgres_clue_prior_marker_preserves_legacy_numbers_and_new_nulls(publication_postgres_session, http_client):
+    _prepare_clue_wire(publication_postgres_session, task_metrics=False)
+    response = http_client.get("/api/v1/clues/overview")
+    assert response.status_code == 200, response.text
+    publication = response.json()["meta"]["publication"]
+    assert publication["status"] == "refreshing" and publication["taskMetricsContract"] is None
+    data = response.json()["data"]
+    for key in ("total_clues", "active_clues", "follow_rate", "follow_success_rate", "verified_count",
+                "self_store_verify_rate", "pending_reassign_count"):
+        assert type(data[key]) in (int, float), (key, data[key])
+    assert data["total_clues"] == 3 and data["follow_rate"] == 1
+    assert data["verified_count"] == 1 and data["self_store_verify_rate"] == .3333
+    for key in (*clues.TASK_FIELDS, "received_task_count", "follow_24h_rate", "follow_any_rate",
+                "verification_rate", "self_store_verification_count"):
+        assert data[key] is None, (key, data[key])
 
 
 @pytest.mark.parametrize("module", ["settlement", "finance"])

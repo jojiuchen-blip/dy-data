@@ -258,5 +258,5 @@ def test_business_snapshot_rebuilds_previous_follow_metric_version(business_db):
     business_db.commit()
     refreshed = ensure(business_db)
     assert refreshed != first
-    assert "ranking-preoct7-manual-follow-v1" in business_db.scalar(
+    assert "douyin-ranking-clue-task-v1-independent-action-v1" == business_db.scalar(
         select(runs.c.metric_version).where(runs.c.run_id == refreshed))

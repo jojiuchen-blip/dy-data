@@ -2410,6 +2410,9 @@ def test_legacy_and_incremental_old_new_projection_update_have_equal_checksum() 
         )
         session.commit()
         materialize_clue_master_leads(session, now=_dt(3))
+        # This replay regression exercises pre-product-routing storage. New
+        # product-bound leads freeze their original anchor at first ingress.
+        session.scalar(select(ClueMasterLead)).routing_mode = None
         rebuild_clue_center(
             session,
             now=_dt(3),
@@ -2689,6 +2692,9 @@ def test_incremental_old_new_closure_updates_projection_and_history(
     db_session.commit()
     before = db_session.scalar(select(ClueMasterLead))
     assert before is not None
+    # Retain the original source-update contract for legacy NULL rows.
+    before.routing_mode = None
+    db_session.commit()
     before_lead_key = before.lead_key
     before_source_row_key = before.source_clue_row_key
     before_identity = before.source_identity_key

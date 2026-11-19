@@ -27,6 +27,11 @@ const AdminClueAllocationPage = lazy(() =>
     default: module.AdminClueAllocationPage,
   })),
 );
+const AdminClueRoutingProductsPage = lazy(() =>
+  import("./pages/AdminClueRoutingProductsPage").then((module) => ({
+    default: module.AdminClueRoutingProductsPage,
+  })),
+);
 const AdminFeedbackPage = lazy(() =>
   import("./pages/AdminFeedbackPage").then((module) => ({
     default: module.AdminFeedbackPage,
@@ -158,6 +163,7 @@ function clueAllocationSubviewFromPath(pathname: string): AllocationSubview | nu
 }
 
 const pageKeyByPath: Array<[string, string]> = [
+  ["/admin/clue-routing/products", "D05"],
   ["/admin/clue-allocation/headquarters", "D08"],
   ["/admin/clue-allocation/records", "D07"],
   ["/admin/clue-allocation/trial", "D06"],
@@ -191,7 +197,7 @@ const pageKeyByPath: Array<[string, string]> = [
 ];
 
 function firstAccessiblePath(user: AdminUser): string {
-  const preferred = ["/ranking", "/clues", "/metrics/douyin-ranking", "/settlement", "/details", "/sales", "/finance/promotion", "/finance/management", "/finance/orders/promotion", "/finance/stores", "/finance/disputes", "/finance/imports", "/admin"];
+  const preferred = ["/ranking", "/clues", "/metrics/douyin-ranking", "/settlement", "/details", "/sales", "/finance/promotion", "/finance/management", "/finance/orders/promotion", "/finance/stores", "/finance/disputes", "/finance/imports", "/admin/clue-routing/products", "/admin"];
   return preferred.find((path) => hasPageAccess(user, path)) ?? "/login";
 }
 
@@ -387,6 +393,8 @@ export function App() {
           ) : location.pathname === "/sync-admin" ||
             location.pathname === "/admin/sync" ? (
             <AdminSyncPage canManageGlobalSettings={user.can_manage_global_settings === true} />
+          ) : location.pathname === "/admin/clue-routing/products" ? (
+            <AdminClueRoutingProductsPage />
           ) : clueAllocationSubview ? (
             <AdminClueAllocationPage
               activeSubview={clueAllocationSubview}

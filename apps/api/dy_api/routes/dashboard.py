@@ -126,7 +126,8 @@ STORE_FINANCE_RANKING_BASES = {
     "PROMOTION_FEE_CUMULATIVE",
 }
 DOUYIN_RANKING_LEVELS = {"group", "service_center", "district", "area", "store"}
-DOUYIN_RANKING_SORT_FIELDS = {"order_count", "order_average", "follow_24h_rate", "verification_rate"}
+DOUYIN_RANKING_SORT_FIELDS = {"order_count", "order_average", "follow_24h_rate", "follow_any_rate",
+                            "verification_rate", "self_store_verification_count"}
 DOUYIN_RANKING_DEFINITIONS = [
     {
         "key": "order_count",
@@ -145,8 +146,18 @@ DOUYIN_RANKING_DEFINITIONS = [
     },
     {
         "key": "verification_rate",
-        "label": "抖音订单核销率",
-        "description": "精诚养车商品对应的正式分配线索关联订单中，最终成功核销订单数除以关联订单总数。",
+        "label": "核销率",
+        "description": "按实际核销时间匹配有效承接轮次的本店核销任务数除以实际接收任务数。",
+    },
+    {
+        "key": "follow_any_rate",
+        "label": "累计跟进率（辅助）",
+        "description": "本轮有效期间有有效人工提交的任务数除以跟进任务分母。",
+    },
+    {
+        "key": "self_store_verification_count",
+        "label": "自店核销量",
+        "description": "按实际核销店和订单全期去重，归入该店首次有效核销业务日期，包含未生成或未分配线索的订单。",
     },
 ]
 SORT_ORDERS = {"ASC", "DESC"}
@@ -582,7 +593,8 @@ def douyin_ranking(
         else:
             from apps.api.dy_api.dashboard_publications.ranking import read_report
             with publication_read(session, "douyin-ranking", publication_id) as publication:
-                data = read_report(session, publication.id, **report_filters)
+                data = read_report(session, publication.id, **report_filters,
+                    legacy_contract=publication.task_metrics_contract != "clue-task-v1")
     except ValueError as exc:
         session.rollback()
         _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "INVALID_RANKING_FILTER", str(exc))
@@ -652,7 +664,8 @@ def export_douyin_ranking(
             from apps.api.dy_api.dashboard_publications.ranking import read_report
             with publication_read(session, "douyin-ranking", publication_id) as publication:
                 def published_reader(read_session, **filters):
-                    return {**read_report(read_session, publication.id, **filters),
+                    return {**read_report(read_session, publication.id, **filters,
+                                        legacy_contract=publication.task_metrics_contract != "clue-task-v1"),
                             "publication": publication.meta()}
                 content = build_ranking_workbook(
                     session, levels=selected_levels, metrics=selected_metrics,

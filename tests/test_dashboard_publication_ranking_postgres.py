@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from apps.api.dy_api.dashboard_publications import ranking
 from apps.api.dy_api.dashboard_publications import ranking_schema as frozen
 from apps.api.dy_api.dashboard_publications.schema import metadata, runs
+from apps.api.dy_api.dashboard_publications.verifications import self_store_verifications
 from apps.worker.ranking_preview_fixture import AT, CUTOFF, END, START
 
 
@@ -37,7 +38,7 @@ def pg():
         admin.dispose()
 
 
-def seed_frozen(session, count):
+def seed_frozen(session, count, *, include_self_verification=True):
     session.execute(runs.insert().values(id="pub", module="douyin_ranking", status="building",
         cutoff=CUTOFF, created_at=CUTOFF, stats_json={}))
     session.execute(frozen.info.insert().values(publication_id="pub", cutoff=CUTOFF))
@@ -52,7 +53,12 @@ def seed_frozen(session, count):
         session.execute(frozen.rounds.insert(), [dict(publication_id="pub", round_id=str(number),
             order_id=str(number // 2), lead_key=str(number // 2), store_id="A", mapping_version="v1",
             assigned_at=AT, is_jingcheng=True, follow_24h=number % 2, follow_any=1, self_verified=1,
+            task_follow_24h_numerator=number % 2, task_follow_any_numerator=1, follow_denominator=1,
+            task_verification_numerator=number % 2, verification_denominator=1, task_under_observation=False,
             under_observation=False, first_assignment_changed=False) for number in range(offset, min(offset + 1000, count))])
+    if include_self_verification:
+        session.execute(self_store_verifications.insert().values(publication_id="pub", order_id="volume", store_id="A",
+            verify_id="volume", verified_at=AT, business_date=AT.date(), is_jingcheng=True))
     session.commit()
 
 
@@ -87,7 +93,9 @@ def test_sql_aggregates_before_hydration_at_scale(pg):
             event.remove(pg, "after_cursor_execute", record_rows)
         assert report["totals"]["order_count"] == 100000
         assert report["totals"]["follow_denominator"] == 100000
-        assert report["totals"]["verification_denominator"] == 50000
+        assert report["totals"]["verification_denominator"] == 100000
+        assert report["totals"]["verification_numerator"] == 50000
+        assert report["totals"]["self_store_verification_count"] == 1
         assert report["totals"]["store_count"] == 2
         assert max(returned_rows, default=0) <= 4
         assert len(statements) <= 12
@@ -101,13 +109,54 @@ def test_sql_aggregates_before_hydration_at_scale(pg):
         print(f"100k orders + 100k rounds; {len(statements)} SELECTs; max materialized rows={max(returned_rows)}; with EXPLAIN={elapsed:.3f}s; plain={plain_elapsed:.3f}s")
 
 
+def assert_order_aggregation_preserves_quality_weights(session):
+    seed_frozen(session, 4)
+    session.execute(frozen.organizations.insert().values(publication_id="pub", mapping_version="v1", store_id="C",
+        service_store_code="C", store_name="C", effective_from=START, group_key="outside", group_name="Outside"))
+    for prefix, count, store, membership, reason, historical in (
+        ("byd", 3, "B", False, None, False),
+        ("unresolved", 3, None, True, "missing_account_binding", True),
+        ("history", 2, "A", True, None, True),
+        ("outside", 2, "C", True, None, False),
+    ):
+        session.execute(frozen.orders.insert(), [dict(publication_id="pub", order_id=prefix + str(index),
+            occurred_at=AT, store_id=store, is_jingcheng=membership, reason=reason,
+            historical_unverified=historical) for index in range(count)])
+    session.commit()
+    reports = {}
+    for scope, count in (("all", 11), ("jingcheng", 8), ("byd", 3)):
+        filters = dict(period_start=START, period_end=END, product_scope=scope, level="store")
+        current = ranking.read_report(session, "pub", **filters)
+        legacy = ranking.read_report(session, "pub", **filters, legacy_contract=True)
+        assert current["totals"]["order_count"] == legacy["totals"]["order_count"] == count
+        assert current["quality_json"] == legacy["quality_json"]
+        reports[scope] = current
+    assert reports["all"]["quality_json"] == {"missing_account_binding": 3,
+        "orders_historical_binding_unverified": 5, "orders_outside_eligibility": 2}
+    assert reports["all"]["totals"]["order_count"] == sum(reports[scope]["totals"]["order_count"]
+        for scope in ("jingcheng", "byd"))
+    scoped = ranking.read_report(session, "pub", period_start=START, period_end=END,
+        product_scope="all", scope_store_ids=("A",))
+    assert scoped["totals"]["order_count"] == 6 and scoped["quality_json"] == {}
+
+
+def test_order_count_preaggregation_preserves_product_scope_and_quality_on_postgresql(pg):
+    with Session(pg) as session:
+        assert_order_aggregation_preserves_quality_weights(session)
+
+
+def test_order_count_preaggregation_preserves_product_scope_and_quality_on_sqlite(db_session):
+    metadata.create_all(db_session.bind)
+    assert_order_aggregation_preserves_quality_weights(db_session)
+
+
 def test_cascade_only_projection_and_persistent_first_binding(pg):
     with Session(pg) as session:
         seed_frozen(session, 2)
         session.execute(frozen.lead_bindings.insert().values(lead_key="persistent", first_assigned_at=AT, mapping_version="v1"))
         session.execute(runs.delete().where(runs.c.id == "pub"))
         session.commit()
-        for table in (frozen.orders, frozen.rounds, frozen.organizations, frozen.eligibility, frozen.info):
+        for table in (frozen.orders, frozen.rounds, frozen.organizations, frozen.eligibility, frozen.info, self_store_verifications):
             assert not session.execute(select(table)).first()
         assert session.scalar(select(frozen.lead_bindings.c.lead_key)) == "persistent"
 
@@ -125,6 +174,37 @@ def test_filter_months_use_shanghai_not_postgres_session_timezone(pg):
         assert report["sale_months"] == ["2026-09", "2026-01", "2025-12"]
         assert report["years"] == [2026, 2025]
         assert report["snapshot_id"] == "pub"
+
+
+def assert_indexed_month_choices_preserve_authorized_history(session):
+    from datetime import datetime, timezone
+
+    seed_frozen(session, 2)
+    session.execute(frozen.orders.insert(), [dict(publication_id="pub", order_id=key,
+        occurred_at=at, store_id=store, is_jingcheng=member, reason=None, historical_unverified=False)
+        for key, at, store, member in (
+            ("old", datetime(2010, 1, 3, tzinfo=timezone.utc), "A", True),
+            ("dec", datetime(2025, 12, 31, 15, 59, tzinfo=timezone.utc), "A", True),
+            ("jan-byd", datetime(2025, 12, 31, 16, tzinfo=timezone.utc), "B", False),
+        )])
+    if session.bind.dialect.name == "postgresql":
+        session.execute(text("SET TIME ZONE 'America/Los_Angeles'"))
+    expected = [(None, ["2026-09", "2026-01", "2025-12", "2010-01"]),
+        (("A",), ["2026-09", "2025-12", "2010-01"]), (("B",), ["2026-01"]), ((), [])]
+    for scope, months in expected:
+        result = ranking.read_filters(session, "pub", scope_store_ids=scope)
+        assert result["sale_months"] == months
+        assert result["years"] == sorted({int(month[:4]) for month in months}, reverse=True)
+
+
+def test_indexed_month_choices_preserve_history_and_empty_months_on_postgresql(pg):
+    with Session(pg) as session:
+        assert_indexed_month_choices_preserve_authorized_history(session)
+
+
+def test_indexed_month_choices_preserve_history_and_empty_months_on_sqlite(db_session):
+    metadata.create_all(db_session.bind)
+    assert_indexed_month_choices_preserve_authorized_history(db_session)
 
 
 def test_real_builder_postgres_parity_rollback_and_source_independence(pg):
@@ -214,9 +294,7 @@ def test_round_membership_is_batch_bounded_and_uses_source_indexes(pg, monkeypat
         queries = []
 
         def capture(connection, cursor, statement, parameters, context, executemany):
-            if statement.lstrip().startswith("SELECT DISTINCT") and any(
-                "FROM " + model.__tablename__ in statement for model in (RawDouyinOrder, RawDouyinClue, ClueCenterOrder)
-            ):
+            if "task_product_sources" in statement:
                 queries.append((statement, parameters))
 
         monkeypatch.setattr(ranking_build, "BATCH_SIZE", 2)
@@ -231,10 +309,10 @@ def test_round_membership_is_batch_bounded_and_uses_source_indexes(pg, monkeypat
         actual = dict(session.execute(select(frozen.rounds.c.order_id, frozen.rounds.c.is_jingcheng).where(
             frozen.rounds.c.publication_id == "pub")).all())
         assert actual == expected
-        assert len(queries) == 12  # Four round batches, three membership sources each.
+        assert len(queries) == 4  # One bounded three-source catalog join per round batch.
         evidence = []
         for statement, parameters in queries:
-            batch_parameters = [value for key, value in parameters.items() if key.startswith("order_id_")]
+            batch_parameters = {value for key, value in parameters.items() if key.startswith("order_id_")}
             assert 1 <= len(batch_parameters) <= 2
             assert set(batch_parameters).issubset(expected)
             plan = session.connection().exec_driver_sql(
@@ -245,15 +323,17 @@ def test_round_membership_is_batch_bounded_and_uses_source_indexes(pg, monkeypat
                 for child in node.get("Plans", []):
                     yield from nodes(child)
 
-            source_nodes = [node for node in nodes(plan["Plan"]) if node.get("Relation Name")]
+            source_nodes = [node for node in nodes(plan["Plan"]) if node.get("Relation Name") in {
+                RawDouyinOrder.__tablename__, RawDouyinClue.__tablename__, ClueCenterOrder.__tablename__}]
             assert source_nodes
             assert all(node["Node Type"] in {"Index Scan", "Index Only Scan", "Bitmap Heap Scan"} for node in source_nodes)
-            assert plan["Plan"]["Actual Rows"] <= len(batch_parameters)
+            assert plan["Plan"]["Actual Rows"] <= 3 * len(batch_parameters) + 1
             # One requested order deliberately has two raw-clue rows.
-            assert sum(node["Actual Rows"] for node in source_nodes) <= len(batch_parameters) + 1
+            assert sum(node["Actual Rows"] for node in source_nodes) <= 3 * len(batch_parameters) + 1
             assert not any("SubPlan" in node.get("Parent Relationship", "") for node in nodes(plan["Plan"]))
-            evidence.append({"relation": source_nodes[0]["Relation Name"], "batch": len(batch_parameters),
-                "node": source_nodes[0]["Node Type"], "execution_ms": plan["Execution Time"],
+            evidence.append({"relations": [{"table": node["Relation Name"], "node": node["Node Type"],
+                "index": node.get("Index Name")} for node in source_nodes], "batch": len(batch_parameters),
+                "execution_ms": plan["Execution Time"],
                 "source_rows": sum(node["Actual Rows"] for node in source_nodes)})
         print("ROUND_MEMBERSHIP_BATCH_PLANS=" + str(evidence))
         session.rollback()

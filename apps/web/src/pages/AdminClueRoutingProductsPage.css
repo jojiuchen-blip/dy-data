@@ -1,0 +1,160 @@
+.clue-routing-page,
+.clue-routing-page .content-section,
+.clue-routing-editor,
+.clue-routing-dialog .ui-dialog__body {
+  min-width: 0;
+}
+
+.clue-routing-filters {
+  align-items: end;
+}
+
+.clue-routing-selection,
+.clue-routing-actions,
+.clue-routing-file-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-6);
+}
+
+.clue-routing-selection {
+  justify-content: space-between;
+  margin-block: var(--space-8);
+  padding: var(--space-8);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+}
+
+.clue-routing-batch-actions {
+  margin-bottom: var(--space-8);
+}
+
+.clue-routing-product-name,
+.clue-routing-mobile-product,
+.clue-routing-editor,
+.clue-routing-grants-list {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.clue-routing-product-name span,
+.clue-routing-version {
+  color: var(--muted);
+  font-size: var(--font-size-caption);
+}
+
+.clue-routing-product-name,
+.clue-routing-version,
+.clue-routing-stores p,
+.clue-routing-snapshot {
+  overflow-wrap: anywhere;
+}
+
+.clue-routing-version {
+  margin-block: var(--space-4);
+}
+
+.clue-routing-stores summary {
+  color: var(--brand-deep-orange);
+  cursor: pointer;
+  padding-block: var(--space-3);
+}
+
+.clue-routing-stores summary:focus-visible {
+  outline: 0;
+  box-shadow: var(--focus-ring);
+}
+
+.clue-routing-stores p {
+  max-width: 34ch;
+  margin-block: var(--space-4);
+}
+
+.clue-routing-dialog {
+  width: min(1160px, calc(100vw - var(--space-16)));
+  max-width: none;
+}
+
+.clue-routing-grants-dialog {
+  width: min(680px, calc(100vw - var(--space-16)));
+  max-width: none;
+}
+
+.clue-routing-rule-fields,
+.clue-routing-compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-8);
+}
+
+.clue-routing-rule-field {
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
+  padding: var(--space-8);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.clue-routing-rule-summary {
+  display: grid;
+  gap: var(--space-4);
+  margin: var(--space-4) 0;
+}
+
+.clue-routing-rule-summary div {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.clue-routing-rule-summary dt {
+  color: var(--muted);
+  font-size: var(--font-size-caption);
+}
+
+.clue-routing-rule-summary dd {
+  margin: 0;
+}
+
+.clue-routing-result-error {
+  color: var(--danger);
+  margin-block: var(--space-4);
+}
+
+.clue-routing-file-actions .filter-field {
+  flex: 1 1 280px;
+}
+
+.clue-routing-grants-list {
+  max-height: 45dvh;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+@media (max-width: 760px) {
+  .clue-routing-dialog,
+  .clue-routing-grants-dialog {
+    width: calc(100vw - var(--space-8));
+  }
+
+  .clue-routing-rule-fields,
+  .clue-routing-compare {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .clue-routing-selection,
+  .clue-routing-file-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .clue-routing-actions .ui-button {
+    flex: 1 1 auto;
+  }
+
+  .clue-routing-file-actions .filter-field {
+    flex-basis: auto;
+  }
+}

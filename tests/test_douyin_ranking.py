@@ -14,6 +14,8 @@ from apps.api.dy_api.models import (
     DimSkuProductRule,
     RawAwemeBinding,
     RawDouyinOrder,
+    RawDouyinOrderCoupon,
+    RawDouyinVerifyRecord,
     SettlementOrderDetail,
 )
 from apps.api.dy_api.douyin_ranking import build_douyin_ranking_report
@@ -163,6 +165,7 @@ def test_ranking_orders_include_store_professional_accounts_and_all_channels(db_
                 mapping_source="test",
                 is_primary=True,
             ),
+            DimStorePoiMapping(store_id="store-b", poi_id="poi-b", mapping_source="test"),
             DimSkuProductRule(sku_id="sku-jc-1", product_scope="精诚养车"),
             DimSkuProductRule(sku_id="sku-jc-2", product_scope="精诚养车"),
             DimSkuProductRule(sku_id="sku-jc-3", product_scope="精诚养车"),
@@ -269,8 +272,14 @@ def test_ranking_orders_include_store_professional_accounts_and_all_channels(db_
                 round_no=1,
                 assigned_store_id="store-a",
                 follow_result="appointment",
-                created_at=timestamp + timedelta(hours=3),
+                created_at=timestamp + timedelta(hours=1),
             ),
+            RawDouyinOrderCoupon(coupon_id="actual-a", order_id="lead-order-a-1"),
+            RawDouyinOrderCoupon(coupon_id="actual-b", order_id="lead-order-b-1"),
+            RawDouyinVerifyRecord(verify_id="actual-a", coupon_id="actual-a", poi_id="poi-a",
+                verify_status="success", verify_time=timestamp + timedelta(hours=2)),
+            RawDouyinVerifyRecord(verify_id="actual-b", coupon_id="actual-b", poi_id="poi-b",
+                verify_status="success", verify_time=timestamp + timedelta(days=3)),
             SettlementOrderDetail(
                 coupon_id="coupon-b-1",
                 order_id="lead-order-b-1",

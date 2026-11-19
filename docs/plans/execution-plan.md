@@ -1,4 +1,24 @@
-# 当前执行：DYDATA-104 月结与财务验收（2026-11-18）
+# 当前执行：DYDATA-115 线索引擎一期（2026-11-19）
+
+- 当前正式计划：[主计划](delivery-plans/main-delivery-plan-dydata-115.md) / [任务看板](delivery-plans/task-kanban-dydata-115.md) / [当前子计划](delivery-plans/sub-delivery-plan-dydata-115-T1.1-engine.md)。
+
+| 字段 | 内容 |
+|---|---|
+| 当前阶段 | S4 |
+| 当前正式计划文件组 | [主计划](delivery-plans/main-delivery-plan-dydata-115.md) / [任务看板](delivery-plans/task-kanban-dydata-115.md) |
+| 当前活跃 Phase / Task | Phase 1 / T1.1，进行中 |
+| 当前子开发计划 | [完整实施与验收](delivery-plans/sub-delivery-plan-dydata-115-T1.1-engine.md) |
+| 当前目标 | 商品级授权/启停/版本与名单、三轮流转、跟进保护期、两看板统一指标/评分及首次有效自店核销日、管理 UI/交互 CLI和存量迁移 |
+| 进行中任务 | 核心开发已集成、工程验证中；主 Codex 统一复验，待负责人验收 |
+| 下一步任务 | 按生产迁移基线重跑合并后的 CI，通过后部署并读回运行版本与开关状态 |
+| 完成标准摘要 | 以 T1.1 规则边界、并发、存量和指标对账逐项验收；生产交付默认 OFF，名单发布/验收不自动开启 |
+| 当前阻塞与前置依赖 | 两张看板、实际角色操作、存量迁移及并发已在隔离环境复验；正式启用等待试点商品、名单版本及负责人授权 |
+
+> 以下保留其他需求原记录，各自范围与未完成状态继续有效；不得将历史“当前”段落视为 DYDATA-115 的验收证据。
+
+---
+
+# 历史执行：DYDATA-104 月结与财务验收（2026-11-18）
 
 S4 / T3.1。十月按原始销售名称与冻结名单逐券复核。财务以实际下载及正式单据的实时状态验收。八、九月逐笔差异和首次确认须按清单核准。[本轮验证记录](../verification/20261118-monthly-finance-acceptance.md)
 
