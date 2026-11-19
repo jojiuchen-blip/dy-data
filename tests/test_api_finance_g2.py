@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / "apps" / "api"))
 
 from dy_api.auth import AuthContext, get_current_user  # noqa: E402
 from publication_fixture_helpers import publish_fixture
+from test_dydata104_finance_state_matrix import db_session  # noqa: F401
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes import dashboard as dashboard_routes  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
@@ -1953,3 +1954,128 @@ def test_management_carryforward_sync_before_cutoff_keeps_later_application_curr
             ManagementCarryforwardApplication.store_id == "g2-store-1",
         )
     ) == 200
+
+
+@pytest.fixture
+def profile_lock_batch(db_session):
+    """A historical batch stores its immutable targets in reverse store order."""
+    db_session.add_all([
+        DimStore(store_id=store_id, store_name=store_id, is_active=True)
+        for store_id in ("profile-lock-1", "profile-lock-2")
+    ])
+    _seed_committed_import(
+        db_session, batch_id="profile-lock-batch", import_type=1, month="2026-08",
+        target_record_id="profile-lock-v1-2", business_key="profile-lock-2",
+    )
+    db_session.flush()
+    batch = db_session.scalar(select(FinanceImportBatch).where(
+        FinanceImportBatch.batch_id == "profile-lock-batch",
+    ))
+    batch.total_rows = batch.success_rows = 2
+    db_session.add(FinanceImportRow(
+        batch_id=batch.batch_id, row_number=3, business_key="profile-lock-1",
+        normalized_payload={"businessKey": "profile-lock-1"}, row_status=5,
+        validation_errors=[], target_record_id="profile-lock-v1-1",
+    ))
+    db_session.add_all([
+        StoreFinanceProfile(
+            profile_id=f"profile-lock-v1-{number}", store_id=f"profile-lock-{number}",
+            profile_type=1, source_type=1, version_no=1, is_current=True,
+            store_name_snapshot=f"Profile lock {number}", import_batch_id=batch.batch_id,
+        )
+        for number in (1, 2)
+    ])
+    db_session.commit()
+    return batch
+
+
+@pytest.mark.parametrize("with_payload_store", [False, True])
+def test_profile_reversal_locks_all_target_stores_in_order(
+    client, db_session, profile_lock_batch, with_payload_store,
+):
+    if with_payload_store:
+        for row in db_session.scalars(select(FinanceImportRow)):
+            row.normalized_payload = row.normalized_payload | {"storeId": row.business_key}
+        db_session.commit()
+    _login(client)
+    store_locks = []
+
+    def record_store_lock(state):
+        statement = state.statement
+        if (state.is_select and getattr(statement, "_for_update_arg", None) is not None
+                and list(statement.selected_columns.keys()) == ["store_id"]):
+            store_locks.append(statement)
+
+    event.listen(db_session, "do_orm_execute", record_store_lock)
+    try:
+        response = client.post(
+            f"/api/v1/admin/finance-imports/{profile_lock_batch.batch_id}/reversals",
+            json={"readVersion": 1, "changeReason": "Reverse historical profiles"},
+            headers={"Idempotency-Key": "profile-lock-success"},
+        )
+    finally:
+        event.remove(db_session, "do_orm_execute", record_store_lock)
+    assert response.status_code == 200, response.text
+    assert len(store_locks) == 1
+    assert [str(column) for column in store_locks[0]._order_by_clauses] == [
+        str(DimStore.store_id.expression),
+    ]
+    assert set(store_locks[0].compile().params["store_id_1"]) == {
+        "profile-lock-1", "profile-lock-2",
+    }
+    profiles = list(db_session.scalars(select(StoreFinanceProfile)))
+    assert len(profiles) == 4
+    current = [profile for profile in profiles if profile.is_current]
+    assert len(current) == 2 and all(profile.is_tombstone for profile in current)
+
+
+@pytest.mark.parametrize("scenario,code", [
+    ("missing_target_id", "REVERSAL_TARGET_MISSING"),
+    ("missing_target_profile", "REVERSAL_BUSINESS_VERSION_CONFLICT"),
+    ("conflicting_store", "REVERSAL_BUSINESS_VERSION_CONFLICT"),
+    ("conflicting_business_key", "REVERSAL_BUSINESS_VERSION_CONFLICT"),
+    ("invalid_store_value", "REVERSAL_BUSINESS_VERSION_CONFLICT"),
+    ("missing_store", "REVERSAL_TARGET_MISSING"),
+])
+def test_profile_reversal_rejects_unproven_targets_without_partial_writes(
+    client, db_session, profile_lock_batch, scenario, code,
+):
+    second = db_session.scalar(select(FinanceImportRow).where(
+        FinanceImportRow.batch_id == profile_lock_batch.batch_id,
+        FinanceImportRow.row_number == 3,
+    ))
+    if scenario == "missing_target_id":
+        second.target_record_id = None
+    elif scenario == "missing_target_profile":
+        second.target_record_id = "missing-profile"
+    elif scenario == "missing_store":
+        db_session.delete(db_session.get(DimStore, second.business_key))
+    elif scenario == "conflicting_business_key":
+        second.business_key = "unrelated-store"
+    else:
+        second.normalized_payload = {"storeId": (
+            "profile-lock-2" if scenario == "conflicting_store" else 123
+        )}
+    db_session.commit()
+    before = list(db_session.execute(select(
+        StoreFinanceProfile.profile_id, StoreFinanceProfile.version_no,
+        StoreFinanceProfile.is_current, StoreFinanceProfile.is_tombstone,
+    ).order_by(StoreFinanceProfile.profile_id)))
+    _login(client)
+    response = client.post(
+        f"/api/v1/admin/finance-imports/{profile_lock_batch.batch_id}/reversals",
+        json={"readVersion": 1, "changeReason": "Reject invalid historical target"},
+        headers={"Idempotency-Key": f"profile-lock-{scenario}"},
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == code
+    assert list(db_session.execute(select(
+        StoreFinanceProfile.profile_id, StoreFinanceProfile.version_no,
+        StoreFinanceProfile.is_current, StoreFinanceProfile.is_tombstone,
+    ).order_by(StoreFinanceProfile.profile_id))) == before
+    assert db_session.scalar(select(func.count()).select_from(FinanceImportBatch)) == 1
+    audit = db_session.scalar(select(FinanceOperationAudit).where(
+        FinanceOperationAudit.operation_type == "FINANCE_IMPORT_REVERSAL",
+        FinanceOperationAudit.result_status == 2,
+    ))
+    assert audit is not None and audit.after_snapshot["conflictCode"] == code

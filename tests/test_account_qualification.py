@@ -1,4 +1,4 @@
-"""No current-state or nickname inference may become historical qualification."""
+"""Frozen exact sales names govern October and later account qualification."""
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -20,8 +20,9 @@ from test_data_settlement import _load_openapi_sale_binding_fixture
 from apps.worker.repositories import upsert_aweme_binding, upsert_store
 
 
-def order(account="owner-dual", uid=None):
-    return SimpleNamespace(owner_account_id=account, owner_douyin_uid=uid, owner_account_name="same nickname")
+def order(account="owner-dual", uid=None, name="Owner Dual"):
+    return SimpleNamespace(owner_account_id=account, owner_douyin_uid=uid, owner_account_name=name,
+                           raw_payload={"owner_account_name": name})
 
 
 @pytest.mark.parametrize("kind", ["子机构门店号", "子机构区域号"])
@@ -50,23 +51,23 @@ def test_unknown_source_contract_never_becomes_successful_snapshot(db_session, k
     ("子机构门店号", "active", "certification_not_successful"),
 ])
 def test_explicit_negative_text_rows_preserve_complete_positive_set(db_session, kind, status, reason):
-    rows = [binding(), binding(account="negative-account", kind=kind, status=status, douyin="negative-handle")]
+    rows = [binding(), binding(account="negative-account", kind=kind, status=status, douyin="negative-handle", nickname="Negative account")]
     version = seed_month_qualification(db_session, records=rows)
     source = db_session.get(Snapshot, version.content_sha256)
     negative = next(row for row in source.records_json if row["account_id"] == "negative-account")
     assert negative["qualification_status"] == "ineligible" and reason in negative["reason_codes"]
     assert q.qualified_version(db_session, month="2026-10", order=order()).version_id == version.version_id
     with pytest.raises(q.AccountQualificationError, match="not_qualified"):
-        q.qualified_version(db_session, month="2026-10", order=order("negative-account"))
+        q.qualified_version(db_session, month="2026-10", order=order("negative-account", name="Negative account"))
 
 
 def test_anonymous_excluded_personal_records_do_not_destroy_qualified_set(db_session):
-    anonymous = binding(account=None, kind="个人号", status="未知状态", poi=None, douyin=None)
+    anonymous = binding(account=None, kind="个人号", status="未知状态", poi=None, douyin=None, nickname=None)
     version = seed_month_qualification(db_session, records=[binding(), anonymous, anonymous])
     source = db_session.get(Snapshot, version.content_sha256)
-    assert source.record_count == 3
+    assert source.record_count == 2
     negatives = [row for row in source.records_json if row["account_id"] is None]
-    assert len(negatives) == 2
+    assert len(negatives) == 1
     assert all("nonqualifying_record_without_account_id" in row["reason_codes"] for row in negatives)
     assert q.qualified_version(db_session, month="2026-10", order=order())
 
@@ -120,106 +121,56 @@ def test_real_identity_or_field_corruption_still_fails_batch(db_session, case):
 
 
 def test_personal_row_cannot_supply_other_rows_success_or_override_exact_success(db_session):
-    rows = [binding(kind="子机构区域号", status="审核中"), binding(kind="个人号", douyin="personal")]
+    rows = [binding(kind="子机构区域号", status="审核中"), binding(kind="个人号", douyin="personal", nickname="Personal")]
     seed_month_qualification(db_session, records=rows)
     with pytest.raises(q.AccountQualificationError, match="not_qualified"):
         q.qualified_version(db_session, month="2026-10", order=order())
 
 
-def test_personal_conflict_does_not_pollute_qualified_exact_identity(db_session):
-    rows = [binding(), binding(kind="个人号", douyin="personal", status="已解绑", poi="different")]
-    seed_month_qualification(db_session, records=rows)
-    assert q.qualified_version(db_session, month="2026-10", order=order())
+@pytest.mark.parametrize("opaque_account,uid", [("encrypted-transfer", None), ("wrong-id", "wrong-uid"), (None, None)])
+def test_unique_sales_name_qualifies_independently_of_transfer_ids(db_session, opaque_account, uid):
+    version = seed_month_qualification(db_session)
+    assert q.qualified_version(db_session, month="2026-10", order=order(opaque_account, uid)).version_id == version.version_id
 
 
-def test_handles_and_nicknames_never_bridge_uid_namespace(db_session):
-    seed_month_qualification(db_session, records=[binding(douyin="uid-looks-same")])
-    with pytest.raises(q.AccountQualificationError, match="qualification_identity_unresolved"):
-        q.qualified_version(db_session, month="2026-10", order=order("different", "uid-looks-same"))
+@pytest.mark.parametrize("same_account", [False, True])
+def test_same_name_different_douyin_accounts_is_ambiguous_even_in_same_store(db_session, same_account):
+    seed_month_qualification(db_session, records=[binding(), binding(
+        account="owner-dual" if same_account else "different-account", douyin="different-douyin")])
+    with pytest.raises(q.AccountQualificationError, match="qualification_name_multiple_accounts"):
+        q.qualified_version(db_session, month="2026-10", order=order())
 
 
-def test_encrypted_transfer_uid_is_not_a_backend_account_even_when_text_matches(db_session):
-    seed_month_qualification(db_session)
-    opaque = order()
-    opaque.raw_payload = {"sale_info": {"transfer_uid": "owner-dual"}}
-    with pytest.raises(q.AccountQualificationError, match="qualification_identity_unresolved"):
-        q.qualified_version(db_session, month="2026-10", order=opaque)
-    # Collector priority means an explicit owner_account_id is a different
-    # origin than a nested transfer_uid value that it never selected.
-    opaque.raw_payload["owner_account_id"] = "owner-dual"
-    assert q.qualified_version(db_session, month="2026-10", order=opaque)
+@pytest.mark.parametrize("payload,normalized,reason", [
+    ({}, "Owner Dual", "source_missing"),
+    ({"sale_info": {"transfer_nickName": "Original"}}, "Changed", "source_conflict"),
+    ({"owner_account_name": " ", "sale_info": {"transfer_nickName": "Owner Dual"}}, None, "source_invalid"),
+    ({"owner_account_name": 123}, "123", "source_invalid"),
+    ({"owner_account_name": "Renamed"}, "Renamed", "sale_name_unmatched"),
+])
+def test_missing_unreliable_conflicting_or_renamed_sale_names_are_explicit(db_session, payload, normalized, reason):
+    version = seed_month_qualification(db_session)
+    subject = order()
+    subject.raw_payload, subject.owner_account_name = payload, normalized
+    with pytest.raises(q.AccountQualificationError, match=reason):
+        q.qualified_records(db_session, version=version, order=subject)
 
 
 @pytest.mark.parametrize("source", ["sale_info", "order_sale_info"])
-def test_official_selected_transfer_douyin_uid_is_short_handle_not_uid(db_session, source):
+@pytest.mark.parametrize("key", ["transfer_nickName", "transfer_nickname"])
+def test_selected_original_sale_name_path_is_preserved(db_session, source, key):
     version = seed_month_qualification(db_session)
-    subject = order("encrypted-transfer-value", "dy-owner")
-    subject.raw_payload = {source: {"transfer_uid": subject.owner_account_id, "transfer_douyin_uid": "dy-owner"}}
-    assert q.qualified_version(db_session, month="2026-10", order=subject).version_id == version.version_id
+    subject = order("opaque-transfer")
+    subject.raw_payload = {source: {key: "Owner Dual", "transfer_uid": "opaque-transfer"}}
+    assert q.order_sale_name(subject) == (source + "." + key, "Owner Dual")
+    assert q.qualified_records(db_session, version=version, order=subject)
 
 
-def test_source_short_priority_ignores_unselected_lower_priority_field(db_session):
+def test_current_names_never_replace_frozen_names(db_session):
     version = seed_month_qualification(db_session)
-    subject = order("encrypted-transfer", "dy-owner")
-    subject.raw_payload = {
-        "sale_info": {"transfer_uid": "encrypted-transfer", "transfer_douyin_uid": "dy-owner"},
-        "order_sale_info": {"transfer_uid": "lower-priority-value", "transfer_douyin_uid": "unselected-short"},
-    }
-    assert q.qualified_version(db_session, month="2026-10", order=subject).version_id == version.version_id
-
-
-def test_generic_uid_origin_takes_priority_and_is_not_silently_a_short_handle(db_session):
-    seed_month_qualification(db_session, records=[binding(douyin="generic-uid")])
-    subject = order("encrypted-transfer", "generic-uid")
-    subject.raw_payload = {"owner_douyin_uid": "generic-uid", "sale_info": {
-        "transfer_uid": "encrypted-transfer", "transfer_douyin_uid": "generic-uid"}}
-    with pytest.raises(q.AccountQualificationError, match="qualification_identity_unresolved"):
-        q.qualified_version(db_session, month="2026-10", order=subject)
-
-
-def test_source_short_value_must_agree_with_normalized_selected_value(db_session):
-    seed_month_qualification(db_session)
-    subject = order("encrypted-transfer", "dy-owner")
-    subject.raw_payload = {"sale_info": {"transfer_uid": "encrypted-transfer", "transfer_douyin_uid": "different-short"}}
-    with pytest.raises(q.AccountQualificationError, match="qualification_identity_source_conflict"):
-        q.qualified_version(db_session, month="2026-10", order=subject)
-
-
-@pytest.mark.parametrize("other_kind,other_status,expected", [
-    ("个人号", "认证成功", None), ("子机构门店号", "认证成功", "qualification_identity_ambiguous"),
-])
-def test_source_short_excludes_personal_alias_but_keeps_real_multiple_account_conflict(db_session, other_kind, other_status, expected):
-    seed_month_qualification(db_session, records=[binding(), binding(account="other-account", douyin="dy-owner", kind=other_kind, status=other_status)])
-    subject = order("encrypted-transfer", "dy-owner")
-    subject.raw_payload = {"sale_info": {"transfer_uid": "encrypted-transfer", "transfer_douyin_uid": "dy-owner"}}
-    if expected:
-        with pytest.raises(q.AccountQualificationError, match=expected):
-            q.qualified_version(db_session, month="2026-10", order=subject)
-    else:
-        assert q.qualified_version(db_session, month="2026-10", order=subject)
-
-
-def test_explicit_backend_account_and_selected_short_cannot_point_to_different_accounts(db_session):
-    seed_month_qualification(db_session, records=[binding(), binding(account="other-account", douyin="other-short")])
-    subject = order("owner-dual", "other-short")
-    subject.raw_payload = {"owner_account_id": "owner-dual", "sale_info": {"transfer_douyin_uid": "other-short"}}
-    with pytest.raises(q.AccountQualificationError, match="qualification_identity_ambiguous"):
-        q.qualified_version(db_session, month="2026-10", order=subject)
-
-
-def test_unresolved_transfer_identity_has_separate_settlement_failure_reason(db_session):
-    _load_dual_fee_fixture(db_session)
-    source_order = db_session.scalar(select(RawDouyinOrder))
-    source_order.raw_payload = {**source_order.raw_payload, "sale_info": {"transfer_uid": source_order.owner_account_id}}
-    db_session.get(RawDouyinVerifyRecord, "verify-coupon-dual").verify_time = _dual_time(10, 5)
-    seed_month_qualification(db_session)
-    db_session.flush()
-    settlement.rebuild_dual_fee_results(db_session, calculation_run_id="opaque-identity-unresolved")
-    failures = list(db_session.scalars(select(DataQualityIssue).where(
-        DataQualityIssue.issue_type == "dual_fee_monthend_account_qualification")))
-    assert len(failures) == 2
-    assert all(issue.raw_context_json["reason_code"] == "qualification_identity_unresolved" for issue in failures)
-    assert _fee_result(db_session, "coupon-dual", 1) is None
+    subject = order(name="New current nickname")
+    with pytest.raises(q.AccountQualificationError, match="sale_name_unmatched"):
+        q.qualified_records(db_session, version=version, order=subject)
 
 
 def test_source_content_deduplicates_while_every_attempt_is_preserved(db_session):
@@ -329,10 +280,11 @@ def test_later_current_observations_never_change_frozen_month(db_session):
     assert q.qualified_version(db_session, month="2026-10", order=order()).version_id == frozen.version_id
 
 
-def test_duplicate_source_identity_is_incomplete_not_success(db_session):
+def test_identical_source_rows_deduplicate_without_losing_observation(db_session):
     row = binding()
     identity = observe(db_session, [row, row])
-    assert db_session.get(Observation, identity).error_code == "duplicate_or_conflicting_binding_identity"
+    assert db_session.get(Observation, identity).state == "success"
+    assert db_session.scalar(select(Snapshot.record_count)) == 1
 
 
 def test_api_partial_or_duplicate_page_fails_before_raw_ingestion(monkeypatch):
@@ -415,30 +367,12 @@ def test_missing_new_month_qualification_blocks_but_september_history_is_unchang
     assert month_close.month_close_preflight(db_session, "2026-10")[0] == month_close.QUALIFICATION_NOT_READY
 
 
-def test_monthend_poi_is_not_used_to_invent_historical_sale_store(db_session):
+def test_frozen_name_and_poi_determine_sale_store_without_live_account(db_session):
     _load_dual_fee_fixture(db_session)
+    _add_scope_rule(db_session, "2026-10")
     db_session.delete(db_session.get(DimAwemeAccount, "owner-dual"))
     db_session.get(RawDouyinVerifyRecord, "verify-coupon-dual").verify_time = _dual_time(10, 5)
     seed_month_qualification(db_session, records=[binding(poi="poi-verify")])
     db_session.flush()
-    settlement.rebuild_dual_fee_results(db_session, calculation_run_id="no-sale-history")
-    assert _fee_result(db_session, "coupon-dual", 1) is None
-
-
-@pytest.mark.parametrize("alias_type,should_resolve", [("个人号", True), ("unknown", False), ("子机构门店号", False)])
-def test_exact_historical_uid_and_qualified_relation_survive_personal_nickname_alias(db_session, alias_type, should_resolve):
-    source_order, _ = _load_openapi_sale_binding_fixture(db_session)
-    upsert_store(db_session, "personal-store", "Personal store")
-    upsert_aweme_binding(db_session, "personal-alias", account_id="personal-store",
-        douyin_id="personal", douyin_nickname=source_order.owner_account_name,
-        binding_status="认证成功", raw_payload={"账号类型": alias_type})
-    _add_scope_rule(db_session, "2026-10")
-    db_session.get(RawDouyinVerifyRecord, "verify-coupon-dual").verify_time = _dual_time(10, 5)
-    seed_month_qualification(db_session, records=[binding(account="craftsman-exact")])
-    db_session.flush()
-    settlement.rebuild_dual_fee_results(db_session, calculation_run_id="exact-uid-personal-alias")
-    result = _fee_result(db_session, "coupon-dual", 1)
-    if should_resolve:
-        assert result.sale_store_id == "store-sale"
-    else:
-        assert result is None
+    settlement.rebuild_dual_fee_results(db_session, calculation_run_id="frozen-sale-name")
+    assert _fee_result(db_session, "coupon-dual", 1).sale_store_id == "store-verify"

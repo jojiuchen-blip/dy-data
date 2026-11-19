@@ -116,8 +116,10 @@ def test_no_lookup_for_untrusted_or_unknown_product(case):
     else: source["product"].pop("owner_account_id")
     client = Client(rows=[source]); sync = adapter(client)
     if case == "unknown-product":
-        with pytest.raises(ProductSyncPayloadError, match="incomplete after bounded retries"):
-            consume_pages(sync)
+        assert consume_pages(sync) == []
+        assert sync.lookup_scan["enumerationCompleted"] is True
+        assert sync.lookup_scan["coverageComplete"] is False
+        assert sync.lookup_diagnostics["pendingProductIds"] == ["product-known", "unknown"]
         assert client.id_calls == [["product-known", "unknown"]] * 3
     else:
         with pytest.raises(ProductSyncPayloadError): consume_pages(sync)

@@ -3394,7 +3394,8 @@ def create_product_sync_run(
             "PRODUCT_SYNC_ALREADY_ACTIVE",
             "A product sync run is already queued or running",
         ) from exc
-    background_tasks.add_task(run_product_sync_job, job_id=job_id)
+    if _worker_mode_from_env() != "priority_daily":
+        background_tasks.add_task(run_product_sync_job, job_id=job_id)
     return _product_sync_success(
         request,
         {"syncRunId": job_id, "mode": payload.mode, "status": "QUEUED"},

@@ -54,7 +54,7 @@
 
 - 商品授权、共享规则维护人、名单与规则版本、三轮分配、跟进保护期、两看板及交互式 CLI 已集成。验收回执按候选版本写入[研发验收记录](../../verification/dydata-115-verification.md)及 [PR #82](https://github.com/jojiuchen-blip/dy-data/pull/82)。
 - 人工交互式 CLI 与既有只读 CLI/API 的 300 项回归通过。真实登录覆盖商品负责人、共享规则维护人和全范围管理员，包含取消预览、名单换版后拒绝旧确认及失败项重试。
-- PostgreSQL 16.15 已验证存量升级及全新数据库的并发迁移，最终 head 为 `20261118_0070`。全新库的已开启商品及共享规则维护人均为 0。
+- PostgreSQL 16.15 已验证存量升级及全新数据库的并发迁移，最终 head 为 `20261119_0071`。全新库的已开启商品及共享规则维护人均为 0。
 - 两张看板按相同样本与商品范围完成对账，`task_metrics_contract` 表明新版任务字段可用。真实 PostgreSQL 已验证冻结旧发布可回读，旧版应用可读取新发布的原有列。
 - Foundation 漂移已提请回捞：[待改请求](../foundation-plans/foundation-change-requests-dydata-115.md)。实际结果统一由主线程写入 `docs/verification/dydata-115-verification.md` 与 `docs/devlog/20261118_refactor_log_Keith_Chen.md`；本计划不复制第二份验收台账。
 - T1.1 与 Linear 均保持进行中；CI、实际迁移/部署、生产默认 OFF 读回和负责人接受尚须分别留证。DYDATA-104原待验收及受保护事项继续由原计划管理。

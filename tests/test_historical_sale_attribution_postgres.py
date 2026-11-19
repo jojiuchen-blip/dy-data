@@ -54,6 +54,11 @@ def test_postgres_reverification_does_not_expand_approval(postgres_session, reus
     _assert_reverification(postgres_session, reuse_verify_id)
 
 
+@pytest.mark.parametrize("reuse_verify_id", [False, True])
+def test_postgres_new_month_frozen_name_does_not_expand_exact_approval(postgres_session, reuse_verify_id):
+    _assert_reverification(postgres_session, reuse_verify_id, freeze_new_month=True)
+
+
 def test_postgres_exact_decision_rebuild_and_real_result_watermark(postgres_session, monkeypatch):
     manifest = reviewed_manifest(postgres_session, ambiguous_binding=False)
     order = postgres_session.scalar(select(RawDouyinOrder))

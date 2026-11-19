@@ -91,6 +91,14 @@ class ProductSyncPayloadError(ValueError):
 class ProductSyncIncompleteError(ProductSyncPayloadError):
     """An exact-ID lookup remained incomplete after bounded retries."""
 
+    def __init__(
+        self, message: str, *, partial_records: list[Any] | None = None,
+        partial_skus: dict[str, Mapping[str, Any]] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.partial_records = partial_records or []
+        self.partial_skus = partial_skus or {}
+
 
 @dataclass(frozen=True)
 class ProductSyncItem:
@@ -199,6 +207,7 @@ class DouyinProductSyncAdapter:
         self._fallback_product_ids: list[str] | None = None
         self._seen_list_cursors: set[tuple[int, str | None]] = set()
         self.lookup_diagnostics: dict[str, Any] | None = None
+        self.lookup_scan: dict[str, Any] = {}
         self.lookup_stats = {
             "attempt_limit_per_batch": PRODUCT_LOOKUP_ATTEMPTS,
             "product_id_requests": 0,
@@ -246,6 +255,8 @@ class DouyinProductSyncAdapter:
         # Evidence belongs only to the current page, including when an adapter
         # is reused. Never attach an old batch to a later list/cursor failure.
         self.lookup_diagnostics = None
+        if cursor is None:
+            self.lookup_scan = {}
         state = _decode_douyin_product_cursor(cursor)
         if state["stage"] == "ids":
             return self._fetch_id_page(int(state.get("offset") or 0))
@@ -377,7 +388,16 @@ class DouyinProductSyncAdapter:
             uncached = [sku_id for sku_id in missing if sku_id not in cache]
             for offset in range(0, len(uncached), 50):
                 batch = uncached[offset:offset + 50]
-                cache.update(self._fetch_sku_batch(product_id, product, batch))
+                try:
+                    cache.update(self._fetch_sku_batch(product_id, product, batch))
+                except ProductSyncIncompleteError as exc:
+                    cache.update(exc.partial_skus)
+                    partial = {**record, "sku": {}, "skus": available + [
+                        cache[sku_id] for sku_id in missing if sku_id in cache
+                    ]}
+                    raise ProductSyncIncompleteError(
+                        str(exc), partial_records=result + [partial],
+                    ) from exc
             result.append({**record, "sku": {}, "skus": available + [cache[sku_id] for sku_id in missing]})
         return result
 
@@ -415,7 +435,10 @@ class DouyinProductSyncAdapter:
                 return found
             self.lookup_stats["partial_responses"] += 1
             logger.warning("Incomplete SKU lookup: attempt=%s missing_count=%s", attempt, len(pending))
-        raise ProductSyncIncompleteError("SKU lookup incomplete after bounded retries; missing_count=" + str(len(pending)))
+        raise ProductSyncIncompleteError(
+            "SKU lookup incomplete after bounded retries; missing_count=" + str(len(pending)),
+            partial_skus=found,
+        )
 
     def _fetch_product_batch(
         self, batch: list[str], *, batch_offset: int = 0,
@@ -470,11 +493,13 @@ class DouyinProductSyncAdapter:
                 remainingProductLookupCount=len(pending) + unvisited,
             )
             if not pending:
-                self.lookup_diagnostics = None
                 return rows
             self.lookup_stats["partial_responses"] += 1
             logger.warning("Incomplete product ID lookup: attempt=%s missing_count=%s", attempt, len(pending))
-        raise ProductSyncIncompleteError("Product ID lookup incomplete after bounded retries; missing_count=" + str(len(pending)))
+        raise ProductSyncIncompleteError(
+            "Product ID lookup incomplete after bounded retries; missing_count=" + str(len(pending)),
+            partial_records=rows,
+        )
 
     def _fetch_id_page(self, offset: int) -> ProductSyncPage:
         if self._fallback_product_ids is None:
@@ -484,12 +509,44 @@ class DouyinProductSyncAdapter:
             return parse_normalized_product_page(
                 {"items": [], "hasMore": False, "nextCursor": None}
             )
-        rows = self._fetch_product_batch(
-            batch, batch_offset=offset, frozen_product_count=len(self._fallback_product_ids)
+        try:
+            rows = self._fetch_product_batch(
+                batch, batch_offset=offset, frozen_product_count=len(self._fallback_product_ids)
+            )
+        except ProductSyncIncompleteError as exc:
+            # An unresolved product is local to this frozen batch. Keep its
+            # evidence and continue the remaining products within their own
+            # retry budgets; the job still fails overall coverage validation.
+            rows = exc.partial_records
+        diagnostics = self.lookup_diagnostics
+        pending = set(diagnostics["pendingProductIds"])
+        supplemented = []
+        for record in rows:
+            try:
+                supplemented.extend(self._supplement_known_skus([record]))
+            except ProductSyncIncompleteError as exc:
+                supplemented.extend(exc.partial_records)
+                pending.add(_optional_text(record["product"].get("product_id")))
+        next_offset = offset + len(batch)
+        diagnostics.update(
+            pendingProductIds=[product_id for product_id in batch if product_id in pending],
+            batchMissingCount=len(pending),
+            remainingProductLookupCount=len(pending) + diagnostics["unvisitedProductCount"],
         )
-        normalized_rows, skipped_count = _normalize_douyin_online_rows(
-            self._supplement_known_skus(rows)
+        self.lookup_scan = {
+            "frozenProductCount": len(self._fallback_product_ids),
+            "visitedProductCount": next_offset,
+            "unvisitedProductCount": max(0, len(self._fallback_product_ids) - next_offset),
+            "unresolvedProductCount": self.lookup_scan.get("unresolvedProductCount", 0) + len(pending),
+            "incompleteBatchCount": self.lookup_scan.get("incompleteBatchCount", 0) + int(bool(pending)),
+            "enumerationCompleted": next_offset == len(self._fallback_product_ids),
+        }
+        self.lookup_scan["coverageComplete"] = (
+            self.lookup_scan["enumerationCompleted"] and self.lookup_scan["unresolvedProductCount"] == 0
         )
+        if not pending:
+            self.lookup_diagnostics = None
+        normalized_rows, skipped_count = _normalize_douyin_online_rows(supplemented)
         previously_seen = {product_id: set(self._seen_product_skus.get(product_id, set())) for product_id in batch}
         self._observe_product_skus(normalized_rows)
         # Details may repeat list observations. Emit only new variants so a
@@ -498,7 +555,6 @@ class DouyinProductSyncAdapter:
             row for row in normalized_rows
             if row.get("skuId") not in previously_seen.get(row.get("productId"), set())
         ]
-        next_offset = offset + len(batch)
         next_cursor = (
             _encode_douyin_product_cursor(stage="ids", offset=next_offset)
             if next_offset < len(self._fallback_product_ids)
@@ -535,7 +591,12 @@ def _product_lookup_response_summary(payload: Any, requested_ids: list[str]) -> 
             sku_count = int(isinstance(single, Mapping) and bool(_optional_text(single.get("sku_id"))))
             if isinstance(multiple, list):
                 sku_count += len(multiple)
-            products.append({"productId": product_id, "skuCount": sku_count})
+            products.append({
+                "productId": product_id, "skuCount": sku_count,
+                "productStatus": DOUYIN_ONLINE_STATUS_MAP.get(
+                    _optional_text(record.get("online_status")) or "", "UNKNOWN",
+                ),
+            })
     codes = {}
     for name, container, field in (
         ("response", payload, "error_code"), ("data", data, "error_code"),
@@ -597,7 +658,12 @@ def sanitize_product_lookup_diagnostics(value: Any) -> dict[str, Any] | None:
             "returnedProductCount": count(attempt, "returnedProductCount"),
             "productsShapeValid": attempt.get("productsShapeValid") is True,
             "products": [
-                {"productId": row["productId"], "skuCount": count(row, "skuCount")}
+                {
+                    "productId": row["productId"], "skuCount": count(row, "skuCount"),
+                    "productStatus": row.get("productStatus")
+                    if isinstance(row.get("productStatus"), str)
+                    and row["productStatus"] in PRODUCT_STATUSES else "UNKNOWN",
+                }
                 for row in (products[:PRODUCT_DIAGNOSTIC_BATCH_LIMIT] if isinstance(products, list) else [])
                 if isinstance(row, Mapping) and row.get("productId") in requested
             ],
@@ -738,6 +804,8 @@ def execute_product_sync(
     invalid_count = 0
     skipped_count = 0
     page_count = 0
+    incomplete_lookup_count = 0
+    last_incomplete_diagnostics: dict[str, Any] | None = None
     error_code: str | None = None
     error_message: str | None = None
 
@@ -755,6 +823,9 @@ def execute_product_sync(
                 sequence=page_count + 1,
                 lookup_diagnostics=diagnostics,
             )
+            _write_history_snapshots(
+                session, job_id=job_id, items=seen_items.values(), observed_at=observed_time,
+            )
             return _finish_without_current_update(
                 session,
                 job,
@@ -767,6 +838,7 @@ def execute_product_sync(
                 retryable=incomplete,
                 next_cursor=current_cursor,
                 page_count=page_count,
+                snapshot_count=len(seen_items),
                 lookup_diagnostics=diagnostics,
             )
         except Exception as exc:  # noqa: BLE001 - external adapter boundary.
@@ -777,6 +849,9 @@ def execute_product_sync(
                     message="Product ID lookup failed before a complete response",
                     sequence=page_count + 1, lookup_diagnostics=diagnostics,
                 )
+            _write_history_snapshots(
+                session, job_id=job_id, items=seen_items.values(), observed_at=observed_time,
+            )
             return _finish_without_current_update(
                 session,
                 job,
@@ -789,6 +864,7 @@ def execute_product_sync(
                 retryable=True,
                 next_cursor=current_cursor,
                 page_count=page_count,
+                snapshot_count=len(seen_items),
                 lookup_diagnostics=diagnostics,
             )
         finally:
@@ -797,6 +873,22 @@ def execute_product_sync(
                     **(job.metadata_json or {}),
                     "lookup_stats": dict(adapter.lookup_stats),
                 }
+            if getattr(adapter, "lookup_scan", None):
+                job.metadata_json = {
+                    **(job.metadata_json or {}),
+                    "lookup_scan": dict(adapter.lookup_scan),
+                }
+
+        diagnostics = sanitize_product_lookup_diagnostics(getattr(adapter, "lookup_diagnostics", None))
+        if diagnostics is not None:
+            incomplete_lookup_count += diagnostics["batchMissingCount"]
+            last_incomplete_diagnostics = diagnostics
+            _record_quality_issue(
+                session, job_id=job_id, issue_type="product_sync_incomplete_response",
+                message="Product lookup batch remains incomplete after bounded retries; missing_count="
+                + str(diagnostics["batchMissingCount"]),
+                sequence=page_count + 1, lookup_diagnostics=diagnostics,
+            )
 
         if page.payload_sha256 in seen_page_hashes:
             error_code = "DUPLICATE_PAGE"
@@ -889,6 +981,17 @@ def execute_product_sync(
             next_cursor=current_cursor,
             page_count=page_count,
             snapshot_count=len(seen_items),
+        )
+
+    if incomplete_lookup_count:
+        return _finish_without_current_update(
+            session, job, status="FAILED", observed_count=observed_count,
+            skipped_count=skipped_count, failed_count=incomplete_lookup_count,
+            error_code="INCOMPLETE_RESPONSE",
+            error_message="Product lookup scan has unresolved products after bounded retries; missing_count="
+            + str(incomplete_lookup_count),
+            retryable=True, next_cursor=current_cursor, page_count=page_count,
+            snapshot_count=len(seen_items), lookup_diagnostics=last_incomplete_diagnostics,
         )
 
     inserted_count, updated_count, unchanged_count = _update_current_snapshots(
@@ -1213,6 +1316,14 @@ def _finish_without_current_update(
     )
     diagnostics = sanitize_product_lookup_diagnostics(lookup_diagnostics)
     if diagnostics is not None:
+        scan = metadata.get("lookup_scan")
+        if isinstance(scan, Mapping):
+            # Batch DQI keeps the original request-time evidence. The job's
+            # admin summary reports what remains after subsequent batches.
+            diagnostics["unvisitedProductCount"] = scan["unvisitedProductCount"]
+            diagnostics["remainingProductLookupCount"] = (
+                scan["unresolvedProductCount"] + scan["unvisitedProductCount"]
+            )
         metadata["lookup_diagnostics"] = diagnostics
     job.metadata_json = metadata
     job.status = status.lower()

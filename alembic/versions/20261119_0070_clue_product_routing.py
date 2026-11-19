@@ -8,8 +8,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision = "20261118_0069"
-down_revision = "20261117_0068"
+revision = "20261119_0070"
+down_revision = "20261118_0069"
 branch_labels = None
 depends_on = None
 

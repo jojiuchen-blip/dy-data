@@ -17,13 +17,21 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTT
 from fastapi.responses import Response, StreamingResponse
 from cryptography.fernet import Fernet, InvalidToken
 from openpyxl import load_workbook
-from sqlalchemy import BigInteger, String, and_, case, func, not_, or_, select, text, update
+from sqlalchemy import BigInteger, Select, String, and_, case, func, not_, or_, select, text, update
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import aliased, sessionmaker
 
 from dy_api.auth import AuthContext, get_current_user
 from dy_api.db import get_session_factory
 from dy_api.export_metadata import export_filter_header
+from apps.api.dy_api.download_localization import (
+    chinese_download,
+    chinese_date,
+    download_filename,
+    localized_csv,
+    spreadsheet_text,
+    translate_csv,
+)
 from apps.api.dy_api.finance_import_templates import (
     FINANCE_IMPORT_TEMPLATE_FIELDS,
     FINANCE_IMPORT_FIELD_LABELS,
@@ -670,8 +678,13 @@ def export_douyin_ranking(
         session.rollback()
         _raise_reporting_error(request, status.HTTP_503_SERVICE_UNAVAILABLE,
             "RANKING_QUERY_UNAVAILABLE", "指标导出暂时不可用，请稍后重试或缩短日期范围")
+    ranking_filename = f"douyin-ranking-{period_start}-{period_end}.xlsx"
+    disposition = f'attachment; filename="{ranking_filename}"'
+    if chinese_download(request):
+        ranking_filename = f"抖音账号榜单_{chinese_date(period_start)}_{chinese_date(period_end)}.xlsx"
+        disposition = f"attachment; filename*=UTF-8''{quote(ranking_filename)}"
     return Response(content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="douyin-ranking-{period_start}-{period_end}.xlsx"',
+        headers={"Content-Disposition": disposition,
                  "Cache-Control": "no-store",
                  **({"X-Publication-ID": publication.id} if publication is not None else {})})
 
@@ -2141,7 +2154,10 @@ def download_finance_import_errors(
         page_key=_finance_import_page_key(batch.import_type),
     )
     _require_finance_import_batch_scope(session, batch, current_user, request)
-    filename = quote(f"finance-import-errors-{batch_id}.csv")
+    filename = quote(
+        f"财务导入错误明细_{batch_id}.csv"
+        if chinese_download(request) else f"finance-import-errors-{batch_id}.csv"
+    )
     return StreamingResponse(
         _finance_import_error_csv(session, batch_id),
         media_type="text/csv; charset=utf-8",
@@ -2379,6 +2395,8 @@ def _finance_import_reversal_plan(session, batch: FinanceImportBatch, request: R
             "REVERSAL_TARGET_INCOMPLETE",
             "原批次业务目标不完整，无法安全撤销",
         )
+    if batch.import_type in (1, 4):
+        _lock_finance_import_profile_stores(session, batch.batch_id, request, reversal=True)
     plan: list[dict] = []
     for row in rows:
         if not row.target_record_id:
@@ -2594,6 +2612,10 @@ def _append_promotion_reversal_version(
                     is_current=True,
                 )
             )
+    source_event = session.scalar(select(InvoiceStatusEvent).where(
+        InvoiceStatusEvent.invoice_id == source.invoice_id,
+        InvoiceStatusEvent.to_status == source.invoice_status,
+    ).order_by(InvoiceStatusEvent.occurred_at.desc(), InvoiceStatusEvent.event_id.desc()).limit(1))
     session.add(
         InvoiceStatusEvent(
             event_id=f"invoice-event-{uuid4().hex}",
@@ -2603,7 +2625,9 @@ def _append_promotion_reversal_version(
             to_status=restored.invoice_status,
             operator_id=operator_id,
             import_batch_id=batch.batch_id,
-            result_reason="FINANCE_IMPORT_REVERSAL",
+            result_reason=source_event.result_reason if source_event is not None else None,
+            business_date=source_event.business_date if source_event is not None else None,
+            business_amount_cent=source_event.business_amount_cent if source_event is not None else None,
             occurred_at=now,
         )
     )
@@ -3093,7 +3117,9 @@ def _execute_finance_import_commit(
         .order_by(FinanceImportRow.row_number)
     ).yield_per(500)
 
-    if batch.import_type == 3:
+    if batch.import_type in (1, 4):
+        _lock_finance_import_profile_stores(session, batch.batch_id, request)
+    elif batch.import_type == 3:
         numbers = session.scalars(select(FinanceImportRow.normalized_payload).where(
             FinanceImportRow.batch_id == batch.batch_id,
         ))
@@ -4943,7 +4969,10 @@ def export_admin_finance_order_details(
         raise
     export_result = "SUCCESS" if items else "EMPTY"
     try:
-        csv_text = _finance_order_detail_csv(items)
+        if chinese_download(request):
+            csv_text = _finance_order_detail_csv(items, chinese=True)
+        else:
+            csv_text = _finance_order_detail_csv(items)
     except Exception:
         session.rollback()
         _persist_finance_order_export_audit(
@@ -4966,7 +4995,7 @@ def export_admin_finance_order_details(
         result_status=1 if items else 2,
     )
     generated = generated_at().isoformat()
-    filename = quote(f"finance-order-details-{generated[:10]}.csv")
+    filename = quote(download_filename(request, "finance-order-details", generated_at()))
     return StreamingResponse(
         iter((with_utf8_bom(csv_text),)),
         media_type="text/csv; charset=utf-8",
@@ -6281,7 +6310,9 @@ def order_fee_details_export(
             "当前筛选无可导出明细",
         )
     generated = generated_at().isoformat()
-    filename = quote(f"order-fee-details-{generated[:10]}.csv")
+    if chinese_download(request):
+        csv_text = translate_csv(csv_text, context="order-fee-details")
+    filename = quote(download_filename(request, "order-fee-details", generated_at()))
     current_request_id = request_id(request)
     return Response(
         content=with_utf8_bom(csv_text),
@@ -6380,6 +6411,7 @@ def order_details(
 
 @router.get("/order-details/export")
 def order_details_export(
+    request: Request,
     product_scope: str = "all",
     product_type: str = "all",
     sale_store_id: str | None = None,
@@ -6416,9 +6448,12 @@ def order_details_export(
     if not current_user.has_global_data_access:
         filters["scope_store_ids"] = current_user.store_ids
     generated = generated_at().isoformat()
-    filename = quote(f"order-details-{generated[:10]}.csv")
+    filename = quote(download_filename(request, "order-details", generated_at()))
+    csv_text = store.order_details_export_csv(filters)
+    if chinese_download(request):
+        csv_text = translate_csv(csv_text, context="order-details")
     return Response(
-        content=with_utf8_bom(store.order_details_export_csv(filters)),
+        content=with_utf8_bom(csv_text),
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": f"attachment; filename*=UTF-8''{filename}",
@@ -6553,7 +6588,7 @@ def _promotion_invoice_carryforward_projection(
     *,
     store_id: str | None = None,
     store_ids: tuple[str, ...] | None = None,
-    statement_ids: set[str] | None = None,
+    statement_ids: set[str] | Select | None = None,
 ) -> tuple[dict[str, dict], list[dict]]:
     """Project deterministic promotion-invoice groups from current facts."""
 
@@ -8001,11 +8036,11 @@ def _finance_import_error_csv(session, batch_id: str):
             writer.writerow(
                 {
                     "rowNumber": error["row_number"],
-                    "businessKey": error["business_key"],
+                    "businessKey": spreadsheet_text(error["business_key"], identifier=True),
                     "field": FINANCE_IMPORT_FIELD_LABELS.get(error["field"], error["field"]),
-                    "originalValue": error["original_value"],
-                    "reason": error["reason"],
-                    "suggestion": error["suggestion"],
+                    "originalValue": spreadsheet_text(error["original_value"]),
+                    "reason": spreadsheet_text(error["reason"]),
+                    "suggestion": spreadsheet_text(error["suggestion"]),
                 }
             )
             yield buffer.getvalue()
@@ -8063,6 +8098,65 @@ def _commit_final_finance_import_row(
             committed_at=committed_at,
             is_correction=is_correction,
             request=request,
+        )
+
+
+def _lock_finance_import_profile_stores(
+    session, batch_id: str, request: Request, *, reversal: bool = False,
+) -> None:
+    """Serialize profile batches in a consistent store order across slots."""
+    query = select(
+        FinanceImportRow.normalized_payload["storeId"],
+        FinanceImportRow.target_record_id, FinanceImportRow.business_key,
+        StoreFinanceProfile.store_id,
+    ).outerjoin(
+        StoreFinanceProfile,
+        StoreFinanceProfile.profile_id == FinanceImportRow.target_record_id,
+    ).where(FinanceImportRow.batch_id == batch_id)
+    if reversal:
+        query = query.where(FinanceImportRow.row_status == 5)
+    store_ids: set[str] = set()
+    for payload_store_id, target_record_id, business_key, target_store_id in session.execute(
+        query.execution_options(yield_per=500),
+    ):
+        if reversal:
+            if not target_record_id:
+                _raise_reporting_error(
+                    request, status.HTTP_409_CONFLICT, "REVERSAL_TARGET_MISSING",
+                    "原批次存在未关联业务版本的行",
+                )
+            if target_store_id is None or (
+                payload_store_id is not None and payload_store_id != target_store_id
+            ) or (
+                business_key is not None and business_key != target_store_id
+            ):
+                _raise_reporting_error(
+                    request, status.HTTP_409_CONFLICT, "REVERSAL_BUSINESS_VERSION_CONFLICT",
+                    "原批次门店与关联财务资料不一致，无法安全撤销",
+                    data={"business_key": business_key},
+                )
+        # Older committed rows only kept businessKey. Their immutable target
+        # profile supplies the store identity before any profile row is locked.
+        store_id = target_store_id if reversal else payload_store_id
+        if not isinstance(store_id, str) or not store_id:
+            _raise_reporting_error(
+                request, status.HTTP_409_CONFLICT, "IMPORT_PREVIEW_STALE",
+                "导入行缺少可核验门店，请重新上传并核对后提交",
+            )
+        store_ids.add(store_id)
+    # A different template/month can update the same profiles. Reversals must
+    # take these locks as well before locking or writing individual profiles.
+    locked_store_ids = set(session.scalars(
+        select(DimStore.store_id)
+        .where(DimStore.store_id.in_(store_ids))
+        .order_by(DimStore.store_id)
+        .with_for_update()
+    ))
+    if locked_store_ids != store_ids:
+        _raise_reporting_error(
+            request, status.HTTP_409_CONFLICT,
+            "REVERSAL_TARGET_MISSING" if reversal else "IMPORT_PREVIEW_STALE",
+            "导入行关联门店已不存在，请重新核对门店资料",
         )
 
 
@@ -8995,7 +9089,7 @@ def _management_invoiceable_projection(
     store_ids: tuple[str, ...] | None = None,
     through_month: str | None = None,
     excluded_invoice_ids: set[str] | None = None,
-    statement_ids: set[str] | None = None,
+    statement_ids: set[str] | Select | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Project management invoiceable periods and signed carry-forward applications.
 
@@ -12046,7 +12140,7 @@ def _persist_finance_order_export_audit(
     session.commit()
 
 
-def _finance_order_detail_csv(rows: list[dict]) -> str:
+def _finance_order_detail_csv(rows: list[dict], *, chinese: bool = False) -> str:
     fieldnames = [
         "statement_entry_id", "statement_id", "store_id", "store_name", "sap_code",
         "billing_store_id", "billing_store_name", "service_store_name", "effective_sap_code",
@@ -12059,6 +12153,8 @@ def _finance_order_detail_csv(rows: list[dict]) -> str:
         "rejection_reason", "imported_at", "settlement_status", "factory_deduction_date",
         "factory_deduction_amount_cent",
     ]
+    if chinese:
+        return localized_csv(fieldnames, rows, context="finance-order-details")
     buffer = StringIO(newline="")
     writer = DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
     writer.writeheader()
@@ -12076,16 +12172,20 @@ def _finance_csv_download(
 ) -> Response:
     """Build a real CSV export whose empty state is exactly one header row."""
 
-    buffer = StringIO(newline="")
-    writer = DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
-    if header_labels:
-        writer.writerow(header_labels)
+    if chinese_download(request):
+        csv_text = localized_csv(fieldnames, rows, context=filename_prefix, header_labels=header_labels)
     else:
-        writer.writeheader()
-    writer.writerows(rows)
-    filename = quote(f"{filename_prefix}-{generated_at().date().isoformat()}.csv")
+        buffer = StringIO(newline="")
+        writer = DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
+        if header_labels:
+            writer.writerow(header_labels)
+        else:
+            writer.writeheader()
+        writer.writerows(rows)
+        csv_text = buffer.getvalue()
+    filename = quote(download_filename(request, filename_prefix, generated_at()))
     return Response(
-        content=with_utf8_bom(buffer.getvalue()),
+        content=with_utf8_bom(csv_text),
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": f"attachment; filename*=UTF-8''{filename}",

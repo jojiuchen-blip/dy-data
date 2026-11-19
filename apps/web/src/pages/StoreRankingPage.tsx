@@ -10,6 +10,7 @@ import { FilterBar, FilterField } from "../components/Filters";
 import { FieldInput, SelectField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
+import { SettlementPeriodStatus } from "../components/SettlementPeriodStatus";
 import { TablePagination } from "../components/TablePagination";
 import { usePublishedView } from "../hooks/usePublishedView";
 import type {
@@ -18,7 +19,7 @@ import type {
   StoreFinanceRankingBasis,
 } from "../types/dashboard";
 import { formatCurrency, formatInteger } from "../utils/format";
-import { apiErrorText } from "../utils/apiErrors";
+import { apiErrorText, isPublicationPeriodNotReady } from "../utils/apiErrors";
 
 interface StoreRankingPageProps {
   searchParams: URLSearchParams;
@@ -101,6 +102,10 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
   const rows = ranking?.list ?? [];
   const totals = ranking?.totals;
   const availability = ranking?.periodAvailability;
+  const periodReadiness = meta?.periodReadiness?.months[activePeriodKey];
+  const monthlyClose = periodReadiness?.monthlyClose ?? availability?.monthlyClose;
+  const periodError = isPublicationPeriodNotReady(rankingResource.rawError) ? rankingResource.rawError : undefined;
+  const explainUnavailablePeriod = Boolean(periodError && periodReadiness?.monthlyClose && metaResource.data?.meta.publication);
   const cumulativeUnavailable = availability?.cumulativeReady === false;
   const incompleteMonths = availability?.incompleteMonths.join("、");
 
@@ -127,7 +132,7 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
           <h1>全国门店月度榜单</h1>
         </div>
       </section>
-      <ResourceNotice analysis loading={metaResource.loading || rankingResource.loading || rankingResource.refreshing} error={rankingError ?? metaError} />
+      <ResourceNotice analysis loading={metaResource.loading || rankingResource.loading || rankingResource.refreshing} error={explainUnavailablePeriod ? undefined : rankingError ?? metaError} />
       <FilterBar>
         <SelectField disabled={!meta} label="账期" value={activePeriodKey} onChange={(value) => { setPeriodKey(value); setPage(1); }} options={Array.from(new Set([activePeriodKey, ...(meta?.statementMonths ?? [])])).map((value) => ({ value, label: value }))} />
         <SelectField disabled={!meta} label="商品类型" value={activeProductType} onChange={(value) => { setProductType(value); setPage(1); }} options={Array.from(new Set(["all", ...(meta?.productTypes ?? []), activeProductType])).map((value) => ({ value, label: value === "all" ? "全部商品" : value }))} />
@@ -140,12 +145,11 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
           disabled: cumulativeUnavailable && option.value !== "PROMOTION_FEE_MONTH",
         }))} />
       </FilterBar>
-      {availability?.monthlyClose?.status === "partial" ? (
-        <ResourcePanel>当前显示已出账的门店。其余门店的账单仍在核对，累计金额暂不可用。</ResourcePanel>
-      ) : availability?.monthlyReady && cumulativeUnavailable ? (
+      <SettlementPeriodStatus month={activePeriodKey} readiness={periodReadiness} monthlyClose={availability?.monthlyClose} unavailable={explainUnavailablePeriod} requestId={explainUnavailablePeriod ? periodError?.requestId : undefined} />
+      {monthlyClose?.status !== "partial" && availability?.monthlyReady && cumulativeUnavailable ? (
         <ResourcePanel>本月数据已完整，累计数据{incompleteMonths ? `因 ${incompleteMonths} 尚未完成` : "尚未完成"}，暂不可用。</ResourcePanel>
       ) : null}
-      {!ranking && rankingResource.loading ? <ResourcePanel>正在加载榜单…</ResourcePanel> : !ranking ? <ResourcePanel tone="error">榜单暂不可用，请稍后重试。</ResourcePanel> : (
+      {!ranking && rankingResource.loading ? <ResourcePanel>正在加载榜单…</ResourcePanel> : !ranking ? (explainUnavailablePeriod ? null : <ResourcePanel tone="error">榜单暂不可用，请稍后重试。</ResourcePanel>) : (
         <>
           <section className="metric-grid store-summary-metrics">
             <MetricCard label="销售金额（累计）" value={displayMetricCurrency(totals?.salesAmountCumulativeCent)} meta={displayMetricCount(totals?.salesOrderCountCumulative, "笔销售订单")} />

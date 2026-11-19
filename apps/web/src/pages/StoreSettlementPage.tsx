@@ -19,6 +19,7 @@ import { FilterBar, FilterField } from "../components/Filters";
 import { FieldInput, FieldTextarea, SelectField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
+import { SettlementPeriodStatus } from "../components/SettlementPeriodStatus";
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
 import { useApiResource } from "../hooks/useApiResource";
 import { useDownloadFeedback } from "../hooks/useDownloadFeedback";
@@ -30,7 +31,7 @@ import type {
   StoreDisputeType,
 } from "../types/dashboard";
 import { formatCurrency, formatDateTime, formatInteger } from "../utils/format";
-import { apiErrorText } from "../utils/apiErrors";
+import { apiErrorText, isPublicationPeriodNotReady } from "../utils/apiErrors";
 import { userFacingError } from "../utils/userFacingError";
 import { displayFinanceSaleChannel } from "../utils/userFacingLabels";
 import { parseYuanToCent } from "../utils/money";
@@ -131,6 +132,8 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
   const settlementPublicationId = settlementResource.data?.meta.publication?.id;
   const monthlyClose = meta?.periodReadiness?.months[activeMonth]?.monthlyClose
     ?? settlementResource.data?.data.periodAvailability?.monthlyClose;
+  const periodError = isPublicationPeriodNotReady(settlementResource.rawError) ? settlementResource.rawError : undefined;
+  const explainUnavailablePeriod = Boolean(periodError && meta?.periodReadiness?.months[activeMonth]?.monthlyClose && metaResource.data?.meta.publication);
   const feePublicationId = monthlyClose ? settlementPublicationId : undefined;
   const billingResource = useApiResource(
     () => fetchStoreBillingStatements({
@@ -328,7 +331,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
       </section>
       <ResourceNotice analysis
         loading={metaResource.loading || settlementResource.loading || settlementResource.refreshing || billingResource.loading}
-        error={settlementError ?? metaError ?? billingError}
+        error={(explainUnavailablePeriod ? undefined : settlementError ?? metaError) ?? billingError}
       />
       <FilterBar>
         <SelectField
@@ -350,7 +353,8 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
         <SelectField disabled={!meta} label="商品类型" value={activeProductType} onChange={(value) => setProductType(value)} options={Array.from(new Set(["all", ...(meta?.productTypes ?? []), activeProductType])).map((value) => ({ value, label: value === "all" ? "全部商品" : value }))} />
       </FilterBar>
       <p className="muted-copy">历史账期按费用生成时的商品类型展示；账单确认和开票金额以完整正式账单为准。</p>
-      {availability?.monthlyReady && availability.cumulativeReady === false ? <ResourcePanel>本月数据已完整；累计数据{incompleteMonths ? `因 ${incompleteMonths} 尚未完成` : "尚未完成"}，暂不可用。</ResourcePanel> : null}
+      <SettlementPeriodStatus month={activeMonth} readiness={meta?.periodReadiness?.months[activeMonth]} monthlyClose={availability?.monthlyClose} unavailable={explainUnavailablePeriod} requestId={explainUnavailablePeriod ? periodError?.requestId : undefined} />
+      {monthlyClose?.status !== "partial" && availability?.monthlyReady && availability.cumulativeReady === false ? <ResourcePanel>本月数据已完整；累计数据{incompleteMonths ? `因 ${incompleteMonths} 尚未完成` : "尚未完成"}，暂不可用。</ResourcePanel> : null}
 
       <section className="metric-grid store-summary-metrics" aria-label="分账指标">
             <MetricCard label="销售金额" value={displayMetricCurrency(metrics?.salesAmountCent)} meta={displayMetricCount(metrics?.salesOrderCount, "笔订单")} />
@@ -450,7 +454,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
             </div>
             <div className="store-finance-fee-tabpanel" role="tabpanel">
               <ResourceNotice loading={activeOrderResource.loading} error={activeOrderResource.error} />
-              {activeOrderResource.loading ? <ResourcePanel>正在加载订单明细…</ResourcePanel> : activeOrderResource.error ? <ResourcePanel tone="error">订单明细读取失败，请稍后重试。</ResourcePanel> : activeOrders.length ? <DataTable columns={orderColumns} rows={activeOrders} /> : <ResourcePanel>当前筛选下暂无订单明细。</ResourcePanel>}
+              {activeOrderResource.loading ? <ResourcePanel>正在加载订单明细…</ResourcePanel> : activeOrderResource.error ? <ResourcePanel tone="error">订单明细读取失败，请稍后重试。</ResourcePanel> : monthlyClose && !feePublicationId ? <ResourcePanel>本账期费用明细尚未就绪。</ResourcePanel> : activeOrders.length ? <DataTable columns={orderColumns} rows={activeOrders} /> : <ResourcePanel>当前筛选下暂无订单明细。</ResourcePanel>}
             </div>
       </section>
 

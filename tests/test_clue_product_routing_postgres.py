@@ -340,7 +340,7 @@ def test_waiting_shared_maintainer_cannot_publish_after_revocation(product_pg_en
         assert verify.get(User, "shared-maintainer").role == "store"
 
 
-def test_real_upgrade_from_0068_preserves_old_leads_and_defaults_off(monkeypatch):
+def test_real_upgrade_from_monthly_0069_preserves_old_leads_and_defaults_off(monkeypatch):
     url = os.getenv("DYDATA_CLUE_TEST_DATABASE_URL")
     if not url:
         pytest.skip("set DYDATA_CLUE_TEST_DATABASE_URL to a disposable local PostgreSQL database")
@@ -354,7 +354,7 @@ def test_real_upgrade_from_0068_preserves_old_leads_and_defaults_off(monkeypatch
     monkeypatch.setenv("DY_DATABASE_URL", migration_url.render_as_string(hide_password=False))
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     try:
-        command.upgrade(config, "20261117_0068")
+        command.upgrade(config, "20261118_0069")
         scoped = create_engine(migration_url)
         with scoped.begin() as connection:
             old = Table("clue_master_leads", MetaData(), autoload_with=connection)
@@ -365,7 +365,7 @@ def test_real_upgrade_from_0068_preserves_old_leads_and_defaults_off(monkeypatch
             connection.execute(users.insert().values(user_id="existing-store-user", username="existing-store-user", display_name="Existing Store",
                 role="store", store_scope_mode="none", status="active", is_initialized=True, password_hash="synthetic-test-hash",
                 auth_version=7, cli_subject="synthetic-stable-subject", auth_generation=3, created_at=NOW, updated_at=NOW))
-        command.upgrade(config, "20261118_0069")
+        command.upgrade(config, "20261119_0070")
         with scoped.connect() as connection:
             row = connection.execute(text("SELECT routing_mode,routing_product_id FROM clue_master_leads WHERE lead_key='legacy-unassigned'")).one()
             assert tuple(row) == (None, None)
@@ -375,19 +375,19 @@ def test_real_upgrade_from_0068_preserves_old_leads_and_defaults_off(monkeypatch
             assert tuple(existing_user) == ("store", "none", "synthetic-test-hash", 7, 3)
             column = next(value for value in inspect(connection).get_columns("clue_assignment_rounds") if value["name"] == "appointment_at")
             assert column["type"].timezone is True
-        command.downgrade(config, "20261117_0068")
-        command.upgrade(config, "20261118_0069")
+        command.downgrade(config, "20261118_0069")
+        command.upgrade(config, "20261119_0070")
         with Session(scoped) as session:
             session.add(ClueSharedRuleMaintainer(user_id="existing-store-user", granted_by="synthetic-admin"))
             session.commit()
         with pytest.raises(RuntimeError, match="Product routing history exists"):
-            command.downgrade(config, "20261117_0068")
+            command.downgrade(config, "20261118_0069")
         with Session(scoped) as session:
             session.add(ClueProductRoutingConfig(product_id="new-default"))
             session.commit()
             assert session.get(ClueProductRoutingConfig, "new-default").routing_enabled is False
         with pytest.raises(RuntimeError, match="Product routing history exists"):
-            command.downgrade(config, "20261117_0068")
+            command.downgrade(config, "20261118_0069")
         scoped.dispose()
     finally:
         with engine.begin() as connection:

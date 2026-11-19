@@ -83,7 +83,7 @@
 | 分类 | GAP |
 | 改动项 | 记录0070仅加列/加自店核销表与两类退款来源计数器；不清旧run/head/counter。保留旧物理header（线索仍为product-type-v2）与旧窄列算法，新增任务列通过独立 `task_metrics_contract` 标记识别：clue-overview=clue-task-v3、douyin-ranking=clue-task-v1；响应分别提供contractVersion/taskMetricsContract。指纹包含新能力，缺标记不可复用为新发布成功。 |
 | 原因 | 直接改旧物理合同会使仍运行的旧线索reader在预热切head时503；排名旧进程也可能把新语义按旧列解释。候选HTTP可显示旧完整投影为refreshing，但缺能力的新指标必须null；严格resolve/check-ready仍拒绝缺标记。GET不得构建、写入或扫描业务来源现算，部署/CLI须验证切换前后同一版本读取。生产商品开关与发布head独立，迁移/预热/验收/名单发布均不打开流转。 |
-| 指向代码块 | `apps/api/dy_api/dashboard_publications/sources.py:88`、`:142`；`apps/api/dy_api/dashboard_publications/lifecycle.py:52`、`:126`、`:269`、`:359`；`alembic/versions/20261118_0070_clue_task_publications.py:10`、`:37`；`tests/test_api_dashboard_publications.py:92`（禁止GET现算的既有断言） |
+| 指向代码块 | `apps/api/dy_api/dashboard_publications/sources.py:88`、`:142`；`apps/api/dy_api/dashboard_publications/lifecycle.py:52`、`:126`、`:269`、`:359`；`alembic/versions/20261119_0071_clue_task_publications.py:10`、`:37`；`tests/test_api_dashboard_publications.py:92`（禁止GET现算的既有断言） |
 | 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-api-clue-center/jobs-security-and-migration.md` 迁移/发布与就绪；`docs/prd/foundation/foundation-api-clue-center/lead-query-and-contact.md` 看板能力/缺值；`docs/prd/foundation/foundation-schema-clue-center.md` 冻结投影索引；`docs/prd/foundation/foundation-api-dy-data.md` 静态看板发布索引与版本元信息 |
 | 严重度 | 建议 |
 | 状态 | 待评审 |

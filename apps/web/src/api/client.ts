@@ -415,9 +415,13 @@ function filenameFromContentDisposition(disposition: string | null): string | nu
   if (!disposition) {
     return null;
   }
-  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  const utf8Match = disposition.match(/filename\*=UTF-8'[^']*'"?([^";]+)/i);
   if (utf8Match?.[1]) {
-    return decodeURIComponent(utf8Match[1]);
+    try {
+      return decodeURIComponent(utf8Match[1].trim());
+    } catch {
+      // An invalid extended filename can still use the server's fallback.
+    }
   }
   const asciiMatch = disposition.match(/filename="?([^";]+)"?/i);
   return asciiMatch?.[1] ?? null;
@@ -428,7 +432,7 @@ async function requestDownload(
   params?: QueryParams,
   body?: unknown,
 ): Promise<void> {
-  const response = await fetch(apiUrl(path, params), {
+  const response = await fetch(apiUrl(path, { ...params, locale: "zh-CN" }), {
     credentials: "include",
     method: body === undefined ? "GET" : "POST",
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -445,7 +449,7 @@ async function requestDownload(
   link.href = objectUrl;
   link.download =
     filenameFromContentDisposition(response.headers.get("Content-Disposition")) ??
-    "export.csv";
+    (path.includes("format=xlsx") ? "导入模板.xlsx" : "导出结果.csv");
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -461,7 +465,7 @@ async function requestDownloadResult(
   path: string,
   params?: QueryParams,
 ): Promise<DownloadResult> {
-  const response = await fetch(apiUrl(path, params), {
+  const response = await fetch(apiUrl(path, { ...params, locale: "zh-CN" }), {
     credentials: "include",
     headers: { Accept: "text/csv" },
   });
@@ -471,7 +475,7 @@ async function requestDownloadResult(
   const blob = await response.blob();
   const fileName =
     filenameFromContentDisposition(response.headers.get("Content-Disposition")) ??
-    "finance-order-details.csv";
+    "财务导出结果.csv";
   const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = objectUrl;

@@ -23,7 +23,8 @@ from apps.api.dy_api.models import (
     SettlementFeeAdjustment, SettlementFeeResult, SettlementScopeRule, SettlementStatement, SkuFeeRule,
 )
 from apps.worker import historical_sale_attribution as history, month_close, settlement
-from test_data_settlement import _load_dual_fee_fixture, _fee_result, _dual_time
+from account_qualification_fixtures import binding, seed_month_qualification
+from test_data_settlement import _load_dual_fee_fixture, _fee_result, _dual_time, _add_scope_rule
 
 
 def _iso(value):
@@ -213,11 +214,16 @@ def test_cancelled_decision_without_a_frozen_fee_cannot_create_new_fees(db_sessi
 
 
 @pytest.mark.parametrize("reuse_verify_id", [False, True])
-def test_reverification_does_not_expand_exact_approval(db_session, reuse_verify_id):
+def test_reverification_does_not_expand_exact_approval(db_session, reuse_verify_id, freeze_new_month=False):
     manifest = reviewed_manifest(db_session)
     history.import_decisions(db_session, manifest, apply=True)
     settlement.rebuild_dual_fee_results(db_session, calculation_run_id="before-new-verification")
     original_ids = {r.fee_result_id for r in db_session.scalars(select(SettlementFeeResult))}
+    if freeze_new_month:
+        order = db_session.scalar(select(RawDouyinOrder))
+        order.raw_payload = {**order.raw_payload, "owner_account_name": order.owner_account_name}
+        _add_scope_rule(db_session, "2026-10")
+        seed_month_qualification(db_session, records=[binding(nickname=order.owner_account_name)])
     verify = db_session.scalar(select(RawDouyinVerifyRecord))
     if reuse_verify_id:
         verify.verify_time = _dual_time(10, 9)
@@ -235,6 +241,11 @@ def test_reverification_does_not_expand_exact_approval(db_session, reuse_verify_
     assert list(db_session.scalars(select(DataQualityIssue).where(
         DataQualityIssue.issue_type == "historical_sale_attribution_source_drift",
     )))
+
+
+@pytest.mark.parametrize("reuse_verify_id", [False, True])
+def test_new_month_frozen_name_cannot_expand_prior_exact_approval(db_session, reuse_verify_id):
+    test_reverification_does_not_expand_exact_approval(db_session, reuse_verify_id, freeze_new_month=True)
 
 
 def test_inconsistent_redundant_decision_identity_fails_closed(db_session):

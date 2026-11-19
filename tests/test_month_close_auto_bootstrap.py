@@ -48,7 +48,8 @@ def _seed(session, *, legacy=False, records=None, days=True, base=True):
     upsert_raw_order(session, "order-middle", order_status="paid", order_status_normalized="paid",
         sku_id="sku-dual", pay_time=_dual_time(8, 10), sale_time=_dual_time(8, 10),
         owner_account_id="owner-dual", owner_account_name="Owner Dual", sale_channel="short_video",
-        sale_channel_normalized="short_video", raw_payload={"receipt_amount": 10001}, source_run_id="source-middle")
+        sale_channel_normalized="short_video", raw_payload={"receipt_amount": 10001, "owner_account_name": "Owner Dual"},
+        source_run_id="source-middle")
     upsert_order_coupon(session, "middle", "order-middle", coupon_status="fulfilled", coupon_status_normalized="available",
         coupon_paid_amount_cent=10001, coupon_refunded_amount_cent=0, source_run_id="source-middle")
     upsert_verify_record(session, "verify-middle", coupon_id="middle", verify_status="valid", verify_time=_dual_time(10, 20),
@@ -92,6 +93,7 @@ def _quiet_sqlite_progress(monkeypatch, session):
 
 @pytest.mark.parametrize("legacy", (False, True))
 def test_freeze_automatically_bootstraps_whole_month_actual_rebuild_and_publication(db_session, legacy, monkeypatch):
+    monkeypatch.setenv("SETTLEMENT_MONTHLY_MODE", "true")
     factory = _seed(db_session, legacy=legacy)
     if not legacy:
         class Midmonth(datetime):
@@ -138,12 +140,12 @@ def test_freeze_automatically_bootstraps_whole_month_actual_rebuild_and_publicat
 
 @pytest.mark.parametrize("kind", ("unknown", "explicitly-ineligible"))
 def test_unapproved_old_current_fees_block_commit_and_publication(db_session, kind):
-    records = [binding(account="other")] if kind == "unknown" else [binding(kind="个人号")]
+    records = [binding(account="other", nickname="Different Sales Account")] if kind == "unknown" else [binding(kind="个人号")]
     factory = _seed(db_session, legacy=True, records=records)
     job_id = close.ensure_month_close_job(factory, now=NOW)
     assert job_id
     before = _financial_facts(db_session)
-    with pytest.raises(rebuild.SettlementSourceNotReady, match="current_fee_qualification_version_mismatch"):
+    with pytest.raises(rebuild.SettlementSourceNotReady, match="no billable source"):
         rebuild.run_settlement_month_rebuild_job(factory=factory, job_id=job_id, business_month=MONTH)
     assert _financial_facts(db_session) == before
     assert db_session.get(SettlementProjectionActive, "settlement").generation_id == "bootstrap-base"
@@ -165,7 +167,7 @@ def test_input_digest_ignores_outputs_and_processing_times_but_tracks_relevant_r
     assert close.ensure_month_close_job(factory, now=NOW) == first
     with factory.begin() as session:
         order = session.scalar(select(RawDouyinOrder).where(RawDouyinOrder.order_id == "order-coupon-dual"))
-        order.raw_payload = {"receipt_amount": 20001}
+        order.raw_payload = {**order.raw_payload, "receipt_amount": 20001}
     second = close.ensure_month_close_job(factory, now=NOW)
     assert second != first
     with factory.begin() as session:
@@ -216,7 +218,7 @@ def test_same_failed_input_uses_normal_worker_retry_budget_without_new_scheduler
     # observation time. Keep both on the same advancing clock for real retries.
     clock = NOW
     monkeypatch.setattr(rebuild, "_database_utcnow", lambda session: clock)
-    factory = _seed(db_session, legacy=True, records=[binding(account="other")])
+    factory = _seed(db_session, legacy=True, records=[binding(account="other", nickname="Different Sales Account")])
     job_id = close.ensure_month_close_job(factory, now=NOW)
     before = _financial_facts(db_session)
     for attempt in (1, 2, 3):
@@ -284,7 +286,7 @@ def test_changed_source_after_queue_fails_before_fee_mutation_then_dispatches_ne
     factory = _seed(db_session)
     first = close.ensure_month_close_job(factory, now=NOW)
     order = db_session.scalar(select(RawDouyinOrder).where(RawDouyinOrder.order_id == "order-middle"))
-    order.raw_payload = {"receipt_amount": 20001}
+    order.raw_payload = {**order.raw_payload, "receipt_amount": 20001}
     db_session.commit()
     before = _financial_facts(db_session)
     with pytest.raises(rebuild.SettlementSourceNotReady, match="calculation input changed"):
@@ -302,7 +304,7 @@ def test_changed_source_after_queue_fails_before_fee_mutation_then_dispatches_ne
 def test_full_runner_without_active_pointer_rolls_back_unpinned_october_economics(bootstrap_session, frozen, monkeypatch):
     db_session = bootstrap_session
     _quiet_sqlite_progress(monkeypatch, db_session)
-    factory = _seed(db_session, legacy=True, records=[binding(account="other")], base=False)
+    factory = _seed(db_session, legacy=True, records=[binding(account="other", nickname="Different Sales Account")], base=False)
     if frozen:
         q.freeze_month(db_session, MONTH, now=NOW)
     db_session.add(JobRun(job_id="legacy-full", job_name="settlement_rebuild", status="queued"))
@@ -347,9 +349,11 @@ def test_publication_only_refuses_real_october_closure_but_keeps_august_septembe
 
 
 def test_final_locked_capture_rejects_a_single_unpinned_fee_among_valid_results(db_session, monkeypatch):
+    monkeypatch.setenv("SETTLEMENT_MONTHLY_MODE", "true")
     factory = _seed(db_session)
     first = close.ensure_month_close_job(factory, now=NOW)
     assert rebuild.run_settlement_month_rebuild_job(factory=factory, job_id=first, business_month=MONTH)
+    monkeypatch.setenv("SETTLEMENT_MONTHLY_MODE", "false")
     prior_generation = db_session.get(SettlementProjectionActive, "settlement", populate_existing=True).generation_id
     db_session.add(JobRun(job_id="later-month-publication", job_name="settlement_rebuild", status="queued"))
     db_session.commit()

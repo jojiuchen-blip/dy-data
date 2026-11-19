@@ -684,8 +684,10 @@ def _sparse_authority_source(
         )
     )
     if monthly_scope is not None:
+        from apps.worker.monthly_close_scope import monthly_fee_evidence_condition
+
         result_rows = result_rows.where(
-            SettlementFeeResult.account_qualification_version_id == monthly_scope.qualification_version_id,
+            monthly_fee_evidence_condition(monthly_scope.qualification_version_id),
         )
     original_store = case(
         (SettlementFeeAdjustment.fee_direction == PROMOTION_FEE, SettlementFeeResult.sale_store_id),
@@ -3402,6 +3404,40 @@ def _materialize_dual_fee_direction(
         if order.sku_id
         else None
     )
+    product_owner_account_id = _first_text(product.owner_account_id) if product is not None else None
+    if quote_only and accounting_month is not None:
+        monthly_verify, unproven_verify = _monthly_verify_for_close(session, coupon.coupon_id, accounting_month)
+        if unproven_verify is not None:
+            raise NewFeeQuoteError("correction quote has unproven verification evidence")
+    verify = monthly_verify if accounting_month is not None else _select_valid_verify_record(session, coupon.coupon_id)
+    verify_month = _business_month(verify.verify_time) if verify is not None and verify.verify_time is not None else None
+    non_commission_owner = _is_non_commission_owner_account(session, order.owner_account_name)
+    if verify_month is not None and verify_month >= "2026-10":
+        if non_commission_owner:
+            reject_or_block(
+                session, calculation_run_id, coupon, order, "dual_fee_non_commission_owner",
+                "订单归属账号配置为不参与分佣，费用方向已阻断。",
+                directions=(direction,), context={
+                    "direction": direction_name, "order_owner_account_id": order.owner_account_id,
+                    "order_owner_account_name": order.owner_account_name,
+                },
+            )
+            return False
+        explicit_scope = (resolve_settlement_scope_rule(
+            session, business_month=verify_month,
+            owner_account_id=product_owner_account_id, channel=_dual_sale_channel(order),
+        ) if product_owner_account_id else None)
+        if explicit_scope is not None and not explicit_scope.is_active:
+            reject_or_block(
+                session, calculation_run_id, coupon, order, "dual_fee_missing_scope_rule",
+                "该归属账号与渠道的结算范围已从生效月份起停用，费用方向已阻断。",
+                directions=(direction,), context={
+                    "direction": direction_name, "business_month": verify_month,
+                    "scope_state": "disabled", "owner_account_id": product_owner_account_id,
+                    "sale_channel": _dual_sale_channel(order),
+                },
+            )
+            return False
     # A successful platform observation of delisting must not erase historical
     # paid/redemption eligibility. It only opens the remaining identity, scope,
     # effective-rule and receipt checks; it never changes the platform status.
@@ -3424,7 +3460,6 @@ def _materialize_dual_fee_direction(
         )
         return False
 
-    product_owner_account_id = _first_text(product.owner_account_id)
     if not product_owner_account_id:
         reject_or_block(
             session,
@@ -3441,7 +3476,7 @@ def _materialize_dual_fee_direction(
         )
         return False
 
-    if _is_non_commission_owner_account(session, order.owner_account_name):
+    if non_commission_owner:
         reject_or_block(
             session,
             calculation_run_id,
@@ -3459,12 +3494,10 @@ def _materialize_dual_fee_direction(
         return False
 
     sale_owner_account_id = _first_text(order.owner_account_id)
-    if quote_only and accounting_month is not None:
-        monthly_verify, unproven_verify = _monthly_verify_for_close(session, coupon.coupon_id, accounting_month)
-        if unproven_verify is not None:
-            raise NewFeeQuoteError("correction quote has unproven verification evidence")
-    verify = monthly_verify if accounting_month is not None else _select_valid_verify_record(session, coupon.coupon_id)
     try:
+        # An existing exact historical approval still fences its coupon when a
+        # later verification moves into the name-based monthly policy. New
+        # October orders without a decision continue to the frozen-name path.
         attribution_decision = resolve_historical_sale_attribution(
             session, order=order, coupon=coupon, verify=verify, current_result=current,
         )
@@ -3478,14 +3511,17 @@ def _materialize_dual_fee_direction(
         return False
     sale_diagnostic = None
     qualification_version_id = None
-    verify_month = _business_month(verify.verify_time) if verify is not None and verify.verify_time is not None else None
     monthend_rows = None
+    sale_account_match_json = None
     if quote_only and accounting_month is not None and verify_month != accounting_month:
         raise NewFeeQuoteError("correction quote does not match reviewed verification month")
     if quote_only and accounting_month is None and verify_month is not None and verify_month >= "2026-10":
         raise NewFeeQuoteError("quote does not freeze October-or-later account qualification")
     if verify_month is not None and verify_month >= "2026-10":
-        from apps.worker.account_qualification import frozen_version, qualified_version, qualified_records, AccountQualificationError
+        from apps.worker.account_qualification import (
+            frozen_version, qualified_version, qualified_records, qualified_sale_match,
+            AccountQualificationError,
+        )
         try:
             qualification = frozen_version(session, verify_month) if quote_only else qualified_version(
                 session, month=verify_month, order=order,
@@ -3494,6 +3530,11 @@ def _materialize_dual_fee_direction(
             )
             qualification_version_id = qualification.version_id
             monthend_rows = qualified_records(session, version=qualification, order=order)
+            frozen_sale = qualified_sale_match(
+                session, version=qualification, order=order,
+                pinned_context=(current.sale_account_match_json if current is not None else None),
+            )
+            sale_account_match_json = frozen_sale.as_context()
         except AccountQualificationError as exc:
             reason_code = str(exc)
             message = ("账期账号缺少可核验的身份关联。"
@@ -3507,23 +3548,17 @@ def _materialize_dual_fee_direction(
                 directions=(direction,), context={"business_month": verify_month, "reason_code": reason_code},
             )
             return False
-    if attribution_decision is not None:
+    if monthend_rows is not None:
+        sale_account = OwnerAccountMatch(
+            account_id=frozen_sale.account_id, store_id=frozen_sale.store_id,
+            match_source="frozen_monthend_sales_name",
+        )
+        attribution_decision = None
+    elif attribution_decision is not None:
         sale_account = OwnerAccountMatch(
             account_id=attribution_decision.source_account_id,
             store_id=attribution_decision.store_id,
             match_source="historical_sale_attribution",
-        )
-    elif (accounting_month is None and current is not None and qualification_version_id is not None
-          and current.account_qualification_version_id == qualification_version_id
-          and current.original_business_month == verify_month
-          and _same_qualifying_verification(current, verify)):
-        # A later current binding/status/POI edit is not a correction to an
-        # already established historical sale. Keep that result's attribution
-        # basis; an explicit historical attribution decision above can correct
-        # it without repurposing the month-end eligibility snapshot.
-        sale_account = OwnerAccountMatch(
-            account_id=order.owner_account_id, store_id=current.sale_store_id,
-            match_source="prior_qualified_fee_result",
         )
     else:
         sale_diagnostic = _diagnose_dual_fee_sale_account(
@@ -3776,6 +3811,7 @@ def _materialize_dual_fee_direction(
         sale_attribution_decision_id=attribution_decision.decision_id if attribution_decision else None,
         sale_attribution_evidence_sha256=attribution_decision.evidence_sha256 if attribution_decision else None,
         account_qualification_version_id=qualification_version_id,
+        sale_account_match_json=sale_account_match_json,
     )
     if (
         current is not None
@@ -3804,6 +3840,7 @@ def _materialize_dual_fee_direction(
             qualifying_verify_store_name=qualifying_store.store_name,
             sale_attribution_decision_id=attribution_decision.decision_id if attribution_decision else None,
             account_qualification_version_id=qualification_version_id,
+            sale_account_match_json=sale_account_match_json,
         )
 
     target_slot = (responsible_store_id, business_month)
@@ -3913,6 +3950,7 @@ def _materialize_dual_fee_direction(
         qualifying_verify_store_name=qualifying_store.store_name if qualifying_store else None,
         sale_attribution_decision_id=attribution_decision.decision_id if attribution_decision else None,
         account_qualification_version_id=qualification_version_id,
+        sale_account_match_json=sale_account_match_json,
         reverification_anchor_id=(current.reverification_anchor_id or current.fee_result_id) if adjustment_only else None,
         calculated_at=utcnow(),
     )
@@ -4929,6 +4967,7 @@ def _block_dual_fee(
             "dual_fee_inactive_or_unknown_sku",
             "dual_fee_unstable_owner_account",
             "dual_fee_non_commission_owner",
+            "dual_fee_monthend_account_qualification",
             "dual_fee_missing_sale_store",
             "dual_fee_unknown_or_out_of_scope_channel",
             "dual_fee_missing_business_time",
@@ -4938,7 +4977,9 @@ def _block_dual_fee(
             "dual_fee_missing_coupon_amount",
         }:
             current = _current_fee_result(session, coupon.coupon_id, direction)
-            if current is not None:
+            if (current is not None
+                    and (issue_type != "dual_fee_monthend_account_qualification"
+                         or current.original_business_month >= "2026-10")):
                 _retire_unqualified_fee_result(session, current)
         _record_issue(
             session,
@@ -5033,6 +5074,7 @@ def _fee_result_input_fingerprint(
     sale_attribution_decision_id: str | None = None,
     sale_attribution_evidence_sha256: str | None = None,
     account_qualification_version_id: str | None = None,
+    sale_account_match_json: dict | None = None,
 ) -> str:
     """Return a deterministic SHA-256 over business inputs and result fields."""
 
@@ -5064,6 +5106,8 @@ def _fee_result_input_fingerprint(
         payload["sale_attribution_evidence_sha256"] = sale_attribution_evidence_sha256
     if account_qualification_version_id is not None:
         payload["account_qualification_version_id"] = account_qualification_version_id
+    if sale_account_match_json is not None:
+        payload["sale_account_match_json"] = json.dumps(sale_account_match_json, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     normalized = {
         key: _canonical_fingerprint_value(value)
         for key, value in payload.items()
