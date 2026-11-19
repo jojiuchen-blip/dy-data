@@ -478,14 +478,15 @@ def test_dydata105_finance_order_apply_reset_detail_and_full_filter_bytes(
         filters = parse_qs(urlparse(exported.value.url).query)
         assert filters["q"] == [order_id]
         assert filters["month"] == ["2026-08"]
+        assert filters["locale"] == ["zh-CN"]
         for key, value in (("verifyFrom", "2026-07-31T16:00:00.000Z"), ("verifyTo", "2026-08-31T15:59:59.999Z"), ("submittedFrom", "2026-07-31T16:00:00.000Z"), ("submittedTo", "2026-08-31T15:59:59.999Z")):
             assert filters[key] == [value]
         assert "page" not in filters and "pageSize" not in filters
         payload = Path(downloaded.value.path()).read_bytes()
         assert payload.startswith(b"\xef\xbb\xbf")
         records = list(csv.DictReader(StringIO(payload.decode("utf-8-sig"))))
-        assert len(records) == 1 and records[0]["order_id"] == order_id
-        assert sum(int(row["frozen_fee_amount_cent"]) for row in records) == amount
+        assert len(records) == 1 and records[0]["订单ID"] == order_id
+        assert sum(Decimal(row["冻结费用金额（元）"]) for row in records) * 100 == amount
     finally:
         context.close()
 
@@ -611,7 +612,7 @@ def test_dydata105_finance_download_scope_and_expired_session_are_enforced(
         with page.expect_download() as pending:
             page.get_by_role("button", name="导出当前筛选结果", exact=True).click()
         rows = list(csv.DictReader(StringIO(Path(pending.value.path()).read_bytes().decode("utf-8-sig"))))
-        assert rows and {row["store_id"] for row in rows} == {"store-1"}
+        assert rows and {row["门店ID"] for row in rows} == {"store-1"}
         context.add_cookies([{"name": "dy_e2e_role", "value": "anonymous", "url": live_admin_fastapi_base_url}])
         response = context.request.get(live_admin_fastapi_base_url + "/api/v1/admin/finance/invoices/export?month=2026-08&feeDirection=PROMOTION&metricScope=MONTH")
         assert response.status == 401
@@ -766,7 +767,7 @@ def test_dydata105_ranking_filters_drill_and_order_fee_direction_downloads(
                 page.get_by_role("button", name="导出", exact=True).click()
             records = list(csv.DictReader(StringIO(Path(pending.value.path()).read_bytes().decode("utf-8-sig"))))
             assert len(records) == 1 and records[0]["订单ID"] == order_id
-            assert int(records[0]["调整后净额"]) == amount
+            assert Decimal(records[0]["调整后净额（元）"]) * 100 == amount
     except Exception:
         page.screenshot(path=str(tmp_path / "store-selection-failure.png"), full_page=True)
         (tmp_path / "store-selection-events.txt").write_text(str({
