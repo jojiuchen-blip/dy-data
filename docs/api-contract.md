@@ -4,6 +4,14 @@
 
 ## 1. 基础约定
 
+### 正式账单账期与生成时间（DYDATA-104）
+
+`GET /api/v1/store-settlements` 列表项和 `GET /api/v1/store-settlements/{statement_id}`
+返回 `month` 与 `createdAt`，分别取正式账单保存的业务账期和创建时间。
+页面将二者分别展示。`firstVisibleAt`、`confirmationDueAt` 和各费用方向的
+`confirmedAt` 继续分别表示首次可见、最早自动确认及实际确认时间。
+确认、开票、结算后，原账单金额、明细及创建时间仍按同一账单版本回查。
+
 ### 商品同步执行归属（DYDATA-104）
 
 `POST /api/v1/admin/product-sync-runs` 在 `priority_daily` 模式提交原有排队任务，

@@ -577,8 +577,16 @@ def test_store_to_finance_both_directions_complete_api_flow(
 ) -> None:
     """Exercise real routes with synthetic facts; neither direction blocks the other."""
     monkeypatch.setattr(dashboard_routes, "utcnow", lambda: datetime(2026, 9, 10, 2, tzinfo=timezone.utc))
+    _seed_frozen_monthly_report_sources(db_session)
     _login(client)
     _act_as_store(client)
+    initial = client.get("/api/v1/store-settlements/statement-1-v2")
+    assert initial.status_code == 200, initial.text
+    original = initial.json()["data"]
+    assert original["lines"]
+    assert datetime.fromisoformat(original["createdAt"]).replace(tzinfo=timezone.utc) == datetime(2026, 8, 3, tzinfo=timezone.utc)
+    frozen_keys = ("statementId", "month", "createdAt", "versionNo", "promotionAmountCent", "managementAmountCent", "lines")
+    frozen_bill = {key: original[key] for key in frozen_keys}
     for direction, amount in (("PROMOTION", 1100), ("MANAGEMENT", 2200)):
         body = {"feeDirection": direction, "confirmedAmountCent": amount, "readVersion": 2}
         headers = {"Idempotency-Key": f"flow-confirm-{direction}"}
@@ -586,6 +594,13 @@ def test_store_to_finance_both_directions_complete_api_flow(
         assert response.status_code == 200, response.text
         replay = client.post("/api/v1/store-settlements/statement-1-v2/confirmations", json=body, headers=headers)
         assert replay.json()["data"] == response.json()["data"]
+        confirmed = client.get("/api/v1/store-settlements/statement-1-v2")
+        assert confirmed.status_code == 200, confirmed.text
+        confirmed_bill = confirmed.json()["data"]
+        assert {key: confirmed_bill[key] for key in frozen_keys} == frozen_bill
+        confirmation = confirmed_bill[f"{direction.lower()}Confirmation"]
+        assert confirmation["confirmedAmountCent"] == amount
+        assert confirmation["confirmedAt"]
     invoice_number = "82345678901234567890"
     invoice_payload = {
         "storeId": "store-1", "buyerName": "比亚迪汽车销售有限公司", "taxRatePercent": 6,
@@ -610,6 +625,9 @@ def test_store_to_finance_both_directions_complete_api_flow(
                              headers={"Idempotency-Key": "flow-invoice-register-0001"})
     assert registered.status_code == 200, registered.text
     assert registered.json()["data"]["status"] == "SUBMITTED_PENDING_FACTORY_REVIEW"
+    issued = client.get("/api/v1/store-settlements/statement-1-v2")
+    assert issued.status_code == 200, issued.text
+    assert {key: issued.json()["data"][key] for key in frozen_keys} == frozen_bill
     replay_invoice = client.post("/api/v1/promotion-invoices", json=invoice_payload,
                                  headers={"Idempotency-Key": "flow-invoice-register-0001"})
     assert replay_invoice.status_code == 200
@@ -644,6 +662,27 @@ def test_store_to_finance_both_directions_complete_api_flow(
     assert readback.json()["data"]["promotionInvoices"][0]["status"] == "APPROVED_SETTLED"
     assert readback.json()["data"]["managementInvoices"][0]["invoiceAmountCent"] == 2200
     assert db_session.scalar(select(func.count()).select_from(SettlementStatementConfirmation)) == 2
+    settled = client.get("/api/v1/store-settlements/statement-1-v2")
+    assert settled.status_code == 200, settled.text
+    settled_bill = settled.json()["data"]
+    assert {key: settled_bill[key] for key in frozen_keys} == frozen_bill
+    assert settled_bill["promotionInvoiceStatus"] == "APPROVED_SETTLED"
+    assert settled_bill["managementInvoiceStatus"] == "APPROVED_SETTLED"
+    for month in ("2026-09", "2026-08", "2026-10", "2026-08"):
+        listed = client.get("/api/v1/store-settlements", params={
+            "storeId": "store-1", "month": month, "metricScope": "MONTH",
+        })
+        assert listed.status_code == 200, listed.text
+        rows = listed.json()["data"]["list"]
+        assert all(row["month"] == month for row in rows)
+        if month == "2026-08":
+            assert len(rows) == 1
+            assert rows[0]["promotionAmountCent"] == 1100
+            assert rows[0]["managementAmountCent"] == 2200
+            assert rows[0]["promotionConfirmation"]["confirmedAt"]
+            assert rows[0]["managementConfirmation"]["confirmedAt"]
+    denied = client.get("/api/v1/store-settlements/statement-2-v1")
+    assert denied.status_code == 403
 
 
 @pytest.mark.parametrize("invalid_row", [

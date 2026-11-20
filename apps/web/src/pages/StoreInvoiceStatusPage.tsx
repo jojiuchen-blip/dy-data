@@ -13,6 +13,7 @@ import { MetricCard } from "../components/MetricCard";
 import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
 import { TablePagination } from "../components/TablePagination";
 import { useApiResource } from "../hooks/useApiResource";
+import { initialStatementMonth } from "../utils/statementMonth";
 import type {
   AdminUser,
   PromotionInvoiceDetail,
@@ -76,7 +77,7 @@ export function StoreInvoiceStatusPage({ currentUser, searchParams }: StoreInvoi
   const activeStoreId = currentUser.role === "store"
     ? (currentUser.store_ids.includes(requestedStoreId) ? requestedStoreId : currentUser.store_ids[0] || "")
     : requestedStoreId || currentUser.store_ids[0] || meta?.stores[0]?.storeId || "";
-  const activeMonth = searchParams.get("month") || meta?.statementMonths[0] || "";
+  const activeMonth = initialStatementMonth(searchParams);
   const normalizedInvoiceNumber = invoiceNumberQuery.trim();
   // An exact invoice-number query must search every authorized period; the
   // month filter is only sent for ordinary period browsing.

@@ -326,7 +326,7 @@ def test_invoice_registration_uses_all_billable_periods_and_validates_entered_fi
     assert "请填写开票信息填写人电话" in page
 
 
-def test_store_finance_defaults_use_account_store_and_api_latest_period() -> None:
+def test_store_finance_defaults_use_account_store_and_previous_business_period() -> None:
     app = read_source("App.tsx")
     settlement = read_source("pages/StoreSettlementPage.tsx")
     invoice = read_source("pages/StoreInvoicePage.tsx")
@@ -339,7 +339,8 @@ def test_store_finance_defaults_use_account_store_and_api_latest_period() -> Non
         # The settlement period never comes from the browser clock.
         assert "new Date()" not in page
     assert "initialStatementMonth(searchParams)" in settlement
-    assert "meta?.statementMonths[0]" in status
+    assert "initialStatementMonth(searchParams)" in status
+    assert "meta?.statementMonths[0]" not in status
     assert "defaultStatementMonth" not in invoice
     assert "new Date()" not in invoice
     assert "initialStatementMonth(searchParams)" in invoice

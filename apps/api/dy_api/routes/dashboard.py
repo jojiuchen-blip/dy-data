@@ -9896,6 +9896,7 @@ def _statement_header_item(
         "is_current": statement.is_current,
         "supersedes_statement_id": statement.supersedes_statement_id,
         "status": STATEMENT_STATUS_NAMES[statement.statement_status],
+        "created_at": statement.created_at,
         **bill_confirmation_window(session, statement),
         "promotion_amount_cent": statement.promotion_net_fee_cent,
         "management_amount_cent": statement.management_net_fee_cent,

@@ -43,6 +43,9 @@ MOMENTS = (
     "2026-09-30T15:59:00Z",
     "2026-01-01T00:00:00+08:00",
     "2026-03-01T00:00:00+08:00",
+    "2026-11-20T15:04:00+08:00",
+    "2026-12-01T00:00:00+08:00",
+    "2027-01-01T00:00:00+08:00",
 )
 
 
@@ -210,6 +213,9 @@ def test_web_default_period_is_the_last_completed_shanghai_month(
         "2026-08",  # one minute earlier, still September in Shanghai
         "2025-12",  # year rollover
         "2026-02",  # 31-day month boundary
+        "2026-10",  # November opens on October, including an unfinished close
+        "2026-11",  # December opens on November
+        "2026-12",  # January opens on the preceding December
     ]
 
 
