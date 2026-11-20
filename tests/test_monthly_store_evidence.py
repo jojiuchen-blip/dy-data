@@ -1,0 +1,150 @@
+from datetime import UTC, date, datetime
+
+import pytest
+from sqlalchemy import select, update
+
+from apps.api.dy_api.models import (
+    AccountQualificationObservation,
+    AccountQualificationSnapshot,
+    AccountQualificationVersion,
+    DimAwemeAccount,
+    DimStore,
+    DimStorePoiMapping,
+    JobImpact,
+    MonthlyStoreEvidenceSnapshot,
+)
+from apps.worker.account_qualification import digest
+from apps.worker.monthly_store_evidence import (
+    MissingStoreEvidenceError,
+    StoreEvidenceError,
+    freeze_store_evidence,
+    frozen_store_evidence,
+    preview_store_evidence,
+)
+
+
+def make_version(session):
+    records = [{"account_id": "account-1", "douyin_id": "name-1", "poi_id": "poi-1"}]
+    content = digest({"policy": "test-roster", "records": records})
+    session.add(AccountQualificationSnapshot(content_sha256=content, policy_version="test-roster",
+        records_json=records, record_count=1))
+    session.flush()
+    session.add(AccountQualificationObservation(observation_id="observed", source_run_id="source-run",
+        source_type="backend_workbook", started_at=datetime(2026, 10, 31, 15, tzinfo=UTC),
+        ended_at=datetime(2026, 10, 31, 15, 30, tzinfo=UTC), state="success", complete=True,
+        content_sha256=content, proof_json={}))
+    session.flush()
+    version = AccountQualificationVersion(version_id="qualification-2026-10", business_month="2026-10",
+        cutoff_at=datetime(2026, 10, 31, 16, tzinfo=UTC), observation_id="observed",
+        content_sha256=content, policy_version="test-roster", frozen_at=datetime(2026, 11, 1, tzinfo=UTC))
+    session.add(version)
+    for store in ("store-a", "store-b", "account-1"):
+        session.add(DimStore(store_id=store, store_name=store, created_at=datetime(2026, 9, 1, tzinfo=UTC)))
+    session.flush()
+    return version
+
+
+def fact(store="store-a", **overrides):
+    return {"kind": "account", "key": "account-1", "store_id": store,
+        "source_reference": "verified-October-account-file/row-2", "source_sha256": "a" * 64,
+        "observed_at": "2026-10-31T15:00:00+00:00", "valid_from": "2026-10-01",
+        "valid_to": "2026-10-31", **overrides}
+
+
+def test_preview_never_writes_and_current_identity_is_not_evidence(db_session):
+    version = make_version(db_session)
+    db_session.add(DimAwemeAccount(account_id="account-1", store_id="account-1",
+        updated_at=datetime(2026, 9, 1, tzinfo=UTC)))
+    db_session.add(DimStorePoiMapping(poi_id="poi-1", store_id="store-b", mapping_source="current-only"))
+    db_session.flush()
+    preview = preview_store_evidence(db_session, qualification_version=version)
+    assert preview["records"] == []
+    assert db_session.scalar(select(MonthlyStoreEvidenceSnapshot)) is None
+    with pytest.raises(MissingStoreEvidenceError):
+        frozen_store_evidence(db_session, qualification_version=version)
+
+
+def test_freeze_retries_reuse_version_and_preserve_explicit_conflicts(db_session):
+    version = make_version(db_session)
+    facts = [fact(), fact("store-b", kind="poi", key="poi-1")]
+    first = freeze_store_evidence(db_session, qualification_version=version, facts=facts)
+    again = freeze_store_evidence(db_session, qualification_version=version, facts=reversed(facts))
+    assert first.version_id == again.version_id
+    assert first.account_store_ids("account-1") == {"store-a"}
+    assert first.poi_store_ids("poi-1") == {"store-b"}
+    assert first.poi_store_ids("unmapped") == set()
+    assert first.as_context()["content_sha256"] == first.content_sha256
+    db_session.commit()
+    assert frozen_store_evidence(db_session, qualification_version=version).version_id == first.version_id
+
+
+@pytest.mark.parametrize("overrides,reason", [
+    ({"valid_from": "2026-11-01"}, "store_evidence_outside_business_period"),
+    ({"valid_to": "2026-10-30"}, "store_evidence_outside_business_period"),
+    ({"observed_at": "2026-11-01T00:00:00+08:00"}, "store_evidence_outside_business_period"),
+    ({"source_sha256": ""}, "store_evidence_source_proof_missing"),
+    ({"store_id": "no-store"}, "store_evidence_store_missing"),
+    ({"key": "other-account"}, "store_evidence_key_outside_frozen_roster"),
+])
+def test_reviewed_facts_require_period_source_and_frozen_identity(db_session, overrides, reason):
+    version = make_version(db_session)
+    with pytest.raises(StoreEvidenceError, match=reason):
+        freeze_store_evidence(db_session, qualification_version=version, facts=[fact(**overrides)])
+    assert db_session.scalar(select(MonthlyStoreEvidenceSnapshot)) is None
+
+
+def test_new_verified_supplement_appends_and_pinned_retry_reads_old_version(db_session):
+    version = make_version(db_session)
+    first = freeze_store_evidence(db_session, qualification_version=version)
+    new = freeze_store_evidence(db_session, qualification_version=version, facts=[fact()])
+    assert new.version_id != first.version_id
+    assert frozen_store_evidence(db_session, qualification_version=version).version_id == new.version_id
+    assert frozen_store_evidence(db_session, qualification_version=version,
+        version_id=first.version_id).account_store_ids("account-1") == set()
+    db_session.add(DimAwemeAccount(account_id="account-1", store_id="store-b",
+        updated_at=datetime(2026, 11, 1, tzinfo=UTC)))
+    db_session.flush()
+    assert frozen_store_evidence(db_session, qualification_version=version).account_store_ids("account-1") == {"store-a"}
+    with pytest.raises(StoreEvidenceError, match="pinned_version_missing"):
+        frozen_store_evidence(db_session, qualification_version=version, version_id="bad-pin")
+
+
+def test_history_reconstructs_last_known_period_mapping_and_excludes_future(db_session):
+    version = make_version(db_session)
+    for identity, store, at in ((1, "store-a", datetime(2026, 10, 1, tzinfo=UTC)),
+                               (2, "store-b", datetime(2026, 11, 1, tzinfo=UTC))):
+        db_session.add(JobImpact(id=identity, impact_key="impact-" + str(identity),
+            entity_type="store_poi_mapping", entity_key="poi-1", change_kind="update",
+            old_values_json={}, new_values_json={"store_id": store, "poi_id": "poi-1"},
+            affected_closure_json={}, created_at=at))
+    db_session.add(DimAwemeAccount(account_id="account-1", store_id="store-a",
+        valid_from=date(2026, 10, 1), valid_to=date(2026, 10, 31),
+        updated_at=datetime(2026, 10, 1, tzinfo=UTC)))
+    db_session.flush()
+    result = freeze_store_evidence(db_session, qualification_version=version)
+    assert result.poi_store_ids("poi-1") == {"store-a"}
+    assert result.account_store_ids("account-1") == {"store-a"}
+
+
+def test_preview_hash_and_materialized_digest_are_checked(db_session):
+    version = make_version(db_session)
+    with pytest.raises(StoreEvidenceError, match="preview_changed"):
+        freeze_store_evidence(db_session, qualification_version=version, facts=[fact()],
+            expected_content_sha256="0" * 64)
+    result = freeze_store_evidence(db_session, qualification_version=version, facts=[fact()])
+    # Simulate corruption without using the ORM update path, which is guarded.
+    db_session.execute(update(MonthlyStoreEvidenceSnapshot).where(
+        MonthlyStoreEvidenceSnapshot.version_id == result.version_id).values(content_sha256="b" * 64))
+    db_session.expire_all()
+    db_session.info.pop("monthly_store_evidence_cache", None)
+    with pytest.raises(StoreEvidenceError, match="digest_mismatch"):
+        frozen_store_evidence(db_session, qualification_version=version)
+
+
+def test_orm_cannot_rewrite_frozen_mapping(db_session):
+    version = make_version(db_session)
+    result = freeze_store_evidence(db_session, qualification_version=version)
+    row = db_session.get(MonthlyStoreEvidenceSnapshot, result.version_id)
+    row.records_json = [{"tampered": True}]
+    with pytest.raises(ValueError, match="immutable"):
+        db_session.flush()
