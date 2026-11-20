@@ -45,6 +45,7 @@ PG_FILES = {
     "tests/test_monthly_close_name_scope.py",
     "tests/test_monthend_store_attribution.py",
     "tests/test_monthly_store_evidence.py",
+    "tests/test_monthly_store_evidence_postgres.py",
     "tests/test_monthly_fee_trial.py",
     "tests/test_monthly_fee_trial_postgres.py",
 }
