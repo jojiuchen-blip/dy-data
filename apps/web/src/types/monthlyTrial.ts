@@ -29,7 +29,18 @@ export interface MonthlyTrialRow {
   reason: string | null;
 }
 
-export interface MonthlyTrialData {
+export interface MonthlyTrialStoreRow {
+  storeId: string | null;
+  storeName: string | null;
+  calculatedFeeCent: number | null;
+  calculatedCouponCount: number;
+  pendingCouponCount: number;
+  excludedCouponCount: number;
+  candidateCouponCount: number;
+  coverageComplete: boolean;
+}
+
+export interface MonthlyTrialData<Row = MonthlyTrialRow> {
   month: string;
   feeDirection: FeeDirection;
   status: "TRIAL";
@@ -48,8 +59,10 @@ export interface MonthlyTrialData {
     reasons: Array<{ code: string; label: string; couponCount: number }>;
     note: string;
   };
-  list: MonthlyTrialRow[];
+  list: Row[];
   total: number;
   page: number;
   pageSize: number;
 }
+
+export type MonthlyTrialStoreData = MonthlyTrialData<MonthlyTrialStoreRow>;

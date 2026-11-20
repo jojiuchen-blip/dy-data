@@ -1,9 +1,9 @@
 import { useRef, useState } from "react";
-import { ApiRequestError, downloadMonthlyTrial, fetchMonthlyTrial } from "../api/client";
+import { ApiRequestError, downloadMonthlyTrial, downloadMonthlyTrialStores, fetchMonthlyTrial, fetchMonthlyTrialStores } from "../api/client";
 import { useApiResource } from "../hooks/useApiResource";
 import { useDashboardPublication } from "../hooks/PublicationContext";
 import type { AdminUser, FeeDirection } from "../types/dashboard";
-import type { MonthlyTrialData, MonthlyTrialRecordStatus, MonthlyTrialRow } from "../types/monthlyTrial";
+import type { MonthlyTrialData, MonthlyTrialRecordStatus, MonthlyTrialRow, MonthlyTrialStoreRow } from "../types/monthlyTrial";
 import { formatCurrency, formatDateTime, formatInteger, formatPercent } from "../utils/format";
 import { userFacingError } from "../utils/userFacingError";
 import { Button } from "./Button";
@@ -11,6 +11,7 @@ import { DataTable, type Column } from "./DataTable";
 import { SelectField } from "./FormControls";
 import { MetricCard } from "./MetricCard";
 import { ResourceNotice, ResourcePanel } from "./ResourceState";
+import { Tabs } from "./SelectionControls";
 import { TablePagination } from "./TablePagination";
 
 interface InternalMonthlyTrialPanelProps {
@@ -59,8 +60,19 @@ const columns: Column<MonthlyTrialRow>[] = [
   { key: "reason", title: "核查说明", align: "left", minWidth: 220, render: (row) => row.reason || "—" },
 ];
 
+const storeColumns: Column<MonthlyTrialStoreRow>[] = [
+  { key: "store", title: "销售门店", align: "left", minWidth: 180, render: (row) => row.storeName ?? "归属待核验" },
+  { key: "fee", title: "已算试算费用", align: "right", minWidth: 150, render: (row) => trialAmount(row.calculatedFeeCent) },
+  { key: "completeFee", title: "完整试算金额", align: "right", minWidth: 150, render: (row) => row.coverageComplete ? trialAmount(row.calculatedFeeCent) : "待核验" },
+  { key: "calculated", title: "已算费用券数", align: "right", render: (row) => trialCount(row.calculatedCouponCount) },
+  { key: "pending", title: "待核验券数", align: "right", render: (row) => trialCount(row.pendingCouponCount) },
+  { key: "excluded", title: "未计费券数", align: "right", render: (row) => trialCount(row.excludedCouponCount) },
+  { key: "candidate", title: "候选券数", align: "right", render: (row) => trialCount(row.candidateCouponCount) },
+  { key: "coverage", title: "核查范围", render: (row) => row.coverageComplete ? "已完成" : "待核验" },
+];
+
 export function InternalMonthlyTrialPanel(props: InternalMonthlyTrialPanelProps) {
-  if (props.currentUser.role !== "admin") return null;
+  if (props.currentUser.role !== "admin" || props.month < "2026-10") return null;
   return <InternalTrialReadPanel {...props} />;
 }
 
@@ -68,6 +80,7 @@ function InternalTrialReadPanel({ currentUser, month, feeDirection, productType 
   const { refreshIndex, refreshLatest } = useDashboardPublication();
   const [selectedDirection, setDirection] = useState<FeeDirection>("PROMOTION");
   const direction = feeDirection ?? selectedDirection;
+  const [view, setView] = useState<"COUPONS" | "STORES">("COUPONS");
   const [recordStatus, setRecordStatus] = useState<MonthlyTrialRecordStatus | "">("");
   const [pageState, setPageState] = useState({ filter: "", page: 1 });
   const [downloadBusy, setDownloadBusy] = useState(false);
@@ -75,7 +88,7 @@ function InternalTrialReadPanel({ currentUser, month, feeDirection, productType 
   const downloadInFlight = useRef(false);
   const epoch = JSON.stringify([currentUser.username, currentUser.store_scope_mode, currentUser.store_ids, currentUser.page_keys, refreshIndex, publicationId]);
   const pin = useRef<{ epoch: string; id?: string }>({ epoch });
-  const filter = JSON.stringify([month, direction, productType, q, recordStatus]);
+  const filter = JSON.stringify([month, direction, productType, q, recordStatus, view]);
   const page = pageState.filter === filter ? pageState.page : 1;
   const requestKey = JSON.stringify([epoch, filter, page]);
   const currentRequest = useRef(requestKey);
@@ -90,7 +103,8 @@ function InternalTrialReadPanel({ currentUser, month, feeDirection, productType 
 
   const resource = useApiResource(async () => {
     const publication_id = publicationId ?? (pin.current.epoch === epoch ? pin.current.id : undefined);
-    const result = await fetchMonthlyTrial({ ...commonQuery, page, pageSize: PAGE_SIZE, publication_id });
+    const load = view === "STORES" ? fetchMonthlyTrialStores : fetchMonthlyTrial;
+    const result = await load({ ...commonQuery, page, pageSize: PAGE_SIZE, publication_id });
     const id = result.meta.publication?.id;
     if (!id || result.data.month !== month || result.data.feeDirection !== direction || result.data.status !== "TRIAL" || (publication_id && id !== publication_id)) {
       throw new Error("内部试算版本或账期不一致。");
@@ -100,7 +114,7 @@ function InternalTrialReadPanel({ currentUser, month, feeDirection, productType 
   }, [requestKey], { clearOnReload: true });
 
   const result = resource.data?.data.requestKey === requestKey ? resource.data : undefined;
-  const data: MonthlyTrialData | undefined = result?.data;
+  const data: MonthlyTrialData<MonthlyTrialRow | MonthlyTrialStoreRow> | undefined = result?.data;
   const busy = resource.loading || resource.refreshing || !result;
   const title = direction === "PROMOTION" ? "推广服务费" : "管理服务费";
   const error = resource.rawError ? trialError(resource.rawError) : undefined;
@@ -114,7 +128,8 @@ function InternalTrialReadPanel({ currentUser, month, feeDirection, productType 
     setDownloadBusy(true);
     setNotice(undefined);
     try {
-      const download = await downloadMonthlyTrial({ ...commonQuery, publication_id });
+      const exportView = view === "STORES" ? downloadMonthlyTrialStores : downloadMonthlyTrial;
+      const download = await exportView({ ...commonQuery, publication_id });
       setNotice({ filter, error: false, text: download.result === "EMPTY" ? `${download.fileName} 已下载，当前筛选下没有明细。` : `${download.fileName} 已下载。` });
     } catch (downloadError) {
       setNotice({ filter, error: true, text: `试算下载失败，${trialError(downloadError)}` });
@@ -132,12 +147,13 @@ function InternalTrialReadPanel({ currentUser, month, feeDirection, productType 
           <p>试算／待核验。金额仅覆盖已算费用，完整范围以核查结果为准。</p>
         </div>
       </div>
+      <Tabs ariaLabel="内部试算视图" value={view} onChange={setView} options={[{ value: "STORES", label: "门店汇总" }, { value: "COUPONS", label: "逐券明细" }]} />
       <div className="finance-workbench__filters">
         {!feeDirection ? <SelectField label="试算费用方向" value={direction} onChange={(value) => setDirection(value as FeeDirection)} options={[{ value: "PROMOTION", label: "推广服务费" }, { value: "MANAGEMENT", label: "管理服务费" }]} /> : null}
         <SelectField label="试算核算状态" value={recordStatus} onChange={(value) => setRecordStatus(value as MonthlyTrialRecordStatus | "")} options={[{ value: "", label: "全部核算状态" }, { value: "CALCULATED", label: "已算费用" }, { value: "PENDING", label: "待核验" }, { value: "EXCLUDED", label: "未计费" }]} />
       </div>
       <div className="finance-workbench__actions">
-        <Button disabled={busy || Boolean(error)} loading={downloadBusy} onClick={() => { void exportTrial(); }} variant="secondary">导出内部试算明细</Button>
+        <Button disabled={busy || Boolean(error)} loading={downloadBusy} onClick={() => { void exportTrial(); }} variant="secondary">{view === "STORES" ? "导出门店试算汇总" : "导出内部试算明细"}</Button>
         <Button disabled={resource.loading || resource.refreshing} onClick={refreshLatest} variant="text">读取最新试算</Button>
       </div>
       <ResourceNotice analysis loading={resource.loading || resource.refreshing} error={error} />
@@ -153,13 +169,18 @@ function InternalTrialReadPanel({ currentUser, month, feeDirection, productType 
           </div>
           <div role="note">
             <p>试算账期 {data.month}，试算结果更新时间 {formatDateTime(result?.meta.publication?.publishedAt)}。</p>
+            {view === "STORES" ? <p>顶部券数按当前筛选范围去重，门店完整试算金额以核查完成状态为准。</p> : null}
             <p>当前筛选商品 {productType === "all" ? "全部商品" : productType}{q?.trim() ? `，搜索“${q.trim()}”` : ""}，核算状态 {recordStatus ? STATUS_LABELS[recordStatus] : "全部核算状态"}。未计费券数 {trialCount(summary?.excludedCouponCount)}。</p>
             {typeof coverage?.sourceSuccessDays === "number" && typeof coverage.sourceTotalDays === "number" ? <p>来源采集已完成 {coverage.sourceSuccessDays}/{coverage.sourceTotalDays} 天。</p> : null}
             {coverage?.scopeUnresolved ? <p>部分记录的门店归属或影响范围仍待核验，完整应计金额待核验。</p> : null}
             {coverage?.note ? <p>{coverage.note}</p> : null}
             {coverage?.reasons.length ? <ul>{coverage.reasons.map((reason) => <li key={reason.code}>{reason.label}，{formatInteger(reason.couponCount)} 张券。</li>)}</ul> : null}
           </div>
-          <DataTable columns={columns} rows={data.list} emptyText="当前筛选下没有试算明细" />
+          {view === "STORES" ? (
+            <DataTable columns={storeColumns} rows={data.list as MonthlyTrialStoreRow[]} emptyText="当前筛选下没有门店试算汇总" />
+          ) : (
+            <DataTable columns={columns} rows={data.list as MonthlyTrialRow[]} emptyText="当前筛选下没有试算明细" />
+          )}
           <TablePagination page={data.page} pageSize={data.pageSize} total={data.total} totalPages={Math.max(1, Math.ceil(data.total / data.pageSize))} rowsOnPage={data.list.length} loading={resource.loading || resource.refreshing} onPageChange={(nextPage) => setPageState({ filter, page: nextPage })} />
         </>
       ) : null}
