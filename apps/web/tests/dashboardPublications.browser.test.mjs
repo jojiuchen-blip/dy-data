@@ -845,7 +845,7 @@ for (const phase of ["initial", "month", "refresh"]) {
 }
 
 for (const phase of ["month", "refresh"]) {
-  test(`finance ${phase} period-not-ready clears previous money and disables export`, async () => withPage(async ({ page, requests, handle }) => {
+  test(`finance ${phase} period-not-ready clears previous formal money and disables formal export`, async () => withPage(async ({ page, requests, handle }) => {
     let incomplete = false;
     let latest = "money1";
     handle(async (route, url) => {
@@ -867,7 +867,7 @@ for (const phase of ["month", "refresh"]) {
       latest = "money2";
       await page.getByRole("button", { name: "读取最新结果", exact: true }).click();
     }
-    await page.getByText(periodNotice, { exact: true }).first().waitFor();
+    await page.getByText("本账期正式账单尚未就绪，授权管理员可在下方核对内部试算。", { exact: true }).waitFor();
     assert.doesNotMatch(await total.innerText(), /123\.45|0\.00/);
     assert.equal(await page.getByRole("button", { name: "导出当前筛选结果", exact: true }).isDisabled(), true);
     assert.equal(await page.getByLabel("筛选账期", { exact: true }).isEnabled(), true);
