@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import RawDouyinOrder, RawDouyinOrderCoupon
+from apps.worker.account_qualification import order_sale_name
 from apps.worker.collectors.orders import collect_orders
 from apps.worker.collectors.types import CollectionWindow
 
@@ -56,6 +57,19 @@ def window() -> CollectionWindow:
         end=datetime.fromisoformat("2026-01-02T00:00:00+08:00"),
         timezone_name="Asia/Shanghai",
     )
+
+
+def test_order_collector_preserves_literal_sales_nickname_suffix(db_session: Session):
+    class LiteralNameClient(FakeOrderClient):
+        def iter_orders(self, start, end):
+            for order in super().iter_orders(start, end):
+                order["order_sale_info"]["transfer_nickName"] = "Sales.0"
+                yield order
+
+    collect_orders(db_session, LiteralNameClient(), window(), source_run_id="literal-sales-name")
+    order = db_session.scalar(select(RawDouyinOrder).where(RawDouyinOrder.order_id == "order-1"))
+    assert order.owner_account_name == "Sales.0"
+    assert order_sale_name(order) == ("order_sale_info.transfer_nickName", "Sales.0")
 
 
 def test_collect_orders_upserts_orders_and_coupons_idempotently(db_session: Session):

@@ -337,10 +337,11 @@ def order_sale_name(order) -> tuple[str, str]:
         raw = get_path(payload, source_field) if isinstance(payload, dict) else None
         if raw in (None, ""):
             continue
-        name = source_text(raw)
+        name = raw.strip() if isinstance(raw, str) else None
         if not isinstance(raw, str) or not name:
             raise AccountQualificationError("qualification_sale_name_source_invalid")
-        if source_text(getattr(order, "owner_account_name", None)) != name:
+        parsed_name = getattr(order, "owner_account_name", None)
+        if not isinstance(parsed_name, str) or parsed_name.strip() != name:
             raise AccountQualificationError("qualification_sale_name_source_conflict")
         return source_field, name
     raise AccountQualificationError("qualification_sale_name_source_missing")
@@ -348,10 +349,10 @@ def order_sale_name(order) -> tuple[str, str]:
 
 def _roster_names(row: dict) -> set[str]:
     payload = row.get("raw_payload") or {}
-    values = {source_text(payload.get(key)) for key in ROSTER_NAME_FIELDS
+    values = {str(payload[key]).strip() for key in ROSTER_NAME_FIELDS
               if payload.get(key) not in (None, "")}
     if row.get("douyin_nickname"):
-        values.add(source_text(row["douyin_nickname"]))
+        values.add(str(row["douyin_nickname"]).strip())
     return values
 
 

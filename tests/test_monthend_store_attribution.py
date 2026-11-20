@@ -66,6 +66,15 @@ def test_unique_period_poi_is_fallback_when_account_store_is_unproven(db_session
     assert q.qualified_sale_match(db_session, version=version, order=sale_order()).store_id == "store-sale"
 
 
+def test_literal_name_suffix_is_preserved_without_numeric_id_normalization(db_session):
+    stores(db_session)
+    version = seed_month_qualification(db_session, records=[binding(nickname="Sales.0")])
+    store_evidence(db_session, version, accounts=[("owner-dual", "store-sale")])
+    assert q.qualified_sale_match(db_session, version=version, order=sale_order("Sales.0")).account_name == "Sales.0"
+    with pytest.raises(q.AccountQualificationError, match="sale_name_unmatched"):
+        q.qualified_sale_match(db_session, version=version, order=sale_order("Sales"))
+
+
 @pytest.mark.parametrize("case,reason", [
     ("account_multiple", "multiple_stores"), ("poi_multiple", "multiple_stores"),
     ("paths_conflict", "store_conflict"),

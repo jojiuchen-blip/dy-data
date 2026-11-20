@@ -41,6 +41,14 @@ def collect_orders(
         )
         coupon_rows = _coupon_rows(order)
         observed_at = latest_source_time(order, "update_order_time", "modify_time", "update_time", "updated_at")
+        owner_account_name = first(
+            order, "owner_account_name", "sale_info.transfer_nickName", "sale_info.transfer_nickname",
+            "order_sale_info.transfer_nickName", "order_sale_info.transfer_nickname",
+        )
+        if isinstance(owner_account_name, str):
+            owner_account_name = owner_account_name.strip() or None
+        else:
+            owner_account_name = text(owner_account_name)
         upsert_raw_order(
             session,
             order_id,
@@ -58,16 +66,7 @@ def collect_orders(
                 first(order, "owner_account_id", "sale_info.transfer_uid", "sale_info.account_id", "order_sale_info.transfer_uid")
             ),
             owner_douyin_uid=text(first(order, "owner_douyin_uid", "sale_info.transfer_douyin_uid", "order_sale_info.transfer_douyin_uid")),
-            owner_account_name=text(
-                first(
-                    order,
-                    "owner_account_name",
-                    "sale_info.transfer_nickName",
-                    "sale_info.transfer_nickname",
-                    "order_sale_info.transfer_nickName",
-                    "order_sale_info.transfer_nickname",
-                )
-            ),
+            owner_account_name=owner_account_name,
             sale_role=text(first(order, "sale_role", "sale_info.role", "order_sale_info.sale_role")),
             sale_channel=sale_channel_raw,
             sale_channel_raw=sale_channel_raw,
