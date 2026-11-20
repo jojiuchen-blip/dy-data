@@ -62,6 +62,20 @@ def _verify_migration_state(engine) -> None:
         """)).scalars())
         if not {"monthly_store_evidence_guard", "monthly_store_evidence_no_truncate"} <= guards:
             raise AssertionError("monthly relationship evidence immutability guards are missing")
+        tracked_inputs = connection.scalar(text("""
+            SELECT count(*) FROM dashboard_publication_source_counters
+            WHERE source_name IN ('data_quality_issues', 'monthly_store_evidence_snapshot')
+        """))
+        tracked_triggers = connection.scalar(text("""
+            SELECT count(*) FROM pg_trigger t
+            JOIN pg_class c ON c.oid=t.tgrelid
+            JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname=current_schema() AND t.tgname='dashboard_publication_change'
+                AND c.relname IN ('data_quality_issues', 'monthly_store_evidence_snapshot')
+                AND NOT t.tgisinternal AND t.tgenabled <> 'D'
+        """))
+        if tracked_inputs != 2 or tracked_triggers != 2:
+            raise AssertionError("internal trial coverage inputs are not tracked for publication refresh")
 
         unresolved = 0
         for table_name in (
