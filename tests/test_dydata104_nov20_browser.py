@@ -160,6 +160,12 @@ def test_internal_trial_real_page_and_chinese_download_with_zero_formal_bills(
         expect(panel).to_be_visible()
         expect(panel).to_contain_text("试算")
         expect(panel).to_contain_text(f"{total_cent / 100:,.2f}")
+        formal_label = "正式账单推广费总额" if direction == "PROMOTION" else "正式账单管理费总额"
+        formal_card = page.locator(".metric-card").filter(
+            has=page.locator(".metric-card__label", has_text=formal_label),
+        )
+        expect(formal_card).to_contain_text("已生成正式账单合计")
+        expect(formal_card).to_contain_text("0.00")
         pending = panel.locator("tbody tr").filter(has_text="trial-unassigned")
         expect(pending).to_contain_text("待核验")
         expect(pending).to_contain_text("销售门店归属待核验")
@@ -325,6 +331,12 @@ def test_store_trial_summary_download_matches_coupon_facts_and_keeps_unknown_sco
             panel.get_by_role("tab", name="门店汇总", exact=True).click()
         assert grouped.value.status == 200, grouped.value.text()
         stores = grouped.value.json()["data"]
+        selected_tab = panel.get_by_role("tab", name="门店汇总", exact=True)
+        other_tab = panel.get_by_role("tab", name="逐券明细", exact=True)
+        expect(selected_tab).to_have_attribute("aria-selected", "true")
+        expect(other_tab).to_have_attribute("aria-selected", "false")
+        other_background = other_tab.evaluate("element => getComputedStyle(element).backgroundColor")
+        expect(selected_tab).not_to_have_css("background-color", other_background)
         assert grouped.value.json()["meta"]["publication"]["id"] == publication_id
         assert stores["month"] == MONTH and stores["feeDirection"] == direction
         assert stores["summary"] == detail["summary"]
