@@ -234,3 +234,8 @@ def test_new_peer_evidence_keeps_both_directions_of_prior_formal_bills(bootstrap
 def test_postgres_conflict_scope_and_evidence_retry(postgres_engine):
     with Session(postgres_engine, autoflush=False) as session:
         test_new_mapping_changes_new_execution_while_retry_keeps_its_selected_version(session)
+
+
+def test_postgres_peer_evidence_preserves_formal_bills(postgres_engine, monkeypatch):
+    with Session(postgres_engine, autoflush=False) as session:
+        test_new_peer_evidence_keeps_both_directions_of_prior_formal_bills(session, monkeypatch)
