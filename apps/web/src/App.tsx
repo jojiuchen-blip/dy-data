@@ -436,9 +436,9 @@ export function App() {
           ) : location.pathname === "/settlement/invoice" ? (
             <StoreInvoicePage currentUser={user} searchParams={searchParams} />
           ) : location.pathname === "/finance/promotion" ? (
-            <FinanceFeePage key={`finance-fee:PROMOTION:${searchParams.toString()}`} feeDirection="PROMOTION" searchParams={searchParams} />
+            <FinanceFeePage key={`finance-fee:PROMOTION:${searchParams.toString()}`} currentUser={user} feeDirection="PROMOTION" searchParams={searchParams} />
           ) : location.pathname === "/finance/management" ? (
-            <FinanceFeePage key={`finance-fee:MANAGEMENT:${searchParams.toString()}`} feeDirection="MANAGEMENT" searchParams={searchParams} />
+            <FinanceFeePage key={`finance-fee:MANAGEMENT:${searchParams.toString()}`} currentUser={user} feeDirection="MANAGEMENT" searchParams={searchParams} />
           ) : location.pathname === "/finance/orders/promotion" ? (
             <FinanceOrderDetailsPage key={`finance-orders:PROMOTION:${searchParams.toString()}`} feeDirection="PROMOTION" searchParams={searchParams} />
           ) : location.pathname === "/finance/orders/management" ? (
@@ -471,7 +471,7 @@ export function App() {
           ) : location.pathname === "/sales" ? (
             <SalesDashboardPage currentUser={user} searchParams={searchParams} />
           ) : (
-            <StoreRankingPage searchParams={searchParams} />
+            <StoreRankingPage currentUser={user} searchParams={searchParams} />
           );
 
         return (

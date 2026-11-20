@@ -13,17 +13,19 @@ import { DataTable, type Column } from "../components/DataTable";
 import { FinanceImportActionPanel } from "../components/FinanceImportActionPanel";
 import { SelectField, TextField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
+import { InternalMonthlyTrialPanel } from "../components/InternalMonthlyTrialPanel";
 import { ResourceNotice } from "../components/ResourceState";
 import { TablePagination } from "../components/TablePagination";
 import { usePublishedResource } from "../hooks/usePublishedResource";
 import type {
   BillingMetricScope,
+  AdminUser,
   FeeDirection,
   FinanceInvoiceRow,
 } from "../types/dashboard";
 import { formatCurrency, formatDateTime } from "../utils/format";
 import { userFacingError } from "../utils/userFacingError";
-import { isPublicationPeriodNotReady, PUBLICATION_PERIOD_NOT_READY_TEXT } from "../utils/apiErrors";
+import { isPublicationPeriodNotReady } from "../utils/apiErrors";
 import { displayFinanceInvoiceStatus, displayFinanceProcessingStatus } from "../utils/userFacingLabels";
 import {
   initialStatementMonth,
@@ -32,6 +34,7 @@ import {
 } from "../utils/statementMonth";
 
 interface FinanceFeePageProps {
+  currentUser: AdminUser;
   feeDirection: FeeDirection;
   searchParams: URLSearchParams;
 }
@@ -100,7 +103,7 @@ function navigateTo(href: string) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePageProps) {
+export function FinanceFeePage({ currentUser, feeDirection, searchParams }: FinanceFeePageProps) {
   const [month, setMonth] = useState(() => initialStatementMonth(searchParams));
   const [search, setSearch] = useState(searchParams.get("q") ?? "");
   const [invoiceStatus, setInvoiceStatus] = useState(searchParams.get("invoiceStatus") ?? "");
@@ -370,7 +373,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
         <div>
           <p className="eyebrow">财务管理员</p>
           <h1>{title}</h1>
-          <p>分佣计算完成的结果即进入列表，待生成账单、待确认、待提交与已提交分别标识；展示不会自动确认或开票。</p>
+          <p>内部试算用于核对已有费用。正式账单按生成、确认、开票和结算进度显示。</p>
         </div>
         <div className="finance-heading__actions">
           <Button loading={downloadBusy} onClick={handleTemplateDownload} variant="secondary">
@@ -382,7 +385,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
         </div>
       </section>
 
-      <ResourceNotice analysis loading={resourceBusy} error={summaryResource.error ?? invoiceResource.error} />
+      <ResourceNotice analysis loading={resourceBusy} error={isPublicationPeriodNotReady(financeResource.rawError) ? "本账期正式账单尚未就绪，授权管理员可在下方核对内部试算。" : summaryResource.error ?? invoiceResource.error} />
       <section className={`metric-grid finance-metric-grid ${feeDirection === "MANAGEMENT" ? "finance-metric-grid--four" : ""}`}>
         <MetricCard label={feeDirection === "PROMOTION" ? "推广费总额" : "管理费总额"} value={currencyMetric(metrics?.statementTotalCent)} />
         <MetricCard label="已确认金额" value={currencyMetric(metrics?.confirmedAmountCent)} />
@@ -421,6 +424,8 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
       </section>
       {notice ? <p role={noticeIsError ? "alert" : "status"}>{notice}</p> : null}
 
+      <InternalMonthlyTrialPanel currentUser={currentUser} month={month} feeDirection={feeDirection} q={search} />
+
       <section className="content-section">
         <div className="section-title">
           <div>
@@ -431,7 +436,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
         <DataTable
           columns={feeDirection === "PROMOTION" ? promotionColumns : managementColumns}
           emptyText="当前筛选下暂无记录"
-          errorText={isPublicationPeriodNotReady(financeResource.rawError) ? PUBLICATION_PERIOD_NOT_READY_TEXT : undefined}
+          errorText={isPublicationPeriodNotReady(financeResource.rawError) ? "所选账期的正式账单尚未就绪。" : undefined}
           onRowAction={feeDirection === "MANAGEMENT" ? openCorrection : undefined}
           onRowDoubleClick={feeDirection === "MANAGEMENT" ? (row) => { void openCorrection(row); } : undefined}
           rowActionLabel={(row) => feeDirection === "MANAGEMENT" && row.storeId && row.statementMonth ? "更正" : undefined}

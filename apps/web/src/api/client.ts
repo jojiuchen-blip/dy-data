@@ -1,5 +1,6 @@
 import type { ClueListFilters, ClueStoreResolution } from "../types/clueFilters";
 import type { PublicationModule } from "../types/dashboard";
+import type { MonthlyTrialData, MonthlyTrialQuery } from "../types/monthlyTrial";
 import {
   defaultMonth,
   defaultStore,
@@ -3140,6 +3141,20 @@ export function fetchFinanceSummary(
   return requestJson<FinanceSummaryData>("/admin/finance/summary", query).then(
     (response) => ({ ...response, usingMock: false }),
   );
+}
+
+export function fetchMonthlyTrial(
+  query: MonthlyTrialQuery,
+): Promise<ApiLoadResult<MonthlyTrialData>> {
+  return requestJson<MonthlyTrialData>("/admin/finance/trial", { ...query }).then(
+    (response) => ({ ...response, usingMock: false }),
+  );
+}
+
+export function downloadMonthlyTrial(
+  query: Omit<MonthlyTrialQuery, "page" | "pageSize">,
+): Promise<DownloadResult> {
+  return requestDownloadResult("/admin/finance/trial/export", { ...query });
 }
 
 export function fetchFinanceInvoices(

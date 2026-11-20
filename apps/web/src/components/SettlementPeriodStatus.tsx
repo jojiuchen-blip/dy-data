@@ -40,7 +40,7 @@ export function SettlementPeriodStatus({ month, readiness, monthlyClose, unavail
         {close.scopeUnresolved && hasReviewEvidence ? (
           <p>仍有数据归属或影响范围待核验，暂不能确定其余门店的出账范围。</p>
         ) : null}
-        {unavailable ? <p>所选账期的金额和导出暂不可用。错误码 PUBLICATION_PERIOD_NOT_READY{requestId ? `，请求编号 ${requestId}` : ""}。</p> : null}
+        {unavailable ? <p>所选账期的正式账单金额和正式账单导出暂不可用。错误码 PUBLICATION_PERIOD_NOT_READY{requestId ? `，请求编号 ${requestId}` : ""}。</p> : null}
       </div>
     </ResourcePanel>
   );
