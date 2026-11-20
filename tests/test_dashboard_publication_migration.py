@@ -148,7 +148,7 @@ def test_clean_and_populated_full_postgres_chain_upgrade(full_pg_stack, populate
             session.commit()
     command.upgrade(config, "head")
     with Session(engine) as session:
-        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261119_0071"
+        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261120_0073"
         assert session.scalar(text("SELECT count(*) FROM dashboard_publication_source_counters")) == len(SOURCE_TABLES)
         assert source_fingerprint(session, "sales")
         if populated:
@@ -164,3 +164,37 @@ def test_clean_and_populated_full_postgres_chain_upgrade(full_pg_stack, populate
     columns = {column["name"]: column for column in inspect(engine).get_columns("dashboard_publication_sales_coupons")}
     assert columns["cycle_sort_days"]["nullable"] and columns["cycle_sort_days"]["default"] is None
     assert (columns["cycle_sort_days"]["type"].precision, columns["cycle_sort_days"]["type"].scale) == (24, 2)
+
+
+def test_production_0071_upgrades_to_monthly_evidence_and_trial(full_pg_stack):
+    config, engine = full_pg_stack
+    command.upgrade(config, "20261119_0071")
+    with Session(engine) as session:
+        session.add(DimStore(store_id="pre-trial-store", store_name="Original Store"))
+        session.commit()
+
+    command.upgrade(config, "head")
+    with Session(engine) as session:
+        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261120_0073"
+        assert session.get(DimStore, "pre-trial-store").store_name == "Original Store"
+    schema = inspect(engine)
+    assert {"monthly_store_evidence_snapshot", "dashboard_publication_fee_trial"} <= set(schema.get_table_names())
+    assert schema.get_pk_constraint("dashboard_publication_fee_trial")["constrained_columns"] == ["publication_id", "row_id"]
+    assert "uq_mses_qualification_content" in {
+        item["name"] for item in schema.get_unique_constraints("monthly_store_evidence_snapshot")
+    }
+    assert {"ck_pub_fee_trial_direction", "ck_pub_fee_trial_status", "ck_pub_fee_trial_known_amount"} <= {
+        item["name"] for item in schema.get_check_constraints("dashboard_publication_fee_trial")
+    }
+    trial_columns = {item["name"]: item for item in schema.get_columns("dashboard_publication_fee_trial")}
+    assert trial_columns["fee_amount_cent"]["nullable"] and trial_columns["base_amount_cent"]["nullable"]
+    assert "ix_pub_fee_trial_filter" in {item["name"] for item in schema.get_indexes("dashboard_publication_fee_trial")}
+    with engine.connect() as connection:
+        guards = set(connection.execute(text("""
+            SELECT t.tgname FROM pg_trigger t
+            JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname=current_schema() AND c.relname='monthly_store_evidence_snapshot'
+                AND NOT t.tgisinternal AND t.tgenabled <> 'D'
+        """)).scalars())
+        assert {"monthly_store_evidence_guard", "monthly_store_evidence_no_truncate"} <= guards
+        assert connection.scalar(text("SELECT count(*) FROM dashboard_publication_source_counters WHERE source_name='data_quality_issues'")) == 1

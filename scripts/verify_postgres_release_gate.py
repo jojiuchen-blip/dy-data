@@ -7,10 +7,10 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 
 
-EXPECTED_HEAD = "20261119_0071"
+EXPECTED_HEAD = "20261120_0073"
 LOCK_KEY = "dydata-release-gate:finance-import-version:3:2026-08"
 
 
@@ -42,6 +42,26 @@ def _verify_migration_state(engine) -> None:
         )
         if revisions != [EXPECTED_HEAD]:
             raise AssertionError(f"expected one Alembic head {EXPECTED_HEAD}, got {revisions}")
+
+        schema = inspect(connection)
+        required_tables = {"monthly_store_evidence_snapshot", "dashboard_publication_fee_trial"}
+        if not required_tables <= set(schema.get_table_names()):
+            raise AssertionError("monthly attribution evidence or internal fee trial table is missing")
+        evidence_unique = {item["name"] for item in schema.get_unique_constraints("monthly_store_evidence_snapshot")}
+        if "uq_mses_qualification_content" not in evidence_unique:
+            raise AssertionError("monthly evidence content identity is not unique")
+        trial_checks = {item["name"] for item in schema.get_check_constraints("dashboard_publication_fee_trial")}
+        if not {"ck_pub_fee_trial_direction", "ck_pub_fee_trial_status", "ck_pub_fee_trial_known_amount"} <= trial_checks:
+            raise AssertionError("monthly trial amount and status constraints are missing")
+        guards = set(connection.execute(text("""
+            SELECT t.tgname FROM pg_trigger t
+            JOIN pg_class c ON c.oid=t.tgrelid
+            JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname=current_schema() AND c.relname='monthly_store_evidence_snapshot'
+                AND NOT t.tgisinternal AND t.tgenabled <> 'D'
+        """)).scalars())
+        if not {"monthly_store_evidence_guard", "monthly_store_evidence_no_truncate"} <= guards:
+            raise AssertionError("monthly relationship evidence immutability guards are missing")
 
         unresolved = 0
         for table_name in (

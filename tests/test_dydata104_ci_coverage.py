@@ -43,6 +43,10 @@ PG_FILES = {
     "tests/test_finance_live_import_readback.py",
     "tests/test_monthend_sales_name_postgres.py",
     "tests/test_monthly_close_name_scope.py",
+    "tests/test_monthend_store_attribution.py",
+    "tests/test_monthly_store_evidence.py",
+    "tests/test_monthly_fee_trial.py",
+    "tests/test_monthly_fee_trial_postgres.py",
 }
 BROWSER_FILES = {
     "tests/test_dydata104_finance_preview_browser.py",
@@ -50,6 +54,7 @@ BROWSER_FILES = {
     "tests/test_dydata104_oct30_invoice_browser.py",
     "tests/test_finance_import_chinese_browser.py",
     "tests/test_finance_download_localization_browser.py",
+    "tests/test_dydata104_nov20_browser.py",
 }
 COORDINATOR_CASES = {
     "test_postgres_publication_only_complete_apply[metadata]",
