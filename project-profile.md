@@ -1,3 +1,6 @@
+<!-- DYDATA-104 current increment: 2026-11-20 -->
+> **2026-11-20 当前交付**　DYDATA-104 / S4 / T3.1 已发布十月销售归属冻结和内部试算查询。生产源码为 `28f0a81d`，数据库为 `20261120_0073`。生产页面下载按用户安排稍后验收，逐店范围与待补依据在受控工单跟踪。[发布验证](docs/verification/20261120-october-trial-release.md) · [DYDATA-104](https://linear.app/keith-lim/issue/DYDATA-104)
+
 <!-- DYDATA-115 current increment: 2026-11-19 -->
 > **2026-11-19 当前交付**：【主入口回写】DYDATA-115 / S4 / T1.1 已部署生产，技术验证通过，待负责人业务试点验收。线上源码 `ae40d26e`，数据库 `20261119_0071`。已开启商品为 0，两张看板已发布新版任务指标。[生产发布记录](docs/verification/20261119-clue-engine-release.md)
 >

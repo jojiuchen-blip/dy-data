@@ -1,6 +1,8 @@
 # 当前执行：DYDATA-104 十月试算与销售归属（2026-11-20）
 
-S4 / T3.1。按原逐券清单核对十月销售门店、实际新增费用及待核门店。总部和财务的试算独立上线验收。正式账单沿用门店核对、确认及开票流程。生产由同一负责人执行，原始业务明细随受控工单保存。[本轮要求](https://linear.app/keith-lim/issue/DYDATA-104) · [执行与验收](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)
+- 当前正式计划：[十月结算主计划](delivery-plans/main-delivery-plan-dydata-104-followthrough.md)、[任务看板](delivery-plans/task-kanban-dydata-104-followthrough.md)及[生产验收子计划](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)。
+
+S4 / T3.1。十月销售归属与内部试算已部署生产。对账使用已归档的生产原版、当月冻结的门店关系和复算版本。正式账单沿用门店核对、确认及开票流程。用户已将生产页面下载验收延后，业务材料在受控工单跟踪。[本轮要求](https://linear.app/keith-lim/issue/DYDATA-104) · [发布验证](../verification/20261120-october-trial-release.md) · [执行与验收](delivery-plans/sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md)
 
 # 并行执行：DYDATA-115 线索引擎一期（2026-11-19）
 
