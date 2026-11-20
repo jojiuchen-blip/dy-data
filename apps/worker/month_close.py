@@ -71,6 +71,7 @@ LOCKED = "locked"
 ACTIVE_REBUILD = "active_rebuild"
 READY = "ready"
 QUALIFICATION_NOT_READY = "account_qualification_not_ready"
+STORE_EVIDENCE_NOT_READY = "store_evidence_not_ready"
 CALCULATION_READY = "calculation_ready"
 CALCULATION_INPUT_PROTOCOL = "month-close-calculation-v1"
 MONTHLY_CLOSE_POLICY = "monthly-billing-sale-name-v3"
@@ -78,7 +79,7 @@ MONTHLY_CLOSE_POLICY = "monthly-billing-sale-name-v3"
 # Operator-visible readiness alert type.  One row per (business_month, state),
 # removed again as soon as the month becomes dispatchable.
 READINESS_ISSUE_TYPE = "month_close_source_not_ready"
-_NOT_READY_STATES = (WATERMARK_INCOMPLETE, NO_CURRENT_RESULTS, LOCKED, QUALIFICATION_NOT_READY)
+_NOT_READY_STATES = (WATERMARK_INCOMPLETE, NO_CURRENT_RESULTS, LOCKED, QUALIFICATION_NOT_READY, STORE_EVIDENCE_NOT_READY)
 
 _logger = logging.getLogger("apps.worker.month_close")
 
@@ -601,6 +602,10 @@ def _ensure_certified_close_job(factory: sessionmaker, *, now: datetime | None) 
 def _queue_certified_month(
     session: Session, month: str, *, now: datetime | None,
 ) -> tuple[str, bool] | None:
+    from apps.worker.monthly_store_evidence import (
+        MissingStoreEvidenceError, StoreEvidenceError, freeze_store_evidence, frozen_store_evidence,
+    )
+
     prior = session.get(SettlementMonthClose, month)
     if prior is not None and prior.is_complete:
         return prior.source_job_id, False
@@ -616,6 +621,15 @@ def _queue_certified_month(
     prior = session.get(SettlementMonthClose, month, populate_existing=True)
     if prior is not None and prior.is_complete:
         return prior.source_job_id, False
+    try:
+        try:
+            evidence = frozen_store_evidence(session, qualification_version=qualification)
+        except MissingStoreEvidenceError:
+            evidence = freeze_store_evidence(session, qualification_version=qualification)
+    except StoreEvidenceError:
+        _sync_readiness_issue(session, month, STORE_EVIDENCE_NOT_READY)
+        return None
+    session.info["monthly_store_evidence_version_id"] = evidence.version_id
     _sync_readiness_issue(session, month, CALCULATION_READY)
     watermark = _calculation_inputs_digest(session, month, revisions, monthly=True)
     job_id = month_close_job_id(month, watermark[:32])
@@ -632,6 +646,8 @@ def _queue_certified_month(
         "source_run_id": job_id,
         "source_watermark": watermark,
         "account_qualification_version_id": qualification.version_id,
+        "store_evidence_version_id": evidence.version_id,
+        "store_evidence_sha256": evidence.content_sha256,
         "calculation_input_protocol": CALCULATION_INPUT_PROTOCOL,
         "calculation_input_sha256": watermark,
         "month_close_phase": "calculate",
