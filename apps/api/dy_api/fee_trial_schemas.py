@@ -53,3 +53,12 @@ class FeeTrialData(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class FeeTrialStoreRow(FeeTrialSummary):
+    store_id: str | None
+    store_name: str
+
+
+class FeeTrialStoresData(FeeTrialData):
+    list: list[FeeTrialStoreRow]

@@ -249,40 +249,73 @@ def conditions(publication_id, *, month, fee_direction, scope_store_ids=None, st
     return result
 
 
-def read(session, publication_id, *, page=1, page_size=50, export=False, **filters):
-    """Aggregate and page the pinned facts, applying current scope to every query."""
+def _aggregate_columns():
+    return (
+        func.count().label("total"),
+        func.coalesce(func.sum(rows.c.fee_amount_cent), 0).label("amount"),
+        *[func.count(func.distinct(case((rows.c.record_status == status, rows.c.coupon_id)))).label(status)
+          for status in ("CALCULATED", "PENDING", "EXCLUDED")],
+        func.count(func.distinct(rows.c.coupon_id)).label("candidates"),
+    )
+
+
+def _summary(totals, unresolved):
+    known_amount = (int(totals["amount"]) if totals["CALCULATED"] or (
+        totals["PENDING"] == 0 and (totals["EXCLUDED"] or not unresolved)) else None)
+    return {"calculated_fee_cent": known_amount, "calculated_coupon_count": totals["CALCULATED"],
+        "pending_coupon_count": totals["PENDING"], "excluded_coupon_count": totals["EXCLUDED"],
+        "candidate_coupon_count": totals["candidates"],
+        "coverage_complete": not unresolved and totals["PENDING"] == 0}
+
+
+def _read_context(session, publication_id, filters):
+    """Apply one selected range to its independent totals and coverage evidence."""
     from .finance import dimensions
     marker = session.scalar(select(dimensions.c.value).where(dimensions.c.publication_id == publication_id,
         dimensions.c.kind == "fee_trial", dimensions.c.key == filters["month"]))
     if not marker or marker.get("schema_version") != 1:
         raise PublicationError("PUBLICATION_TRIAL_NOT_READY", "该账期尚无可读取的内部试算版本，请稍后读取最新结果。", 503)
     where = conditions(publication_id, **filters)
-    totals = session.execute(select(
-        func.count().label("total"),
-        func.coalesce(func.sum(rows.c.fee_amount_cent), 0).label("amount"),
-        *[func.count(func.distinct(case((rows.c.record_status == status, rows.c.coupon_id)))).label(status)
-          for status in ("CALCULATED", "PENDING", "EXCLUDED")],
-        func.count(func.distinct(rows.c.coupon_id)).label("candidates"),
-    ).where(*where)).mappings().one()
+    totals = session.execute(select(*_aggregate_columns()).where(*where)).mappings().one()
     scoped = filters.get("scope_store_ids") is not None or filters.get("store_id") is not None or filters.get("product_type", "all") != "all" or bool(filters.get("q"))
     unresolved = marker.get("scope_unresolved", True)
     reason_rows = session.execute(select(rows.c.reason_code, rows.c.reason,
         func.count(func.distinct(rows.c.coupon_id))).where(*where, rows.c.record_status == "PENDING")
         .group_by(rows.c.reason_code, rows.c.reason).order_by(rows.c.reason_code, rows.c.reason))
-    fields = [column for column in rows.c if column.name not in {"publication_id", "row_id", "search_text", "month", "fee_direction"}]
-    query = select(*fields).where(*where).order_by(rows.c.coupon_id, rows.c.record_status, rows.c.row_id)
-    query = query.limit(100001) if export else query.offset((page - 1) * page_size).limit(page_size)
-    items = [dict(item) for item in session.execute(query).mappings()]
-    known_amount = int(totals["amount"]) if totals["CALCULATED"] or (not unresolved and totals["PENDING"] == 0) else None
-    summary = {"calculated_fee_cent": known_amount, "calculated_coupon_count": totals["CALCULATED"],
-        "pending_coupon_count": totals["PENDING"], "excluded_coupon_count": totals["EXCLUDED"],
-        "candidate_coupon_count": totals["candidates"],
-        "coverage_complete": not unresolved and totals["PENDING"] == 0}
     coverage = {"scope_unresolved": unresolved,
         "source_success_days": marker.get("source_success_days"), "source_total_days": marker.get("source_total_days"),
         "reasons": [{"code": code, "label": label, "coupon_count": number} for code, label, number in reason_rows],
         "note": ("仅统计当前筛选和权限内可归属的记录；归属未定记录另待核实。" if scoped else
                  "包含本次月结已有费用与待核、明确排除的记录；待核金额尚无法确定。")}
     return {"month": filters["month"], "fee_direction": filters["fee_direction"], "status": "TRIAL",
-        "summary": summary, "coverage": coverage, "list": items,
-        "total": totals["total"], "page": page, "page_size": page_size}
+        "summary": _summary(totals, unresolved), "coverage": coverage}, where, totals["total"]
+
+
+def read(session, publication_id, *, page=1, page_size=50, export=False, **filters):
+    """Page the pinned coupon facts, applying current scope to every query."""
+    data, where, total = _read_context(session, publication_id, filters)
+    fields = [column for column in rows.c if column.name not in {"publication_id", "row_id", "search_text", "month", "fee_direction"}]
+    query = select(*fields).where(*where).order_by(rows.c.coupon_id, rows.c.record_status, rows.c.row_id)
+    query = query.limit(100001) if export else query.offset((page - 1) * page_size).limit(page_size)
+    return {**data, "list": [dict(item) for item in session.execute(query).mappings()],
+        "total": total, "page": page, "page_size": page_size}
+
+
+def read_stores(session, publication_id, *, page=1, page_size=50, export=False, **filters):
+    """Group frozen facts by store and retain an independently deduplicated total."""
+    data, where, _ = _read_context(session, publication_id, filters)
+    grouped = select(rows.c.store_id, func.max(rows.c.store_name).label("store_name"),
+        *_aggregate_columns()).where(*where).group_by(rows.c.store_id).subquery("trial_store_summary")
+    total = session.scalar(select(func.count()).select_from(grouped))
+    query = select(grouped).order_by(grouped.c.store_id.is_(None), grouped.c.store_name, grouped.c.store_id)
+    query = query.limit(100001) if export else query.offset((page - 1) * page_size).limit(page_size)
+    unresolved = data["coverage"]["scope_unresolved"]
+    items = [{"store_id": item["store_id"],
+        "store_name": item["store_name"] or ("归属待核验" if item["store_id"] is None else item["store_id"]),
+        **_summary(item, unresolved)} for item in session.execute(query).mappings()]
+    for item in items:
+        if item["store_id"] is None:
+            item["calculated_fee_cent"] = None
+            item["coverage_complete"] = False
+    data["coverage"]["note"] += " 总计券数按筛选全范围去重，与各门店券数相加可能不同。"
+    return {**data, "list": items, "total": total, "page": page, "page_size": page_size}

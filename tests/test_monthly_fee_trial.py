@@ -1,5 +1,6 @@
 """Read-only internal trial survives zero official bills and retains pinned exports."""
 from dataclasses import replace
+from decimal import Decimal
 from datetime import UTC, datetime, timedelta
 from io import StringIO
 from csv import DictReader
@@ -130,7 +131,8 @@ def test_export_keeps_exact_pin_filters_and_chinese_nullable_bytes(trial_client,
     assert any(row["试算费用（元）"] == "123.45" for row in records)
     assert any(row["试算费用（元）"] == "-0.45" for row in records)
     assert all(row["试算费用（元）"] == "" for row in records if row["核对状态"] != "已算费用（试算）")
-    assert {row["筛选内已算费用小计（元）"] for row in records} == {"1122.99"}
+    assert "筛选内已算费用小计（元）" not in records[0]
+    assert sum(Decimal(row["试算费用（元）"] or "0") for row in records) == Decimal("1122.99")
     assert client.get("/api/v1/admin/finance/trial/export", params=PARAMS).status_code == 422
 
 
@@ -195,3 +197,99 @@ def test_pending_display_uses_unique_frozen_account_store_and_preserves_conflict
     matched, provenance = fee_trial._pending_sale_stores(db_session, close, candidates)
     assert matched == {}
     assert provenance["version_id"] != first.version_id
+
+
+def test_store_summary_same_pin_filters_unknown_bucket_and_independent_dedup(trial_client, db_session):
+    client, _ = trial_client
+    db_session.execute(insert(fee_trial.rows).values(publication_id="trial-a", row_id="moved-adjustment",
+        month="2026-10", fee_direction=1, coupon_id="券-0", order_id="订单-0", store_id="B", store_name="门店乙",
+        product_type="精诚养车", fee_amount_cent=-90, base_amount_cent=-900, record_status="CALCULATED", search_text="B 门店乙 订单-0 券-0"))
+    db_session.commit()
+    params = PARAMS | {"publication_id": "trial-a"}
+    response = client.get("/api/v1/admin/finance/trial/stores", params=params)
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert response.json()["meta"]["publication"]["id"] == "trial-a"
+    stores = {row["storeId"]: row for row in data["list"]}
+    assert data["total"] == 3
+    assert stores["A"]["calculatedFeeCent"] == 12300
+    assert stores["A"]["pendingCouponCount"] == 1
+    assert stores[None]["storeName"] == "归属待核验"
+    assert stores[None]["calculatedFeeCent"] is None
+    assert stores[None]["pendingCouponCount"] == stores[None]["excludedCouponCount"] == 1
+    assert data["summary"]["calculatedFeeCent"] == 112209
+    assert data["summary"]["candidateCouponCount"] == 6
+    assert sum(row["candidateCouponCount"] for row in stores.values()) == 7
+    assert sum(row["calculatedFeeCent"] or 0 for row in stores.values()) == data["summary"]["calculatedFeeCent"]
+    page = client.get("/api/v1/admin/finance/trial/stores", params=params | {"pageSize": 1})
+    assert len(page.json()["data"]["list"]) == 1
+    assert page.json()["data"]["summary"] == data["summary"]
+    pending = client.get("/api/v1/admin/finance/trial/stores", params=params | {"recordStatus": "PENDING"})
+    assert pending.json()["data"]["summary"]["calculatedFeeCent"] is None
+    assert all(row["calculatedFeeCent"] is None for row in pending.json()["data"]["list"])
+    searched = client.get("/api/v1/admin/finance/trial/stores", params=params | {"q": "订单-0"})
+    assert searched.json()["data"]["summary"]["calculatedFeeCent"] == 12255
+
+
+def test_store_summary_scope_and_both_direction_permissions(trial_client):
+    client, identities = trial_client
+    identities[0] = replace(identities[0], role="admin", store_scope_mode="selected", store_ids=("A",), page_keys=("FIN01", "FIN02"))
+    for direction, amount in (("PROMOTION", 12300), ("MANAGEMENT", 678)):
+        params = PARAMS | {"feeDirection": direction, "publication_id": "trial-a"}
+        response = client.get("/api/v1/admin/finance/trial/stores", params=params)
+        assert response.status_code == 200, response.text
+        data = response.json()["data"]
+        assert {item["storeId"] for item in data["list"]} == {"A"}
+        assert data["summary"]["calculatedFeeCent"] == amount
+        downloaded = client.get("/api/v1/admin/finance/trial/stores/export", params=params)
+        assert downloaded.status_code == 200, downloaded.text
+        records = list(DictReader(StringIO(downloaded.content.decode("utf-8-sig"))))
+        assert [item["汇总层级"] for item in records] == ["门店", "总计"]
+        assert records[0]["门店ID"] == "A"
+    identities[0] = replace(identities[0], role="store")
+    assert client.get("/api/v1/admin/finance/trial/stores", params=PARAMS).status_code == 403
+    assert client.get("/api/v1/admin/finance/trial/stores/export", params=PARAMS | {"publication_id": "trial-a"}).status_code == 403
+
+
+@pytest.mark.parametrize("q", (None, "没有任何命中"))
+def test_store_summary_chinese_csv_total_even_empty_same_version(trial_client, db_session, q):
+    client, _ = trial_client
+    params = PARAMS | {"publication_id": "trial-a"}
+    if q:
+        params["q"] = q
+    page = client.get("/api/v1/admin/finance/trial/stores", params=params)
+    assert page.status_code == 200, page.text
+    seed_trial(db_session, "trial-b", amount=1)
+    db_session.execute(update(heads).where(heads.c.module == "settlement").values(publication_id="trial-b"))
+    db_session.commit()
+    response = client.get("/api/v1/admin/finance/trial/stores/export", params=params)
+    assert response.status_code == 200, response.text
+    assert response.content.startswith(b"\xef\xbb\xbf")
+    assert response.headers["x-publication-id"] == "trial-a"
+    assert response.headers["x-export-result"] == "SUCCESS"
+    records = list(DictReader(StringIO(response.content.decode("utf-8-sig"))))
+    assert records[-1]["汇总层级"] == "总计"
+    assert {item["试算版本"] for item in records} == {"trial-a"}
+    assert sum(item["汇总层级"] == "总计" for item in records) == 1
+    if q:
+        assert len(records) == 1
+        assert records[0]["候选券数"] == "0"
+        assert records[0]["已算费用（元）"] == ""
+    else:
+        assert len(records) == 4
+        assert records[-1]["已算费用（元）"] == "1122.99"
+        assert records[-1]["候选券数"] == "6"
+        unknown = next(item for item in records if item["门店名称"] == "归属待核验")
+        assert unknown["汇总层级"] == "门店" and unknown["已算费用（元）"] == ""
+
+
+def test_store_summary_preserves_true_calculated_zero_and_exclusion_zero(trial_client, db_session):
+    client, _ = trial_client
+    db_session.execute(update(fee_trial.rows).where(fee_trial.rows.c.store_id == "B").values(fee_amount_cent=0))
+    db_session.commit()
+    result = client.get("/api/v1/admin/finance/trial/stores", params=PARAMS)
+    store = next(item for item in result.json()["data"]["list"] if item["storeId"] == "B")
+    assert store["calculatedFeeCent"] == 0 and store["calculatedCouponCount"] == 1
+    excluded = client.get("/api/v1/admin/finance/trial/stores", params=PARAMS | {"recordStatus": "EXCLUDED"})
+    assert excluded.json()["data"]["summary"]["calculatedFeeCent"] == 0
+    assert excluded.json()["data"]["list"][0]["calculatedFeeCent"] is None
