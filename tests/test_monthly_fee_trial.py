@@ -5,6 +5,7 @@ from io import StringIO
 from csv import DictReader
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -169,3 +170,28 @@ def test_real_month_builder_preserves_calculated_trial_with_zero_official_bills(
         assert trial["summary"]["candidate_coupon_count"] == 2
         assert {row["record_status"] for row in trial["list"]} == {"CALCULATED", "PENDING"}
         assert all(row["fee_amount_cent"] is None for row in trial["list"] if row["record_status"] == "PENDING")
+
+
+def test_pending_display_uses_unique_frozen_account_store_and_preserves_conflicts(db_session):
+    from account_qualification_fixtures import seed_month_qualification
+    from apps.worker.monthly_store_evidence import freeze_store_evidence
+
+    version = seed_month_qualification(db_session)
+    db_session.add_all([DimStore(store_id="A", store_name="门店甲", created_at=datetime(2026, 9, 1, tzinfo=UTC)),
+                       DimStore(store_id="B", store_name="门店乙", created_at=datetime(2026, 9, 1, tzinfo=UTC))])
+    db_session.flush()
+    base = {"kind": "account", "key": "owner-dual", "store_id": "A",
+        "source_reference": "synthetic-October-verified-map", "source_sha256": "a" * 64,
+        "observed_at": "2026-10-31T15:00:00+00:00", "valid_from": "2026-10-01", "valid_to": "2026-10-31"}
+    first = freeze_store_evidence(db_session, qualification_version=version, facts=[base])
+    candidates = {"coupon": {"owner_account_name": "Owner Dual", "raw_payload": {"owner_account_name": "Owner Dual"}}}
+    close = SimpleNamespace(qualification_version_id=version.version_id)
+    matched, provenance = fee_trial._pending_sale_stores(db_session, close, candidates)
+    assert matched == {"coupon": "A"}
+    assert provenance["version_id"] == first.version_id
+    assert "monthly_store_evidence_version_id" not in db_session.info
+    freeze_store_evidence(db_session, qualification_version=version,
+        facts=[base, {**base, "kind": "poi", "key": "poi-sale", "store_id": "B"}])
+    matched, provenance = fee_trial._pending_sale_stores(db_session, close, candidates)
+    assert matched == {}
+    assert provenance["version_id"] != first.version_id

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from hashlib import sha256
+from types import SimpleNamespace
 
 from sqlalchemy import BigInteger, CheckConstraint, Column, ForeignKey, Index, Integer, String, Table, Text, and_, case, func, insert, or_, select
 
@@ -62,6 +63,50 @@ def _stored_trial_basis(qualification_version_id):
         evidence["source_field"].as_string().in_(SALE_NAME_PATHS),
         SettlementFeeResult.sale_store_id.is_not(None),
         evidence["store_id"].as_string() == SettlementFeeResult.sale_store_id)
+
+
+def _pending_sale_stores(session, close, candidates):
+    """Bound pending display scope in bulk using one immutable mapping version."""
+    from ..models import AccountQualificationVersion
+    from apps.worker.account_qualification import AccountQualificationError, _frozen_name_candidates
+    from apps.worker.monthly_store_evidence import MissingStoreEvidenceError, frozen_store_evidence
+
+    qualification = session.get(AccountQualificationVersion, close.qualification_version_id)
+    if qualification is None:
+        return {}, None
+    try:
+        evidence = frozen_store_evidence(session, qualification_version=qualification)
+    except MissingStoreEvidenceError:
+        return {}, None
+    sentinel = object()
+    prior = session.info.get("monthly_store_evidence_version_id", sentinel)
+    session.info["monthly_store_evidence_version_id"] = evidence.version_id
+    stores_by_coupon = {}
+    try:
+        for coupon_id, details in candidates.items():
+            order = SimpleNamespace(owner_account_name=details["owner_account_name"], raw_payload=details["raw_payload"])
+            try:
+                matches = _frozen_name_candidates(session, version=qualification, order=order)
+            except AccountQualificationError:
+                continue
+            candidate_stores = set()
+            unresolved = False
+            for match in matches:
+                direct = evidence.account_store_ids(match.get("account_id"))
+                poi = evidence.poi_store_ids(match.get("poi_id"))
+                combined = direct | poi
+                if len(combined) != 1:
+                    unresolved = True
+                    break
+                candidate_stores.update(combined)
+            if not unresolved and len(candidate_stores) == 1:
+                stores_by_coupon[coupon_id] = next(iter(candidate_stores))
+    finally:
+        if prior is sentinel:
+            session.info.pop("monthly_store_evidence_version_id", None)
+        else:
+            session.info["monthly_store_evidence_version_id"] = prior
+    return stores_by_coupon, evidence.as_context()
 
 
 def build(session, publication_id, months, readiness):
@@ -138,10 +183,12 @@ def build(session, publication_id, months, readiness):
         for offset in range(0, len(candidates), 500):
             subset = candidates[offset:offset + 500]
             details = session.execute(select(RawDouyinOrderCoupon.coupon_id, RawDouyinOrderCoupon.order_id,
-                RawDouyinOrder.sku_id, DimSkuProductRule.product_type).join(RawDouyinOrder,
+                RawDouyinOrder.sku_id, RawDouyinOrder.owner_account_name, RawDouyinOrder.raw_payload,
+                DimSkuProductRule.product_type).join(RawDouyinOrder,
                 RawDouyinOrder.id == RawDouyinOrderCoupon.raw_order_id).outerjoin(DimSkuProductRule,
                 DimSkuProductRule.sku_id == RawDouyinOrder.sku_id).where(RawDouyinOrderCoupon.coupon_id.in_(subset))).mappings()
             candidate_details.update({item["coupon_id"]: item for item in details})
+        pending_sale_stores, scope_evidence = _pending_sale_stores(session, close, candidate_details)
         for coupon_id in candidates:
             for direction in (1, 2):
                 issues = diagnostics.get((coupon_id, direction), ())
@@ -156,6 +203,8 @@ def build(session, publication_id, months, readiness):
                 # A diagnostic's explicit direction store is usable for its
                 # visibility only. Missing ownership remains global-only.
                 store_id = context.get("sale_store_id" if direction == 1 else "verify_store_id")
+                if store_id is None and direction == 1:
+                    store_id = pending_sale_stores.get(coupon_id)
                 store = stores.get(store_id)
                 if store is None:
                     store_id = None
@@ -179,7 +228,7 @@ def build(session, publication_id, months, readiness):
                 "source_success_days": facts.get("success_days"), "source_total_days": facts.get("total_days"),
                 "scope_unresolved": close.unscoped_issue_count > 0 or any(
                     item["record_status"] == "PENDING" and item["store_id"] is None for item in batch),
-                "source_job_id": close.source_job_id}))
+                "source_job_id": close.source_job_id, "scope_evidence": scope_evidence}))
         count += len(batch) + 1
     return count
 

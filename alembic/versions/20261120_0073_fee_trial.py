@@ -6,6 +6,7 @@ revision = "20261120_0073"
 down_revision = "20261120_0072"
 branch_labels = None
 depends_on = None
+SOURCE_TABLES = ("data_quality_issues", "monthly_store_evidence_snapshot")
 
 
 def upgrade():
@@ -32,26 +33,26 @@ def upgrade():
                     ["publication_id", "month", "fee_direction", "store_id"])
     # These existing inputs now affect settlement trial coverage. Every other
     # source is already tracked by the settlement publication contract.
-    table = "data_quality_issues"
-    op.execute(sa.text("INSERT INTO dashboard_publication_source_counters(source_name, generation, changed_at) "
-        "VALUES (:name, 0, CURRENT_TIMESTAMP) ON CONFLICT (source_name) DO NOTHING").bindparams(name=table))
-    if op.get_bind().dialect.name == "postgresql":
-        op.execute(f"CREATE TRIGGER dashboard_publication_change AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON {table} "
-                   "FOR EACH STATEMENT EXECUTE FUNCTION dashboard_publication_track_change()")
-    elif op.get_bind().dialect.name == "sqlite":
-        for event in ("INSERT", "UPDATE", "DELETE"):
-            op.execute(f"CREATE TRIGGER publication_{table}_{event.lower()} AFTER {event} ON {table} BEGIN "
-                f"UPDATE dashboard_publication_source_counters SET generation=generation+1, changed_at=CURRENT_TIMESTAMP WHERE source_name='{table}'; END")
+    for table in SOURCE_TABLES:
+        op.execute(sa.text("INSERT INTO dashboard_publication_source_counters(source_name, generation, changed_at) "
+            "VALUES (:name, 0, CURRENT_TIMESTAMP) ON CONFLICT (source_name) DO NOTHING").bindparams(name=table))
+        if op.get_bind().dialect.name == "postgresql":
+            op.execute(f"CREATE TRIGGER dashboard_publication_change AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON {table} "
+                       "FOR EACH STATEMENT EXECUTE FUNCTION dashboard_publication_track_change()")
+        elif op.get_bind().dialect.name == "sqlite":
+            for event in ("INSERT", "UPDATE", "DELETE"):
+                op.execute(f"CREATE TRIGGER publication_{table}_{event.lower()} AFTER {event} ON {table} BEGIN "
+                    f"UPDATE dashboard_publication_source_counters SET generation=generation+1, changed_at=CURRENT_TIMESTAMP WHERE source_name='{table}'; END")
 
 
 def downgrade():
     if op.get_bind().execute(sa.text("SELECT 1 FROM dashboard_publication_fee_trial LIMIT 1")).first():
         raise RuntimeError("Retain published internal trial evidence; use a forward migration.")
     op.drop_table("dashboard_publication_fee_trial")
-    table = "data_quality_issues"
-    if op.get_bind().dialect.name == "postgresql":
-        op.execute(f"DROP TRIGGER dashboard_publication_change ON {table}")
-    elif op.get_bind().dialect.name == "sqlite":
-        for event in ("insert", "update", "delete"):
-            op.execute(f"DROP TRIGGER publication_{table}_{event}")
-    op.execute(sa.text("DELETE FROM dashboard_publication_source_counters WHERE source_name=:name").bindparams(name=table))
+    for table in reversed(SOURCE_TABLES):
+        if op.get_bind().dialect.name == "postgresql":
+            op.execute(f"DROP TRIGGER dashboard_publication_change ON {table}")
+        elif op.get_bind().dialect.name == "sqlite":
+            for event in ("insert", "update", "delete"):
+                op.execute(f"DROP TRIGGER publication_{table}_{event}")
+        op.execute(sa.text("DELETE FROM dashboard_publication_source_counters WHERE source_name=:name").bindparams(name=table))

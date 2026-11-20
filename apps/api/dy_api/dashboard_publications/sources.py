@@ -40,7 +40,7 @@ MODULE_SOURCE_TABLES: dict[str, tuple[str, ...]] = {
         "dim_store_org_assignments", "ranking_store_org_history",
     ),
     "settlement": _FINANCE_SHARED + (
-        "data_quality_issues", "raw_douyin_order_coupons", "store_finance_profile",
+        "data_quality_issues", "raw_douyin_order_coupons", "store_finance_profile", "monthly_store_evidence_snapshot",
         "settlement_statement_line", "settlement_statement_entry", "settlement_fee_result",
         "settlement_fee_result_current", "settlement_fee_adjustment",
     ),

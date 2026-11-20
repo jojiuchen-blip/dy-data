@@ -1,6 +1,7 @@
 """Actual PostgreSQL aggregation, nullable values and selected-store trial reads."""
 from sqlalchemy import insert
 from sqlalchemy.orm import Session
+import pytest
 
 from apps.api.dy_api.dashboard_publications import fee_trial
 from test_monthly_fee_trial import seed_trial
@@ -22,7 +23,6 @@ def test_postgres_internal_trial_nullable_amount_scope_and_negative_adjustment(p
 
 
 def test_postgres_trial_database_rejects_fabricated_pending_zero(postgres_engine):
-    import pytest
     from sqlalchemy.exc import IntegrityError
     with Session(postgres_engine) as session:
         seed_trial(session)
@@ -32,3 +32,16 @@ def test_postgres_trial_database_rejects_fabricated_pending_zero(postgres_engine
                 fee_amount_cent=0, base_amount_cent=0, record_status="PENDING", search_text=""))
             session.flush()
         session.rollback()
+
+
+@pytest.mark.parametrize("postgres_engine", ["migration"], indirect=True)
+def test_migrated_postgres_trial_scope_contract_and_new_source_tracking(postgres_engine):
+    from sqlalchemy import text
+    with Session(postgres_engine) as session:
+        seed_trial(session)
+        data = fee_trial.read(session, "trial-a", month="2026-10", fee_direction="PROMOTION", scope_store_ids=("A",))
+        assert data["summary"]["calculated_fee_cent"] == 12300
+        assert data["summary"]["pending_coupon_count"] == 1
+        assert set(session.scalars(text("SELECT source_name FROM dashboard_publication_source_counters "
+            "WHERE source_name IN ('monthly_store_evidence_snapshot','data_quality_issues')"))) == {
+                "monthly_store_evidence_snapshot", "data_quality_issues"}
