@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -16,6 +16,7 @@ from apps.worker.historical_sale_attribution import HistoricalAttributionError, 
 from apps.worker.account_qualification import (
     FIRST_MONTH, SALE_ACCOUNT_MATCH_POLICY, SALE_NAME_PATHS,
     AccountQualificationError, frozen_sale_candidate_stores, frozen_version,
+    _store_evidence,
 )
 from apps.worker.settlement import (
     MANAGEMENT_FEE, PROMOTION_FEE, _exact_monthly_sale_match, _diagnose_dual_fee_sale_account,
@@ -30,14 +31,19 @@ class MonthlyCloseScope:
     blocked_store_ids: frozenset[str]
     unscoped_issue_count: int
     preceding_scope_unresolved: bool = False
+    store_evidence_version_id: str | None = None
 
     @property
     def complete(self) -> bool:
         return not (self.blocked_store_ids or self.unscoped_issue_count or self.preceding_scope_unresolved)
 
 
-def monthly_fee_evidence_condition(version: AccountQualificationVersion | str) -> ColumnElement[bool]:
+def monthly_fee_evidence_condition(
+    version: AccountQualificationVersion | str, *, store_evidence_version_id: str | None = None,
+) -> ColumnElement[bool]:
     """Accept fees only with the exact frozen name policy and attribution proof."""
+    from apps.worker.monthly_store_evidence import store_evidence_condition
+
     evidence = SettlementFeeResult.sale_account_match_json
     version_id = version if isinstance(version, str) else version.version_id
     content_sha256 = (select(AccountQualificationVersion.content_sha256).where(
@@ -54,6 +60,21 @@ def monthly_fee_evidence_condition(version: AccountQualificationVersion | str) -
         func.coalesce(evidence["source_field"].as_string(), "").in_(SALE_NAME_PATHS),
         SettlementFeeResult.sale_store_id.is_not(None),
         func.coalesce(evidence["store_id"].as_string(), "") == SettlementFeeResult.sale_store_id,
+        store_evidence_condition(version, evidence["store_evidence"], pinned_version_id=store_evidence_version_id),
+    )
+
+
+def unfrozen_monthly_fee_condition() -> ColumnElement[bool]:
+    """A certified bill keeps its source proof when peer stores gain new evidence."""
+    from apps.worker.protected_billing_authority import frozen_primary_chain_condition, protected_slot_condition
+
+    store_id = case(
+        (SettlementFeeResult.fee_direction == PROMOTION_FEE, SettlementFeeResult.sale_store_id),
+        else_=SettlementFeeResult.verify_store_id,
+    )
+    return and_(
+        ~protected_slot_condition(store_id, SettlementFeeResult.original_business_month),
+        ~frozen_primary_chain_condition(),
     )
 
 
@@ -119,12 +140,15 @@ def inspect_month_close_scope(
     qualification = frozen_version(session, month)
     if qualification.version_id != qualification_version_id:
         raise AccountQualificationError("qualification_version_conflict")
+    store_evidence = _store_evidence(session, qualification)
+    store_evidence_version_id = store_evidence.version_id if store_evidence is not None else None
     keys = defaultdict(set)
     for result in session.scalars(select(SettlementFeeResult).join(
         SettlementFeeResultCurrent, SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.fee_result_id,
     ).where(
         SettlementFeeResult.original_business_month == month,
-        ~monthly_fee_evidence_condition(qualification),
+        unfrozen_monthly_fee_condition(),
+        ~monthly_fee_evidence_condition(qualification, store_evidence_version_id=store_evidence_version_id),
     )):
         store_id = result.sale_store_id if result.fee_direction == PROMOTION_FEE else result.verify_store_id
         keys[result.coupon_id, result.fee_direction].add(store_id)
@@ -155,7 +179,8 @@ def inspect_month_close_scope(
             # lost its source. Its previous store alone is not an impact proof.
             unscoped.add(key)
             blocked.update(filter(None, prior_stores))
-    return MonthlyCloseScope(month, qualification_version_id, frozenset(blocked), len(unscoped))
+    return MonthlyCloseScope(month, qualification_version_id, frozenset(blocked), len(unscoped),
+                             store_evidence_version_id=store_evidence_version_id)
 
 
 def current_frozen_stores(session: Session, month: str) -> set[str]:

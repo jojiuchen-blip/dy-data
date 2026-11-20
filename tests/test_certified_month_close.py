@@ -17,7 +17,7 @@ from apps.api.dy_api.models import (
 from apps.worker import month_close, settlement_rebuild
 from apps.worker.billing_auto_confirmation import preview_auto_confirmation
 from apps.worker.repositories import upsert_aweme_account, upsert_store, upsert_store_poi_mapping
-from account_qualification_fixtures import binding
+from account_qualification_fixtures import binding, date_synthetic_store_sources
 from test_month_close_auto_bootstrap import MONTH, NOW, _quiet_sqlite_progress, _seed
 from test_month_close_auto_bootstrap import bootstrap_session  # noqa: F401
 from test_protected_billing_authority_postgres import postgres_engine  # noqa: F401
@@ -31,6 +31,8 @@ def _bills(session):
 
 
 def _close(factory):
+    with factory.begin() as session:
+        date_synthetic_store_sources(session, MONTH)
     job_id = month_close.ensure_month_close_job(factory, now=NOW)
     assert job_id
     assert settlement_rebuild.run_settlement_month_rebuild_job(factory=factory, job_id=job_id, business_month=MONTH)

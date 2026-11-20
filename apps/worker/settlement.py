@@ -687,7 +687,10 @@ def _sparse_authority_source(
         from apps.worker.monthly_close_scope import monthly_fee_evidence_condition
 
         result_rows = result_rows.where(
-            monthly_fee_evidence_condition(monthly_scope.qualification_version_id),
+            monthly_fee_evidence_condition(
+                monthly_scope.qualification_version_id,
+                store_evidence_version_id=monthly_scope.store_evidence_version_id,
+            ),
         )
     original_store = case(
         (SettlementFeeAdjustment.fee_direction == PROMOTION_FEE, SettlementFeeResult.sale_store_id),
@@ -3545,7 +3548,11 @@ def _materialize_dual_fee_direction(
             reject_or_block(
                 session, calculation_run_id, coupon, order,
                 "dual_fee_monthend_account_qualification", message,
-                directions=(direction,), context={"business_month": verify_month, "reason_code": reason_code},
+                directions=(direction,), context={
+                    "business_month": verify_month, "reason_code": reason_code,
+                    "candidate_store_ids": (sorted(exc.candidate_store_ids)
+                                            if exc.candidate_store_ids is not None else None),
+                },
             )
             return False
     if monthend_rows is not None:

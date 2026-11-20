@@ -46,7 +46,7 @@ from apps.worker.historical_sale_attribution import month_decision_digest
 from apps.worker.account_qualification import (
     FIRST_MONTH, ROSTER_NAME_FIELDS, SALE_ACCOUNT_MATCH_POLICY, SALE_NAME_PATHS,
     AccountQualificationError, freeze_month, frozen_version,
-    month_bounds,
+    month_bounds, _store_evidence,
 )
 from apps.worker.priority_scheduler import _day_state, _priority_rows_for_day
 from apps.worker.repositories import queue_job_run, upsert_data_quality_issue
@@ -259,9 +259,11 @@ def _qualification_digest(session: Session, business_month: str) -> str | None:
         return None
     try:
         version = require_current_month_qualification(session, business_month)
+        evidence = _store_evidence(session, version)
     except AccountQualificationError:
         return None
-    return version.version_id + ":" + version.content_sha256
+    mapping_digest = ":" + evidence.content_sha256 if evidence is not None else ""
+    return version.version_id + ":" + version.content_sha256 + mapping_digest
 
 
 def require_current_month_qualification(session: Session, business_month: str) -> AccountQualificationVersion | None:
@@ -269,6 +271,8 @@ def require_current_month_qualification(session: Session, business_month: str) -
     if business_month < FIRST_MONTH:
         return None
     version = frozen_version(session, business_month)
+    from apps.worker.monthly_close_scope import monthly_fee_evidence_condition, unfrozen_monthly_fee_condition
+
     # Existing old/unpinned results may not pass a month-end preflight merely
     # because at least one other result uses the new basis.
     mismatch = session.scalar(select(SettlementFeeResult.fee_result_id).join(
@@ -276,19 +280,21 @@ def require_current_month_qualification(session: Session, business_month: str) -
         SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.fee_result_id,
     ).where(
         SettlementFeeResult.original_business_month == business_month,
+        unfrozen_monthly_fee_condition(),
         (SettlementFeeResult.account_qualification_version_id.is_(None)
          | (SettlementFeeResult.account_qualification_version_id != version.version_id)),
     ).limit(1))
     if mismatch is not None:
         raise AccountQualificationError("current_fee_qualification_version_mismatch")
-    from apps.worker.monthly_close_scope import monthly_fee_evidence_condition
-
     unproven_sale = session.scalar(select(SettlementFeeResult.fee_result_id).join(
         SettlementFeeResultCurrent,
         SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.fee_result_id,
     ).where(
         SettlementFeeResult.original_business_month == business_month,
-        ~monthly_fee_evidence_condition(version),
+        unfrozen_monthly_fee_condition(),
+        ~monthly_fee_evidence_condition(
+            version, store_evidence_version_id=session.info.get("monthly_store_evidence_version_id"),
+        ),
     ).limit(1))
     if unproven_sale is not None:
         raise AccountQualificationError("current_fee_sale_name_basis_mismatch")
@@ -300,6 +306,7 @@ def _calculation_inputs_digest(
 ) -> str:
     """Stream only the month's source graph; fee outputs never advance this key."""
     version = frozen_version(session, business_month)
+    store_evidence = _store_evidence(session, version)
     _, end = month_bounds(business_month)
     start = datetime.fromisoformat(f"{business_month}-01").replace(tzinfo=SHANGHAI).astimezone(timezone.utc)
     # Historical fee keys are source addresses only. Keep them after a current
@@ -349,7 +356,10 @@ def _calculation_inputs_digest(
         if record_names & relevant_names:
             if record.get("poi_id"):
                 frozen_pois.add(str(record["poi_id"]).strip())
-            if record.get("store_id"):
+            if store_evidence is not None:
+                frozen_stores.update(store_evidence.account_store_ids(record.get("account_id")))
+                frozen_stores.update(store_evidence.poi_store_ids(record.get("poi_id")))
+            elif record.get("store_id"):
                 frozen_stores.add(str(record["store_id"]).strip())
     bindings = or_(RawAwemeBinding.account_id.in_(owners), RawAwemeBinding.douyin_nickname.in_(names))
     accounts = union(owners, select(RawAwemeBinding.account_id).where(bindings))
@@ -365,6 +375,8 @@ def _calculation_inputs_digest(
         "month": business_month,
         "days": revisions, "qualification": [version.version_id, version.content_sha256],
         "decisions": month_decision_digest(session, business_month)}, sort_keys=True).encode())
+    if store_evidence is not None:
+        digest.update(json.dumps(store_evidence.as_context(), sort_keys=True).encode())
 
     def feed(model, condition, fields, paths=(), extra=()):
         # JSON paths retain type/presence (missing != null != zero), while
@@ -408,14 +420,22 @@ def _calculation_inputs_digest(
          ("rule_version", "sku_id", "promotion_service_fee_rate", "management_service_fee_rate", "effective_date", "effective_at", "rule_status"))
     feed(SettlementScopeRule, SettlementScopeRule.owner_account_id.in_(select(DimSkuProductRule.owner_account_id).where(DimSkuProductRule.sku_id.in_(skus))) & (SettlementScopeRule.effective_month <= business_month),
          ("scope_rule_version", "effective_month", "owner_account_id", "sale_channel_normalized", "is_active"))
-    feed(DimAwemeAccount, DimAwemeAccount.account_id.in_(accounts),
-         ("account_id", "store_id", "binding_status", "valid_from", "valid_to"))
-    feed(RawAwemeBinding, bindings,
-         ("binding_key", "account_id", "douyin_id", "douyin_nickname", "poi_id", "binding_status"),
-         tuple((key,) for key in ("账号类型", "account_type", "craftsman_uid", "account_id_for_settlement", "bind_status", "bind_start_time", "bind_end_time", "poi_id")))
-    feed(DimStorePoiMapping, or_(DimStorePoiMapping.poi_id.in_(pois), DimStorePoiMapping.poi_id.in_(frozen_pois)),
-         ("poi_id", "store_id"))
-    feed(DimStore, or_(DimStore.store_id.in_(stores), DimStore.store_id.in_(frozen_stores)), ("store_id", "is_active"))
+    if store_evidence is None:
+        feed(DimAwemeAccount, DimAwemeAccount.account_id.in_(accounts),
+             ("account_id", "store_id", "binding_status", "valid_from", "valid_to"))
+        feed(RawAwemeBinding, bindings,
+             ("binding_key", "account_id", "douyin_id", "douyin_nickname", "poi_id", "binding_status"),
+             tuple((key,) for key in ("账号类型", "account_type", "craftsman_uid", "account_id_for_settlement", "bind_status", "bind_start_time", "bind_end_time", "poi_id")))
+    effective_pois = (select(RawDouyinVerifyRecord.poi_id).where(RawDouyinVerifyRecord.coupon_id.in_(all_coupons))
+                      if store_evidence is not None else pois)
+    mapping_scope = DimStorePoiMapping.poi_id.in_(effective_pois)
+    if store_evidence is None:
+        mapping_scope = or_(mapping_scope, DimStorePoiMapping.poi_id.in_(frozen_pois))
+    feed(DimStorePoiMapping, mapping_scope, ("poi_id", "store_id"))
+    effective_stores = (select(DimStorePoiMapping.store_id).where(mapping_scope)
+                        if store_evidence is not None else stores)
+    feed(DimStore, or_(DimStore.store_id.in_(effective_stores), DimStore.store_id.in_(frozen_stores)),
+         ("store_id", "is_active"))
     # The policy normalizes Unicode, whitespace and dash aliases. Evaluate
     # only distinct related names, then query their exact configuration keys.
     normalized_names = sorted({normalize_owner_account_name(name) for name in session.scalars(
