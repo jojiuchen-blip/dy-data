@@ -43,7 +43,25 @@ def test_invoice_status_preserves_authorized_store_and_month_deep_link():
     page = (SRC / "pages/StoreInvoiceStatusPage.tsx").read_text(encoding="utf-8")
     assert 'searchParams.get("storeId")' in page
     assert 'currentUser.store_ids.includes(requestedStoreId)' in page
-    assert 'searchParams.get("month")' in page
+    assert 'initialStatementMonth(searchParams)' in page
+    utility = SRC / "utils/statementMonth.ts"
+    script = """
+const fs = require('fs');
+const ts = require('./apps/web/node_modules/typescript');
+const assert = require('node:assert/strict');
+const code = ts.transpileModule(fs.readFileSync(process.argv[1], 'utf8'), {
+ compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
+}).outputText;
+const moduleObj = {exports: {}};
+new Function('exports', 'module', code)(moduleObj.exports, moduleObj);
+const {initialStatementMonth} = moduleObj.exports;
+const november = new Date('2026-11-20T12:00:00+08:00');
+assert.equal(initialStatementMonth(new URLSearchParams('storeId=authorized-store&month=2026-09'), november), '2026-09');
+assert.equal(initialStatementMonth(new URLSearchParams('storeId=authorized-store'), november), '2026-10');
+assert.equal(initialStatementMonth(new URLSearchParams(''), new Date('2026-12-01T00:00:00+08:00')), '2026-11');
+assert.equal(initialStatementMonth(new URLSearchParams(''), new Date('2027-01-01T00:00:00+08:00')), '2026-12');
+"""
+    subprocess.run(["node", "-e", script, str(utility)], cwd=SRC.parents[2], check=True)
 
 
 def test_store_cumulative_uses_published_computation_not_formal_billing():

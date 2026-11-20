@@ -2053,6 +2053,7 @@ export interface StoreBillingStatement {
   isCurrent: boolean;
   supersedesStatementId: string | null;
   status: string;
+  createdAt?: string | null;
   firstVisibleAt?: string | null;
   confirmationDueAt?: string | null;
   promotionAmountCent: number;

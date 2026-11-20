@@ -224,6 +224,30 @@ class AccountQualificationVersion(Base):
     frozen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class MonthlyStoreEvidenceSnapshot(Base):
+    """Immutable supplemental relationship evidence for one frozen roster."""
+
+    __tablename__ = "monthly_store_evidence_snapshot"
+    __table_args__ = (
+        UniqueConstraint("qualification_version_id", "content_sha256", name="uq_mses_qualification_content"),
+        Index("ix_mses_qualification_created", "qualification_version_id", "created_at", "version_id"),
+    )
+    version_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    qualification_version_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("account_qualification_version.version_id", ondelete="RESTRICT"), nullable=False,
+    )
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    records_json: Mapped[list] = mapped_column(JSON_TYPE, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+
+@event.listens_for(MonthlyStoreEvidenceSnapshot, "before_update")
+@event.listens_for(MonthlyStoreEvidenceSnapshot, "before_delete")
+def _freeze_monthly_store_evidence(_mapper: Any, _connection: Any, _target: Any) -> None:
+    raise ValueError("monthly store relationship evidence is immutable")
+
+
 class RawDouyinClue(Base):
     __tablename__ = "raw_douyin_clues"
     __table_args__ = (

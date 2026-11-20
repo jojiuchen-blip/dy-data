@@ -209,7 +209,8 @@ def test_backend_aweme_export_maps_bind_list_api_items():
     assert records[0]["poi_id"] is None
     assert records[0]["binding_status"] == "active"
     assert records[0]["certified_subject_name"] == "Subject One"
-    assert records[1]["poi_id"] == "poi-2"
+    assert records[1]["poi_id"] is None
+    assert records[1]["raw_payload"]["scene_id"] == "poi-2"
     assert records[1]["binding_status"] == "rejected"
     assert backend_aweme_api_binding_status({"status": 2}, {}) == "inactive"
 
@@ -241,6 +242,24 @@ def test_backend_aweme_export_upserts_api_rows_with_numeric_account_type(db_sess
     binding = db_session.scalar(select(RawAwemeBinding).where(RawAwemeBinding.douyin_id == "dy-1"))
     assert binding is not None
     assert binding.binding_key.endswith(":20")
+
+
+def test_backend_api_scene_identity_cannot_create_a_poi_mapping(db_session: Session):
+    items = [{"account_id": "account", "scene_id": "different-scene", "status": 1,
+              "integration_content": {"user_info": {"aweme_id": "douyin"}}}]
+    records = records_from_backend_aweme_api_items(items)
+    upsert_backend_aweme_records(db_session, records, source_run_id="scene-source")
+    assert records[0]["raw_payload"] == items[0]
+    assert records[0]["poi_id"] is None
+    assert db_session.scalar(select(DimStorePoiMapping)) is None
+    items[0]["poi_id"] = "explicit-poi"
+    records = records_from_backend_aweme_api_items(items)
+    upsert_backend_aweme_records(db_session, records, source_run_id="explicit-source")
+    mapping = db_session.scalar(select(DimStorePoiMapping))
+    assert mapping.poi_id == "explicit-poi"
+    assert mapping.source_run_id == "explicit-source"
+    assert mapping.source_observed_at is not None
+    assert mapping.payload_fingerprint
 
 
 def test_backend_aweme_export_finds_recent_workbook(tmp_path: Path):

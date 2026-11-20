@@ -384,10 +384,11 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
   const loadReleasedStatements = async (context: ReplacementContext) => {
     setSelectedStatements([]);
     setInvoiceSummary(null);
+    const metadata = filterMeta ?? (await fetchSettlementFilterMeta()).data;
     const result = await loadSystemSelectedInvoiceGroup({
       currentMonth: currentPeriodMonth,
-      formalPeriodStartMonth: filterMeta?.formalPeriodStartMonth ?? currentPeriodMonth,
-      statementMonths: [...(filterMeta?.statementMonths ?? []), ...context.releasedStatementMonths],
+      formalPeriodStartMonth: metadata.formalPeriodStartMonth ?? currentPeriodMonth,
+      statementMonths: [...(metadata.statementMonths ?? []), ...context.releasedStatementMonths],
       storeId: context.storeId,
       metricScope: "MONTH",
     });

@@ -567,6 +567,22 @@ def _verify_month_calculation_input(session: Session, business_month: str, job: 
         return
     revisions = published_days_revisions(session, business_month)
     monthly = metadata.get("monthly_close_policy") == MONTHLY_CLOSE_POLICY
+    if monthly:
+        from apps.worker.account_qualification import frozen_version
+        from apps.worker.monthly_store_evidence import StoreEvidenceError, frozen_store_evidence
+
+        version_id = metadata.get("store_evidence_version_id")
+        if not version_id:
+            raise BillingSourceDriftError("monthly close predates frozen store evidence; queue a new versioned job")
+        try:
+            evidence = frozen_store_evidence(
+                session, qualification_version=frozen_version(session, business_month), version_id=version_id,
+            )
+        except StoreEvidenceError as exc:
+            raise BillingSourceDriftError("monthly close cannot verify its frozen store evidence") from exc
+        if evidence.content_sha256 != metadata.get("store_evidence_sha256"):
+            raise BillingSourceDriftError("monthly close store evidence checksum changed")
+        session.info["monthly_store_evidence_version_id"] = evidence.version_id
     if (metadata.get("calculation_input_protocol") != CALCULATION_INPUT_PROTOCOL or revisions is None
             or _calculation_inputs_digest(session, business_month, revisions, monthly=monthly)
             != metadata.get("calculation_input_sha256")):

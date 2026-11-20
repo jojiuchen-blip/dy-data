@@ -1,6 +1,9 @@
 """Explicit synthetic month-end evidence for scenarios extending into October."""
 from datetime import timedelta
 
+from sqlalchemy import select
+
+from apps.api.dy_api.models import DimStore, DimStorePoiMapping
 from apps.worker import account_qualification as qualification
 
 
@@ -9,6 +12,19 @@ def binding(account="owner-dual", *, kind="子机构门店号", status="认证�
         "account_id": account, "抖音昵称": nickname, "账号类型": kind, "抖音号绑定状态": status,
         "认证信息": "任意真实企业名称或商家认证账号",
     })
+
+
+def date_synthetic_store_sources(session, month="2026-10"):
+    """Give synthetic stores and their test POIs explicit pre-cutoff evidence."""
+    _, cutoff = qualification.month_bounds(month)
+    for store in session.scalars(select(DimStore)):
+        store.created_at = cutoff - timedelta(days=32)
+    for mapping in session.scalars(select(DimStorePoiMapping).where(
+        DimStorePoiMapping.mapping_source.in_(("test", "synthetic")),
+    )):
+        mapping.source_observed_at = cutoff - timedelta(hours=2)
+        mapping.source_run_id = "synthetic-month-end-store-sources-" + month
+    session.flush()
 
 
 def observe(session, records=None, *, month="2026-10", offset=60, duration=10, complete=True):

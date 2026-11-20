@@ -35,6 +35,7 @@ from dy_api.routes import (
     clues,
     dashboard,
     fee_admin,
+    finance_trial,
     feedback,
     jobs,
     mcp_auth,
@@ -174,6 +175,7 @@ def create_app(
     )
     app.include_router(meta.router, prefix="/api/v1", tags=["metadata"])
     app.include_router(dashboard.router, prefix="/api/v1", tags=["dashboard"])
+    app.include_router(finance_trial.router, prefix="/api/v1", tags=["finance-trial"])
     app.include_router(publications.router, prefix="/api/v1", tags=["dashboard-publications"])
     app.include_router(clues.router, prefix="/api/v1", tags=["clues"])
     app.include_router(feedback.router, prefix="/api/v1", tags=["feedback"])

@@ -13,7 +13,7 @@ from apps.api.dy_api.models import (
 )
 from apps.worker import account_qualification as q, month_close as close, settlement, settlement_rebuild as rebuild
 from apps.worker.repositories import upsert_raw_order, upsert_order_coupon, upsert_verify_record
-from account_qualification_fixtures import binding, observe
+from account_qualification_fixtures import binding, date_synthetic_store_sources, observe
 from test_data_settlement import _load_dual_fee_fixture, _add_scope_rule, _dual_time
 from test_month_close import _publish_day
 
@@ -55,6 +55,7 @@ def _seed(session, *, legacy=False, records=None, days=True, base=True):
     upsert_verify_record(session, "verify-middle", coupon_id="middle", verify_status="valid", verify_time=_dual_time(10, 20),
         poi_id="poi-verify", sku_id="sku-dual", source_run_id="source-middle")
     observe(session, records=records)
+    date_synthetic_store_sources(session, MONTH)
     if days:
         for day in close.month_business_dates(MONTH):
             _publish_day(session, day)

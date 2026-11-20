@@ -3,6 +3,7 @@
 import importlib.util
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 from alembic import command
@@ -41,11 +42,19 @@ def task_publication_migration():
     return module
 
 
+def trial_publication_migration():
+    path = ROOT / "alembic/versions/20261120_0073_fee_trial.py"
+    spec = importlib.util.spec_from_file_location("publication_migration_0073", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _ddl_lines(table, dialect):
     return sorted(line.strip().rstrip(",") for line in str(CreateTable(table).compile(dialect=dialect)).splitlines() if line.strip())
 
 
-def test_frozen_migration_has_no_runtime_import_and_matches_final_schema():
+def test_frozen_migration_has_no_runtime_import_and_matches_final_schema(monkeypatch):
     source = MIGRATION_PATH.read_text(encoding="utf-8")
     assert "from apps." not in source and "import apps." not in source
     frozen = migration().frozen_metadata_0063()
@@ -62,12 +71,29 @@ def test_frozen_migration_has_no_runtime_import_and_matches_final_schema():
     frozen.tables["dashboard_ranking_rounds"].append_column(sa.Column("task_under_observation", sa.Boolean(),
         nullable=False, server_default=sa.false()))
     later.frozen_metadata_0070().tables[later.VERIFICATION_TABLE].to_metadata(frozen)
+    # Replay the later migration's actual frozen DDL declarations. Capture
+    # its operations without deriving the expected schema from runtime tables.
+    trial = trial_publication_migration()
+    trial_source = Path(trial.__file__).read_text(encoding="utf-8")
+    assert "from apps." not in trial_source and "import apps." not in trial_source
+    before_trial = set(frozen.tables)
+    operations = SimpleNamespace(
+        create_table=lambda name, *columns, **options: sa.Table(name, frozen, *columns, **options),
+        create_index=lambda name, table, columns, **options: sa.Index(
+            name, *(frozen.tables[table].c[column] for column in columns), **options),
+        get_bind=lambda: SimpleNamespace(dialect=sqlite.dialect()),
+        execute=lambda statement: None,
+    )
+    monkeypatch.setattr(trial, "op", operations)
+    trial.upgrade()
+    assert set(frozen.tables) - before_trial == {"dashboard_publication_fee_trial"}
     assert set(frozen.tables) == set(metadata.tables)
     # Later additive migrations own these counters; the 0063 DDL stays frozen.
     later_sources = {
         "historical_sale_attribution_decisions", "account_qualification_version", "ranking_area_corrections",
         "settlement_month_close", "settlement_statement_balance", "settlement_statement_visibility",
         "raw_douyin_refund_records", "douyin_refund_event",
+        *trial.SOURCE_TABLES,
     }
     assert later_sources <= set(SOURCE_TABLES)
     assert set(migration().SOURCE_TABLES_0063) == set(SOURCE_TABLES) - later_sources
@@ -148,7 +174,7 @@ def test_clean_and_populated_full_postgres_chain_upgrade(full_pg_stack, populate
             session.commit()
     command.upgrade(config, "head")
     with Session(engine) as session:
-        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261119_0071"
+        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261120_0073"
         assert session.scalar(text("SELECT count(*) FROM dashboard_publication_source_counters")) == len(SOURCE_TABLES)
         assert source_fingerprint(session, "sales")
         if populated:
@@ -164,3 +190,37 @@ def test_clean_and_populated_full_postgres_chain_upgrade(full_pg_stack, populate
     columns = {column["name"]: column for column in inspect(engine).get_columns("dashboard_publication_sales_coupons")}
     assert columns["cycle_sort_days"]["nullable"] and columns["cycle_sort_days"]["default"] is None
     assert (columns["cycle_sort_days"]["type"].precision, columns["cycle_sort_days"]["type"].scale) == (24, 2)
+
+
+def test_production_0071_upgrades_to_monthly_evidence_and_trial(full_pg_stack):
+    config, engine = full_pg_stack
+    command.upgrade(config, "20261119_0071")
+    with Session(engine) as session:
+        session.add(DimStore(store_id="pre-trial-store", store_name="Original Store"))
+        session.commit()
+
+    command.upgrade(config, "head")
+    with Session(engine) as session:
+        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261120_0073"
+        assert session.get(DimStore, "pre-trial-store").store_name == "Original Store"
+    schema = inspect(engine)
+    assert {"monthly_store_evidence_snapshot", "dashboard_publication_fee_trial"} <= set(schema.get_table_names())
+    assert schema.get_pk_constraint("dashboard_publication_fee_trial")["constrained_columns"] == ["publication_id", "row_id"]
+    assert "uq_mses_qualification_content" in {
+        item["name"] for item in schema.get_unique_constraints("monthly_store_evidence_snapshot")
+    }
+    assert {"ck_pub_fee_trial_direction", "ck_pub_fee_trial_status", "ck_pub_fee_trial_known_amount"} <= {
+        item["name"] for item in schema.get_check_constraints("dashboard_publication_fee_trial")
+    }
+    trial_columns = {item["name"]: item for item in schema.get_columns("dashboard_publication_fee_trial")}
+    assert trial_columns["fee_amount_cent"]["nullable"] and trial_columns["base_amount_cent"]["nullable"]
+    assert "ix_pub_fee_trial_filter" in {item["name"] for item in schema.get_indexes("dashboard_publication_fee_trial")}
+    with engine.connect() as connection:
+        guards = set(connection.execute(text("""
+            SELECT t.tgname FROM pg_trigger t
+            JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname=current_schema() AND c.relname='monthly_store_evidence_snapshot'
+                AND NOT t.tgisinternal AND t.tgenabled <> 'D'
+        """)).scalars())
+        assert {"monthly_store_evidence_guard", "monthly_store_evidence_no_truncate"} <= guards
+        assert connection.scalar(text("SELECT count(*) FROM dashboard_publication_source_counters WHERE source_name='data_quality_issues'")) == 1

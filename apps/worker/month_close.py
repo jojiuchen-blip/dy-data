@@ -46,7 +46,7 @@ from apps.worker.historical_sale_attribution import month_decision_digest
 from apps.worker.account_qualification import (
     FIRST_MONTH, ROSTER_NAME_FIELDS, SALE_ACCOUNT_MATCH_POLICY, SALE_NAME_PATHS,
     AccountQualificationError, freeze_month, frozen_version,
-    month_bounds,
+    month_bounds, _store_evidence,
 )
 from apps.worker.priority_scheduler import _day_state, _priority_rows_for_day
 from apps.worker.repositories import queue_job_run, upsert_data_quality_issue
@@ -71,6 +71,7 @@ LOCKED = "locked"
 ACTIVE_REBUILD = "active_rebuild"
 READY = "ready"
 QUALIFICATION_NOT_READY = "account_qualification_not_ready"
+STORE_EVIDENCE_NOT_READY = "store_evidence_not_ready"
 CALCULATION_READY = "calculation_ready"
 CALCULATION_INPUT_PROTOCOL = "month-close-calculation-v1"
 MONTHLY_CLOSE_POLICY = "monthly-billing-sale-name-v3"
@@ -78,7 +79,7 @@ MONTHLY_CLOSE_POLICY = "monthly-billing-sale-name-v3"
 # Operator-visible readiness alert type.  One row per (business_month, state),
 # removed again as soon as the month becomes dispatchable.
 READINESS_ISSUE_TYPE = "month_close_source_not_ready"
-_NOT_READY_STATES = (WATERMARK_INCOMPLETE, NO_CURRENT_RESULTS, LOCKED, QUALIFICATION_NOT_READY)
+_NOT_READY_STATES = (WATERMARK_INCOMPLETE, NO_CURRENT_RESULTS, LOCKED, QUALIFICATION_NOT_READY, STORE_EVIDENCE_NOT_READY)
 
 _logger = logging.getLogger("apps.worker.month_close")
 
@@ -258,9 +259,11 @@ def _qualification_digest(session: Session, business_month: str) -> str | None:
         return None
     try:
         version = require_current_month_qualification(session, business_month)
+        evidence = _store_evidence(session, version)
     except AccountQualificationError:
         return None
-    return version.version_id + ":" + version.content_sha256
+    mapping_digest = ":" + evidence.content_sha256 if evidence is not None else ""
+    return version.version_id + ":" + version.content_sha256 + mapping_digest
 
 
 def require_current_month_qualification(session: Session, business_month: str) -> AccountQualificationVersion | None:
@@ -268,6 +271,8 @@ def require_current_month_qualification(session: Session, business_month: str) -
     if business_month < FIRST_MONTH:
         return None
     version = frozen_version(session, business_month)
+    from apps.worker.monthly_close_scope import monthly_fee_evidence_condition
+
     # Existing old/unpinned results may not pass a month-end preflight merely
     # because at least one other result uses the new basis.
     mismatch = session.scalar(select(SettlementFeeResult.fee_result_id).join(
@@ -280,14 +285,15 @@ def require_current_month_qualification(session: Session, business_month: str) -
     ).limit(1))
     if mismatch is not None:
         raise AccountQualificationError("current_fee_qualification_version_mismatch")
-    from apps.worker.monthly_close_scope import monthly_fee_evidence_condition
-
     unproven_sale = session.scalar(select(SettlementFeeResult.fee_result_id).join(
         SettlementFeeResultCurrent,
         SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.fee_result_id,
     ).where(
         SettlementFeeResult.original_business_month == business_month,
-        ~monthly_fee_evidence_condition(version),
+        ~monthly_fee_evidence_condition(
+            version, store_evidence_version_id=session.info.get("monthly_store_evidence_version_id"),
+            preserve_frozen_store_evidence=True,
+        ),
     ).limit(1))
     if unproven_sale is not None:
         raise AccountQualificationError("current_fee_sale_name_basis_mismatch")
@@ -299,6 +305,7 @@ def _calculation_inputs_digest(
 ) -> str:
     """Stream only the month's source graph; fee outputs never advance this key."""
     version = frozen_version(session, business_month)
+    store_evidence = _store_evidence(session, version)
     _, end = month_bounds(business_month)
     start = datetime.fromisoformat(f"{business_month}-01").replace(tzinfo=SHANGHAI).astimezone(timezone.utc)
     # Historical fee keys are source addresses only. Keep them after a current
@@ -339,16 +346,21 @@ def _calculation_inputs_digest(
     snapshot = session.get(AccountQualificationSnapshot, version.content_sha256)
     if snapshot is None:
         raise AccountQualificationError("qualification_snapshot_missing")
+    alias_identities = ({identity for name in relevant_names for identity in store_evidence.alias_identities(name)}
+                        if store_evidence is not None else set())
     frozen_pois, frozen_stores = set(), set()
     for record in snapshot.records_json:
         payload = record.get("raw_payload") or {}
         record_names = {str(payload[key]).strip() for key in ROSTER_NAME_FIELDS if payload.get(key)}
         if record.get("douyin_nickname"):
             record_names.add(str(record["douyin_nickname"]).strip())
-        if record_names & relevant_names:
+        if record_names & relevant_names or (record.get("account_id"), record.get("douyin_id")) in alias_identities:
             if record.get("poi_id"):
                 frozen_pois.add(str(record["poi_id"]).strip())
-            if record.get("store_id"):
+            if store_evidence is not None:
+                frozen_stores.update(store_evidence.account_store_ids(record.get("account_id")))
+                frozen_stores.update(store_evidence.poi_store_ids(record.get("poi_id")))
+            elif record.get("store_id"):
                 frozen_stores.add(str(record["store_id"]).strip())
     bindings = or_(RawAwemeBinding.account_id.in_(owners), RawAwemeBinding.douyin_nickname.in_(names))
     accounts = union(owners, select(RawAwemeBinding.account_id).where(bindings))
@@ -364,6 +376,8 @@ def _calculation_inputs_digest(
         "month": business_month,
         "days": revisions, "qualification": [version.version_id, version.content_sha256],
         "decisions": month_decision_digest(session, business_month)}, sort_keys=True).encode())
+    if store_evidence is not None:
+        digest.update(json.dumps(store_evidence.as_context(), sort_keys=True).encode())
 
     def feed(model, condition, fields, paths=(), extra=()):
         # JSON paths retain type/presence (missing != null != zero), while
@@ -407,14 +421,22 @@ def _calculation_inputs_digest(
          ("rule_version", "sku_id", "promotion_service_fee_rate", "management_service_fee_rate", "effective_date", "effective_at", "rule_status"))
     feed(SettlementScopeRule, SettlementScopeRule.owner_account_id.in_(select(DimSkuProductRule.owner_account_id).where(DimSkuProductRule.sku_id.in_(skus))) & (SettlementScopeRule.effective_month <= business_month),
          ("scope_rule_version", "effective_month", "owner_account_id", "sale_channel_normalized", "is_active"))
-    feed(DimAwemeAccount, DimAwemeAccount.account_id.in_(accounts),
-         ("account_id", "store_id", "binding_status", "valid_from", "valid_to"))
-    feed(RawAwemeBinding, bindings,
-         ("binding_key", "account_id", "douyin_id", "douyin_nickname", "poi_id", "binding_status"),
-         tuple((key,) for key in ("账号类型", "account_type", "craftsman_uid", "account_id_for_settlement", "bind_status", "bind_start_time", "bind_end_time", "poi_id")))
-    feed(DimStorePoiMapping, or_(DimStorePoiMapping.poi_id.in_(pois), DimStorePoiMapping.poi_id.in_(frozen_pois)),
-         ("poi_id", "store_id"))
-    feed(DimStore, or_(DimStore.store_id.in_(stores), DimStore.store_id.in_(frozen_stores)), ("store_id", "is_active"))
+    if store_evidence is None:
+        feed(DimAwemeAccount, DimAwemeAccount.account_id.in_(accounts),
+             ("account_id", "store_id", "binding_status", "valid_from", "valid_to"))
+        feed(RawAwemeBinding, bindings,
+             ("binding_key", "account_id", "douyin_id", "douyin_nickname", "poi_id", "binding_status"),
+             tuple((key,) for key in ("账号类型", "account_type", "craftsman_uid", "account_id_for_settlement", "bind_status", "bind_start_time", "bind_end_time", "poi_id")))
+    effective_pois = (select(RawDouyinVerifyRecord.poi_id).where(RawDouyinVerifyRecord.coupon_id.in_(all_coupons))
+                      if store_evidence is not None else pois)
+    mapping_scope = DimStorePoiMapping.poi_id.in_(effective_pois)
+    if store_evidence is None:
+        mapping_scope = or_(mapping_scope, DimStorePoiMapping.poi_id.in_(frozen_pois))
+    feed(DimStorePoiMapping, mapping_scope, ("poi_id", "store_id"))
+    effective_stores = (select(DimStorePoiMapping.store_id).where(mapping_scope)
+                        if store_evidence is not None else stores)
+    feed(DimStore, or_(DimStore.store_id.in_(effective_stores), DimStore.store_id.in_(frozen_stores)),
+         ("store_id", "is_active"))
     # The policy normalizes Unicode, whitespace and dash aliases. Evaluate
     # only distinct related names, then query their exact configuration keys.
     normalized_names = sorted({normalize_owner_account_name(name) for name in session.scalars(
@@ -601,6 +623,10 @@ def _ensure_certified_close_job(factory: sessionmaker, *, now: datetime | None) 
 def _queue_certified_month(
     session: Session, month: str, *, now: datetime | None,
 ) -> tuple[str, bool] | None:
+    from apps.worker.monthly_store_evidence import (
+        MissingStoreEvidenceError, StoreEvidenceError, freeze_store_evidence, frozen_store_evidence,
+    )
+
     prior = session.get(SettlementMonthClose, month)
     if prior is not None and prior.is_complete:
         return prior.source_job_id, False
@@ -616,6 +642,21 @@ def _queue_certified_month(
     prior = session.get(SettlementMonthClose, month, populate_existing=True)
     if prior is not None and prior.is_complete:
         return prior.source_job_id, False
+    try:
+        try:
+            evidence = frozen_store_evidence(session, qualification_version=qualification)
+        except MissingStoreEvidenceError:
+            # Replacing an existing trial needs its historical relationships.
+            # The reviewed snapshot is appended once by the evidence CLI.
+            # A newly calculated month can freeze its own dated sources here.
+            if prior is not None:
+                _sync_readiness_issue(session, month, STORE_EVIDENCE_NOT_READY)
+                return None
+            evidence = freeze_store_evidence(session, qualification_version=qualification)
+    except StoreEvidenceError:
+        _sync_readiness_issue(session, month, STORE_EVIDENCE_NOT_READY)
+        return None
+    session.info["monthly_store_evidence_version_id"] = evidence.version_id
     _sync_readiness_issue(session, month, CALCULATION_READY)
     watermark = _calculation_inputs_digest(session, month, revisions, monthly=True)
     job_id = month_close_job_id(month, watermark[:32])
@@ -632,6 +673,8 @@ def _queue_certified_month(
         "source_run_id": job_id,
         "source_watermark": watermark,
         "account_qualification_version_id": qualification.version_id,
+        "store_evidence_version_id": evidence.version_id,
+        "store_evidence_sha256": evidence.content_sha256,
         "calculation_input_protocol": CALCULATION_INPUT_PROTOCOL,
         "calculation_input_sha256": watermark,
         "month_close_phase": "calculate",

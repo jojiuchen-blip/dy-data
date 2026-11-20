@@ -370,6 +370,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
               <div>
                 <h2>当前账单确认</h2>
                 <p>推广服务费和管理服务费分别确认；金额与版本以正式账单接口为准。</p>
+                {statement ? <p>账期 {statement.month} · 生成时间 {statement.createdAt ? formatDateTime(statement.createdAt) : "未知"}</p> : null}
                 {statement?.firstVisibleAt && statement.confirmationDueAt ? (
                   <p>
                     版本 {statement.versionNo} · {formatDateTime(statement.firstVisibleAt)} 起可核对 · 最早 {formatDateTime(statement.confirmationDueAt)} 自动确认

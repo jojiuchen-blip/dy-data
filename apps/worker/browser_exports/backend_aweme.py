@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -184,6 +185,8 @@ def upsert_backend_aweme_records(
                     store_id=account_id,
                     poi_id=poi_id,
                     poi_name=record.get("account_name"),
+                    source_run_id=source_run_id,
+                    source_payload=raw_payload,
                 )
                 stats.upserted += 1
             upsert_aweme_account(
@@ -539,13 +542,14 @@ def records_from_backend_aweme_api_items(items: list[dict[str, Any]]) -> list[di
         subject_info = content.get("subject_info") or {}
         bind_form = content.get("bind_form") or {}
         account_id = _text(item.get("account_id") or user_info.get("user_id"))
-        scene_id = _text(item.get("scene_id"))
         record = {
             "douyin_nickname": _text(user_info.get("nickname") or bind_form.get("nick_name")),
             "douyin_id": _text(user_info.get("aweme_id")),
             "account_id": account_id,
             "account_name": _text(user_info.get("account_name") or item.get("scene_name") or bind_form.get("nick_name")),
-            "poi_id": scene_id if scene_id and scene_id != account_id else None,
+            # scene_id is an integration-scene identity. Its equality or
+            # difference from account_id does not establish a POI contract.
+            "poi_id": _text(item.get("poi_id")),
             "certified_subject_name": _text(subject_info.get("company_name")),
             "binding_status": backend_aweme_api_binding_status(item, user_info),
             "raw_payload": item,
@@ -944,22 +948,25 @@ def upsert_backend_store_poi_mapping(
     store_id: str,
     poi_id: str,
     poi_name: str | None,
+    source_run_id: str | None = None,
+    source_payload: dict[str, Any] | None = None,
 ) -> DimStorePoiMapping:
     existing = session.scalar(select(DimStorePoiMapping).where(DimStorePoiMapping.poi_id == poi_id).limit(1))
-    if existing is not None:
-        existing.store_id = store_id
-        existing.poi_name = poi_name or existing.poi_name
-        existing.mapping_source = "backend_aweme_export"
-        existing.is_primary = True
-        session.flush()
-        return existing
+    observed_at = datetime.now(UTC)
+    source = json.dumps(source_payload or {"store_id": store_id, "poi_id": poi_id},
+                        ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    fingerprint = hashlib.sha256(source.encode()).hexdigest()
     return upsert_store_poi_mapping(
         session,
         store_id,
         poi_id,
-        poi_name=poi_name,
+        poi_name=poi_name or (existing.poi_name if existing is not None else None),
         mapping_source="backend_aweme_export",
         is_primary=True,
+        source_run_id=source_run_id,
+        source_observed_at=observed_at,
+        payload_fingerprint=fingerprint,
+        observation_key="backend-aweme:" + str(source_run_id or "unknown") + ":" + fingerprint,
     )
 
 

@@ -20,7 +20,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Session
 
 from .schema import metadata
-from . import commission_types, period_readiness
+from . import commission_types, fee_trial, period_readiness
 
 
 FORMAL_START = "2026-08"
@@ -452,7 +452,9 @@ def build_settlement(session: Session, publication_id: str, cutoff: datetime) ->
             monthly.c.publication_id == publication_id, monthly.c.product_type != "all"))))]
     dimension_count, period_stats = _build_dimensions(session, publication_id, store, selectable_months, cutoff,
         product_types=reporting_types, readiness=readiness)
-    return {"row_count": ranking_count + monthly_count + dimension_count,
+    trial_rows = fee_trial.build(session, publication_id, months, readiness)
+    return {"row_count": ranking_count + monthly_count + dimension_count + trial_rows,
+            "trial_rows": trial_rows,
             "commission_types_reclassified": classify_types,
             "commission_type_coverage": commission_types.coverage(session, months),
             "commission_type_preserved_store_months": preserved_store_months,
