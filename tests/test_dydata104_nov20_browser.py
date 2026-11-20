@@ -229,7 +229,7 @@ def test_internal_trial_rechecks_scoped_admin_and_store_role_for_page_and_export
 
         # The page's existing pin is safe to retain while its identity changes.
         context.add_cookies([{"name": "dy_e2e_role", "value": "store", "url": nov20_web}])
-        for endpoint in ("trial", "trial/export"):
+        for endpoint in ("trial", "trial/export", "trial/stores", "trial/stores/export"):
             denied = context.request.get(f"{nov20_api[0]}/api/v1/admin/finance/{endpoint}", params={
                 "month": MONTH, "feeDirection": direction, "publication_id": nov20_api[1],
             })
@@ -286,6 +286,120 @@ def test_headquarters_trial_filters_direction_and_export_while_formal_ranking_is
         assert len(rows) == 1
         assert Decimal(rows[0][amount_field(rows[0], "试算费用")]) == Decimal("54.32")
         assert writes == []
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("entry", ["headquarters", "finance"])
+@pytest.mark.parametrize("role", ["admin", "admin_restricted"])
+@pytest.mark.parametrize("direction", ["PROMOTION", "MANAGEMENT"])
+def test_store_trial_summary_download_matches_coupon_facts_and_keeps_unknown_scope(
+    browser, nov20_api, nov20_web, tmp_path, entry, role, direction,
+):
+    context = browser.new_context(viewport={"width": 1440, "height": 1000})
+    context.add_cookies([{"name": "dy_e2e_role", "value": role, "url": nov20_web}])
+    page = context.new_page()
+    writes, errors = [], []
+    page.on("request", lambda request: writes.append(request.url)
+            if request.method not in {"GET", "HEAD", "OPTIONS"} else None)
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    try:
+        path = f"/ranking?periodKey={MONTH}" if entry == "headquarters" else (
+            f"/finance/{direction.lower()}?month={MONTH}"
+        )
+        with page.expect_response(lambda response: "/admin/finance/trial?" in response.url) as initial:
+            page.goto(nov20_web + path)
+        assert initial.value.status == 200, initial.value.text()
+        detail_response = initial.value
+        if entry == "headquarters" and direction == "MANAGEMENT":
+            page.get_by_role("button", name="试算费用方向", exact=True).click()
+            with page.expect_response(lambda response: "/admin/finance/trial?" in response.url
+                                      and "feeDirection=MANAGEMENT" in response.url) as changed:
+                page.get_by_role("option", name="管理服务费", exact=True).click()
+            detail_response = changed.value
+        detail = detail_response.json()["data"]
+        publication_id = detail_response.json()["meta"]["publication"]["id"]
+        assert detail["feeDirection"] == direction
+        panel = page.get_by_role("region", name="内部月度试算", exact=True)
+        with page.expect_response(lambda response: "/admin/finance/trial/stores?" in response.url) as grouped:
+            panel.get_by_role("tab", name="门店汇总", exact=True).click()
+        assert grouped.value.status == 200, grouped.value.text()
+        stores = grouped.value.json()["data"]
+        assert grouped.value.json()["meta"]["publication"]["id"] == publication_id
+        assert stores["month"] == MONTH and stores["feeDirection"] == direction
+        assert stores["summary"] == detail["summary"]
+        assert sum(item["calculatedFeeCent"] or 0 for item in stores["list"]) == (
+            detail["summary"]["calculatedFeeCent"]
+        )
+        for store in stores["list"]:
+            coupons = [item for item in detail["list"] if item["storeId"] == store["storeId"]]
+            known = [item for item in coupons if item["recordStatus"] == "CALCULATED"]
+            expected_amount = sum(item["feeAmountCent"] for item in known) if known else None
+            assert store["calculatedFeeCent"] == expected_amount
+            assert store["calculatedCouponCount"] == len({item["couponId"] for item in known})
+            assert store["pendingCouponCount"] == len({
+                item["couponId"] for item in coupons if item["recordStatus"] == "PENDING"
+            })
+            assert store["candidateCouponCount"] == len({item["couponId"] for item in coupons})
+        if role == "admin_restricted":
+            assert {item["storeId"] for item in stores["list"]} == {"store-1"}
+            expect(panel).not_to_contain_text("杭州滨江直营服务店")
+        else:
+            assert {item["storeId"] for item in stores["list"]} == {"store-1", "store-2", None}
+            unknown = next(item for item in stores["list"] if item["storeId"] is None)
+            assert unknown["calculatedFeeCent"] is None
+            assert unknown["pendingCouponCount"] == 1
+            unknown_row = panel.locator("tbody tr").filter(has_text="归属待核验")
+            expect(unknown_row).to_contain_text("待核验")
+            expect(unknown_row).not_to_contain_text("0.00")
+
+        with page.expect_response(lambda response: "/admin/finance/trial/stores/export?" in response.url) as exported:
+            with page.expect_download() as downloading:
+                panel.get_by_role("button", name="导出门店试算汇总", exact=True).click()
+        assert exported.value.status == 200, exported.value.text()
+        query = parse_qs(urlsplit(exported.value.url).query)
+        assert query["publication_id"] == [publication_id]
+        assert query["month"] == [MONTH] and query["feeDirection"] == [direction]
+        download = downloading.value
+        title = "推广服务费" if direction == "PROMOTION" else "管理服务费"
+        assert download.suggested_filename.startswith(f"{title}门店试算汇总_{MONTH}_")
+        raw, rows = read_csv(download)
+        store_rows = [row for row in rows if row["汇总层级"] == "门店"]
+        total_rows = [row for row in rows if row["汇总层级"] == "总计"]
+        assert len(store_rows) == stores["total"]
+        assert len(total_rows) == 1
+        assert {row["试算版本"] for row in rows} == {publication_id}
+        assert all(not column.isascii() for column in rows[0])
+        amount_column = amount_field(rows[0], "已算费用")
+        total = total_rows[0]
+        assert total["门店名称"] == "全部筛选范围"
+        assert Decimal(total[amount_column]) * 100 == detail["summary"]["calculatedFeeCent"]
+        assert sum(Decimal(row[amount_column] or "0") for row in store_rows) == Decimal(total[amount_column])
+        assert int(total["候选券数"]) == detail["summary"]["candidateCouponCount"]
+        assert int(total["待核券数"]) == detail["summary"]["pendingCouponCount"]
+        if role == "admin_restricted":
+            assert {row["门店ID"].removeprefix("'") for row in store_rows} == {"store-1"}
+        else:
+            unknown_csv = next(row for row in store_rows if row["门店名称"] == "归属待核验")
+            assert unknown_csv[amount_column] == ""
+            assert unknown_csv["门店ID"] == ""
+        evidence = evidence_directory(tmp_path)
+        label = f"{entry}-{role}-{direction}"
+        (evidence / f"{label}-{download.suggested_filename}").write_bytes(raw)
+        page.screenshot(path=str(evidence / f"nov20-summary-{label}.png"), full_page=True)
+
+        # Returning to the coupon view keeps its original scope and frozen pin.
+        with page.expect_response(lambda response: "/admin/finance/trial?" in response.url) as returned:
+            panel.get_by_role("tab", name="逐券明细", exact=True).click()
+        assert returned.value.status == 200
+        assert returned.value.json()["meta"]["publication"]["id"] == publication_id
+        assert returned.value.json()["data"] == detail
+        with page.expect_download() as coupon_download:
+            panel.get_by_role("button", name="导出内部试算明细", exact=True).click()
+        _, coupon_rows = read_csv(coupon_download.value)
+        assert len(coupon_rows) == detail["total"]
+        assert sum(Decimal(row[amount_field(row, "试算费用")] or "0") for row in coupon_rows) == Decimal(total[amount_column])
+        assert writes == [] and errors == []
     finally:
         context.close()
 
