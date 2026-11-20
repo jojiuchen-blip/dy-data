@@ -271,7 +271,7 @@ def require_current_month_qualification(session: Session, business_month: str) -
     if business_month < FIRST_MONTH:
         return None
     version = frozen_version(session, business_month)
-    from apps.worker.monthly_close_scope import monthly_fee_evidence_condition, unfrozen_monthly_fee_condition
+    from apps.worker.monthly_close_scope import monthly_fee_evidence_condition
 
     # Existing old/unpinned results may not pass a month-end preflight merely
     # because at least one other result uses the new basis.
@@ -280,7 +280,6 @@ def require_current_month_qualification(session: Session, business_month: str) -
         SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.fee_result_id,
     ).where(
         SettlementFeeResult.original_business_month == business_month,
-        unfrozen_monthly_fee_condition(),
         (SettlementFeeResult.account_qualification_version_id.is_(None)
          | (SettlementFeeResult.account_qualification_version_id != version.version_id)),
     ).limit(1))
@@ -291,9 +290,9 @@ def require_current_month_qualification(session: Session, business_month: str) -
         SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.fee_result_id,
     ).where(
         SettlementFeeResult.original_business_month == business_month,
-        unfrozen_monthly_fee_condition(),
         ~monthly_fee_evidence_condition(
             version, store_evidence_version_id=session.info.get("monthly_store_evidence_version_id"),
+            preserve_frozen_store_evidence=True,
         ),
     ).limit(1))
     if unproven_sale is not None:

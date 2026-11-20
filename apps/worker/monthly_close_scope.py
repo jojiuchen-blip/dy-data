@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -40,6 +40,7 @@ class MonthlyCloseScope:
 
 def monthly_fee_evidence_condition(
     version: AccountQualificationVersion | str, *, store_evidence_version_id: str | None = None,
+    preserve_frozen_store_evidence: bool = False,
 ) -> ColumnElement[bool]:
     """Accept fees only with the exact frozen name policy and attribution proof."""
     from apps.worker.monthly_store_evidence import store_evidence_condition
@@ -49,6 +50,11 @@ def monthly_fee_evidence_condition(
     content_sha256 = (select(AccountQualificationVersion.content_sha256).where(
         AccountQualificationVersion.version_id == version_id,
     ).scalar_subquery() if isinstance(version, str) else version.content_sha256)
+    store_condition = store_evidence_condition(
+        version, evidence["store_evidence"], pinned_version_id=store_evidence_version_id,
+    )
+    if preserve_frozen_store_evidence:
+        store_condition = or_(~unfrozen_monthly_fee_condition(), store_condition)
     return and_(
         func.coalesce(SettlementFeeResult.account_qualification_version_id, "") == version_id,
         func.coalesce(evidence["policy"].as_string(), "") == SALE_ACCOUNT_MATCH_POLICY,
@@ -60,7 +66,7 @@ def monthly_fee_evidence_condition(
         func.coalesce(evidence["source_field"].as_string(), "").in_(SALE_NAME_PATHS),
         SettlementFeeResult.sale_store_id.is_not(None),
         func.coalesce(evidence["store_id"].as_string(), "") == SettlementFeeResult.sale_store_id,
-        store_evidence_condition(version, evidence["store_evidence"], pinned_version_id=store_evidence_version_id),
+        store_condition,
     )
 
 
