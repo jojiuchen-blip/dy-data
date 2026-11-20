@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import re
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from decimal import Decimal
 from io import BytesIO, StringIO
@@ -236,7 +237,12 @@ def test_dydata105_xlsx_preview_abandon_has_zero_business_writes(
         context.close()
 
 
-@pytest.mark.parametrize("event_label,event_type,suffix", [("登记红冲", "RED_FLUSHED", "1"), ("登记作废", "VOIDED", "2")])
+@pytest.mark.parametrize("event_label,event_type,suffix", [
+    ("登记红冲", "RED_FLUSHED", "1"),
+    ("登记作废", "VOIDED", "2"),
+    pytest.param("登记红冲", "RED_FLUSHED", "3", id="RED_FLUSHED-delayed-metadata"),
+    pytest.param("登记作废", "VOIDED", "4", id="VOIDED-delayed-metadata"),
+])
 def test_dydata105_store_confirm_invoice_lifecycle_and_replacement_real_readback(
     browser, vite_live_admin_api_base_url, live_admin_fastapi_base_url,
     tmp_path, event_label, event_type, suffix,
@@ -244,6 +250,7 @@ def test_dydata105_store_confirm_invoice_lifecycle_and_replacement_real_readback
     """Actual buttons -> formal API -> database; native cancel makes zero writes."""
     factory = LIVE_ADMIN_SESSION_FACTORIES[live_admin_fastapi_base_url]
     key = "B105-flow-" + suffix
+    delay_metadata = suffix in {"3", "4"}
     with factory() as session:
         session.add(DimStore(store_id=key, store_name="合成开票闭环" + suffix, is_active=True))
         session.add(SettlementStatement(
@@ -307,7 +314,7 @@ def test_dydata105_store_confirm_invoice_lifecycle_and_replacement_real_readback
         datetime(2026, 11, 4, 12, tzinfo=timezone.utc),
         datetime(2027, 1, 5, 12, tzinfo=timezone.utc),
     )
-    page.clock.install(time=selector_times[int(suffix) - 1])
+    page.clock.install(time=selector_times[(int(suffix) - 1) % len(selector_times)])
     try:
         filters = context.request.get(live_admin_fastapi_base_url + "/api/v1/meta/filters")
         assert filters.status == 200, filters.text()
@@ -347,9 +354,34 @@ def test_dydata105_store_confirm_invoice_lifecycle_and_replacement_real_readback
         page.get_by_role("dialog").get_by_role("button", name="取消", exact=True).click()
         with factory() as session:
             assert session.scalar(select(func.count()).select_from(SettlementDispute).where(SettlementDispute.statement_id == key)) == 0
-        page.get_by_role("link", name="进入推广费开票", exact=True).click()
+        held_metadata = []
+        early_bill_requests = []
+        reload_errors = []
+        def hold_invoice_metadata(route):
+            if urlparse(page.url).path == "/settlement/invoice":
+                held_metadata.append(route)
+            else:
+                route.continue_()
+        def release_invoice_metadata():
+            assert held_metadata
+            with page.expect_response(lambda response: response.url.endswith("/api/v1/meta/filters")) as metadata:
+                held_metadata.pop(0).continue_()
+            assert metadata.value.status == 200
+        if delay_metadata:
+            page.route("**/api/v1/meta/filters", hold_invoice_metadata)
+            page.on("request", lambda request: early_bill_requests.append(request.url)
+                if urlparse(page.url).path == "/settlement/invoice" and "/api/v1/store-settlements" in request.url else None)
+            page.on("console", lambda message: reload_errors.append(message.text)
+                if "[user-facing-error] Hidden internal error" in message.text else None)
+        metadata_request = page.expect_request(lambda request: request.url.endswith("/api/v1/meta/filters")) if delay_metadata else nullcontext()
+        with metadata_request:
+            page.get_by_role("link", name="进入推广费开票", exact=True).click()
         expect(page.get_by_role("heading", name="开票确认", exact=True, level=1)).to_be_visible()
         invoice_info = page.locator(".store-finance-invoice-info")
+        if delay_metadata:
+            assert not early_bill_requests
+            expect(invoice_info).not_to_contain_text("¥123.45")
+            release_invoice_metadata()
         expect(invoice_info).to_contain_text("¥123.45")
         page.get_by_role("button", name="一键复制全部开票信息", exact=True).click()
         assert "比亚迪汽车销售有限公司" in page.evaluate("navigator.clipboard.readText()")
@@ -416,12 +448,20 @@ def test_dydata105_store_confirm_invoice_lifecycle_and_replacement_real_readback
         def accept_native(dialog):
             dialog.accept("合成系统外完成事实" if dialog.type == "prompt" else None)
         page.on("dialog", accept_native)
-        with page.expect_response(lambda response: response.request.method == "POST" and response.url.endswith("/lifecycle-events")) as lifecycle:
-            page.get_by_role("button", name=event_label, exact=True).click()
+        metadata_request = page.expect_request(lambda request: request.url.endswith("/api/v1/meta/filters")) if delay_metadata else nullcontext()
+        with metadata_request:
+            with page.expect_response(lambda response: response.request.method == "POST" and response.url.endswith("/lifecycle-events")) as lifecycle:
+                page.get_by_role("button", name=event_label, exact=True).click()
         assert lifecycle.value.status == 200, lifecycle.value.text()
         page.remove_listener("dialog", accept_native)
         expect(page.get_by_role("heading", name="开票确认", exact=True, level=1)).to_be_visible()
         page.get_by_role("button", name="重新加载释放账期", exact=True).click()
+        if delay_metadata:
+            release_invoice_metadata()
+            expect(invoice_info).to_contain_text("¥123.45")
+            # Retry only after the automatic restore has readable amounts.
+            # The first early reload must also have avoided internal errors.
+            page.get_by_role("button", name="重新加载释放账期", exact=True).click()
         expect(page.get_by_text("已重新加载全部释放账期。", exact=True)).to_be_visible()
         register("1060000000000000000" + suffix)
         with factory() as session:
@@ -430,6 +470,8 @@ def test_dydata105_store_confirm_invoice_lifecycle_and_replacement_real_readback
             assert old_allocations and all(not allocation.is_current for allocation in old_allocations)
             replacement = session.scalar(select(PromotionInvoice).where(PromotionInvoice.invoice_number == "1060000000000000000" + suffix, PromotionInvoice.is_current.is_(True)))
             assert replacement is not None and replacement.invoice_amount_cent == 12345
+        if delay_metadata:
+            assert not reload_errors
         page.screenshot(path=tmp_path / f"{event_type}-replacement.png", full_page=True)
     finally:
         context.close()
