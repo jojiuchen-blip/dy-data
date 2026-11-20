@@ -197,6 +197,20 @@ def test_month_input_ignores_later_sales_relationships_and_tracks_new_evidence(d
     assert month_close._calculation_inputs_digest(db_session, MONTH, revisions, monthly=True) == original
 
 
+def test_old_literal_name_keeps_its_proven_store_in_the_month_input_graph(db_session):
+    _seed(db_session, records=[binding(nickname="Current Literal")], days=False)
+    for order in db_session.scalars(select(RawDouyinOrder)):
+        order.owner_account_name = "Old Literal"
+        order.raw_payload = {**order.raw_payload, "owner_account_name": "Old Literal"}
+    version = q.freeze_month(db_session, MONTH, now=NOW)
+    store_evidence(db_session, version, accounts=[("owner-dual", "store-sale")],
+                   aliases=[("Old Literal", "owner-dual", "dy-owner")])
+    original = month_close._calculation_inputs_digest(db_session, MONTH, [], monthly=True)
+    db_session.get(DimStore, "store-sale").is_active = False
+    db_session.flush()
+    assert month_close._calculation_inputs_digest(db_session, MONTH, [], monthly=True) != original
+
+
 def test_new_peer_evidence_keeps_both_directions_of_prior_formal_bills(bootstrap_session, monkeypatch):
     monkeypatch.setenv("SETTLEMENT_MONTHLY_MODE", "true")
     factory = _seed(bootstrap_session, records=[binding(), binding(
