@@ -19,7 +19,7 @@ from apps.api.dy_api.dashboard_publications import fee_trial, finance
 from apps.api.dy_api.dashboard_publications.lifecycle import publish_module
 from apps.api.dy_api.dashboard_publications.schema import heads, metadata, runs
 from apps.api.dy_api.dashboard_publications.sources import MODULE_CONTRACT_VERSIONS
-from apps.api.dy_api.models import DimStore, RawDouyinOrder, SettlementStatement
+from apps.api.dy_api.models import DimStore, RawDouyinOrder, SettlementFeeResult, SettlementStatement
 from test_month_close_auto_bootstrap import MONTH, NOW, _quiet_sqlite_progress, _seed
 from test_month_close_auto_bootstrap import bootstrap_session  # noqa: F401
 from test_certified_month_close import _close
@@ -151,6 +151,14 @@ def test_real_month_builder_preserves_calculated_trial_with_zero_official_bills(
     _close(factory)
     with factory() as reader:
         assert reader.scalar(select(func.count()).select_from(SettlementStatement)) == 0
+    with factory.begin() as writer:
+        # Existing production trial calculations precede supplemental mapping
+        # snapshots. Strengthening formal eligibility must keep those amounts
+        # readable for internal verification while the proof is prepared.
+        for result in writer.scalars(select(SettlementFeeResult)):
+            evidence = dict(result.sale_account_match_json or {})
+            evidence.pop("store_evidence", None)
+            result.sale_account_match_json = evidence
     metadata.create_all(bootstrap_session.bind)
     publication = publish_module(factory, "settlement", finance.build_settlement, now=NOW + timedelta(days=1))
     with factory() as reader:

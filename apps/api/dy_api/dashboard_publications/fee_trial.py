@@ -38,11 +38,37 @@ def _identity(*parts):
     return sha256("\x1f".join(map(str, parts)).encode()).hexdigest()
 
 
+def _stored_trial_basis(qualification_version_id):
+    """Keep the already-calculated exact-name trial readable while mapping proof evolves.
+
+    The formal close applies its current supplemental evidence contract. An
+    internal trial may still display the prior calculation and its preserved
+    name/qualification/store basis, with all pending diagnostics kept visible.
+    """
+    from ..models import AccountQualificationVersion, SettlementFeeResult
+    from apps.worker.account_qualification import SALE_ACCOUNT_MATCH_POLICY, SALE_NAME_PATHS
+
+    evidence = SettlementFeeResult.sale_account_match_json
+    version_sha = select(AccountQualificationVersion.content_sha256).where(
+        AccountQualificationVersion.version_id == qualification_version_id).scalar_subquery()
+    return and_(SettlementFeeResult.result_status.in_((1, 2)),
+        SettlementFeeResult.account_qualification_version_id == qualification_version_id,
+        evidence["policy"].as_string() == SALE_ACCOUNT_MATCH_POLICY,
+        evidence["qualification_version_id"].as_string() == qualification_version_id,
+        evidence["content_sha256"].as_string() == version_sha,
+        func.coalesce(evidence["account_name"].as_string(), "") != "",
+        func.coalesce(evidence["account_id"].as_string(), "") != "",
+        func.coalesce(evidence["douyin_id"].as_string(), "") != "",
+        evidence["source_field"].as_string().in_(SALE_NAME_PATHS),
+        SettlementFeeResult.sale_store_id.is_not(None),
+        evidence["store_id"].as_string() == SettlementFeeResult.sale_store_id)
+
+
 def build(session, publication_id, months, readiness):
     """Capture existing authority and exact monthly diagnostics in the builder transaction."""
     from ..models import DataQualityIssue, DimSkuProductRule, DimStore, RawDouyinOrder, RawDouyinOrderCoupon, SettlementFeeAdjustment, SettlementFeeResult, SettlementMonthClose, SettlementStatementEntry, StoreFinanceProfile
     from .finance import dimensions
-    from apps.worker.monthly_close_scope import _is_confirmed_exclusion, monthly_fee_evidence_condition
+    from apps.worker.monthly_close_scope import _is_confirmed_exclusion
     from apps.worker.settlement import _sparse_authority_source, select_coupon_ids_by_verify_business_month
 
     stores = {item.store_id: item for item in session.scalars(select(DimStore))}
@@ -69,9 +95,14 @@ def build(session, publication_id, months, readiness):
         sku_id = func.coalesce(entry.c.sku_id_snapshot, result.c.sku_id)
         joined = joined.outerjoin(sku, sku.c.sku_id == sku_id)
         # A previous invalid current result must not reappear in a new trial.
-        evidence_ids = select(SettlementFeeResult.fee_result_id).where(monthly_fee_evidence_condition(close.qualification_version_id))
+        evidence_ids = select(SettlementFeeResult.fee_result_id).where(_stored_trial_basis(close.qualification_version_id))
+        from .commission_types import JINGCHENG_PRODUCT_TYPE, OFFICIAL_PRODUCT_TYPE
+        display_type = case(
+            (or_(source.c.source_product_type == OFFICIAL_PRODUCT_TYPE, sku.c.product_type == OFFICIAL_PRODUCT_TYPE), OFFICIAL_PRODUCT_TYPE),
+            (sku.c.product_type == JINGCHENG_PRODUCT_TYPE, JINGCHENG_PRODUCT_TYPE),
+            else_=case((source.c.source_product_type == "all", "unknown"), else_=source.c.source_product_type))
         query = select(source, func.coalesce(entry.c.coupon_id, result.c.coupon_id).label("coupon_id"),
-            sku_id.label("sku_id"), func.coalesce(sku.c.product_type, source.c.source_product_type).label("display_type"))
+            sku_id.label("sku_id"), display_type.label("display_type"))
         query = query.select_from(joined).where(or_(source.c.frozen_entry_id.is_not(None), source.c.source_kind == "adjustment",
             result.c.fee_result_id.in_(evidence_ids)))
         batch = []
@@ -146,7 +177,8 @@ def build(session, publication_id, months, readiness):
         session.execute(insert(dimensions).values(publication_id=publication_id, kind="fee_trial", key=month,
             value={"schema_version": 1, "source_input_sha256": close.source_input_sha256,
                 "source_success_days": facts.get("success_days"), "source_total_days": facts.get("total_days"),
-                "scope_unresolved": close.unscoped_issue_count > 0,
+                "scope_unresolved": close.unscoped_issue_count > 0 or any(
+                    item["record_status"] == "PENDING" and item["store_id"] is None for item in batch),
                 "source_job_id": close.source_job_id}))
         count += len(batch) + 1
     return count
