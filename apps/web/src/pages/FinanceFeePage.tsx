@@ -387,7 +387,7 @@ export function FinanceFeePage({ currentUser, feeDirection, searchParams }: Fina
 
       <ResourceNotice analysis loading={resourceBusy} error={isPublicationPeriodNotReady(financeResource.rawError) ? "本账期正式账单尚未就绪，授权管理员可在下方核对内部试算。" : summaryResource.error ?? invoiceResource.error} />
       <section className={`metric-grid finance-metric-grid ${feeDirection === "MANAGEMENT" ? "finance-metric-grid--four" : ""}`}>
-        <MetricCard label={feeDirection === "PROMOTION" ? "推广费总额" : "管理费总额"} value={currencyMetric(metrics?.statementTotalCent)} />
+        <MetricCard label={feeDirection === "PROMOTION" ? "正式账单推广费总额" : "正式账单管理费总额"} value={currencyMetric(metrics?.statementTotalCent)} meta="已生成正式账单合计" />
         <MetricCard label="已确认金额" value={currencyMetric(metrics?.confirmedAmountCent)} />
         <MetricCard label="待开票金额" value={currencyMetric(metrics?.pendingInvoiceAmountCent)} />
         <MetricCard label="已开票金额" value={currencyMetric(metrics?.issuedAmountCent)} />

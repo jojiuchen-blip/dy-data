@@ -11,7 +11,7 @@ import { DataTable, type Column } from "./DataTable";
 import { SelectField } from "./FormControls";
 import { MetricCard } from "./MetricCard";
 import { ResourceNotice, ResourcePanel } from "./ResourceState";
-import { Tabs } from "./SelectionControls";
+import { SegmentedControl } from "./SelectionControls";
 import { TablePagination } from "./TablePagination";
 
 interface InternalMonthlyTrialPanelProps {
@@ -147,7 +147,7 @@ function InternalTrialReadPanel({ currentUser, month, feeDirection, productType 
           <p>试算／待核验。金额仅覆盖已算费用，完整范围以核查结果为准。</p>
         </div>
       </div>
-      <Tabs ariaLabel="内部试算视图" value={view} onChange={setView} options={[{ value: "STORES", label: "门店汇总" }, { value: "COUPONS", label: "逐券明细" }]} />
+      <SegmentedControl className="segmented-control" ariaLabel="内部试算视图" value={view} onChange={setView} options={[{ value: "STORES", label: "门店汇总" }, { value: "COUPONS", label: "逐券明细" }]} />
       <div className="finance-workbench__filters">
         {!feeDirection ? <SelectField label="试算费用方向" value={direction} onChange={(value) => setDirection(value as FeeDirection)} options={[{ value: "PROMOTION", label: "推广服务费" }, { value: "MANAGEMENT", label: "管理服务费" }]} /> : null}
         <SelectField label="试算核算状态" value={recordStatus} onChange={(value) => setRecordStatus(value as MonthlyTrialRecordStatus | "")} options={[{ value: "", label: "全部核算状态" }, { value: "CALCULATED", label: "已算费用" }, { value: "PENDING", label: "待核验" }, { value: "EXCLUDED", label: "未计费" }]} />
