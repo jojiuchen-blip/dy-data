@@ -1,4 +1,4 @@
-> **2026-11-20　S4 / T3.1 进行中**　十月内部试算版本已在生产归档，后台逐券核算与门店范围写入 104。用户将浏览器实际下载验收留到稍后。[验收记录](../../verification/20261120-october-trial-release.md)
+> **2026-11-20　S4 / T3.1 进行中**　十月内部试算已在生产归档，后台逐券核算与门店范围写入 104。真实登录页面、中文下载、固定归档业务链接、历史账单切月刷新及发票详情技术验收已完成，负责人业务验收待确认，本轮补录验收文档。[验收记录](../../verification/20261120-october-trial-release.md) · [私有浏览器证据](https://linear.app/keith-lim/issue/DYDATA-104#comment-f8ee7c84-3a94-4696-9b71-a5863bbf84f9)
 
 > **2026-10-31 实施续作**：S4/T3.1保持进行中。五项与浏览器监督已集成，真实Chromium41项、CI接线261项和构建通过；最终全仓/严格PG/CI待收口。生产既有browser经正式Ops入口已恢复healthy，但缺组件心跳导致命令超时，真实观察补丁124项验证通过，待CI/部署。容量门禁未满足，阻断新部署，未改分类或确认；原373精确缺费修复独立推进，保护边界保留。详见[当前证据](../../verification/dydata-104-oct30-delivery.md)。
 
@@ -22,5 +22,5 @@
 | T0.1 | [账期默认值与现有下载反馈](sub-delivery-plan-dydata-104-followthrough-T0.1-filters-exports.md) | Codex | PR #50 / #51 合入统一 main | 并行实施 | - | DYDATA-104 E |
 | T1.1 | [自然月运行与结算链自动维护](sub-delivery-plan-dydata-104-followthrough-T1.1-monthly-maintenance.md) | Codex | 统一 main；先审阅既有执行器契约 | 待验收 | - | DYDATA-104 D |
 | T2.1 | [九月来源恢复、范围与费用对账](sub-delivery-plan-dydata-104-followthrough-T2.1-september-recovery.md) | 当前 Codex 会话 | 生产资源允许；受控工具与证据审阅通过 | 待验收 | - | 2026-10-21 九月30/30；452张待确认账单；两费各10,032.68元，逐层金额差异0，非九月保护指纹不变；八月不恢复 |
-| T3.1 | [静态首版发布与生产业务验收](sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md) | 主线程 Codex 集成；隔离 worker 执行；Keith 业务审核 | 最新104有效合同；来源/保护/资源门禁；最终集成CI | 进行中 | - | 2026-10-27：A月末资格、B阜阳8券/票据、C长期SKU、D四类导入/全部导出、E全范围集成生产验收均未结项；本地d206a65含PR63/65/64，各自CI不代替新规则和新集成。 DYDATA-104 F；2026-10-21 12:47 f66cdd5d上线，九月月榜及单店被八月误阻断已修复；完整CI4098通过/284跳过、真实PG和生产两页/月份切换验收通过；九月两费与452账单一致，八月累计继续保护；保留整体用户业务验收 |
+| T3.1 | [静态首版发布与生产业务验收](sub-delivery-plan-dydata-104-followthrough-T3.1-release-acceptance.md) | 主线程 Codex 集成；隔离 worker 执行；Keith 业务审核 | 最新104有效合同；来源/保护/资源门禁；最终集成CI | 进行中 | - | 2026-11-20：十月归属核查、同源复算、内部试算查询和中文导出已部署；生产浏览器、固定归档业务链接、历史账单切月刷新及发票详情技术核验通过。受控逐店补证与负责人业务验收继续跟进。 |
 
