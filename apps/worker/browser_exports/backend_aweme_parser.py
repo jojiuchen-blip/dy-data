@@ -44,6 +44,8 @@ HEADER_ALIASES: dict[str, tuple[str, ...]] = {
     ),
     "binding_status": ("\u6296\u97f3\u53f7\u7ed1\u5b9a\u72b6\u6001", "\u7ed1\u5b9a\u72b6\u6001", "bind_status", "binding_status"),
 }
+IDENTIFIER_FIELDS = {"douyin_id", "account_id", "poi_id"}
+IDENTIFIER_HEADERS = {alias.casefold() for field in IDENTIFIER_FIELDS for alias in HEADER_ALIASES[field]}
 
 
 def parse_backend_aweme_workbook(path: str | Path) -> list[dict[str, Any]]:
@@ -62,11 +64,13 @@ def parse_backend_aweme_workbook(path: str | Path) -> list[dict[str, Any]]:
     headers = [_cell_text(value) for value in rows[0]]
     records: list[dict[str, Any]] = []
     for raw_row in rows[1:]:
-        raw_payload = {
-            header: _cell_text(raw_row[index]) if index < len(raw_row) else ""
-            for index, header in enumerate(headers)
-            if header
-        }
+        raw_payload = {}
+        for index, header in enumerate(headers):
+            if not header:
+                continue
+            value = raw_row[index] if index < len(raw_row) else None
+            normalize = _identifier_text if header.casefold() in IDENTIFIER_HEADERS else _cell_text
+            raw_payload[header] = normalize(value)
         if not any(raw_payload.values()):
             continue
         record = {
@@ -107,11 +111,16 @@ def parse_backend_aweme_workbook(path: str | Path) -> list[dict[str, Any]]:
 def _alias_value(raw_payload: dict[str, str], field: str) -> str | None:
     aliases = {alias.casefold() for alias in HEADER_ALIASES[field]}
     values = {value for header, raw in raw_payload.items()
-              if header.casefold() in aliases and (value := text(raw))}
+              if header.casefold() in aliases
+              and (value := (_identifier_text(raw) if field in IDENTIFIER_FIELDS else _cell_text(raw)))}
     if len(values) > 1:
         raise ValueError("conflicting_backend_aweme_source_fields:" + field)
     return next(iter(values), None)
 
 
 def _cell_text(value: Any) -> str:
+    return "" if value is None else str(value).strip()
+
+
+def _identifier_text(value: Any) -> str:
     return text(value) or ""
