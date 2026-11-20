@@ -347,13 +347,15 @@ def _calculation_inputs_digest(
     snapshot = session.get(AccountQualificationSnapshot, version.content_sha256)
     if snapshot is None:
         raise AccountQualificationError("qualification_snapshot_missing")
+    alias_identities = ({identity for name in relevant_names for identity in store_evidence.alias_identities(name)}
+                        if store_evidence is not None else set())
     frozen_pois, frozen_stores = set(), set()
     for record in snapshot.records_json:
         payload = record.get("raw_payload") or {}
         record_names = {str(payload[key]).strip() for key in ROSTER_NAME_FIELDS if payload.get(key)}
         if record.get("douyin_nickname"):
             record_names.add(str(record["douyin_nickname"]).strip())
-        if record_names & relevant_names:
+        if record_names & relevant_names or (record.get("account_id"), record.get("douyin_id")) in alias_identities:
             if record.get("poi_id"):
                 frozen_pois.add(str(record["poi_id"]).strip())
             if store_evidence is not None:
