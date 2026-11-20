@@ -97,15 +97,20 @@ def parse_backend_aweme_workbook(path: str | Path) -> list[dict[str, Any]]:
         "record_count": len(records), "export_row_count": nonempty,
         "workbook_sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest(),
         "schema_present": required, "scope": "backend_export",
+        "source_columns": {
+            field: [header for header in headers if header.casefold() in {alias.casefold() for alias in aliases}]
+            for field, aliases in HEADER_ALIASES.items()
+        },
     })
 
 
 def _alias_value(raw_payload: dict[str, str], field: str) -> str | None:
-    for alias in HEADER_ALIASES[field]:
-        value = text(raw_payload.get(alias))
-        if value:
-            return value
-    return None
+    aliases = {alias.casefold() for alias in HEADER_ALIASES[field]}
+    values = {value for header, raw in raw_payload.items()
+              if header.casefold() in aliases and (value := text(raw))}
+    if len(values) > 1:
+        raise ValueError("conflicting_backend_aweme_source_fields:" + field)
+    return next(iter(values), None)
 
 
 def _cell_text(value: Any) -> str:

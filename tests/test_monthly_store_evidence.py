@@ -1,7 +1,9 @@
 from datetime import UTC, date, datetime
+import json
 
 import pytest
 from sqlalchemy import select, update
+from sqlalchemy.orm import sessionmaker
 
 from apps.api.dy_api.models import (
     AccountQualificationObservation,
@@ -12,6 +14,7 @@ from apps.api.dy_api.models import (
     DimStorePoiMapping,
     JobImpact,
     MonthlyStoreEvidenceSnapshot,
+    RawAwemeBinding,
 )
 from apps.worker.account_qualification import digest
 from apps.worker.monthly_store_evidence import (
@@ -20,6 +23,7 @@ from apps.worker.monthly_store_evidence import (
     freeze_store_evidence,
     frozen_store_evidence,
     preview_store_evidence,
+    store_evidence_condition,
 )
 
 
@@ -148,3 +152,88 @@ def test_orm_cannot_rewrite_frozen_mapping(db_session):
     row.records_json = [{"tampered": True}]
     with pytest.raises(ValueError, match="immutable"):
         db_session.flush()
+
+
+def test_aliases_keep_exact_identity_conflicts_without_normalizing_names(db_session):
+    version = make_version(db_session)
+    alias = fact(kind="alias", key="literal ｜ historical name", account_id="account-1", douyin_id="name-1")
+    alias.pop("store_id")
+    result = freeze_store_evidence(db_session, qualification_version=version, facts=[alias])
+    assert result.alias_identities("literal ｜ historical name") == {("account-1", "name-1")}
+    assert result.alias_identities("literal 丨 historical name") == set()
+    assert result.account_store_ids("account-1") == set()
+    bad_alias = {**alias, "douyin_id": "some-other-identity"}
+    with pytest.raises(StoreEvidenceError, match="alias_identity_outside_frozen_roster"):
+        freeze_store_evidence(db_session, qualification_version=version, facts=[bad_alias])
+
+
+def test_latest_scope_admits_new_evidence_and_explicit_pin_admits_exact_previous_version(db_session):
+    version = make_version(db_session)
+    first = freeze_store_evidence(db_session, qualification_version=version)
+    db_session.add(RawAwemeBinding(binding_key="first", raw_payload={"map": first.as_context()}))
+    second = freeze_store_evidence(db_session, qualification_version=version, facts=[fact()])
+    db_session.add(RawAwemeBinding(binding_key="second", raw_payload={"map": second.as_context()}))
+    db_session.flush()
+    expression = RawAwemeBinding.raw_payload["map"]
+    query = select(RawAwemeBinding.binding_key)
+    assert set(db_session.scalars(query.where(store_evidence_condition(version, expression)))) == {"second"}
+    assert set(db_session.scalars(query.where(store_evidence_condition(
+        version, expression, pinned_version_id=first.version_id)))) == {"first"}
+    assert set(db_session.scalars(query.where(store_evidence_condition(
+        version, expression, pinned_version_id="missing-pin")))) == set()
+
+
+def test_historical_tombstone_invalidates_stale_live_map(db_session):
+    version = make_version(db_session)
+    db_session.add(DimStorePoiMapping(poi_id="poi-1", store_id="store-a", mapping_source="verified-source",
+        source_observed_at=datetime(2026, 10, 1, tzinfo=UTC)))
+    db_session.add(JobImpact(impact_key="removed", entity_type="store_poi_mapping", entity_key="poi-1",
+        old_values_json={"store_id": "store-a"}, new_values_json={}, affected_closure_json={},
+        change_kind="delete", created_at=datetime(2026, 10, 15, tzinfo=UTC)))
+    db_session.flush()
+    assert freeze_store_evidence(db_session, qualification_version=version).poi_store_ids("poi-1") == set()
+
+
+def test_equal_time_contrary_history_is_kept_as_conflicting_evidence(db_session):
+    version = make_version(db_session)
+    for store in ("store-a", "store-b"):
+        db_session.add(JobImpact(impact_key="same-time-" + store, entity_type="store_poi_mapping", entity_key="poi-1",
+            old_values_json={}, new_values_json={"store_id": store}, affected_closure_json={},
+            change_kind="update", created_at=datetime(2026, 10, 15, tzinfo=UTC)))
+    db_session.flush()
+    assert freeze_store_evidence(db_session, qualification_version=version).poi_store_ids("poi-1") == {"store-a", "store-b"}
+
+
+def test_reviewed_period_fact_allows_late_imported_historical_catalogue(db_session):
+    version = make_version(db_session)
+    db_session.add(DimStore(store_id="late-import", store_name="late imported historical catalogue",
+        created_at=datetime(2026, 11, 10, tzinfo=UTC)))
+    db_session.flush()
+    result = freeze_store_evidence(db_session, qualification_version=version, facts=[fact("late-import")])
+    assert result.account_store_ids("account-1") == {"late-import"}
+
+
+def test_ops_preview_apply_and_repeated_apply_bind_exact_reviewed_digest(db_session, monkeypatch, tmp_path, capsys):
+    from scripts.ops import freeze_monthly_store_evidence as cli
+
+    version = make_version(db_session)
+    version_sha = version.content_sha256
+    db_session.commit()
+    factory = sessionmaker(bind=db_session.get_bind())
+    monkeypatch.setattr(cli, "get_session_factory", lambda: factory)
+    path = tmp_path / "reviewed-facts.json"
+    path.write_text(json.dumps({"business_month": "2026-10",
+        "qualification_content_sha256": version_sha, "reviewed_by": "test-reviewer", "facts": [fact()]}))
+    args = ["--month", "2026-10", "--qualification-sha256", version_sha, "--facts-file", str(path)]
+    assert cli.main(args) == 0
+    preview = json.loads(capsys.readouterr().out)
+    assert preview["applied"] is False
+    assert db_session.scalar(select(MonthlyStoreEvidenceSnapshot)) is None
+    assert cli.main(args + ["--apply", "--preview-sha256", preview["content_sha256"]]) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert first["applied"] is True
+    assert cli.main(args + ["--apply", "--preview-sha256", preview["content_sha256"]]) == 0
+    assert json.loads(capsys.readouterr().out)["version_id"] == first["version_id"]
+    db_session.expire_all()
+    row = db_session.get(MonthlyStoreEvidenceSnapshot, first["version_id"])
+    assert row.records_json[0]["reviewed_by"] == "test-reviewer"

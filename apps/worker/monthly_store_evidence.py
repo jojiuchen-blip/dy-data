@@ -32,6 +32,7 @@ from apps.api.dy_api.models import (
 POLICY = "settlement-monthend-store-evidence-v1"
 MAX_FACTS = 20_000
 MAX_HISTORY_ROWS = 100_000
+MAX_EVIDENCE_BYTES = 16 * 1024 * 1024
 
 
 class StoreEvidenceError(RuntimeError):
@@ -179,6 +180,9 @@ def _validated_fact(fact: dict, *, version: AccountQualificationVersion,
     reference, sha = fact.get("source_reference"), fact.get("source_sha256")
     if not isinstance(reference, str) or not reference.strip() or not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
         raise StoreEvidenceError("store_evidence_source_proof_missing")
+    source_values = fact.get("source_values")
+    if source_values is not None and (not isinstance(source_values, dict) or _digest(source_values) != sha):
+        raise StoreEvidenceError("store_evidence_source_digest_mismatch")
     try:
         observed = _time(fact["observed_at"])
         valid_from = date.fromisoformat(fact["valid_from"])
@@ -194,7 +198,9 @@ def _validated_fact(fact: dict, *, version: AccountQualificationVersion,
     return {"kind": kind, "key": key, **identity_fields,
             "source_reference": reference.strip(), "source_sha256": sha,
             "observed_at": observed.isoformat(), "valid_from": valid_from.isoformat(),
-            "valid_to": valid_to.isoformat() if valid_to else None}
+            "valid_to": valid_to.isoformat() if valid_to else None,
+            **({"source_values": source_values} if source_values is not None else {}),
+            **({"reviewed_by": str(fact["reviewed_by"])} if fact.get("reviewed_by") else {})}
 
 
 def _source_fact(kind: str, key: str, store_id: str, *, source: str,
@@ -202,7 +208,7 @@ def _source_fact(kind: str, key: str, store_id: str, *, source: str,
                   valid_from: date | None = None, valid_to: date | None = None) -> dict:
     observed = _utc(observed_at)
     return {"kind": kind, "key": key, "store_id": store_id,
-            "source_reference": source, "source_sha256": _digest(values),
+            "source_reference": source, "source_sha256": _digest(values), "source_values": values,
             "observed_at": observed.isoformat(),
             "valid_from": (valid_from or observed.date()).isoformat(),
             "valid_to": valid_to.isoformat() if valid_to else None}
@@ -224,9 +230,6 @@ def preview_store_evidence(session: Session, *, qualification_version: AccountQu
     cutoff = _utc(qualification_version.cutoff_at)
     if session.get(AccountQualificationVersion, qualification_version.version_id) is None:
         raise StoreEvidenceError("qualification_version_missing")
-    # Store creation dates bound existence. A matching identifier by itself is
-    # never an account-to-store relationship.
-    stores = set(session.scalars(select(DimStore.store_id).where(DimStore.created_at < cutoff)))
     provided = list(facts)
     candidates = []
     for row in records:
@@ -271,15 +274,17 @@ def preview_store_evidence(session: Session, *, qualification_version: AccountQu
     ).order_by(JobImpact.created_at.desc(), JobImpact.id.desc()).limit(MAX_HISTORY_ROWS + 1)).all()
     if len(history) > MAX_HISTORY_ROWS:
         raise StoreEvidenceError("store_evidence_history_limit")
-    seen_pois = set()
+    latest_history_time: dict[str, datetime] = {}
     for row in history:
-        if row.entity_key in seen_pois:
+        observed = _utc(row.created_at)
+        if row.entity_key in latest_history_time and observed != latest_history_time[row.entity_key]:
             continue
-        seen_pois.add(row.entity_key)
+        latest_history_time[row.entity_key] = observed
         values = row.new_values_json or {}
-        if values.get("store_id"):
-            dated_poi_facts.append(_source_fact("poi", row.entity_key, str(values["store_id"]),
-                source="job_impacts/" + row.impact_key, observed_at=row.created_at, values=values))
+        # A tombstone advances the key's time even though it grants no store.
+        # Equal-time contrary assertions both survive for conflict handling.
+        dated_poi_facts.append(_source_fact("poi", row.entity_key, str(values.get("store_id") or ""),
+            source="job_impacts/" + row.impact_key, observed_at=observed, values=values))
     latest_poi_time: dict[str, datetime] = {}
     for candidate in dated_poi_facts:
         key, observed = candidate["key"], _time(candidate["observed_at"])
@@ -288,17 +293,28 @@ def preview_store_evidence(session: Session, *, qualification_version: AccountQu
                       if _time(row["observed_at"]) == latest_poi_time[row["key"]])
     if len(candidates) + len(provided) > MAX_FACTS:
         raise StoreEvidenceError("store_evidence_fact_limit")
+    store_ids = {str(row.get("store_id") or "") for row in candidates + provided
+                 if row.get("kind") != "alias"}
+    # An explicitly reviewed historical catalogue may be imported later. Its
+    # fact supplies the period proof. Automatically inferred state must also
+    # prove that the master record already existed before the cutoff.
+    stores = set(session.scalars(select(DimStore.store_id).where(DimStore.store_id.in_(store_ids))))
+    historical_stores = set(session.scalars(select(DimStore.store_id).where(
+        DimStore.store_id.in_(store_ids), DimStore.created_at < cutoff,
+    )))
     validated = [_validated_fact(row, version=qualification_version, accounts=accounts,
                                 pois=pois, stores=stores, identities=identities) for row in provided]
     for candidate in candidates:
         try:
             validated.append(_validated_fact(candidate, version=qualification_version,
-                                            accounts=accounts, pois=pois, stores=stores, identities=identities))
+                                            accounts=accounts, pois=pois, stores=historical_stores, identities=identities))
         except StoreEvidenceError as exc:
             if str(exc) not in {"store_evidence_store_missing", "store_evidence_outside_business_period"}:
                 raise
     unique = {_digest(row): row for row in validated}
     payload = _payload(qualification_version, [unique[key] for key in sorted(unique)])
+    if len(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()) > MAX_EVIDENCE_BYTES:
+        raise StoreEvidenceError("store_evidence_size_limit")
     return {**payload, "content_sha256": _digest(payload)}
 
 
