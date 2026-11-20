@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from functools import cached_property
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, exists, false, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -33,6 +34,7 @@ POLICY = "settlement-monthend-store-evidence-v1"
 MAX_FACTS = 20_000
 MAX_HISTORY_ROWS = 100_000
 MAX_EVIDENCE_BYTES = 16 * 1024 * 1024
+SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
 class StoreEvidenceError(RuntimeError):
@@ -81,8 +83,22 @@ class FrozenStoreEvidence:
             index.setdefault((row["kind"], row["key"]), set()).add(row["store_id"])
         return {key: frozenset(stores) for key, stores in index.items()}
 
-    def alias_identities(self, name: str) -> frozenset[tuple[str, str]]:
-        return self._alias_index.get(name, frozenset())
+    def alias_identities(self, name: str, *, at: date | datetime | None = None) -> frozenset[tuple[str, str]]:
+        if at is None:
+            return self._alias_index.get(name, frozenset())
+        day = _utc(at).astimezone(SHANGHAI).date() if isinstance(at, datetime) else at
+        return frozenset((account, douyin) for account, douyin, start, end in self._alias_periods.get(name, ())
+                         if start <= day and (end is None or day <= end))
+
+    @cached_property
+    def _alias_periods(self) -> dict[str, tuple[tuple[str, str, date, date | None], ...]]:
+        periods: dict[str, list] = {}
+        for row in self.records:
+            if row["kind"] == "alias":
+                start = date.fromisoformat(row["valid_from"])
+                end = date.fromisoformat(row["valid_to"]) if row["valid_to"] else None
+                periods.setdefault(row["key"], []).append((row["account_id"], row["douyin_id"], start, end))
+        return {key: tuple(values) for key, values in periods.items()}
 
     @cached_property
     def _alias_index(self) -> dict[str, frozenset[tuple[str, str]]]:
@@ -191,7 +207,9 @@ def _validated_fact(fact: dict, *, version: AccountQualificationVersion,
         raise StoreEvidenceError("store_evidence_period_proof_missing") from None
     last_day = date.fromisoformat(version.business_month + "-01").replace(day=28)
     last_day = (last_day + timedelta(days=4)).replace(day=1) - timedelta(days=1)
-    if observed >= _utc(version.cutoff_at) or valid_from > last_day or (valid_to and valid_to < last_day):
+    if (observed >= _utc(version.cutoff_at) or valid_from > last_day
+            or (valid_to and valid_to < valid_from)
+            or (kind != "alias" and valid_to and valid_to < last_day)):
         raise StoreEvidenceError("store_evidence_outside_business_period")
     identity_fields = ({"account_id": identity[0], "douyin_id": identity[1]}
                        if kind == "alias" else {"store_id": store})
@@ -200,6 +218,7 @@ def _validated_fact(fact: dict, *, version: AccountQualificationVersion,
             "observed_at": observed.isoformat(), "valid_from": valid_from.isoformat(),
             "valid_to": valid_to.isoformat() if valid_to else None,
             **({"source_values": source_values} if source_values is not None else {}),
+            **({"source": str(fact["source"])} if fact.get("source") else {}),
             **({"reviewed_by": str(fact["reviewed_by"])} if fact.get("reviewed_by") else {})}
 
 

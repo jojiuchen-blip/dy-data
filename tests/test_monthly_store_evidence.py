@@ -167,6 +167,21 @@ def test_aliases_keep_exact_identity_conflicts_without_normalizing_names(db_sess
         freeze_store_evidence(db_session, qualification_version=version, facts=[bad_alias])
 
 
+def test_known_alias_period_uses_order_sale_day_in_shanghai_independently_of_month_end(db_session):
+    version = make_version(db_session)
+    alias = fact(kind="alias", key="old literal name", account_id="account-1", douyin_id="name-1",
+                 valid_to="2026-10-10")
+    alias.pop("store_id")
+    result = freeze_store_evidence(db_session, qualification_version=version, facts=[alias])
+    assert result.alias_identities("old literal name", at=date(2026, 10, 5)) == {("account-1", "name-1")}
+    assert result.alias_identities("old literal name", at=date(2026, 10, 20)) == set()
+    assert result.alias_identities("old literal name", at=datetime(2026, 10, 10, 16, tzinfo=UTC)) == set()
+    assert result.alias_identities("old literal name") == {("account-1", "name-1")}
+    with pytest.raises(StoreEvidenceError, match="outside_business_period"):
+        freeze_store_evidence(db_session, qualification_version=version,
+                              facts=[{**alias, "valid_from": "2026-10-11"}])
+
+
 def test_latest_scope_admits_new_evidence_and_explicit_pin_admits_exact_previous_version(db_session):
     version = make_version(db_session)
     first = freeze_store_evidence(db_session, qualification_version=version)
