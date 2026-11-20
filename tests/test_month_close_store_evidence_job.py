@@ -4,13 +4,34 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import select
 
-from apps.api.dy_api.models import DimStore, JobRun, SettlementMonthClose, SettlementStatement
+from apps.api.dy_api.models import DimStore, JobRun, MonthlyStoreEvidenceSnapshot, SettlementMonthClose, SettlementStatement
 from apps.worker import month_close, settlement_rebuild
-from apps.worker.account_qualification import frozen_version
+from apps.worker.account_qualification import freeze_month, frozen_version
 from apps.worker.billing_source_capture import BillingSourceDriftError
 from apps.worker.monthly_store_evidence import freeze_store_evidence
 from test_month_close_auto_bootstrap import MONTH, NOW, _quiet_sqlite_progress, _seed
 from test_month_close_auto_bootstrap import bootstrap_session  # noqa: F401
+
+
+def test_upgrade_keeps_existing_incomplete_month_until_its_reviewed_sources_are_frozen(bootstrap_session, monkeypatch):
+    monkeypatch.setenv("SETTLEMENT_MONTHLY_MODE", "true")
+    factory = _seed(bootstrap_session)
+    with factory.begin() as session:
+        qualification = freeze_month(session, MONTH, now=NOW)
+        session.add(SettlementMonthClose(
+            business_month=MONTH, qualification_version_id=qualification.version_id,
+            source_input_sha256="a" * 64, source_job_id="previous-close",
+            is_complete=False, blocked_store_ids=["store-sale"], unscoped_issue_count=1,
+        ))
+    assert month_close.ensure_month_close_job(factory, now=NOW) is None
+    with factory.begin() as session:
+        assert session.scalar(select(MonthlyStoreEvidenceSnapshot.version_id)) is None
+        assert session.get(SettlementMonthClose, MONTH).source_job_id == "previous-close"
+        reviewed = freeze_store_evidence(session, qualification_version=frozen_version(session, MONTH))
+    job_id = month_close.ensure_month_close_job(factory, now=NOW)
+    assert job_id and month_close.ensure_month_close_job(factory, now=NOW) == job_id
+    with factory() as session:
+        assert session.get(JobRun, job_id).metadata_json["store_evidence_version_id"] == reviewed.version_id
 
 
 def test_queued_close_keeps_its_mapping_until_a_new_job_is_created(bootstrap_session, monkeypatch):

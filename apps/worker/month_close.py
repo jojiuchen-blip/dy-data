@@ -646,6 +646,12 @@ def _queue_certified_month(
         try:
             evidence = frozen_store_evidence(session, qualification_version=qualification)
         except MissingStoreEvidenceError:
+            # Replacing an existing trial needs its historical relationships.
+            # The reviewed snapshot is appended once by the evidence CLI.
+            # A newly calculated month can freeze its own dated sources here.
+            if prior is not None:
+                _sync_readiness_issue(session, month, STORE_EVIDENCE_NOT_READY)
+                return None
             evidence = freeze_store_evidence(session, qualification_version=qualification)
     except StoreEvidenceError:
         _sync_readiness_issue(session, month, STORE_EVIDENCE_NOT_READY)

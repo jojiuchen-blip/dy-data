@@ -4,6 +4,8 @@ DYDATA-104 于 2026-11-20 确认总部和财务可先核对已有试算。正式
 
 ## 读取与下载
 
+首次计算的自然月由调度器冻结该月的有效门店关系。升级前已有试算的未完成账期，继续提供上一轮结果。运维使用 `scripts/ops/freeze_monthly_store_evidence.py` 对照原账期名单和补证清单预演，按同一摘要追加证据。调度器据此生成新版本任务。已经正式出账的门店保留原账金额及明细。
+
 `GET /api/v1/admin/finance/trial` 与 `GET /api/v1/admin/finance/trial/export` 共用筛选。
 
 | 参数 | 含义 |
