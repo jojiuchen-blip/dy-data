@@ -174,7 +174,7 @@ function InternalTrialReadPanel({ currentUser, month, feeDirection, productType 
             {typeof coverage?.sourceSuccessDays === "number" && typeof coverage.sourceTotalDays === "number" ? <p>来源采集已完成 {coverage.sourceSuccessDays}/{coverage.sourceTotalDays} 天。</p> : null}
             {coverage?.scopeUnresolved ? <p>部分记录的门店归属或影响范围仍待核验，完整应计金额待核验。</p> : null}
             {coverage?.note ? <p>{coverage.note}</p> : null}
-            {coverage?.reasons.length ? <ul>{coverage.reasons.map((reason) => <li key={reason.code}>{reason.label}，{formatInteger(reason.couponCount)} 张券。</li>)}</ul> : null}
+            {coverage?.reasons.length ? <ul>{coverage.reasons.map((reason) => <li key={JSON.stringify([reason.code, reason.label])}>{reason.label}，{formatInteger(reason.couponCount)} 张券。</li>)}</ul> : null}
           </div>
           {view === "STORES" ? (
             <DataTable columns={storeColumns} rows={data.list as MonthlyTrialStoreRow[]} emptyText="当前筛选下没有门店试算汇总" />
