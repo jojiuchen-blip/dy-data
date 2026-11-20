@@ -385,7 +385,11 @@ def _frozen_name_candidates(
     candidate_rows = {digest(row): row for row in names.get(name, [])}
     evidence = _store_evidence(session, version)
     if evidence is not None:
-        for identity in evidence.alias_identities(name):
+        sale_time = getattr(order, "sale_time", None) or getattr(order, "pay_time", None)
+        if not allow_conflicting_names and sale_time is None and evidence.alias_identities(name):
+            raise AccountQualificationError("qualification_alias_sale_time_missing")
+        alias_identities = evidence.alias_identities(name, at=None if allow_conflicting_names else sale_time)
+        for identity in alias_identities:
             rows = identities.get(identity)
             if not rows:
                 raise AccountQualificationError("qualification_alias_identity_unmatched")

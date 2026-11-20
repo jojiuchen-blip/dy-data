@@ -1,5 +1,5 @@
 """Resolve monthly sales stores using immutable, period-specific evidence."""
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -17,7 +17,7 @@ from test_monthend_sales_name import sale_order, stores
 from test_protected_billing_authority_postgres import postgres_engine  # noqa: F401
 
 
-def store_evidence(session, version, *, accounts=(), pois=(), aliases=()):
+def store_evidence(session, version, *, accounts=(), pois=(), aliases=(), alias_valid_to=None):
     facts = []
     month = version.business_month
     for store in session.scalars(select(DimStore)):
@@ -38,9 +38,15 @@ def store_evidence(session, version, *, accounts=(), pois=(), aliases=()):
             "source_reference": f"synthetic/{month}/alias/{name}/{account_id}/{douyin_id}",
             "source_sha256": q.digest([month, name, account_id, douyin_id]),
             "observed_at": (q.month_bounds(month)[1] - timedelta(hours=1)).isoformat(),
-            "valid_from": month + "-01", "valid_to": None,
+            "valid_from": month + "-01", "valid_to": alias_valid_to,
         })
     return freeze_store_evidence(session, qualification_version=version, facts=facts)
+
+
+def dated_sale_order(name, day=5):
+    order = sale_order(name)
+    order.sale_time = datetime(2026, 10, day, 12, tzinfo=q.SHANGHAI)
+    return order
 
 
 @pytest.mark.parametrize("poi", [None, "unmapped-poi"])
@@ -143,7 +149,7 @@ def test_exact_proven_old_name_keeps_original_name_and_records_renamed_roster_id
     version = seed_month_qualification(db_session, records=[binding(nickname="Current Literal")])
     frozen = store_evidence(db_session, version, accounts=[("owner-dual", "store-sale")],
                             aliases=[("Old Literal", "owner-dual", "dy-owner")])
-    match = q.qualified_sale_match(db_session, version=version, order=sale_order("Old Literal"))
+    match = q.qualified_sale_match(db_session, version=version, order=dated_sale_order("Old Literal"))
     context = match.as_context()
     assert match.store_id == "store-sale"
     assert context["account_name"] == "Old Literal"
@@ -151,7 +157,7 @@ def test_exact_proven_old_name_keeps_original_name_and_records_renamed_roster_id
     assert context["matched_roster_names"] == ["Current Literal"]
     assert context["store_evidence"] == frozen.as_context()
     with pytest.raises(q.AccountQualificationError, match="sale_name_unmatched"):
-        q.qualified_sale_match(db_session, version=version, order=sale_order("old literal"))
+        q.qualified_sale_match(db_session, version=version, order=dated_sale_order("old literal"))
 
 
 def test_historical_alias_cannot_overrule_another_exact_frozen_identity(db_session):
@@ -164,7 +170,7 @@ def test_historical_alias_cannot_overrule_another_exact_frozen_identity(db_sessi
         accounts=[("owner-dual", "store-sale"), ("other", "store-other")],
         aliases=[("Old Literal", "owner-dual", "dy-owner")])
     with pytest.raises(q.AccountQualificationError, match="multiple_accounts"):
-        q.qualified_sale_match(db_session, version=version, order=sale_order("Old Literal"))
+        q.qualified_sale_match(db_session, version=version, order=dated_sale_order("Old Literal"))
     assert q.frozen_sale_candidate_stores(db_session, version=version, order=sale_order("Old Literal")) == {
         "store-sale", "store-other",
     }
@@ -176,6 +182,18 @@ def test_proven_old_name_cannot_certify_a_personal_account(db_session):
     store_evidence(db_session, version, accounts=[("owner-dual", "store-sale")],
                    aliases=[("Old Literal", "owner-dual", "dy-owner")])
     with pytest.raises(q.AccountQualificationError, match="account_not_qualified"):
+        q.qualified_sale_match(db_session, version=version, order=dated_sale_order("Old Literal"))
+
+
+def test_historical_name_interval_is_checked_at_original_sale_not_month_end(db_session):
+    stores(db_session)
+    version = seed_month_qualification(db_session, records=[binding(nickname="Current Literal")])
+    store_evidence(db_session, version, accounts=[("owner-dual", "store-sale")],
+                   aliases=[("Old Literal", "owner-dual", "dy-owner")], alias_valid_to="2026-10-10")
+    assert q.qualified_sale_match(db_session, version=version, order=dated_sale_order("Old Literal", 5)).store_id == "store-sale"
+    with pytest.raises(q.AccountQualificationError, match="sale_name_unmatched"):
+        q.qualified_sale_match(db_session, version=version, order=dated_sale_order("Old Literal", 20))
+    with pytest.raises(q.AccountQualificationError, match="alias_sale_time_missing"):
         q.qualified_sale_match(db_session, version=version, order=sale_order("Old Literal"))
 
 
@@ -201,6 +219,7 @@ def test_old_literal_name_keeps_its_proven_store_in_the_month_input_graph(db_ses
     _seed(db_session, records=[binding(nickname="Current Literal")], days=False)
     for order in db_session.scalars(select(RawDouyinOrder)):
         order.owner_account_name = "Old Literal"
+        order.sale_time = datetime(2026, 10, 5, 12, tzinfo=q.SHANGHAI)
         order.raw_payload = {**order.raw_payload, "owner_account_name": "Old Literal"}
     version = q.freeze_month(db_session, MONTH, now=NOW)
     store_evidence(db_session, version, accounts=[("owner-dual", "store-sale")],
