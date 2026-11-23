@@ -59,7 +59,7 @@ def list_routing_products(
     return _response(request, list_products(session, actor, q=q, product_scope=product_scope, page=page, page_size=page_size))
 
 
-@router.post("/products/batch", summary="预览或逐商品发布名单、规则与手动启停")
+@router.post("/products/batch", summary="预览或逐商品发布名单、切换名单来源、发布规则与手动启停")
 def change_routing_products(
     request: Request, body: ProductRoutingBatchRequest,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=128),

@@ -160,6 +160,7 @@ Product ID查询失败返回 `null`，不增加新面板，也不回传整个met
 
 - 新线索首次入库时固定商品、归属和适用规则版本。已发布的门店名单在每次选店时读取。生产默认关闭，名单发布与商品开启是两个独立操作。
 - `POST /api/v1/admin/clue-routing/products/batch` 的开启请求先预览，再按商品回传 `expected_list_versions` 和业务授权说明。提交时名单已换版的商品返回 `LIST_VERSION_CHANGED`，维持原开关，须重新预览并确认。本品首次开启时复制当前精诚共享基座，之后独立发布规则。
+- `GET /api/v1/admin/clue-routing/products` 返回 `store_list_source`。现有商品为 `manual`。全国范围管理员可通过相同批量接口对精诚养车商品提交 `request_auto_list`，申请后进入 `auto_pending`，手动名单可继续发布。Worker 按上海日期完整扫描商户商品页面，只有完整非空且可全部映射的商品才切换至 `douyin`，此后 `publish_list` 返回逐商品错误 `AUTO_STORE_LIST_ACTIVE`。`restore_manual_list` 恢复最近的手动版本并解除上传限制。名单切换独立于流转开关，从下一次选店起生效。
 - `POST /api/v1/admin/clue-allocation/headquarters-pool/{entry_id}/resume` 由全部门店范围管理员操作，按原始门店地址资料重新检查订单和候选，返回处理结果、门店和任务 ID。原始直派商品资料补齐后派回原店。
 - 新规则的跟进请求沿用现有地址。结果为 `appointment` 时提交带时区的 `appointment_at`。改约或切换状态按绑定规则重算截止时间，补备注沿用原截止。新模式通过 `routing_mode` 和 `can_delete_follow_up_records` 告知客户端操作权限，服务端在任务锁内复核。已提交的跟进记录按时间追加。
 - 新版线索概览与指标榜单共用正式接收任务的跟进、核销明细。24 小时跟进率与累计跟进率共用分母。自店核销量按实际核销门店和订单去重，计入首次仍有效核销的上海业务日期，包含从未分配的订单。列表和详情提供核销摘要、实际门店与时间、有效轮次、补计轮次及该门店是否获得核销率分子。

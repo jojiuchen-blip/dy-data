@@ -51,7 +51,7 @@ class ProductRoutingBatchRequest(StrictRoutingModel):
     product_ids: list[str] = Field(default_factory=list)
     all_matching: bool = False
     filters: ProductRoutingFilters = Field(default_factory=ProductRoutingFilters)
-    action: Literal["publish_list", "publish_rule", "enable", "disable"]
+    action: Literal["publish_list", "publish_rule", "enable", "disable", "request_auto_list", "restore_manual_list"]
     store_ids: list[str] | None = Field(default=None, max_length=20000)
     lists: list[ProductStoreListInput] | None = None
     rules: ProductRulePatch | None = None

@@ -20,6 +20,7 @@ from apps.api.dy_api.db import get_session_factory, session_scope
 from apps.worker.backfill import iter_backfill_windows, run_backfill
 from apps.worker.collectors.types import CollectionWindow, PhaseStats
 from apps.worker.collectors.windows import resolve_collection_window
+from apps.worker.clue_routing_store_sync import run_daily_routing_store_sync
 from apps.worker.daily_windows import (
     SHANGHAI_TIMEZONE,
     SHANGHAI_TIMEZONE_NAME,
@@ -164,7 +165,12 @@ def run_once() -> None:
         return
     if child is not None and (child.attempts > 0 or child.status is not ChildRunStatus.BUSY):
         return
-    run_scheduled_product_sync(factory)
+    run_due_product_jobs(factory)
+
+
+def run_due_product_jobs(factory, *, now: datetime | None = None) -> str | None:
+    """Run at most one scheduled product job per scheduler tick."""
+    return run_scheduled_product_sync(factory, now=now) or run_daily_routing_store_sync(factory, now=now)
 
 
 def _plan_legacy_sources(factory, mode: str) -> DailySyncPlan | None:

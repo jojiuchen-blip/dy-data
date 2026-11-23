@@ -1418,9 +1418,9 @@ def _default_product_sync_runner(
     *,
     now: datetime,
 ) -> str | None:
-    from apps.worker.scheduler import run_scheduled_product_sync
+    from apps.worker.scheduler import run_due_product_jobs
 
-    return run_scheduled_product_sync(factory, now=now)
+    return run_due_product_jobs(factory, now=now)
 
 
 def _run_product_sync(

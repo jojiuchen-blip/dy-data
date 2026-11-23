@@ -20,7 +20,9 @@ import "./AdminClueRoutingProductsPage.css";
 
 const actionLabels: Record<ClueRoutingAction, string> = {
   publish_list: "发布适用门店名单", publish_rule: "发布商品规则", enable: "正式开启 / 重新开启流转", disable: "关闭商品流转",
+  request_auto_list: "接入抖音自动名单", restore_manual_list: "切回手动名单",
 };
+const sourceLabels = { manual: "手动维护", auto_pending: "等待抖音首次同步", douyin: "抖音自动维护" };
 const emptyProducts: ClueRoutingProductList = { rows: [], total: 0, page: 1, page_size: 50, can_manage_grants: false };
 const emptyFilters: ClueRoutingFilters = { q: "", product_scope: "all" };
 type BatchReview = { body: ClueRoutingBatchWrite; results: ClueRoutingResult[]; phase: "preview" | "complete" };
@@ -39,7 +41,8 @@ function ProductSnapshot({ snapshot, action, proposed }: { snapshot: Partial<Clu
   return <div className="clue-routing-snapshot">
     <p><StatusChip tone={snapshot.routing_enabled ? "success" : "neutral"}>{snapshot.routing_enabled ? "流转已开启" : "流转已关闭"}</StatusChip></p>
     {action === "publish_rule" ? <ClueRoutingRuleSummary snapshot={snapshot} /> : null}
-    {action === "publish_list" || action === "enable" ? <ProductStores storeIds={snapshot.store_ids} /> : null}
+    {action === "publish_list" || action === "enable" || action === "restore_manual_list" ? <ProductStores storeIds={snapshot.store_ids} /> : null}
+    {snapshot.store_list_source ? <p className="clue-routing-version">{sourceLabels[snapshot.store_list_source]}</p> : null}
     <p className="clue-routing-version">规则版本：{proposed && action === "publish_rule" ? "正式发布时生成新版本" : snapshot.rule_version_id ?? "尚未独立发布"}</p>
     <p className="clue-routing-version">名单版本：{proposed && action === "publish_list" ? "正式发布时生成新版本" : snapshot.list_version ?? "尚未发布"}</p>
   </div>;
@@ -199,7 +202,7 @@ export function AdminClueRoutingProductsPage() {
       render: (row) => <FieldInput aria-label={`选择商品 ${row.product_id}`} checked={allMatching || selectedIds.includes(row.product_id)} disabled={allMatching || !row.can_manage || loading} onChange={(event) => toggleProduct(row.product_id, event.target.checked)} type="checkbox" /> },
     { key: "product", title: "商品", align: "left", minWidth: 240, render: (row) => <div className="clue-routing-product-name"><strong>{row.product_name || "未命名商品"}</strong><span>商品 ID：{row.product_id}</span><span>{scopeLabel(row.product_scope)}</span></div> },
     { key: "enabled", title: "流转状态", minWidth: 115, render: (row) => <StatusChip tone={row.routing_enabled ? "success" : "neutral"}>{row.routing_enabled ? "已开启" : "已关闭"}</StatusChip> },
-    { key: "list", title: "有效门店名单", align: "left", minWidth: 180, render: (row) => <div><ProductStores storeIds={row.store_ids} /><p className="clue-routing-version">版本 {row.list_version ?? "尚未发布"}</p></div> },
+    { key: "list", title: "有效门店名单", align: "left", minWidth: 180, render: (row) => <div><ProductStores storeIds={row.store_ids} /><p className="clue-routing-version">{sourceLabels[row.store_list_source ?? "manual"]} · 版本 {row.list_version ?? "尚未发布"}</p></div> },
     { key: "rule", title: "已发布规则", align: "left", minWidth: 240, render: (row) => <div><span>首次跟进 {row.first_follow_up_sla_hours} 小时</span><details className="clue-routing-stores"><summary>查看保护期与到期动作</summary><ClueRoutingRuleSummary snapshot={row} /></details><p className="clue-routing-version">{row.rule_version_id ?? "正式开启时生成独立版本"}</p></div> },
     ...(data.can_manage_grants ? [{ key: "grants", title: "商品负责人", width: 145, render: (row: ClueRoutingProduct) => <Button disabled={loading} onClick={() => setGrantsProduct(row)} size="sm">管理授权</Button> }] : []),
   ];
@@ -238,6 +241,10 @@ export function AdminClueRoutingProductsPage() {
       </div>
       <div className="clue-routing-actions clue-routing-batch-actions">
         <Button disabled={loading || Boolean(loadError)} onClick={() => openAction("publish_list")}>导入 / 发布门店名单</Button>
+        {data.can_manage_grants ? <>
+          <Button disabled={loading || !selectedCount || Boolean(loadError)} onClick={() => openAction("request_auto_list")}>接入抖音自动名单</Button>
+          <Button disabled={loading || !selectedCount || Boolean(loadError)} onClick={() => openAction("restore_manual_list")}>切回手动名单</Button>
+        </> : null}
         <Button disabled={loading || !selectedCount} onClick={() => openAction("publish_rule")}>按字段批量改规则</Button>
         <Button disabled={loading || !selectedCount} onClick={() => openAction("enable")} variant="primary">正式开启 / 重新开启</Button>
         <Button disabled={loading || !selectedCount} onClick={() => openAction("disable")}>关闭流转</Button>
@@ -250,6 +257,7 @@ export function AdminClueRoutingProductsPage() {
           <span className="admin-muted">{scopeLabel(row.product_scope)}</span>
           <StatusChip tone={row.routing_enabled ? "success" : "neutral"}>{row.routing_enabled ? "流转已开启" : "流转已关闭"}</StatusChip>
           <ProductStores storeIds={row.store_ids} />
+          <span className="admin-muted">{sourceLabels[row.store_list_source ?? "manual"]}</span>
           <details className="clue-routing-stores"><summary>查看已发布规则</summary><ClueRoutingRuleSummary snapshot={row} /><p className="clue-routing-version">{row.rule_version_id ?? "尚未独立发布"}</p></details>
           {data.can_manage_grants ? <Button onClick={() => setGrantsProduct(row)} size="sm">管理授权</Button> : null}
         </div>}
@@ -267,7 +275,7 @@ export function AdminClueRoutingProductsPage() {
     >
       {operationError ? <p className="admin-error" role="alert">{operationError}</p> : null}
       {review ? <>
-        {review.phase === "preview" ? <p className="resource-notice">预览不会写入。确认后只提交校验通过的商品，并由服务端再次核验权限与名单。{review.body.action === "publish_list" ? "名单发布在下一次选店时生效，当前门店任务继续处理。" : "规则发布和启停仅影响之后首次入库线索。"}{review.body.action === "enable" ? "正式开启绑定下方确认的名单版本；名单变化时该商品保持关闭，须重新预览并确认最新版本。" : ""}</p> : <p className="resource-notice" role="status">本次操作成功 {successCount} 个，失败 {failedCount} 个。可单独重新校验失败商品。</p>}
+        {review.phase === "preview" ? <p className="resource-notice">预览不会写入。确认后只提交校验通过的商品，并由服务端再次核验权限与名单。{review.body.action === "publish_list" || review.body.action === "restore_manual_list" ? "名单切换在下一次选店时生效，当前门店任务继续处理。" : ""}{review.body.action === "enable" ? "正式开启绑定下方确认的名单版本；名单变化时须重新预览并确认最新版本。" : ""}</p> : <p className="resource-notice" role="status">本次操作成功 {successCount} 个，失败 {failedCount} 个。可单独重新校验失败商品。</p>}
         {pendingApply ? <p className="resource-notice">本次提交的范围和操作编号已保留。请重试本次提交以核对最终结果。</p> : null}
         <DataTable columns={resultColumns} rows={review.results.slice((resultPage - 1) * resultPageSize, resultPage * resultPageSize)} emptyText="没有符合本次范围的可管理商品。" stickyHeader="container" />
         <TablePagination loading={Boolean(busy)} onPageChange={setResultPage} onPageSizeChange={(value) => { setResultPageSize(value); setResultPage(1); }} page={resultPage} pageSize={resultPageSize} pageSizeOptions={[20, 50, 100]} rowsOnPage={review.results.slice((resultPage - 1) * resultPageSize, resultPage * resultPageSize).length} total={review.results.length} totalPages={Math.ceil(review.results.length / resultPageSize)} />
@@ -284,6 +292,8 @@ export function AdminClueRoutingProductsPage() {
           </> : null}
         </div> : null}
         {action === "publish_rule" ? <div className="clue-routing-editor"><p className="resource-notice">只发布勾选字段，其余字段各商品保留原值。本品首次开启前继承精诚共享基座，须先按已确认名单开启，之后可发布独立规则。精诚养车可在关闭时预配规则。第 0、1 轮为 10 公里，第 2 轮同城兜底；首次跟进期限不改变看板固定 24 小时跟进率口径。</p><ClueRoutingRuleEditor disabled={Boolean(busy)} draft={ruleDraft} onChange={setRuleDraft} /></div> : null}
+        {action === "request_auto_list" ? <p className="resource-notice">适用于精诚养车商品。首次自动同步成功前仍可上传手动名单。成功后由抖音每日刷新，失败时沿用最后一版有效名单。</p> : null}
+        {action === "restore_manual_list" ? <p className="resource-notice">恢复最近一次成功发布的手动名单，并允许继续上传。如果没有历史手动名单，沿用当前名单，直到首次手动发布。</p> : null}
         {action === "enable" || action === "disable" ? <div className="clue-routing-editor">
           <p className="resource-notice">{action === "enable" ? "开启前必须已有成功发布且经业务确认的有效门店名单。本品首次开启时采用精诚养车共享基座创建独立规则版本。第 0、1 轮均为 10 公里，第 2 轮同城兜底。" : "关闭后，之后首次入库的线索回到原分配流程。已入库未分配和在途任务继续按原绑定规则完成。"}</p>
           <label className="filter-field"><span>{action === "enable" ? "业务负责人授权依据（必填）" : "关闭原因（选填）"}</span><FieldTextarea disabled={Boolean(busy)} maxLength={2000} onChange={(event) => setAuthorizationNote(event.target.value)} placeholder={action === "enable" ? "填写授权负责人、确认日期和对应商品名单依据" : "填写本次关闭原因"} rows={4} value={authorizationNote} /></label>
