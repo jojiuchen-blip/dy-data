@@ -292,7 +292,7 @@ export function AdminClueRoutingProductsPage() {
           </> : null}
         </div> : null}
         {action === "publish_rule" ? <div className="clue-routing-editor"><p className="resource-notice">只发布勾选字段，其余字段各商品保留原值。本品首次开启前继承精诚共享基座，须先按已确认名单开启，之后可发布独立规则。精诚养车可在关闭时预配规则。第 0、1 轮为 10 公里，第 2 轮同城兜底；首次跟进期限不改变看板固定 24 小时跟进率口径。</p><ClueRoutingRuleEditor disabled={Boolean(busy)} draft={ruleDraft} onChange={setRuleDraft} /></div> : null}
-        {action === "request_auto_list" ? <p className="resource-notice">适用于精诚养车商品。首次自动同步成功前仍可上传手动名单。成功后由抖音每日刷新，失败时沿用最后一版有效名单。</p> : null}
+        {action === "request_auto_list" ? <p className="resource-notice">适用于精诚养车商品。首次 API 名单须与当前已发布的手动名单一致，此前可继续上传。接管后每日刷新，失败时沿用最后一版有效名单。</p> : null}
         {action === "restore_manual_list" ? <p className="resource-notice">恢复最近一次成功发布的手动名单，并允许继续上传。如果没有历史手动名单，沿用当前名单，直到首次手动发布。</p> : null}
         {action === "enable" || action === "disable" ? <div className="clue-routing-editor">
           <p className="resource-notice">{action === "enable" ? "开启前必须已有成功发布且经业务确认的有效门店名单。本品首次开启时采用精诚养车共享基座创建独立规则版本。第 0、1 轮均为 10 公里，第 2 轮同城兜底。" : "关闭后，之后首次入库的线索回到原分配流程。已入库未分配和在途任务继续按原绑定规则完成。"}</p>

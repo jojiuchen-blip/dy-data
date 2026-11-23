@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from apps.api.dy_api.clue_product_routing import ProductRoutingError, publish_douyin_store_list
 from apps.api.dy_api.db import session_scope
-from apps.api.dy_api.models import ClueProductRoutingConfig, DimStorePoiMapping, JobRun
+from apps.api.dy_api.models import ClueProductRoutingConfig, DimStore, DimStorePoiMapping, JobRun
 from apps.worker.daily_windows import SHANGHAI_TIMEZONE
 from apps.worker.repositories import finish_job_run
 
@@ -128,14 +128,18 @@ def run_daily_routing_store_sync(
                 continue
             try:
                 with session_scope(factory) as session:
-                    rows = session.execute(select(DimStorePoiMapping.poi_id, DimStorePoiMapping.store_id)
+                    rows = session.execute(select(DimStorePoiMapping.poi_id, DimStore.store_id, DimStore.is_active, DimStore.location_status)
+                        .join(DimStore, DimStore.store_id == DimStorePoiMapping.store_id)
                         .where(DimStorePoiMapping.poi_id.in_(sorted(pois)))).all()
-                    mapping = dict(rows)
-                    if set(mapping) != pois or len(rows) != len(mapping):
+                    mapped_pois = {row.poi_id for row in rows}
+                    if mapped_pois != pois or len(rows) != len(mapped_pois):
                         counts["poi_mapping_incomplete"] += 1
                         continue
-                    outcome = publish_douyin_store_list(session, product_id, generation, set(mapping.values()), run_id=job_id)
-            except (ProductRoutingError, SQLAlchemyError):
+                    store_ids = {row.store_id for row in rows if row.is_active and row.location_status != "closed"}
+                    outcome = publish_douyin_store_list(session, product_id, generation, store_ids, run_id=job_id)
+            except ProductRoutingError as exc:
+                counts[exc.code.lower()] += 1
+            except SQLAlchemyError:
                 counts["publication_failed"] += 1
             else:
                 counts[outcome] += 1

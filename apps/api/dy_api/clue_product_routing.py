@@ -604,6 +604,8 @@ def publish_douyin_store_list(
         return "source_changed"
     if product_scope_for_id(session, product_id) != "jingcheng":
         raise ProductRoutingError("AUTO_STORE_LIST_UNSUPPORTED", "该商品已退出精诚养车范围")
+    if config.store_list_source == "auto_pending" and load_product_store_ids(session, product_id) != store_ids:
+        raise ProductRoutingError("FIRST_SYNC_SCOPE_MISMATCH", "首次同步须与当前已发布的手动名单一致")
     before = {"list_version": config.active_list_version_id, "store_list_source": config.store_list_source}
     publisher = DOUYIN_STORE_LIST_PUBLISHER
     changed = _publish_store_list(session, config, sorted(store_ids), publisher,

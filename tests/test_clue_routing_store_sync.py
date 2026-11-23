@@ -15,6 +15,7 @@ from apps.worker.clue_routing_store_sync import read_product_store_pois, run_dai
 
 PRODUCT = "1234567890123456789"
 POI = "9007199254740993"
+MANUAL_POI = "9007199254740992"
 DAY = datetime(2026, 11, 23, 6, tzinfo=timezone.utc)
 ADMIN = SimpleNamespace(username="admin", auth_type="env_admin", can_manage_global_settings=True)
 
@@ -41,7 +42,7 @@ def _seed(session):
         DimStore(store_id="002", store_name="乙店"),
     ])
     session.flush()
-    session.add(DimStorePoiMapping(store_id="002", poi_id=POI))
+    session.add_all([DimStorePoiMapping(store_id="002", poi_id=POI), DimStorePoiMapping(store_id="001", poi_id=MANUAL_POI)])
     session.commit()
 
 
@@ -74,16 +75,19 @@ def test_pending_allows_manual_then_daily_refresh_and_admin_restores_manual(db_s
     assert _change(db_session, "publish_list", store_ids=["001"])["status"] == "success"
     _change(db_session, "enable", authorization_note="approved", expected_list_versions={PRODUCT: original})
 
-    fetch = lambda _: _page(_product())
+    fetch = lambda _: _page(_product(pois=(MANUAL_POI,)))
     job_id = run_daily_routing_store_sync(db_session_factory, now=DAY, fetch_page=fetch)
     db_session.expire_all()
     assert db_session.get(JobRun, job_id).status == "success"
-    assert load_product_store_ids(db_session, PRODUCT) == {"002"}
+    assert load_product_store_ids(db_session, PRODUCT) == {"001"}
     assert _change(db_session, "publish_list", store_ids=["001"])["error"]["code"] == "AUTO_STORE_LIST_ACTIVE"
     assert run_daily_routing_store_sync(db_session_factory, now=DAY, fetch_page=fetch) is None
     assert db_session.scalar(select(func.count()).select_from(ClueProductStoreListVersion)) == 2
 
-    failed_day = run_daily_routing_store_sync(db_session_factory, now=DAY + timedelta(days=1),
+    run_daily_routing_store_sync(db_session_factory, now=DAY + timedelta(days=1), fetch_page=lambda _: _page(_product()))
+    db_session.expire_all()
+    assert load_product_store_ids(db_session, PRODUCT) == {"002"}
+    failed_day = run_daily_routing_store_sync(db_session_factory, now=DAY + timedelta(days=2),
                                              fetch_page=lambda _: _page(_product(pois=())))
     db_session.expire_all()
     assert db_session.get(JobRun, failed_day).status == "failed"
@@ -97,7 +101,7 @@ def test_pending_allows_manual_then_daily_refresh_and_admin_restores_manual(db_s
     assert _change(db_session, "publish_list", store_ids=["002"])["status"] == "success"
 
 
-@pytest.mark.parametrize("row", [_product(pois=()), _product(pois=("9007199254740994",)), {"product": {"product_id": PRODUCT}}])
+@pytest.mark.parametrize("row", [_product(pois=()), _product(pois=("9007199254740994",)), {"product": {"product_id": PRODUCT}}, _product()])
 def test_bad_store_scope_keeps_the_manual_version(db_session, row):
     _seed(db_session)
     db_session_factory = make_session_factory(db_session.get_bind())
@@ -109,6 +113,19 @@ def test_bad_store_scope_keeps_the_manual_version(db_session, row):
     config = db_session.get(ClueProductRoutingConfig, PRODUCT)
     assert config.active_list_version_id == original
     assert config.store_list_source == "auto_pending"
+
+
+def test_closed_store_is_excluded_before_first_scope_comparison(db_session):
+    _seed(db_session)
+    db_session.get(DimStore, "002").location_status = "closed"
+    db_session.commit()
+    factory = make_session_factory(db_session.get_bind())
+    _change(db_session, "publish_list", store_ids=["001"])
+    _change(db_session, "request_auto_list")
+    run = run_daily_routing_store_sync(factory, now=DAY, fetch_page=lambda _: _page(_product(pois=(MANUAL_POI, POI))))
+    db_session.expire_all()
+    assert db_session.get(JobRun, run).status == "success"
+    assert load_product_store_ids(db_session, PRODUCT) == {"001"}
 
 
 def test_in_flight_pull_cannot_override_manual_revert_or_reenrollment(db_session):
