@@ -817,7 +817,7 @@ a {
   display: flex;
   flex: 1 1 0;
   align-items: center;
-  min-width: 0;
+  min-width: min(100%, 250px);
   gap: var(--space-3);
   padding-inline: var(--space-4);
   border: 1px solid var(--line);
@@ -1068,6 +1068,11 @@ a {
 .workspace-subnav--desktop {
   flex: 0 0 auto;
   overflow-x: hidden;
+}
+
+.workspace-topbar:has(> .workspace-announcement) > .workspace-subnav--desktop {
+  flex: 0 1 auto;
+  overflow-x: auto;
 }
 
 .workspace-subnav--mobile {
@@ -6183,6 +6188,10 @@ a.metric-card:hover,
 
   .workspace-topbar:has(> .workspace-announcement) > .workspace-actions {
     display: none;
+  }
+
+  .workspace-topbar > .workspace-announcement {
+    min-width: 0;
   }
 
   .settlement-trial-notice--mobile {
