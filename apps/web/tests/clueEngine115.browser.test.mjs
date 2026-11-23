@@ -228,6 +228,8 @@ for (const width of [1440, 921, 390]) {
       assert.ok(nav.x + nav.width <= announcement.x && announcement.x + announcement.width <= account.x,
         JSON.stringify({ nav, announcement, account }));
       assert.ok(viewport.width >= 80, "announcement summary must have visible space");
+      const clueDetail = await header.getByRole("link", { name: "线索明细", exact: true }).boundingBox();
+      assert.ok(clueDetail.x + clueDetail.width <= nav.x + nav.width, "both clue tabs must remain visible");
       assert.notEqual(await track.evaluate((el) => getComputedStyle(el).animationName), "none");
       await header.getByRole("button", { name: "暂停滚动", exact: true }).click();
       assert.equal(await track.evaluate((el) => getComputedStyle(el).animationPlayState), "paused");
