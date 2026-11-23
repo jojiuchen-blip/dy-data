@@ -29,7 +29,7 @@ const payload = (data, published = false) => ({ data, meta: { source: "postgres"
 
 async function withPage(width, run, account = user) {
   const browser = await chromium.launch({ headless: true, channel: process.env.PLAYWRIGHT_BROWSER_CHANNEL });
-  const context = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 1000 }, timezoneId: "America/New_York" });
+  const context = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 1000 }, hasTouch: width === 390, timezoneId: "America/New_York" });
   const page = await context.newPage();
   page.setDefaultTimeout(10_000);
   const errors = [];
@@ -199,3 +199,58 @@ test("a missing selected task never falls through to another current task", asyn
   await modal.getByText("本轮详情暂不可用，请关闭后重新打开。", { exact: true }).waitFor();
   assert.equal(await modal.getByRole("button", { name: "保存本次跟进", exact: true }).count(), 0);
 }));
+for (const width of [1440, 921, 390]) {
+  test(`顶部流转公告可查看全文 ${width}px`, async () => withPage(width, async ({ page, handle }) => {
+    handle(async (route, url) => {
+      const data = url.pathname.endsWith("/publications/clue-overview/filters") ? filters
+        : url.pathname.endsWith("/clues/overview") ? overview : null;
+      if (!data) return false;
+      const result = payload(data, true);
+      result.meta.publication.taskMetricsContract = "clue-task-v3";
+      await route.fulfill({ json: result });
+      return true;
+    });
+    await page.emulateMedia({
+      colorScheme: width === 390 ? "light" : "dark",
+      reducedMotion: width === 390 ? "reduce" : "no-preference",
+    });
+    await page.goto(`${baseUrl}/clues`);
+    const header = page.locator(".workspace-topbar");
+    const trigger = header.getByRole("button", { name: "查看线索流转公告全文", exact: true });
+    await trigger.waitFor();
+    await page.locator(".clue-metric-grid").getByText("自店核销量", { exact: true }).waitFor();
+    const track = header.locator(".workspace-announcement__track");
+    if (width !== 390) {
+      const nav = await header.locator(".workspace-subnav--desktop").boundingBox();
+      const account = await header.getByRole("button", { name: "个人设置", exact: true }).boundingBox();
+      const announcement = await header.locator(".workspace-announcement").boundingBox();
+      const viewport = await header.locator(".workspace-announcement__viewport").boundingBox();
+      assert.ok(nav.x + nav.width <= announcement.x && announcement.x + announcement.width <= account.x,
+        JSON.stringify({ nav, announcement, account }));
+      assert.ok(viewport.width >= 80, "announcement summary must have visible space");
+      const clueDetail = await header.getByRole("link", { name: "线索明细", exact: true }).boundingBox();
+      assert.ok(clueDetail.x + clueDetail.width <= nav.x + nav.width, "both clue tabs must remain visible");
+      assert.notEqual(await track.evaluate((el) => getComputedStyle(el).animationName), "none");
+      await header.getByRole("button", { name: "暂停滚动", exact: true }).click();
+      assert.equal(await track.evaluate((el) => getComputedStyle(el).animationPlayState), "paused");
+      await header.getByRole("button", { name: "继续滚动", exact: true }).click();
+      await header.locator(".workspace-announcement__viewport").dblclick();
+    } else {
+      assert.equal(await track.evaluate((el) => getComputedStyle(el).animationName), "none");
+      await trigger.tap();
+    }
+    const dialog = page.getByRole("dialog", { name: "精诚养车商品线索即将开启流转" });
+    await dialog.getByText("收到新线索后，请在24小时内完成首次跟进", { exact: false }).waitFor();
+    await dialog.getByText("预约时间后72小时", { exact: false }).waitFor();
+    await dialog.getByText("已经进入引擎的线索沿用原规则", { exact: false }).waitFor();
+    await mkdir(evidenceDir, { recursive: true });
+    await page.screenshot({ path: join(evidenceDir, `clue-announcement-full-${width}.png`) });
+    await page.keyboard.press("Escape");
+    await dialog.waitFor({ state: "hidden" });
+    assert.equal(await trigger.evaluate((el) => el === document.activeElement), true);
+    await page.screenshot({ path: join(evidenceDir, `clue-announcement-bar-${width}.png`) });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await trigger.press("Enter");
+    await dialog.waitFor();
+  }, { ...user, role: "store", display_name: "门店线索公告长名称验证账号", store_scope_mode: "specified", store_ids: ["store-new"] }));
+}

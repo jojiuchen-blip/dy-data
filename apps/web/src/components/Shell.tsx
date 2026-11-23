@@ -3,6 +3,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { changeCurrentUserPassword, submitFeedback } from "../api/client";
 import type { AdminUser, FeedbackCategory } from "../types/dashboard";
 import { CommissionRulesButton } from "./CommissionRulesButton";
+import { ClueRoutingAnnouncement } from "./ClueRoutingAnnouncement";
 import { Dialog } from "./Dialog";
 import { SelectField } from "./FormControls";
 import { Button } from "./Button";
@@ -344,6 +345,7 @@ export function Shell({
   const visibleModuleItems = moduleNavItems.filter((item) =>
     item.pageKeys.some((pageKey) => currentUser?.page_keys.includes(pageKey)),
   );
+  const showClueAnnouncement = visibleModuleItems.some((item) => item.section === "clues");
   const shellClassName = isDemoMode
     ? "app-shell app-shell--rail app-shell--demo"
     : "app-shell app-shell--rail";
@@ -496,6 +498,7 @@ export function Shell({
       <div className="workspace-shell">
         <header className="workspace-topbar">
           {renderSecondaryNav("workspace-subnav--desktop")}
+          {showClueAnnouncement ? <ClueRoutingAnnouncement /> : null}
           <div className="workspace-actions">
             {section === "settlement" ? <CommissionRulesButton /> : null}
             {currentUser ? (
