@@ -867,8 +867,8 @@ for (const phase of ["month", "refresh"]) {
       latest = "money2";
       await page.getByRole("button", { name: "读取最新结果", exact: true }).click();
     }
-    await page.getByText("本账期正式账单尚未就绪，授权管理员可在下方核对内部试算。", { exact: true }).waitFor();
-    assert.doesNotMatch(await total.innerText(), /123\.45|0\.00/);
+    await page.getByText("本账期正式账单尚未就绪。", { exact: true }).waitFor();
+    assert.equal(await total.count(), 0);
     assert.equal(await page.getByRole("button", { name: "导出当前筛选结果", exact: true }).isDisabled(), true);
     assert.equal(await page.getByLabel("筛选账期", { exact: true }).isEnabled(), true);
     const before = requests.length;
