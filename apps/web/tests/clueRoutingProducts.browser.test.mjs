@@ -58,6 +58,12 @@ async function withApp(options, run) {
           return { product_id: id, status: "failed", error: { code: "CONFLICT", message: "配置已变化，请重新预览。" }, before, after: before };
         }
         if (body.action === "publish_list") { after.store_ids = stores; if (!body.preview) after.list_version = (row.list_version || 0) + 1; }
+        if (body.action === "request_auto_list") after.store_list_source = "auto_pending";
+        if (body.action === "restore_manual_list") {
+          after.store_list_source = "manual";
+          after.list_version = 1;
+          after.store_ids = ["001000"];
+        }
         if (body.action === "publish_rule") {
           if (body.rules.first_follow_up_sla_hours !== undefined) after.first_follow_up_sla_hours = body.rules.first_follow_up_sla_hours;
           const { first_follow_up_sla_hours, ...newPolicy } = body.rules;
@@ -125,6 +131,25 @@ async function openProducts(page) {
   assert.match(await page.title(), /抖音/);
 }
 function writes(state) { return state.requests.filter((request) => request.path.endsWith("/products/batch") && request.body?.preview === false); }
+
+test("administrator previews and restores the manual store list", { timeout: 120000 }, async () => {
+  await withApp({ admin: true }, async (page, state) => {
+    Object.assign(state.products[0], { store_list_source: "douyin", list_version: 2, store_ids: ["001002"], routing_enabled: true });
+    await openProducts(page);
+    await page.getByRole("checkbox", { name: "选择商品 000001", exact: true }).check();
+    await page.getByRole("button", { name: "切回手动名单", exact: true }).click();
+    await page.getByRole("button", { name: "校验并预览变更", exact: true }).click();
+    await page.getByRole("button", { name: "确认切回手动名单（1 个）", exact: true }).waitFor();
+    assert.equal(writes(state).length, 0);
+    await page.getByRole("button", { name: "确认切回手动名单（1 个）", exact: true }).click();
+    await page.getByRole("heading", { name: "切回手动名单 · 逐商品结果", exact: true }).waitFor();
+    assert.equal(writes(state)[0].body.action, "restore_manual_list");
+    assert.equal(state.products[0].store_list_source, "manual");
+    assert.equal(state.products[0].routing_enabled, true);
+    assert.deepEqual(state.products[0].store_ids, ["001000"]);
+    await page.screenshot({ path: join(evidenceDir, "restore-manual-desktop.png"), fullPage: false });
+  });
+});
 
 test("product owner can publish only selected fields across pages and retry only failed products", { timeout: 120000 }, async () => {
   await withApp({ failOnce: "000051" }, async (page, state) => {

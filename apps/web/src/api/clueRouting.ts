@@ -2,7 +2,8 @@ import { ApiRequestError, clearRequestJsonCache } from "./client";
 import { userFacingError } from "../utils/userFacingError";
 
 export type ClueRoutingProductScope = "all" | "jingcheng" | "byd";
-export type ClueRoutingAction = "publish_list" | "publish_rule" | "enable" | "disable";
+export type ClueRoutingAction = "publish_list" | "publish_rule" | "enable" | "disable" | "request_auto_list" | "restore_manual_list";
+export type ClueRoutingStoreListSource = "manual" | "auto_pending" | "douyin";
 export type ClueRoutingExpiryAction = "next" | "close";
 
 export interface ClueRoutingPolicy {
@@ -33,6 +34,7 @@ export interface ClueRoutingProduct extends ClueRoutingRuleSnapshot {
   routing_enabled: boolean;
   store_ids: string[];
   list_version: number | string | null;
+  store_list_source?: ClueRoutingStoreListSource;
 }
 
 export interface ClueRoutingFilters {

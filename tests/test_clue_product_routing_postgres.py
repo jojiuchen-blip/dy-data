@@ -382,10 +382,24 @@ def test_real_upgrade_from_monthly_0069_preserves_old_leads_and_defaults_off(mon
             session.commit()
         with pytest.raises(RuntimeError, match="Product routing history exists"):
             command.downgrade(config, "20261118_0069")
+        with scoped.begin() as connection:
+            configs = Table("clue_product_routing_configs", MetaData(), autoload_with=connection)
+            connection.execute(configs.insert().values(product_id="legacy-manual", routing_enabled=True,
+                active_list_version_id="legacy-list", created_at=NOW, updated_at=NOW))
+        command.upgrade(config, "head")
         with Session(scoped) as session:
+            legacy = session.get(ClueProductRoutingConfig, "legacy-manual")
+            assert (legacy.store_list_source, legacy.active_list_version_id, legacy.routing_enabled) == ("manual", "legacy-list", True)
             session.add(ClueProductRoutingConfig(product_id="new-default"))
             session.commit()
             assert session.get(ClueProductRoutingConfig, "new-default").routing_enabled is False
+            legacy.store_list_source = "douyin"
+            session.commit()
+        with pytest.raises(RuntimeError, match="Restore automatic product store lists"):
+            command.downgrade(config, "20261120_0073")
+        with Session(scoped) as session:
+            session.get(ClueProductRoutingConfig, "legacy-manual").store_list_source = "manual"
+            session.commit()
         with pytest.raises(RuntimeError, match="Product routing history exists"):
             command.downgrade(config, "20261118_0069")
         scoped.dispose()

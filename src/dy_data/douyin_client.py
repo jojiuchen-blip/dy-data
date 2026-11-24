@@ -149,10 +149,11 @@ class DouyinOpenApiClient:
     def query_online_products(
         self,
         *,
-        status: int,
+        status: int | None,
         cursor: str | None = None,
         count: int = 50,
         goods_query_type: int = 2,
+        query_all_poi: bool = False,
     ) -> dict[str, Any]:
         """Query one official online-product list page.
 
@@ -162,18 +163,22 @@ class DouyinOpenApiClient:
         Goodlife endpoints used by this client.
         """
 
-        if status not in {1, 2, 3}:
+        if status is not None and status not in {1, 2, 3}:
             raise ValueError("Product status must be 1, 2, or 3")
-        if count < 1 or count > 50:
-            raise ValueError("Product query count must be between 1 and 50")
+        page_limit = 20 if query_all_poi else 50
+        if count < 1 or count > page_limit:
+            raise ValueError(f"Product query count must be between 1 and {page_limit}")
         if goods_query_type not in {1, 2, 3}:
             raise ValueError("goods_query_type must be 1, 2, or 3")
         params: dict[str, Any] = {
             "account_id": self.credentials.account_id,
             "count": count,
             "goods_query_type": goods_query_type,
-            "status": status,
         }
+        if status is not None:
+            params["status"] = status
+        if query_all_poi:
+            params["query_all_poi"] = "true"
         if cursor not in (None, ""):
             params["cursor"] = str(cursor)
         return self._get_json(PRODUCT_ONLINE_QUERY_URL, params)
