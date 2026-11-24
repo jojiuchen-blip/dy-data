@@ -105,6 +105,7 @@ ENUM_FIELDS = {
 }
 FILE_LABELS = {
     "finance-promotion-invoices": "推广服务费开票记录", "finance-management-invoices": "管理服务费开票记录",
+    "finance-promotion-submitted-invoices": "门店提交推广费发票",
     "finance-order-details": "财务订单明细", "finance-stores": "门店基础信息",
     "finance-sap-discrepancies": "SAP编码差异", "finance-disputes": "结算异议",
     "order-fee-details": "订单费用明细", "order-details": "订单分佣明细",

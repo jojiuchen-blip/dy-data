@@ -95,6 +95,7 @@ import type {
   FinanceOrderDetailsQuery,
   FinanceStoreListData,
   FinanceSummaryData,
+  SubmittedPromotionInvoiceListData,
   SapSuggestionListData,
   SapSuggestionRow,
   PromotionInvoiceListData,
@@ -3186,6 +3187,28 @@ export function downloadFinanceInvoices(
     "/admin/finance/invoices/export",
     query,
   );
+}
+
+interface SubmittedPromotionInvoiceQuery extends QueryParams {
+  month?: string;
+  q?: string;
+  invoiceStatus?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export function fetchSubmittedPromotionInvoices(
+  query: SubmittedPromotionInvoiceQuery,
+): Promise<ApiLoadResult<SubmittedPromotionInvoiceListData>> {
+  return requestJson<SubmittedPromotionInvoiceListData>("/admin/finance/promotion-invoices/submitted", query).then(
+    (response) => ({ ...response, usingMock: false }),
+  );
+}
+
+export function downloadSubmittedPromotionInvoices(
+  query: Omit<SubmittedPromotionInvoiceQuery, "page" | "pageSize">,
+): Promise<DownloadResult> {
+  return requestDownloadResult("/admin/finance/promotion-invoices/submitted/export", query);
 }
 
 export function downloadFinanceImportTemplate(importType: string): Promise<void> {

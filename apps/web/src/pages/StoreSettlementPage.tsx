@@ -324,9 +324,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
     <div className="page-stack finance-page">
       <section className="page-heading finance-heading">
         <div>
-          <p className="eyebrow">门店结算</p>
           <h1>单店分账</h1>
-          <p>推广服务费与管理服务费按同一门店、账期分别确认。</p>
         </div>
       </section>
       <ResourceNotice analysis
@@ -352,7 +350,6 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
         </FilterField>
         <SelectField disabled={!meta} label="商品类型" value={activeProductType} onChange={(value) => setProductType(value)} options={Array.from(new Set(["all", ...(meta?.productTypes ?? []), activeProductType])).map((value) => ({ value, label: value === "all" ? "全部商品" : value }))} />
       </FilterBar>
-      <p className="muted-copy">历史账期按费用生成时的商品类型展示；账单确认和开票金额以完整正式账单为准。</p>
       <SettlementPeriodStatus month={activeMonth} readiness={meta?.periodReadiness?.months[activeMonth]} monthlyClose={availability?.monthlyClose} unavailable={explainUnavailablePeriod} requestId={explainUnavailablePeriod ? periodError?.requestId : undefined} />
       {monthlyClose?.status !== "partial" && availability?.monthlyReady && availability.cumulativeReady === false ? <ResourcePanel>本月数据已完整；累计数据{incompleteMonths ? `因 ${incompleteMonths} 尚未完成` : "尚未完成"}，暂不可用。</ResourcePanel> : null}
 
@@ -369,7 +366,6 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
             <div className="section-title">
               <div>
                 <h2>当前账单确认</h2>
-                <p>推广服务费和管理服务费分别确认；金额与版本以正式账单接口为准。</p>
                 {statement ? <p>账期 {statement.month} · 生成时间 {statement.createdAt ? formatDateTime(statement.createdAt) : "未知"}</p> : null}
                 {statement?.firstVisibleAt && statement.confirmationDueAt ? (
                   <p>
@@ -395,7 +391,6 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
                 return (
                   <article className="store-finance-direction-card" key={direction}>
                     <div>
-                      <p className="eyebrow">费用方向</p>
                       <h3>{feeDirectionLabel(direction)}确认</h3>
                       <p className="store-finance-direction-card__status">{statement ? confirmationLabel(confirmation ?? null) : "尚未生成"}</p>
                       <strong>{amount === undefined ? "尚未生成" : formatCurrency(amount)}</strong>
@@ -435,7 +430,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
 
       <section className="content-section store-finance-fee-details" aria-label="费用明细">
             <div className="section-title">
-              <div><h2>费用明细</h2><p>推广费明细和管理费明细均来自正式订单费用接口。</p></div>
+              <h2>费用明细</h2>
             </div>
             <div className="store-finance-fee-tabs" role="tablist" aria-label="费用明细类型">
               {FEE_DIRECTIONS.map((direction) => (
@@ -473,7 +468,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
 
           {disputeResource.data?.data.list.length ? (
             <section className="content-section store-finance-dispute-list" aria-label="已提交账单异议">
-              <div className="section-title"><div><h2>已提交账单异议</h2><p>仅展示当前账单的真实提交记录。</p></div></div>
+              <div className="section-title"><h2>已提交账单异议</h2></div>
               <ul>
                 {disputeResource.data.data.list.map((item) => <li key={item.disputeId}>{item.statementMonth} · {feeDirectionLabel(item.feeDirection)} · {item.status} · {formatCurrency(item.disputedAmountCent)}</li>)}
               </ul>
