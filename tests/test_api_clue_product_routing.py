@@ -99,6 +99,19 @@ def test_readonly_cli_and_mcp_bearers_cannot_manage_products(client):
         assert response.status_code == 401
 
 
+def test_store_list_source_is_managed_only_by_all_store_administrator(client, db_session):
+    _login(client)
+    assert client.put(f"{BASE}/products/jc-product/grants", json={"user_ids": ["product-owner"]}).status_code == 200
+    payload = {"product_ids": ["jc-product"], "action": "request_auto_list", "preview": False}
+    _login(client, "owner", "owner-password")
+    denied = client.post(f"{BASE}/products/batch", json=payload).json()["data"]["results"][0]
+    assert denied["error"]["code"] == "STORE_LIST_SOURCE_FORBIDDEN"
+    assert db_session.get(ClueProductRoutingConfig, "jc-product").store_list_source == "manual"
+    _login(client)
+    pending = client.post(f"{BASE}/products/batch", json=payload).json()["data"]["results"][0]
+    assert pending["after"]["store_list_source"] == "auto_pending"
+
+
 def test_strict_field_patch_and_shared_base_contract(client):
     _login(client)
     assert client.put(f"{BASE}/shared-rule", json={"rules": {"first_follow_up_sla_hours": True}, "preview": True}).status_code == 422
