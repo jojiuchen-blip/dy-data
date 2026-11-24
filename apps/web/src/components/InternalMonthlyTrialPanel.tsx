@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { ApiRequestError, downloadMonthlyTrial, downloadMonthlyTrialStores, fetchMonthlyTrial, fetchMonthlyTrialStores } from "../api/client";
 import { useApiResource } from "../hooks/useApiResource";
 import { useDashboardPublication } from "../hooks/PublicationContext";
@@ -49,19 +49,20 @@ function trialError(error: unknown): string {
 }
 
 const columns: Column<MonthlyTrialRow>[] = [
-  { key: "store", title: "销售门店", align: "left", minWidth: 180, render: (row) => row.storeName ?? "归属待核验" },
   { key: "coupon", title: "券号", align: "left", minWidth: 180, render: (row) => row.couponId },
   { key: "order", title: "订单编号", align: "left", minWidth: 180, render: (row) => row.orderId },
   { key: "product", title: "商品类型", render: (row) => row.productType && row.productType.toLowerCase() !== "unknown" ? row.productType : "待核验" },
-  { key: "base", title: "计费基数", align: "right", minWidth: 120, render: (row) => trialAmount(row.baseAmountCent) },
-  { key: "rate", title: "费率", align: "right", render: (row) => row.feeRate?.trim() && Number.isFinite(Number(row.feeRate)) ? formatPercent(Number(row.feeRate)) : "待核验" },
-  { key: "fee", title: "试算费用", align: "right", minWidth: 120, render: (row) => trialAmount(row.feeAmountCent) },
+  { key: "base", title: "计费基数", align: "right", minWidth: 120, render: (row) => row.recordStatus === "EXCLUDED" ? "—" : trialAmount(row.baseAmountCent) },
+  { key: "rate", title: "费率", align: "right", render: (row) => {
+    if (row.recordStatus === "EXCLUDED") return "—";
+    return row.feeRate?.trim() && Number.isFinite(Number(row.feeRate)) ? formatPercent(Number(row.feeRate)) : "待核验";
+  } },
+  { key: "fee", title: "试算费用", align: "right", minWidth: 120, render: (row) => row.recordStatus === "EXCLUDED" ? "—" : trialAmount(row.feeAmountCent) },
   { key: "status", title: "核算状态", render: (row) => STATUS_LABELS[row.recordStatus] ?? "未知状态" },
   { key: "reason", title: "核查说明", align: "left", minWidth: 220, render: (row) => row.reason || "—" },
 ];
 
 const storeColumns: Column<MonthlyTrialStoreRow>[] = [
-  { key: "store", title: "销售门店", align: "left", minWidth: 180, render: (row) => row.storeName ?? "归属待核验" },
   { key: "fee", title: "已算试算费用", align: "right", minWidth: 150, render: (row) => trialAmount(row.calculatedFeeCent) },
   { key: "completeFee", title: "完整试算金额", align: "right", minWidth: 150, render: (row) => row.coverageComplete ? trialAmount(row.calculatedFeeCent) : "待核验" },
   { key: "calculated", title: "已算费用券数", align: "right", render: (row) => trialCount(row.calculatedCouponCount) },
@@ -72,8 +73,19 @@ const storeColumns: Column<MonthlyTrialStoreRow>[] = [
 ];
 
 export function InternalMonthlyTrialPanel(props: InternalMonthlyTrialPanelProps) {
+  const [expanded, setExpanded] = useState(false);
+  const panelId = useId();
   if (props.currentUser.role !== "admin" || props.month < "2026-10") return null;
-  return <InternalTrialReadPanel {...props} />;
+  return (
+    <div className="page-stack">
+      <div>
+        <Button aria-controls={panelId} aria-expanded={expanded} onClick={() => setExpanded(!expanded)} variant="secondary">
+          {expanded ? "收起内部试算" : "查看内部试算"}
+        </Button>
+      </div>
+      <div hidden={!expanded} id={panelId}>{expanded ? <InternalTrialReadPanel {...props} /> : null}</div>
+    </div>
+  );
 }
 
 function InternalTrialReadPanel({ currentUser, month, feeDirection, productType = "all", q, publicationId }: InternalMonthlyTrialPanelProps) {
@@ -117,6 +129,10 @@ function InternalTrialReadPanel({ currentUser, month, feeDirection, productType 
   const data: MonthlyTrialData<MonthlyTrialRow | MonthlyTrialStoreRow> | undefined = result?.data;
   const busy = resource.loading || resource.refreshing || !result;
   const title = direction === "PROMOTION" ? "推广服务费" : "管理服务费";
+  const storeColumn: Column<MonthlyTrialRow | MonthlyTrialStoreRow> = {
+    key: "store", title: direction === "PROMOTION" ? "销售门店" : "核销门店",
+    align: "left", minWidth: 180, render: (row) => row.storeName ?? "归属待核验",
+  };
   const error = resource.rawError ? trialError(resource.rawError) : undefined;
   const summary = data?.summary;
   const coverage = data?.coverage;
@@ -144,7 +160,7 @@ function InternalTrialReadPanel({ currentUser, month, feeDirection, productType 
       <div className="section-title">
         <div>
           <h2>{month} {title}内部试算</h2>
-          <p>试算／待核验。金额仅覆盖已算费用，完整范围以核查结果为准。</p>
+          <p>仅显示已核算金额。</p>
         </div>
       </div>
       <SegmentedControl className="segmented-control" ariaLabel="内部试算视图" value={view} onChange={setView} options={[{ value: "STORES", label: "门店汇总" }, { value: "COUPONS", label: "逐券明细" }]} />
@@ -162,24 +178,23 @@ function InternalTrialReadPanel({ currentUser, month, feeDirection, productType 
       {data ? (
         <>
           <div className="metric-grid store-summary-metrics">
-            <MetricCard label="已算试算费用" value={trialAmount(summary?.calculatedFeeCent)} meta={summary?.coverageComplete ? "当前范围核查已完成" : "当前范围仍有待核验数据"} />
+            <MetricCard label="已算试算费用" value={trialAmount(summary?.calculatedFeeCent)} />
             <MetricCard label="已算费用券数" value={trialCount(summary?.calculatedCouponCount)} />
             <MetricCard label="待核验券数" value={trialCount(summary?.pendingCouponCount)} />
             <MetricCard label="候选券数" value={trialCount(summary?.candidateCouponCount)} />
           </div>
-          <div role="note">
-            <p>试算账期 {data.month}，试算结果更新时间 {formatDateTime(result?.meta.publication?.publishedAt)}。</p>
-            {view === "STORES" ? <p>顶部券数按当前筛选范围去重，门店完整试算金额以核查完成状态为准。</p> : null}
-            <p>当前筛选商品 {productType === "all" ? "全部商品" : productType}{q?.trim() ? `，搜索“${q.trim()}”` : ""}，核算状态 {recordStatus ? STATUS_LABELS[recordStatus] : "全部核算状态"}。未计费券数 {trialCount(summary?.excludedCouponCount)}。</p>
+          <details>
+            <summary>查看核查说明</summary>
+            <p>试算更新时间 {formatDateTime(result?.meta.publication?.publishedAt)}，未计费 {trialCount(summary?.excludedCouponCount)}。</p>
             {typeof coverage?.sourceSuccessDays === "number" && typeof coverage.sourceTotalDays === "number" ? <p>来源采集已完成 {coverage.sourceSuccessDays}/{coverage.sourceTotalDays} 天。</p> : null}
             {coverage?.scopeUnresolved ? <p>部分记录的门店归属或影响范围仍待核验，完整应计金额待核验。</p> : null}
             {coverage?.note ? <p>{coverage.note}</p> : null}
             {coverage?.reasons.length ? <ul>{coverage.reasons.map((reason) => <li key={JSON.stringify([reason.code, reason.label])}>{reason.label}，{formatInteger(reason.couponCount)} 张券。</li>)}</ul> : null}
-          </div>
+          </details>
           {view === "STORES" ? (
-            <DataTable columns={storeColumns} rows={data.list as MonthlyTrialStoreRow[]} emptyText="当前筛选下没有门店试算汇总" />
+            <DataTable columns={[storeColumn, ...storeColumns]} rows={data.list as MonthlyTrialStoreRow[]} emptyText="当前筛选下没有门店试算汇总" />
           ) : (
-            <DataTable columns={columns} rows={data.list as MonthlyTrialRow[]} emptyText="当前筛选下没有试算明细" />
+            <DataTable columns={[storeColumn, ...columns]} rows={data.list as MonthlyTrialRow[]} emptyText="当前筛选下没有试算明细" />
           )}
           <TablePagination page={data.page} pageSize={data.pageSize} total={data.total} totalPages={Math.max(1, Math.ceil(data.total / data.pageSize))} rowsOnPage={data.list.length} loading={resource.loading || resource.refreshing} onPageChange={(nextPage) => setPageState({ filter, page: nextPage })} />
         </>

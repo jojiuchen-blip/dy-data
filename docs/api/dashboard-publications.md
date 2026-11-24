@@ -49,6 +49,8 @@ FIN04 门店基础资料与 SAP 异议页属于实时工作队列；其编码、
 统一筛选元数据入口为 `GET /api/v1/dashboard/publications/{module}/filters`，同样接受 `publication_id`。
 既有分析路由保持 data 字段形状，在 `meta.publication` 返回版本信息；文件导出使用 `X-Publication-ID` 标明版本。
 管理费更正的当前记录使用 `GET /api/v1/admin/finance/management-invoices/{store_id}/{statement_month}/current` 实时读取，返回既有更正成功响应的记录形状。它执行 FIN02、管理员及当前门店范围检查，不产生分析版本。提交仍执行实时版本校验；409 后由用户显式重新读取当前记录，不能自动覆盖或重复提交更正。
+
+门店提交的推广费发票通过 `GET /api/v1/admin/finance/promotion-invoices/submitted` 读取，导出使用同一路径下的 `/export`。两者检查 FIN01 和当前门店范围，只读当前有效发票记录。每张发票一行，原账期（可选筛选项）和结算归属月分别通过发票分配记录提供。查询提交记录无需等待月结发布。
 管理费分析行只提供门店和月份定位；是否存在可更正记录由实时 GET 判断，不能依赖冻结行的发票 ID 或 current 标志。读取、提交或同页分析请求明确返回 401/403 后，清除已打开的更正表单并使在途响应失效；409 和普通暂时失败仍保留用户输入。
 
 | 状态 | HTTP | 行为 |

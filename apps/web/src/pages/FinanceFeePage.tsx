@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ApiRequestError,
   correctManagementInvoice,
@@ -14,7 +14,8 @@ import { FinanceImportActionPanel } from "../components/FinanceImportActionPanel
 import { SelectField, TextField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import { InternalMonthlyTrialPanel } from "../components/InternalMonthlyTrialPanel";
-import { ResourceNotice } from "../components/ResourceState";
+import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
+import { Tabs } from "../components/SelectionControls";
 import { TablePagination } from "../components/TablePagination";
 import { usePublishedResource } from "../hooks/usePublishedResource";
 import type {
@@ -32,6 +33,7 @@ import {
   previousShanghaiStatementMonth,
   replaceStatementMonthInUrl,
 } from "../utils/statementMonth";
+import { FinanceSubmittedPromotionInvoices, promotionInvoiceStatusOptions } from "./FinanceSubmittedPromotionInvoices";
 
 interface FinanceFeePageProps {
   currentUser: AdminUser;
@@ -104,11 +106,52 @@ function navigateTo(href: string) {
 }
 
 export function FinanceFeePage({ currentUser, feeDirection, searchParams }: FinanceFeePageProps) {
+  const requestedView = searchParams.get("view");
+  const hasBillingFilters = ["month", "periodKey", "q", "invoiceStatus"].some((key) => searchParams.has(key));
+  const [view, setView] = useState<"submitted" | "billing">(
+    requestedView === "submitted" || (requestedView !== "billing" && !hasBillingFilters) ? "submitted" : "billing",
+  );
+  const [openFactoryImport, setOpenFactoryImport] = useState(false);
+  if (feeDirection === "MANAGEMENT") {
+    return <FinanceBillingWorkspace currentUser={currentUser} feeDirection={feeDirection} searchParams={searchParams} />;
+  }
+  const changeView = (next: typeof view, showImport = false) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", next);
+    window.history.replaceState(window.history.state, "", url);
+    setOpenFactoryImport(showImport);
+    setView(next);
+  };
+  const viewSwitcher = <Tabs ariaLabel="推广服务费视图" value={view} onChange={changeView} options={[
+    { value: "submitted", label: "门店提交发票" },
+    { value: "billing", label: "账期办理进度" },
+  ]} />;
+  if (view === "billing") {
+    return <FinanceBillingWorkspace currentUser={currentUser} feeDirection={feeDirection}
+      searchParams={new URLSearchParams(window.location.search)} viewSwitcher={viewSwitcher} initiallyShowImport={openFactoryImport} />;
+  }
+  return (
+    <div className="page-stack finance-page">
+      <section className="page-heading finance-heading">
+        <div><h1>推广服务费</h1></div>
+        <div className="finance-heading__actions">
+          <Button onClick={() => changeView("billing", true)} variant="primary">导入推广服务费厂家信息</Button>
+        </div>
+      </section>
+      {viewSwitcher}
+      <FinanceSubmittedPromotionInvoices />
+    </div>
+  );
+}
+
+function FinanceBillingWorkspace({
+  currentUser, feeDirection, searchParams, viewSwitcher, initiallyShowImport = false,
+}: FinanceFeePageProps & { viewSwitcher?: ReactNode; initiallyShowImport?: boolean }) {
   const [month, setMonth] = useState(() => initialStatementMonth(searchParams));
   const [search, setSearch] = useState(searchParams.get("q") ?? "");
   const [invoiceStatus, setInvoiceStatus] = useState(searchParams.get("invoiceStatus") ?? "");
   const [metricScope, setMetricScope] = useState<BillingMetricScope>("MONTH");
-  const [showImport, setShowImport] = useState(false);
+  const [showImport, setShowImport] = useState(initiallyShowImport);
   const [showHistory, setShowHistory] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -163,6 +206,7 @@ export function FinanceFeePage({ currentUser, feeDirection, searchParams }: Fina
     || invoiceResource.refreshing;
   const invoices = invoiceResource.data?.data;
   const pageCount = Math.max(1, Math.ceil((invoices?.total ?? 0) / pageSize));
+  const periodBlocked = isPublicationPeriodNotReady(financeResource.rawError);
 
   useEffect(() => {
     setPage(1);
@@ -355,12 +399,7 @@ export function FinanceFeePage({ currentUser, feeDirection, searchParams }: Fina
   };
 
   const statusOptions = feeDirection === "PROMOTION"
-    ? [
-        { value: "", label: "全部状态" },
-        { value: "SUBMITTED_PENDING_FACTORY_REVIEW", label: "提交成功，待厂端审核" },
-        { value: "APPROVED_SETTLED", label: "审核通过，已结算" },
-        { value: "REJECTED_REUPLOAD", label: "审核不通过" },
-      ]
+    ? promotionInvoiceStatusOptions
     : [
         { value: "", label: "全部状态" },
         { value: "PENDING_INVOICE", label: "待开票" },
@@ -370,11 +409,7 @@ export function FinanceFeePage({ currentUser, feeDirection, searchParams }: Fina
   return (
     <div className="page-stack finance-page">
       <section className="page-heading finance-heading">
-        <div>
-          <p className="eyebrow">财务管理员</p>
-          <h1>{title}</h1>
-          <p>内部试算用于核对已有费用。正式账单按生成、确认、开票和结算进度显示。</p>
-        </div>
+        <div><h1>{title}</h1></div>
         <div className="finance-heading__actions">
           <Button loading={downloadBusy} onClick={handleTemplateDownload} variant="secondary">
             {feeDirection === "PROMOTION" ? "下载推广服务费厂家导入模板" : "下载管理服务费厂家导入模板"}
@@ -385,14 +420,15 @@ export function FinanceFeePage({ currentUser, feeDirection, searchParams }: Fina
         </div>
       </section>
 
-      <ResourceNotice analysis loading={resourceBusy} error={isPublicationPeriodNotReady(financeResource.rawError) ? "本账期正式账单尚未就绪，授权管理员可在下方核对内部试算。" : summaryResource.error ?? invoiceResource.error} />
-      <section className={`metric-grid finance-metric-grid ${feeDirection === "MANAGEMENT" ? "finance-metric-grid--four" : ""}`}>
-        <MetricCard label={feeDirection === "PROMOTION" ? "正式账单推广费总额" : "正式账单管理费总额"} value={currencyMetric(metrics?.statementTotalCent)} meta="已生成正式账单合计" />
+      {viewSwitcher}
+      <ResourceNotice analysis loading={resourceBusy} error={periodBlocked ? undefined : financeResource.error} />
+      {metrics ? <section className={`metric-grid finance-metric-grid ${feeDirection === "MANAGEMENT" ? "finance-metric-grid--four" : ""}`}>
+        <MetricCard label={feeDirection === "PROMOTION" ? "正式账单推广费总额" : "正式账单管理费总额"} value={currencyMetric(metrics.statementTotalCent)} />
         <MetricCard label="已确认金额" value={currencyMetric(metrics?.confirmedAmountCent)} />
         <MetricCard label="待开票金额" value={currencyMetric(metrics?.pendingInvoiceAmountCent)} />
         <MetricCard label="已开票金额" value={currencyMetric(metrics?.issuedAmountCent)} />
         {feeDirection === "PROMOTION" ? <MetricCard label="审核通过已结算金额" value={currencyMetric(metrics?.settledOrDeductedAmountCent)} /> : null}
-      </section>
+      </section> : null}
 
       {showImport ? (
         <FinanceImportActionPanel
@@ -405,9 +441,6 @@ export function FinanceFeePage({ currentUser, feeDirection, searchParams }: Fina
         />
       ) : null}
 
-      <div className="finance-guidance" role="note">
-        账期、状态与搜索条件同时作用于列表、金额汇总和导出结果。
-      </div>
       <section className="finance-workbench" aria-label={`${title}筛选与操作`}>
         <div className="finance-workbench__filters">
           <TextField label="搜索" onChange={(event) => setSearch(event.target.value)} placeholder="搜索门店、SAP 或发票号码" type="search" value={search} />
@@ -424,19 +457,13 @@ export function FinanceFeePage({ currentUser, feeDirection, searchParams }: Fina
       </section>
       {notice ? <p role={noticeIsError ? "alert" : "status"}>{notice}</p> : null}
 
-      <InternalMonthlyTrialPanel currentUser={currentUser} month={month} feeDirection={feeDirection} q={search} />
-
-      <section className="content-section">
+      {periodBlocked ? <ResourcePanel>本账期正式账单尚未就绪。</ResourcePanel> : <section className="content-section">
         <div className="section-title">
-          <div>
-            <h2>{feeDirection === "PROMOTION" ? "推广费发票明细" : "管理服务费发票与扣款明细"}</h2>
-            <p>{feeDirection === "MANAGEMENT" ? "打开更正时会读取实时当前记录，历史版本永久保留。" : "厂家审核原因、归属月和结算状态均由正式接口返回。"}</p>
-          </div>
+          <h2>{feeDirection === "PROMOTION" ? "门店账单与开票进度" : "管理服务费发票与扣款明细"}</h2>
         </div>
         <DataTable
           columns={feeDirection === "PROMOTION" ? promotionColumns : managementColumns}
           emptyText="当前筛选下暂无记录"
-          errorText={isPublicationPeriodNotReady(financeResource.rawError) ? "所选账期的正式账单尚未就绪。" : undefined}
           onRowAction={feeDirection === "MANAGEMENT" ? openCorrection : undefined}
           onRowDoubleClick={feeDirection === "MANAGEMENT" ? (row) => { void openCorrection(row); } : undefined}
           rowActionLabel={(row) => feeDirection === "MANAGEMENT" && row.storeId && row.statementMonth ? "更正" : undefined}
@@ -445,7 +472,9 @@ export function FinanceFeePage({ currentUser, feeDirection, searchParams }: Fina
           tableClassName="finance-fee-table"
         />
         <TablePagination loading={resourceBusy} onPageChange={(nextPage) => { closeCorrection(); setPage(nextPage); }} onPageSizeChange={(nextSize) => { setPageSize(nextSize); setPage(1); }} page={invoices?.page ?? page} pageSize={invoices?.pageSize ?? pageSize} pageSizeOptions={[20, 50]} rowsOnPage={rows.length} total={invoices?.total ?? 0} totalPages={pageCount} />
-      </section>
+      </section>}
+
+      <InternalMonthlyTrialPanel currentUser={currentUser} month={month} feeDirection={feeDirection} q={search} />
 
       {feeDirection === "MANAGEMENT" && correctionTarget ? (
         <section className="content-section finance-correction-panel">

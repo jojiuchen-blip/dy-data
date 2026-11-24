@@ -37,7 +37,7 @@ def test_fee_pages_follow_the_frozen_module_order_and_headers() -> None:
     assert "downloadFinanceImportTemplate" in page + client
     assert "downloadFinanceInvoices" in page + client
     assert render.index("finance-metric-grid") < render.index("<FinanceImportActionPanel")
-    assert render.index("<FinanceImportActionPanel") < render.index("推广费发票明细")
+    assert render.index("<FinanceImportActionPanel") < render.index("门店账单与开票进度")
 
     for metric in [
         "推广费总额",
@@ -71,15 +71,17 @@ def test_fee_pages_follow_the_frozen_module_order_and_headers() -> None:
     assert "/finance/orders/promotion" in page
     assert "/finance/orders/management" in page
 
-    status_options = re.search(
-        r'const statusOptions = feeDirection === "PROMOTION"\s*\?\s*\[(.*?)\]\s*:\s*\[(.*?)\];',
+    management_options = re.search(
+        r'const statusOptions = feeDirection === "PROMOTION"\s*\?\s*promotionInvoiceStatusOptions\s*:\s*\[(.*?)\];',
         page,
         re.DOTALL,
     )
-    assert status_options is not None
-    promotion_options, management_options = status_options.groups()
+    assert management_options is not None
+    promotion_options = source("pages/FinanceSubmittedPromotionInvoices.tsx").split(
+        "export const promotionInvoiceStatusOptions = [", 1
+    )[1].split("];", 1)[0]
     assert "PENDING_INVOICE" not in promotion_options
-    assert "PENDING_INVOICE" in management_options
+    assert "PENDING_INVOICE" in management_options.group(1)
 
 
 def test_order_details_use_the_confirmed_two_row_filters_and_full_table() -> None:

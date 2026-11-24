@@ -2382,6 +2382,27 @@ export interface FinanceInvoiceRow {
   allocatedAmountCent?: number;
 }
 
+export interface SubmittedPromotionInvoiceRow {
+  invoiceId: string;
+  storeId: string;
+  storeName: string | null;
+  effectiveSapCode: string | null;
+  invoiceNumber: string;
+  invoiceAmountCent: number;
+  statementMonths: string[];
+  settlementBatchMonths: string[];
+  registeredAt: string;
+  status: string;
+  rejectionReason: string | null;
+}
+
+export interface SubmittedPromotionInvoiceListData {
+  list: SubmittedPromotionInvoiceRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface FinanceInvoiceListData {
   list: FinanceInvoiceRow[];
   total: number;

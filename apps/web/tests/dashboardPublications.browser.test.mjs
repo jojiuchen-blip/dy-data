@@ -867,8 +867,8 @@ for (const phase of ["month", "refresh"]) {
       latest = "money2";
       await page.getByRole("button", { name: "读取最新结果", exact: true }).click();
     }
-    await page.getByText("本账期正式账单尚未就绪，授权管理员可在下方核对内部试算。", { exact: true }).waitFor();
-    assert.doesNotMatch(await total.innerText(), /123\.45|0\.00/);
+    await page.getByText("本账期正式账单尚未就绪。", { exact: true }).waitFor();
+    assert.equal(await total.count(), 0);
     assert.equal(await page.getByRole("button", { name: "导出当前筛选结果", exact: true }).isDisabled(), true);
     assert.equal(await page.getByLabel("筛选账期", { exact: true }).isEnabled(), true);
     const before = requests.length;
@@ -1128,7 +1128,7 @@ test("finance order applied month controls navigation export and refresh while p
   denied = true;
   await page.getByLabel("筛选账期", { exact: true }).fill("2026-09");
   await page.getByRole("button", { name: "应用筛选", exact: true }).click();
-  await page.getByText("当前筛选结果读取失败。", { exact: true }).waitFor();
+  await page.locator(".resource-notice--error").getByText("数据加载失败，请稍后重试。", { exact: true }).waitFor();
   assert.equal(await page.locator("tbody").getByText("财务测试订单", { exact: true }).count(), 0);
 }));
 
@@ -1267,6 +1267,8 @@ test("monthly progress zero-published ranking explains known reviews without ren
   await page.goto(`${baseUrl}/ranking?periodKey=2026-10`);
   const progress = page.locator('[aria-label="账期处理进度"]');
   await progress.getByText("已知待核验门店数 2 家", { exact: false }).waitFor();
+  assert.doesNotMatch(await progress.innerText(), /31\/31|monthly-progress-request/);
+  await progress.locator("summary").click();
   assert.match(await progress.innerText(), /2026-10 已完成 31\/31 天的数据采集/);
   assert.match(await progress.innerText(), /已出账门店数 0 家/);
   assert.match(await progress.innerText(), /仍有数据归属或影响范围待核验/);
@@ -1275,7 +1277,7 @@ test("monthly progress zero-published ranking explains known reviews without ren
   assert.equal(await page.getByLabel("账期", { exact: true }).isEnabled(), true);
   assert.doesNotMatch(await page.locator("body").innerText(), /榜单暂不可用，请稍后重试|月结核验已完成/);
   assert.equal(await page.locator(".resource-notice--error").count(), 0);
-  assert.equal((await page.locator("body").innerText()).match(/PUBLICATION_PERIOD_NOT_READY/g).length, 1);
+  assert.doesNotMatch(await page.locator("body").innerText(), /PUBLICATION_PERIOD_NOT_READY/);
   assert.match(await progress.innerText(), /monthly-progress-request/);
   const reads = requests.filter((url) => url.pathname.endsWith("/dashboard/store-ranking"));
   assert.equal(reads.length, 1);
@@ -1309,8 +1311,10 @@ for (const [days, dayMessage] of [
     });
     await page.goto(`${baseUrl}/ranking?periodKey=2026-10`);
     const progress = page.locator('[aria-label="账期处理进度"]');
+    await progress.locator("summary").click();
     await progress.getByText(dayMessage, { exact: false }).waitFor();
-    assert.match(await progress.innerText(), /月结核算与核验结果尚未就绪，门店影响范围待确认/);
+    assert.match(await progress.innerText(), /本账期正式账单尚未就绪/);
+    assert.match(await progress.innerText(), /门店影响范围待确认/);
     assert.doesNotMatch(await progress.innerText(), /月结核验已完成|已发现待核验数据|仍有数据归属|缺失日期|采集失败/);
     assert.equal(await page.locator(".metric-card").count(), 0);
   }));
@@ -1383,6 +1387,7 @@ test("monthly progress missing day evidence never invents collection completion"
   await page.goto(`${baseUrl}/ranking?periodKey=2026-10`);
   const progress = page.locator('[aria-label="账期处理进度"]');
   await progress.getByText("已知待核验门店数 2 家", { exact: false }).waitFor();
+  await progress.locator("summary").click();
   assert.doesNotMatch(await progress.innerText(), /日采集|31\/31|已完整/);
 }));
 

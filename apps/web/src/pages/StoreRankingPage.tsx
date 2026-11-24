@@ -131,7 +131,6 @@ export function StoreRankingPage({ currentUser, searchParams }: StoreRankingPage
     <div className="page-stack">
       <section className="page-heading">
         <div>
-          <p className="eyebrow">门店结算</p>
           <h1>全国门店月度榜单</h1>
         </div>
       </section>
@@ -148,7 +147,6 @@ export function StoreRankingPage({ currentUser, searchParams }: StoreRankingPage
           disabled: cumulativeUnavailable && option.value !== "PROMOTION_FEE_MONTH",
         }))} />
       </FilterBar>
-      <InternalMonthlyTrialPanel currentUser={currentUser} month={activePeriodKey} productType={activeProductType} q={query} publicationId={metaResource.data?.meta.publication?.id} />
       <SettlementPeriodStatus month={activePeriodKey} readiness={periodReadiness} monthlyClose={availability?.monthlyClose} unavailable={explainUnavailablePeriod} requestId={explainUnavailablePeriod ? periodError?.requestId : undefined} />
       {monthlyClose?.status !== "partial" && availability?.monthlyReady && cumulativeUnavailable ? (
         <ResourcePanel>本月数据已完整，累计数据{incompleteMonths ? `因 ${incompleteMonths} 尚未完成` : "尚未完成"}，暂不可用。</ResourcePanel>
@@ -170,6 +168,7 @@ export function StoreRankingPage({ currentUser, searchParams }: StoreRankingPage
           </section>
         </>
       )}
+      <InternalMonthlyTrialPanel currentUser={currentUser} month={activePeriodKey} productType={activeProductType} q={query} publicationId={metaResource.data?.meta.publication?.id} />
     </div>
   );
 }
