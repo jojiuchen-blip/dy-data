@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Button } from "./Button";
 import { Dialog } from "./Dialog";
 
-const title = "精诚养车商品线索即将开启流转";
+const title = "精诚养车首批商品线索已正式开启流转";
 const summary = `${title}。新线索到店后，请在24小时内完成首次跟进并提交结果。`;
 
 export function ClueRoutingAnnouncement() {
@@ -50,7 +50,7 @@ export function ClueRoutingAnnouncement() {
         returnFocusRef={detailsButton}
         title={title}
       >
-        <p>各位门店同事，经营引擎即将对首批精诚养车商品开启线索流转。正式开启后，新进入引擎的试点商品线索按新规则分配，已经进入引擎的线索沿用原规则。</p>
+        <p>各位门店同事，11月24日，经营引擎已正式开启首批9个精诚养车商品的线索流转。开启后首次入库的试点商品线索按新规则分配，已经进入引擎的线索沿用原规则。</p>
         <ul>
           <li><strong>首次跟进。</strong>收到新线索后，请在24小时内完成首次跟进，并在线索中心提交实际跟进结果。超时未提交，系统会尝试续派，最后一轮到期后关闭。</li>
           <li><strong>分配顺序。</strong>符合条件的销售店优先，其次为同城10公里内优选，最后为同城兜底。每轮只分配给一家商品适用门店。</li>
