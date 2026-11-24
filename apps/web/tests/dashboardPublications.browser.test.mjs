@@ -1128,7 +1128,7 @@ test("finance order applied month controls navigation export and refresh while p
   denied = true;
   await page.getByLabel("筛选账期", { exact: true }).fill("2026-09");
   await page.getByRole("button", { name: "应用筛选", exact: true }).click();
-  await page.getByText("当前筛选结果读取失败。", { exact: true }).waitFor();
+  await page.locator(".resource-notice--error").getByText("数据加载失败，请稍后重试。", { exact: true }).waitFor();
   assert.equal(await page.locator("tbody").getByText("财务测试订单", { exact: true }).count(), 0);
 }));
 

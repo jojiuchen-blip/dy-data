@@ -312,7 +312,7 @@ export function FinanceOrderDetailsPage({ feeDirection, searchParams }: FinanceO
       {exportMessage ? <p role={exportState === "error" ? "alert" : "status"}>{exportMessage}</p> : null}
 
       <section className="content-section">
-        <div className="section-title"><div><h2>订单费用明细</h2><p>双击任意一行查看详情。</p></div></div>
+        <div className="section-title"><h2>订单费用明细</h2></div>
         <DataTable columns={columns} emptyText="当前筛选下暂无订单明细" onRowAction={setSelectedRow} onRowDoubleClick={setSelectedRow} rowActionLabel={() => "查看完整字段"} rows={rows} state={resourceBusy ? "loading" : resource.error ? "error" : "ready"} stickyHeader="container" tableClassName="finance-order-table" />
         {resource.data ? <TablePagination loading={resourceBusy} onPageChange={changePage} onPageSizeChange={onPageSizeChange} page={page} pageSize={pageSize} pageSizeOptions={[20, 50, 100, 200, 500]} rowsOnPage={rows.length} total={total} totalPages={pageCount} /> : null}
       </section>
