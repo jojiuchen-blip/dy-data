@@ -281,7 +281,7 @@ class DouyinProductSyncAdapter:
             count=self._page_size,
             goods_query_type=self._goods_query_type,
         )
-        data = _product_response_data(payload, "Product list")
+        data = product_response_data(payload, "Product list")
         rows = data.get("products")
         if not isinstance(rows, list):
             raise ProductSyncPayloadError("Product list response products must be a list")
@@ -409,7 +409,7 @@ class DouyinProductSyncAdapter:
         for attempt in range(1, PRODUCT_LOOKUP_ATTEMPTS + 1):
             self.lookup_stats["sku_requests"] += 1
             payload = self._client.query_product_skus(product_id, pending)
-            data = _product_response_data(payload, "SKU")
+            data = product_response_data(payload, "SKU")
             returned = data.get("skus")
             if not isinstance(returned, list):
                 raise ProductSyncPayloadError("SKU response skus must be a list")
@@ -466,7 +466,7 @@ class DouyinProductSyncAdapter:
             self.lookup_diagnostics["attempts"].append(attempt_summary)
             payload = self._client.query_online_products_by_id(pending)
             attempt_summary.update(_product_lookup_response_summary(payload, pending))
-            data = _product_response_data(payload, "Product ID")
+            data = product_response_data(payload, "Product ID")
             returned = data.get("product_onlines")
             if not isinstance(returned, list):
                 raise ProductSyncPayloadError("Product ID response product_onlines must be a list")
@@ -1431,7 +1431,8 @@ def _required_mapping(value: Any, label: str) -> Mapping[str, Any]:
     return value
 
 
-def _product_response_data(payload: Any, label: str) -> Mapping[str, Any]:
+def product_response_data(payload: Any, label: str) -> Mapping[str, Any]:
+    """Validate the shared Goodlife product response and its status envelopes."""
     payload = _required_mapping(payload, label + " response")
     data = _required_mapping(payload.get("data"), label + " response data")
     for container, field in ((payload, "error_code"), (data, "error_code"),

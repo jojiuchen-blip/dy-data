@@ -362,6 +362,8 @@ def run_priority_daily_tick(
     )
     if product_job_id:
         with session_scope(factory) as session:
+            product_job = session.get(JobRun, product_job_id)
+            product_status = "failed" if product_job is not None and product_job.status == "failed" else "success"
             _stamp_job_metadata(
                 session,
                 job_id=product_job_id,
@@ -377,7 +379,7 @@ def run_priority_daily_tick(
                 business_date=daily_date,
                 selected_purpose=DAILY_REQUIRED_PURPOSE,
                 product_sync_job_id=product_job_id,
-                status="success",
+                status=product_status,
             )
         )
 
@@ -1418,9 +1420,9 @@ def _default_product_sync_runner(
     *,
     now: datetime,
 ) -> str | None:
-    from apps.worker.scheduler import run_scheduled_product_sync
+    from apps.worker.scheduler import run_due_product_jobs
 
-    return run_scheduled_product_sync(factory, now=now)
+    return run_due_product_jobs(factory, now=now)
 
 
 def _run_product_sync(

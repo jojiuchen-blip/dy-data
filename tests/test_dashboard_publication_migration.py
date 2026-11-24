@@ -174,7 +174,7 @@ def test_clean_and_populated_full_postgres_chain_upgrade(full_pg_stack, populate
             session.commit()
     command.upgrade(config, "head")
     with Session(engine) as session:
-        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261120_0073"
+        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261123_0074"
         assert session.scalar(text("SELECT count(*) FROM dashboard_publication_source_counters")) == len(SOURCE_TABLES)
         assert source_fingerprint(session, "sales")
         if populated:
@@ -201,7 +201,7 @@ def test_production_0071_upgrades_to_monthly_evidence_and_trial(full_pg_stack):
 
     command.upgrade(config, "head")
     with Session(engine) as session:
-        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261120_0073"
+        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261123_0074"
         assert session.get(DimStore, "pre-trial-store").store_name == "Original Store"
     schema = inspect(engine)
     assert {"monthly_store_evidence_snapshot", "dashboard_publication_fee_trial"} <= set(schema.get_table_names())
