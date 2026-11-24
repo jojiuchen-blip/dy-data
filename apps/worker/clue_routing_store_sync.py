@@ -15,6 +15,7 @@ from apps.api.dy_api.clue_product_routing import ProductRoutingError, publish_do
 from apps.api.dy_api.db import session_scope
 from apps.api.dy_api.models import ClueProductRoutingConfig, DimStore, DimStorePoiMapping, JobRun
 from apps.worker.daily_windows import SHANGHAI_TIMEZONE
+from apps.worker.product_sync import product_response_data
 from apps.worker.repositories import finish_job_run
 
 logger = logging.getLogger(__name__)
@@ -43,10 +44,7 @@ def read_product_store_pois(
     # when an upstream response ignores the requested count.
     row_count = 0
     for _ in range(PRODUCT_LIMIT // PRODUCT_PAGE_SIZE + 1):
-        payload = fetch_page(cursor)
-        data = payload.get("data") if isinstance(payload, Mapping) else None
-        if not isinstance(data, Mapping) or data.get("error_code") != 0:
-            raise ValueError("PRODUCT_API_REJECTED")
+        data = product_response_data(fetch_page(cursor), "Routing store list")
         rows, has_more = data.get("products"), data.get("has_more")
         if not isinstance(rows, list) or type(has_more) is not bool or (has_more and not rows):
             raise ValueError("PRODUCT_PAGE_INCOMPLETE")
@@ -136,7 +134,7 @@ def run_daily_routing_store_sync(
                         counts["poi_mapping_incomplete"] += 1
                         continue
                     store_ids = {row.store_id for row in rows if row.is_active and row.location_status != "closed"}
-                    outcome = publish_douyin_store_list(session, product_id, generation, store_ids, run_id=job_id)
+                    outcome = publish_douyin_store_list(session, product_id, generation, store_ids, run_id=job_id, sync_date=day)
             except ProductRoutingError as exc:
                 counts[exc.code.lower()] += 1
             except SQLAlchemyError:
@@ -145,7 +143,7 @@ def run_daily_routing_store_sync(
                 counts[outcome] += 1
 
     successes = counts["published"] + counts["unchanged"]
-    failed = len(targets) - successes - counts["source_changed"]
+    failed = len(targets) - successes - counts["source_changed"] - counts["stale_run"]
     with session_scope(factory) as session:
         job = finish_job_run(session, job_id, status="failed" if failed else "success",
                              success_count=successes, failed_count=failed,

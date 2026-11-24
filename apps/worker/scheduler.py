@@ -170,7 +170,8 @@ def run_once() -> None:
 
 def run_due_product_jobs(factory, *, now: datetime | None = None) -> str | None:
     """Run at most one scheduled product job per scheduler tick."""
-    return run_scheduled_product_sync(factory, now=now) or run_daily_routing_store_sync(factory, now=now)
+    product_job = run_scheduled_product_sync(factory) if now is None else run_scheduled_product_sync(factory, now=now)
+    return product_job or run_daily_routing_store_sync(factory, now=now)
 
 
 def _plan_legacy_sources(factory, mode: str) -> DailySyncPlan | None:

@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
 from copy import deepcopy
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from hashlib import sha256
 import json
@@ -535,6 +535,7 @@ def _apply_change(session: Session, actor: Any, product_id: str, payload: Mappin
         config.active_list_version_id = after["list_version"]
         config.store_list_source = "manual"
         config.store_list_sync_generation = None
+        config.store_list_sync_date = None
     elif action == "publish_rule" or (action == "enable" and (not config.rule_version_id or
             (after["product_scope"] == "byd" and config.first_enabled_at is None))):
         old_version = session.get(ClueAllocationRuleVersion, config.rule_version_id) if config.rule_version_id else None
@@ -594,7 +595,7 @@ def _publish_store_list(
 
 
 def publish_douyin_store_list(
-    session: Session, product_id: str, generation: str, store_ids: set[str], *, run_id: str,
+    session: Session, product_id: str, generation: str, store_ids: set[str], *, run_id: str, sync_date: date,
 ) -> str:
     """Apply a verified full list only if the administrator's selection still matches."""
     if not store_ids:
@@ -602,6 +603,8 @@ def publish_douyin_store_list(
     config = _locked_config(session, product_id)
     if config.store_list_sync_generation != generation or config.store_list_source not in {"auto_pending", "douyin"}:
         return "source_changed"
+    if config.store_list_sync_date is not None and config.store_list_sync_date >= sync_date:
+        return "stale_run"
     if product_scope_for_id(session, product_id) != "jingcheng":
         raise ProductRoutingError("AUTO_STORE_LIST_UNSUPPORTED", "该商品已退出精诚养车范围")
     if config.store_list_source == "auto_pending" and load_product_store_ids(session, product_id) != store_ids:
@@ -610,6 +613,7 @@ def publish_douyin_store_list(
     publisher = DOUYIN_STORE_LIST_PUBLISHER
     changed = _publish_store_list(session, config, sorted(store_ids), publisher,
                                   require_new=config.store_list_source == "auto_pending")
+    config.store_list_sync_date = sync_date
     if not changed:
         return "unchanged"
     config.store_list_source = "douyin"

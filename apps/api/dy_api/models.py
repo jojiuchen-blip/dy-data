@@ -4735,6 +4735,7 @@ class ClueProductRoutingConfig(Base):
     manual_list_version_id: Mapped[str | None] = mapped_column(Text)
     store_list_source: Mapped[str] = mapped_column(Text, default="manual", server_default="manual")
     store_list_sync_generation: Mapped[str | None] = mapped_column(Text)
+    store_list_sync_date: Mapped[date | None] = mapped_column(Date)
     updated_by: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

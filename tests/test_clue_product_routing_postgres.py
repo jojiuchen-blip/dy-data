@@ -393,6 +393,13 @@ def test_real_upgrade_from_monthly_0069_preserves_old_leads_and_defaults_off(mon
             session.add(ClueProductRoutingConfig(product_id="new-default"))
             session.commit()
             assert session.get(ClueProductRoutingConfig, "new-default").routing_enabled is False
+            legacy.store_list_source = "douyin"
+            session.commit()
+        with pytest.raises(RuntimeError, match="Restore automatic product store lists"):
+            command.downgrade(config, "20261120_0073")
+        with Session(scoped) as session:
+            session.get(ClueProductRoutingConfig, "legacy-manual").store_list_source = "manual"
+            session.commit()
         with pytest.raises(RuntimeError, match="Product routing history exists"):
             command.downgrade(config, "20261118_0069")
         scoped.dispose()

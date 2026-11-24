@@ -61,6 +61,8 @@ def test_read_all_product_pages_keeps_int64_poi_exact():
     _page(_product(), more=True, cursor="repeat"),
     {"data": {"error_code": 2119005, "products": [], "has_more": False}},
     {"data": {"products": [_product()], "has_more": "false"}},
+    {**_page(_product()), "extra": {"error_code": 2190004}},
+    {**_page(_product()), "BaseResp": {"StatusCode": 2190004}},
 ])
 def test_incomplete_response_is_rejected(payload):
     with pytest.raises(ValueError):
@@ -143,3 +145,20 @@ def test_in_flight_pull_cannot_override_manual_revert_or_reenrollment(db_session
     db_session.expire_all()
     assert db_session.get(JobRun, run).metadata_json["outcomes"]["source_changed"] == 1
     assert db_session.get(ClueProductRoutingConfig, PRODUCT).active_list_version_id == original
+
+
+def test_delayed_snapshot_cannot_replace_newer_day(db_session):
+    _seed(db_session)
+    factory = make_session_factory(db_session.get_bind())
+    _change(db_session, "publish_list", store_ids=["001"])
+    _change(db_session, "request_auto_list")
+    run_daily_routing_store_sync(factory, now=DAY, fetch_page=lambda _: _page(_product(pois=(MANUAL_POI,))))
+
+    def fetch_delayed(_):
+        run_daily_routing_store_sync(factory, now=DAY + timedelta(days=2), fetch_page=lambda _: _page(_product()))
+        return _page(_product(pois=(MANUAL_POI,)))
+
+    delayed_run = run_daily_routing_store_sync(factory, now=DAY + timedelta(days=1), fetch_page=fetch_delayed)
+    db_session.expire_all()
+    assert db_session.get(JobRun, delayed_run).metadata_json["outcomes"]["stale_run"] == 1
+    assert load_product_store_ids(db_session, PRODUCT) == {"002"}
