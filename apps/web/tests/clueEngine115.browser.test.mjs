@@ -220,6 +220,7 @@ for (const width of [1440, 921, 390]) {
     await trigger.waitFor();
     await page.locator(".clue-metric-grid").getByText("自店核销量", { exact: true }).waitFor();
     const track = header.locator(".workspace-announcement__track");
+    assert.match(await track.innerText(), /精诚养车首批商品线索已正式开启流转/);
     if (width !== 390) {
       const nav = await header.locator(".workspace-subnav--desktop").boundingBox();
       const account = await header.getByRole("button", { name: "个人设置", exact: true }).boundingBox();
@@ -239,7 +240,9 @@ for (const width of [1440, 921, 390]) {
       assert.equal(await track.evaluate((el) => getComputedStyle(el).animationName), "none");
       await trigger.tap();
     }
-    const dialog = page.getByRole("dialog", { name: "精诚养车商品线索即将开启流转" });
+    const dialog = page.getByRole("dialog", { name: "精诚养车首批商品线索已正式开启流转" });
+    await dialog.getByText("11月24日，经营引擎已正式开启首批9个精诚养车商品", { exact: false }).waitFor();
+    await dialog.getByText("开启后首次入库", { exact: false }).waitFor();
     await dialog.getByText("收到新线索后，请在24小时内完成首次跟进", { exact: false }).waitFor();
     await dialog.getByText("预约时间后72小时", { exact: false }).waitFor();
     await dialog.getByText("已经进入引擎的线索沿用原规则", { exact: false }).waitFor();
