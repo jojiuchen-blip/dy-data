@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 18
     env:
-      TARGET_SHA: fd3872f84d7c9a8d12f1b4591f010912af0be577
+      TARGET_SHA: dd55cc737c19792f97bfc8b2c6f32190a2a11405
       TENCENT_HOST: ${{ vars.TENCENT_HOST }}
       TENCENT_SSH_PORT: ${{ vars.TENCENT_SSH_PORT }}
       TENCENT_SSH_USER: ${{ vars.TENCENT_SSH_USER }}
@@ -56,8 +56,8 @@ jobs:
             FROM clue_product_routing_configs c LEFT JOIN clue_product_store_list_members m
               ON m.list_version_id=c.active_list_version_id WHERE c.routing_enabled GROUP BY c.store_list_source;
           WITH jingcheng AS (
-            SELECT product_id FROM dim_sku_product_rule WHERE product_scope='精诚养车'
-            UNION SELECT sku_id FROM dim_sku_product_rule WHERE product_scope='精诚养车'
+            SELECT product_id FROM dim_sku_product_rules WHERE product_scope='精诚养车'
+            UNION SELECT sku_id FROM dim_sku_product_rules WHERE product_scope='精诚养车'
           )
           SELECT 'catalogue', CASE WHEN EXISTS (SELECT FROM jingcheng j WHERE j.product_id = s.product_id)
              THEN 'jingcheng' ELSE 'byd' END AS product_scope,
