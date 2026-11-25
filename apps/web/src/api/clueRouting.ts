@@ -4,6 +4,7 @@ import { userFacingError } from "../utils/userFacingError";
 export type ClueRoutingProductScope = "all" | "jingcheng" | "byd";
 export type ClueRoutingAction = "publish_list" | "publish_rule" | "enable" | "disable" | "request_auto_list" | "restore_manual_list";
 export type ClueRoutingStoreListSource = "manual" | "auto_pending" | "douyin";
+export type DouyinStoreScopeStatus = "valid" | "source_error" | "missing_product" | "missing_or_invalid_pois" | "poi_mapping_incomplete" | "no_active_stores";
 export type ClueRoutingExpiryAction = "next" | "close";
 
 export interface ClueRoutingPolicy {
@@ -35,6 +36,20 @@ export interface ClueRoutingProduct extends ClueRoutingRuleSnapshot {
   store_ids: string[];
   list_version: number | string | null;
   store_list_source?: ClueRoutingStoreListSource;
+  douyin_store_scope?: DouyinStoreScopeSummary | null;
+}
+
+export interface DouyinStoreScopeSummary {
+  status: DouyinStoreScopeStatus;
+  checked_at: string;
+  last_success_at: string | null;
+  store_count: number | null;
+}
+
+export interface DouyinStoreScopeDetail {
+  product_id: string;
+  douyin_store_scope: DouyinStoreScopeSummary | null;
+  store_ids: string[];
 }
 
 export interface ClueRoutingFilters {
@@ -66,6 +81,7 @@ export interface ClueRoutingBatchWrite {
   rules?: ClueRoutingRuleWrite;
   authorization_note?: string;
   expected_list_versions?: Record<string, string | number | null>;
+  expected_douyin_scope_checks?: Record<string, string>;
   preview: boolean;
 }
 
@@ -122,6 +138,7 @@ const failureLabels: Record<string, string> = {
   CONFLICT: "配置已发生变化，请重新预览。",
   PREVIEW_REQUIRED: "请先预览并确认当前商品名单版本，再正式开启。",
   LIST_VERSION_CHANGED: "名单版本已变化，该商品保持关闭。请重新预览并确认最新名单后开启。",
+  DOUYIN_SCOPE_CHANGED: "抖音名单或当前有效名单已更新，请重新预览。",
   PRODUCT_NOT_ENABLED: "本品首次开启前继承精诚共享基座。请先按已确认名单开启，之后可发布独立规则。",
 };
 
@@ -188,6 +205,10 @@ export function fetchClueRoutingProducts(filters: ClueRoutingFilters, page: numb
   return request<ClueRoutingProductList>("/admin/clue-routing/products", {
     query: { ...filters, page, page_size: pageSize }, signal,
   });
+}
+
+export function fetchDouyinStoreScope(productId: string, signal?: AbortSignal) {
+  return request<DouyinStoreScopeDetail>(`/admin/clue-routing/products/${encodeURIComponent(productId)}/douyin-store-scope`, { signal });
 }
 
 export function submitClueRoutingBatch(body: ClueRoutingBatchWrite, idempotencyKey?: string) {

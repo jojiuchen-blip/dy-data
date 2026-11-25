@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import sys
 from pathlib import Path
 
@@ -9,7 +10,9 @@ from sqlalchemy import func, select
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
-from apps.api.dy_api.models import ClueAllocationAuditLog, ClueProductRoutingConfig, DimSkuProductRule, DimStore, User
+from apps.api.dy_api.models import (
+    ClueAllocationAuditLog, ClueProductDouyinStoreScope, ClueProductRoutingConfig, DimSkuProductRule, DimStore, User,
+)
 from dy_api.auth import hash_password_pbkdf2
 from dy_api.main import create_app
 from dy_api.routes._data import get_session_dependency
@@ -97,6 +100,36 @@ def test_readonly_cli_and_mcp_bearers_cannot_manage_products(client):
         response = client.post(f"{BASE}/products/batch", headers={"Authorization": f"Bearer {token}"},
             json={"product_ids": ["jc-product"], "action": "disable", "preview": False})
         assert response.status_code == 401
+
+
+def test_douyin_scope_read_and_adoption_follow_product_permissions(client, db_session):
+    _login(client)
+    checked_at = datetime(2026, 11, 25, tzinfo=timezone.utc)
+    db_session.add(ClueProductDouyinStoreScope(product_id="byd-product", status="valid", checked_at=checked_at,
+                                             last_success_at=checked_at, store_count=1, store_ids=["0001"]))
+    db_session.commit()
+    assert client.put(f"{BASE}/products/jc-product/grants", json={"user_ids": ["product-owner"]}).status_code == 200
+    url = f"{BASE}/products/byd-product/douyin-store-scope"
+    detail = client.get(url).json()["data"]
+    assert detail["store_ids"] == ["0001"]
+    assert detail["douyin_store_scope"]["checked_at"] == checked_at.isoformat()
+
+    body = {"product_ids": ["byd-product"], "action": "request_auto_list", "preview": True}
+    preview = client.post(f"{BASE}/products/batch", json=body).json()["data"]["results"][0]
+    assert preview["after"]["store_list_source"] == "douyin"
+    assert preview["after"]["store_ids"] == ["0001"]
+    submitted = client.post(f"{BASE}/products/batch", json={
+        **body, "preview": False,
+        "expected_douyin_scope_checks": {"byd-product": detail["douyin_store_scope"]["checked_at"]},
+    }).json()["data"]["results"][0]
+    assert submitted["after"]["store_list_source"] == "douyin"
+    assert submitted["after"]["routing_enabled"] is False
+
+    _login(client, "owner", "owner-password")
+    assert client.get(url).status_code == 403
+    not_yet_synced = client.get(f"{BASE}/products/jc-product/douyin-store-scope").json()["data"]
+    assert not_yet_synced["store_ids"] == []
+    assert not_yet_synced["douyin_store_scope"] is None
 
 
 def test_store_list_source_is_managed_only_by_all_store_administrator(client, db_session):

@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
 from copy import deepcopy
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from hashlib import sha256
 import json
@@ -24,7 +24,7 @@ from apps.api.dy_api.clue_product_routing_policy import DEFAULT_FOLLOW_UP_POLICY
 from apps.api.dy_api.models import (
     ClueAllocationAuditLog, ClueAllocationRule, ClueAllocationRuleVersion,
     ClueCenterOrder, ClueLeadRuleVersionBinding, ClueMasterLead,
-    ClueProductRoutingConfig, ClueProductRoutingGrant, ClueProductRoutingOperation,
+    ClueProductDouyinStoreScope, ClueProductRoutingConfig, ClueProductRoutingGrant, ClueProductRoutingOperation,
     ClueProductStoreListMember, ClueProductStoreListVersion, ClueSharedRuleMaintainer, DimSkuProductRule,
     DimStore, RawDouyinClue, User, utcnow,
 )
@@ -32,6 +32,7 @@ from apps.worker.clue_rule_versions import (
     RuleVersionError, bind_lead_rule_version, create_rule_version, publish_rule_version,
     resolve_published_rule_version, rule_version_snapshot,
 )
+from apps.worker.daily_windows import SHANGHAI_TIMEZONE
 
 
 SHARED_BASE_SCOPE_KEY = "product_base:jingcheng"
@@ -176,6 +177,17 @@ def list_products(
     return {"rows": rows, "total": total, "page": page, "page_size": page_size,
             "can_manage_grants": _can_manage_grants(session, actor),
             "can_manage_shared_rule": _can_manage_shared_rule(session, actor)}
+
+
+def get_douyin_store_scope(session: Session, actor: Any, product_id: str) -> dict[str, Any]:
+    _require_human_actor(actor)
+    if not can_manage_product(session, actor, product_id):
+        raise ProductRoutingError("PRODUCT_FORBIDDEN", "该商品不存在或无管理权限", http_status=403)
+    scope = session.get(ClueProductDouyinStoreScope, product_id)
+    if scope is None and _catalog_row(session, product_id) is None:
+        raise ProductRoutingError("PRODUCT_NOT_FOUND", "商品不存在", http_status=404)
+    return {"product_id": product_id, "douyin_store_scope": _douyin_scope_summary(scope),
+            "store_ids": (scope.store_ids or []) if scope else []}
 
 
 def batch_product_changes(
@@ -365,6 +377,7 @@ def _catalog():
         select(DimSkuProductRule.product_id.label("product_id"), DimSkuProductRule.product_name.label("product_name")),
         select(RawDouyinClue.product_id, RawDouyinClue.product_name),
         select(ClueCenterOrder.product_id, ClueCenterOrder.product_name),
+        select(ClueProductDouyinStoreScope.product_id, ClueProductDouyinStoreScope.product_name),
     ).subquery()
     return select(sources.c.product_id, func.max(sources.c.product_name).label("product_name")).where(
         sources.c.product_id.is_not(None), func.trim(sources.c.product_id) != "").group_by(sources.c.product_id).subquery("routing_product_catalog")
@@ -413,10 +426,27 @@ def _product_snapshot(session: Session, actor: Any, catalog_row: Mapping[str, An
     return _product_snapshots(session, actor, [catalog_row])[0]
 
 
+def _utc_timestamp(value: datetime) -> datetime:
+    return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _douyin_scope_summary(scope) -> dict[str, Any] | None:
+    if scope is None:
+        return None
+    return {"status": scope.status, "store_count": scope.store_count,
+            "checked_at": _utc_timestamp(scope.checked_at).isoformat(),
+            "last_success_at": _utc_timestamp(scope.last_success_at).isoformat() if scope.last_success_at else None}
+
+
 def _product_snapshots(session: Session, actor: Any, catalog_rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     if not catalog_rows:
         return []
     product_ids = [row["product_id"] for row in catalog_rows]
+    scopes = {row.product_id: _douyin_scope_summary(row) for row in session.execute(
+        select(ClueProductDouyinStoreScope.product_id, ClueProductDouyinStoreScope.status,
+               ClueProductDouyinStoreScope.store_count, ClueProductDouyinStoreScope.checked_at,
+               ClueProductDouyinStoreScope.last_success_at)
+        .where(ClueProductDouyinStoreScope.product_id.in_(product_ids)))}
     configs = {row.product_id: row for row in session.scalars(select(ClueProductRoutingConfig).where(
         ClueProductRoutingConfig.product_id.in_(product_ids)))}
     versions = {row.rule_version_id: row for row in session.scalars(select(ClueAllocationRuleVersion).where(
@@ -451,6 +481,7 @@ def _product_snapshots(session: Session, actor: Any, catalog_rows: Sequence[Mapp
             "store_ids": sorted(member_ids.get(product_id, [])),
             "list_version": config.active_list_version_id if config else None,
             "store_list_source": config.store_list_source if config else "manual",
+            "douyin_store_scope": scopes.get(product_id),
             "can_manage": is_global or product_id in granted})
     return rows
 
@@ -473,9 +504,21 @@ def _preview_change(session: Session, before: Mapping[str, Any], payload: Mappin
             raise ProductRoutingError("UNKNOWN_STORE_IDS", "名单包含未知门店编码，请校正后重试")
         after["store_ids"] = normalized
     elif action == "request_auto_list":
-        if before["product_scope"] != "jingcheng":
-            raise ProductRoutingError("AUTO_STORE_LIST_UNSUPPORTED", "当前仅精诚养车商品可接入自动名单")
-        if before["store_list_source"] == "manual":
+        product_id = before["product_id"]
+        expected = (payload.get("expected_douyin_scope_checks") or {}).get(product_id)
+        preview = payload.get("preview", True)
+        if expected is not None or (preview and before["store_list_source"] != "douyin"):
+            statement = select(ClueProductDouyinStoreScope).where(ClueProductDouyinStoreScope.product_id == product_id)
+            scope = session.scalar(statement if preview else statement.with_for_update())
+            candidate = scope and scope.status == "valid" and scope.store_ids
+            may_adopt = (before["store_list_source"] != "douyin" and candidate
+                         and (not before["list_version"] or before["store_ids"] == scope.store_ids))
+            if expected is not None and (not may_adopt or expected != _utc_timestamp(scope.checked_at).isoformat()):
+                raise ProductRoutingError("DOUYIN_SCOPE_CHANGED", "抖音名单或当前有效名单已更新，请重新预览", http_status=409)
+            if may_adopt:
+                after.update(store_list_source="douyin", store_ids=scope.store_ids, list_version=None,
+                             douyin_store_scope=_douyin_scope_summary(scope))
+        if after["store_list_source"] == "manual":
             after["store_list_source"] = "auto_pending"
     elif action == "restore_manual_list":
         config = session.get(ClueProductRoutingConfig, before["product_id"])
@@ -525,12 +568,19 @@ def _apply_change(session: Session, actor: Any, product_id: str, payload: Mappin
         _publish_store_list(session, config, after["store_ids"], _actor_key(actor),
                             require_new=bool(active and active.published_by == DOUYIN_STORE_LIST_PUBLISHER))
         config.manual_list_version_id = config.active_list_version_id
-    elif action == "request_auto_list" and config.store_list_source == "manual":
-        active = session.get(ClueProductStoreListVersion, config.active_list_version_id) if config.active_list_version_id else None
-        if active and active.published_by != DOUYIN_STORE_LIST_PUBLISHER:
-            config.manual_list_version_id = active.list_version_id
-        config.store_list_source = "auto_pending"
-        config.store_list_sync_generation = _new_id("store-sync")
+    elif action == "request_auto_list" and config.store_list_source != "douyin":
+        if config.store_list_source == "manual":
+            active = session.get(ClueProductStoreListVersion, config.active_list_version_id) if config.active_list_version_id else None
+            if active and active.published_by != DOUYIN_STORE_LIST_PUBLISHER:
+                config.manual_list_version_id = active.list_version_id
+            config.store_list_source = "auto_pending"
+            config.store_list_sync_generation = _new_id("store-sync")
+        if after["store_list_source"] == "douyin":
+            checked_at = datetime.fromisoformat(after["douyin_store_scope"]["checked_at"])
+            sync_date = checked_at.astimezone(SHANGHAI_TIMEZONE).date()
+            session.flush()
+            publish_douyin_store_list(session, product_id, config.store_list_sync_generation, set(after["store_ids"]),
+                                      run_id=f"clue-routing-stores-{sync_date}", sync_date=sync_date)
     elif action == "restore_manual_list":
         config.active_list_version_id = after["list_version"]
         config.store_list_source = "manual"
@@ -596,6 +646,7 @@ def _publish_store_list(
 
 def publish_douyin_store_list(
     session: Session, product_id: str, generation: str, store_ids: set[str], *, run_id: str, sync_date: date,
+    scope_checked_at: datetime | None = None,
 ) -> str:
     """Apply a verified full list only if the administrator's selection still matches."""
     if not store_ids:
@@ -605,9 +656,13 @@ def publish_douyin_store_list(
         return "source_changed"
     if config.store_list_sync_date is not None and config.store_list_sync_date >= sync_date:
         return "stale_run"
-    if product_scope_for_id(session, product_id) != "jingcheng":
-        raise ProductRoutingError("AUTO_STORE_LIST_UNSUPPORTED", "该商品已退出精诚养车范围")
-    if config.store_list_source == "auto_pending" and load_product_store_ids(session, product_id) != store_ids:
+    if scope_checked_at is not None:
+        latest = session.scalar(select(ClueProductDouyinStoreScope.checked_at)
+            .where(ClueProductDouyinStoreScope.product_id == product_id).with_for_update())
+        if latest is None or _utc_timestamp(latest) != _utc_timestamp(scope_checked_at):
+            return "stale_run"
+    if (config.store_list_source == "auto_pending" and config.active_list_version_id
+            and load_product_store_ids(session, product_id) != store_ids):
         raise ProductRoutingError("FIRST_SYNC_SCOPE_MISMATCH", "首次同步须与当前已发布的手动名单一致")
     before = {"list_version": config.active_list_version_id, "store_list_source": config.store_list_source}
     publisher = DOUYIN_STORE_LIST_PUBLISHER

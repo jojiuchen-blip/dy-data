@@ -57,6 +57,7 @@ class ProductRoutingBatchRequest(StrictRoutingModel):
     rules: ProductRulePatch | None = None
     authorization_note: str | None = Field(default=None, max_length=2000)
     expected_list_versions: dict[str, str | None] | None = None
+    expected_douyin_scope_checks: dict[str, str] | None = None
     preview: bool = True
 
     @model_validator(mode="after")

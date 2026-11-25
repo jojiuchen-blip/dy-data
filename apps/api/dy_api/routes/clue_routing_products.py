@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.clue_product_routing import (
-    ProductRoutingError, batch_product_changes, get_product_grants, get_shared_rule,
+    ProductRoutingError, batch_product_changes, get_douyin_store_scope, get_product_grants, get_shared_rule,
     get_shared_rule_grants, list_products, publish_shared_rule, replace_product_grants,
     replace_shared_rule_grants,
 )
@@ -74,6 +74,17 @@ def change_routing_products(
         return _response(request, data)
     except ProductRoutingError as exc:
         session.rollback()
+        raise _http_error(exc) from None
+
+
+@router.get("/products/{product_id}/douyin-store-scope", summary="读取最近一次核验通过的抖音门店名单及本次同步状态")
+def read_routing_product_douyin_store_scope(
+    request: Request, product_id: str,
+    actor: AuthContext = Depends(_human_user), session: Session = Depends(_session),
+) -> dict[str, Any]:
+    try:
+        return _response(request, get_douyin_store_scope(session, actor, product_id))
+    except ProductRoutingError as exc:
         raise _http_error(exc) from None
 
 
