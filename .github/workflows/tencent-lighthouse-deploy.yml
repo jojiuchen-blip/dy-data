@@ -61,7 +61,7 @@ jobs:
           gh api "repos/${{ github.repository }}/actions/runs/45551935060" > "$RUNNER_TEMP/prior.json"
           gh api "repos/${{ github.repository }}/actions/jobs/138994885251" > "$RUNNER_TEMP/prior-job.json"
           gh api "repos/${{ github.repository }}/contents/.github/workflows/tencent-lighthouse-deploy.yml?ref=6963c7d684ed56c4a02c1af5b34bfdd9a1ac8d81" --jq .content | base64 -d > "$RUNNER_TEMP/prior-workflow.yml"
-          gh api "repos/${{ github.repository }}/actions/jobs/138994885251/logs" > "$RUNNER_TEMP/prior-test.log"
+          gh api "repos/${{ github.repository }}/actions/jobs/138994885251/logs" --allow-escape-sequences > "$RUNNER_TEMP/prior-test.log"
           python - <<'PY'
           import json, os, re
           from pathlib import Path
@@ -81,6 +81,7 @@ jobs:
           assert all(step["conclusion"] == "success" for step in job["steps"] if step["number"] < failing["number"])
           assert checks["Verify DYDATA-104 financial preview and operation buttons in Chromium"]["conclusion"] == "success"
           log = (temp / "prior-test.log").read_text(encoding="utf-8", errors="replace")
+          log = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", log)
           failures = re.findall(r"(?m)^.*?Z FAILED (tests/[^ ]+) - ", log)
           assert len(failures) == 1 and failures[0].startswith(
               "tests/test_dydata105_buttons_browser.py::test_dydata105_store_confirm_invoice_lifecycle_and_replacement_real_readback["
