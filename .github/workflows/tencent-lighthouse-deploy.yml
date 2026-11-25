@@ -1,13 +1,10 @@
-name: Tencent Lighthouse Deploy
+name: Tencent Lighthouse Deploy DYDATA-121
 
 "on":
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 concurrency:
-  group: tencent-lighthouse-${{ github.ref }}
+  group: tencent-lighthouse-refs/heads/main
   cancel-in-progress: false
 
 permissions:
@@ -17,6 +14,8 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   PYTHON_VERSION: "3.12"
   NODE_VERSION: "22"
+  TARGET_SHA: fd3872f84d7c9a8d12f1b4591f010912af0be577
+  EXPECTED_BASE_SHA: f4f584e3fef4f5019d37805fc715435f90319716
 
 jobs:
   verify:
@@ -55,6 +54,11 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+
+      - name: Verify the pinned application source
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -270,7 +274,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: verify
     if: github.event_name == 'workflow_dispatch' || vars.TENCENT_DEPLOY_ON_PUSH == 'true'
-    timeout-minutes: 30
+    timeout-minutes: 55
 
     env:
       TENCENT_HOST: ${{ vars.TENCENT_HOST }}
@@ -285,6 +289,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
 
       - name: Check required Tencent deployment settings
         run: |
@@ -318,9 +324,10 @@ jobs:
       - name: Deploy on server
         run: |
           port="${TENCENT_SSH_PORT:-22}"
-          archive="/tmp/dy-dashboard-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar.gz"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          archive="/tmp/dy-dashboard-${TARGET_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar.gz"
 
-          git archive --format=tar "$GITHUB_SHA" | gzip > /tmp/dy-dashboard-source.tar.gz
+          git archive --format=tar "$TARGET_SHA" | gzip > /tmp/dy-dashboard-source.tar.gz
           archive_hash="$(sha256sum /tmp/dy-dashboard-source.tar.gz | cut -d' ' -f1)"
           scp -i ~/.ssh/tencent_lighthouse \
             -P "$port" \
@@ -338,6 +345,7 @@ jobs:
           web_base_url="$3"
           start_worker="$4"
           expected_hash="$5"
+          expected_base="$6"
           app_dir="/opt/dy-dashboard/repo"
           parent="/opt/dy-dashboard"
           log_dir="$parent/logs"
@@ -353,6 +361,10 @@ jobs:
             echo 'Existing deployment is active; refusing overlap'
             exit 1
           fi
+          receipt="$log_dir/last-deploy.json"
+          current="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha"])' "$receipt")"
+          test "$current" = "$expected_base"
+          printf 'Verified production baseline %s\n' "$current"
           # Keep the immutable source archive beside the source trees. The
           # helper rejects symlinks, traversal, identity drift and low capacity.
           staged_archive="$parent/$(basename "$archive_path")"
@@ -366,7 +378,17 @@ jobs:
           mkdir -p "$log_dir"
           cd "$app_dir"
           # Retain the original backup, migration, publication and health gates.
-          SKIP_GIT_SYNC=true APT_MIRROR="$apt_mirror" DY_WEB_BASE_URL="$web_base_url" TENCENT_START_WORKER="$start_worker" bash deploy/tencent/deploy.sh "$target_sha"
+          SKIP_GIT_SYNC=true APT_MIRROR="$apt_mirror" DY_WEB_BASE_URL="$web_base_url" TENCENT_START_WORKER="$start_worker" \
+            PUBLICATION_WARM_TIMEOUT_SECONDS=600 bash deploy/tencent/deploy.sh "$target_sha"
+          python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["sha"]==sys.argv[2] and d["environment"]=="production"; print("production_release_receipt",d["ts"],d["sha"])' "$receipt" "$target_sha"
+          docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml exec -T postgres \
+            sh -c 'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At' <<'SQL'
+          BEGIN READ ONLY;
+          SELECT 'alembic_revision', version_num FROM alembic_version;
+          SELECT 'routing_enabled', count(*) FROM clue_product_routing_configs WHERE routing_enabled;
+          SELECT 'catalogue_snapshot_count', count(*) FROM clue_product_douyin_store_scopes;
+          COMMIT;
+          SQL
           REMOTE
           ssh -i ~/.ssh/tencent_lighthouse \
             -p "$port" \
@@ -375,4 +397,4 @@ jobs:
             -o ServerAliveInterval=30 \
             -o ServerAliveCountMax=20 \
             "$TENCENT_SSH_USER@$TENCENT_HOST" \
-            "sudo -n bash -s -- '$GITHUB_SHA' '$archive' '$DY_WEB_BASE_URL' '$TENCENT_START_WORKER' '$archive_hash'" < /tmp/tencent-deploy-bootstrap.sh
+            "sudo -n bash -s -- '$TARGET_SHA' '$archive' '$DY_WEB_BASE_URL' '$TENCENT_START_WORKER' '$archive_hash' '$EXPECTED_BASE_SHA'" < /tmp/tencent-deploy-bootstrap.sh
