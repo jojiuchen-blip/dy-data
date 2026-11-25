@@ -984,9 +984,10 @@ test("unready analytical period keeps protected historical billing and invoice e
     return false;
   });
   await page.goto(`${baseUrl}/settlement?storeId=s1&month=2026-08`);
-  await page.getByText(periodNotice, { exact: false }).first().waitFor();
   const invoice = page.getByRole("link", { name: "进入推广费开票", exact: true });
   await invoice.waitFor();
+  await page.getByText("本账期分账汇总暂不可用，可查看已有账单。", { exact: true }).waitFor();
+  await assertPublicSettlementPage(page);
   assert.match(await invoice.getAttribute("href"), /storeId=s1&month=2026-08/);
   assert.equal(await page.getByRole("button", { name: "确认管理服务费", exact: true }).isEnabled(), true);
   const live = requests.find((url) => url.pathname.endsWith("/store-settlements"));
