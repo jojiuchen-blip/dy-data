@@ -251,6 +251,19 @@ def test_admin_can_adopt_previewed_catalogue_scope_and_must_review_a_changed_sna
     assert load_product_store_ids(db_session, BYD_PRODUCT) == {"001"}
 
 
+def test_daily_worker_skips_unconfigured_connection_without_creating_a_failure(db_session, monkeypatch, tmp_path):
+    settings = tmp_path / "config.json"
+    settings.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("DY_DATA_CONFIG", str(settings))
+    monkeypatch.setenv("DOUYIN_ROUTING_STORE_SYNC_ENABLED", "true")
+    for name in ("DOUYIN_APP_ID", "DOUYIN_APP_SECRET", "DOUYIN_ACCOUNT_ID"):
+        monkeypatch.delenv(name, raising=False)
+    factory = make_session_factory(db_session.get_bind())
+
+    assert run_daily_routing_store_sync(factory, now=DAY) is None
+    assert db_session.scalar(select(func.count()).select_from(JobRun)) == 0
+
+
 def test_daily_worker_scans_every_status_with_full_pois(db_session, monkeypatch):
     _seed(db_session)
     factory = make_session_factory(db_session.get_bind())
@@ -268,6 +281,8 @@ def test_daily_worker_scans_every_status_with_full_pois(db_session, monkeypatch)
     monkeypatch.setattr("apps.worker.pipeline.build_douyin_client_from_env",
                         lambda: SimpleNamespace(query_online_products=query_online_products))
     monkeypatch.setenv("DOUYIN_ROUTING_STORE_SYNC_ENABLED", "true")
+    for name in ("DOUYIN_APP_ID", "DOUYIN_APP_SECRET", "DOUYIN_ACCOUNT_ID"):
+        monkeypatch.setenv(name, "configured-for-test")
     run = run_daily_routing_store_sync(factory, now=DAY)
     db_session.expire_all()
     assert [(row["status"], row["cursor"]) for row in requests] == [(1, None), (1, "online-next"), (2, None), (3, None)]

@@ -22,6 +22,7 @@ from apps.api.dy_api.models import ClueProductDouyinStoreScope, ClueProductRouti
 from apps.worker.daily_windows import SHANGHAI_TIMEZONE
 from apps.worker.product_sync import DOUYIN_PRODUCT_STATUS_SEQUENCE, product_response_data
 from apps.worker.repositories import finish_job_run
+from src.dy_data.config import douyin_account_id, douyin_app_id, douyin_app_secret
 
 logger = logging.getLogger(__name__)
 JOB_NAME = "clue_routing_store_sync"
@@ -201,8 +202,11 @@ def run_daily_routing_store_sync(
     fetch_page: Callable[[str | None], Mapping[str, Any]] | None = None,
 ) -> str | None:
     """Claim one job per Shanghai date, then refresh and independently publish scopes."""
-    if fetch_page is None and os.getenv("DOUYIN_ROUTING_STORE_SYNC_ENABLED", "true").lower() != "true":
-        return None
+    if fetch_page is None:
+        if os.getenv("DOUYIN_ROUTING_STORE_SYNC_ENABLED", "true").lower() != "true":
+            return None
+        if not all((douyin_app_id(), douyin_app_secret(), douyin_account_id())):
+            return None
     now = now or datetime.now(timezone.utc)
     day = now.astimezone(SHANGHAI_TIMEZONE).date()
     job_id = f"clue-routing-stores-{day.isoformat()}"
