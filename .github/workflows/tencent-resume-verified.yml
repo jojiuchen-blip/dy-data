@@ -1,88 +1,71 @@
-name: Resume verified Tencent deployment
+name: Read DYDATA-121 production evidence
 "on":
   workflow_dispatch:
 permissions:
   contents: read
-  actions: read
-concurrency:
-  group: tencent-lighthouse-refs/heads/main
-  cancel-in-progress: false
 jobs:
-  resume:
+  read-only:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 18
     env:
-      TARGET_SHA: ddb3bab8ba7485af9e702881bab7e6008ba465b2
-      VERIFIED_RUN: '37870328159'
-      GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: fd3872f84d7c9a8d12f1b4591f010912af0be577
       TENCENT_HOST: ${{ vars.TENCENT_HOST }}
       TENCENT_SSH_PORT: ${{ vars.TENCENT_SSH_PORT }}
       TENCENT_SSH_USER: ${{ vars.TENCENT_SSH_USER }}
-      TENCENT_START_WORKER: ${{ vars.TENCENT_START_WORKER }}
-      DY_WEB_BASE_URL: ${{ vars.DY_WEB_BASE_URL }}
       TENCENT_SSH_KEY: ${{ secrets.TENCENT_SSH_KEY }}
       TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
     steps:
-      - name: Verify immutable release evidence
+      - name: Check production scope coverage and routing counts
         run: |
           set -euo pipefail
-          gh api repos/${{ github.repository }}/actions/runs/$VERIFIED_RUN > /tmp/run.json
-          gh api repos/${{ github.repository }}/actions/runs/$VERIFIED_RUN/jobs > /tmp/jobs.json
-          python - <<'PY'
-          import json, os
-          run = json.load(open('/tmp/run.json'))
-          jobs = json.load(open('/tmp/jobs.json'))['jobs']
-          assert run['head_sha'] == os.environ['TARGET_SHA']
-          assert run['status'] == 'completed'
-          assert any(j['name'] == 'Verify' and j['conclusion'] == 'success' for j in jobs)
-          assert all(j['status'] == 'completed' for j in jobs)
-          print('Full release verification passed for pinned target', run['head_sha'])
-          PY
-      - uses: actions/checkout@v4
-        with:
-          ref: ddb3bab8ba7485af9e702881bab7e6008ba465b2
-      - name: Configure bounded SSH keepalive
-        run: |
-          set -euo pipefail
-          test "$TENCENT_START_WORKER" = true
-          test -n "$DY_WEB_BASE_URL"
           install -m 700 -d ~/.ssh
           printf '%s\n' "$TENCENT_SSH_KEY" > ~/.ssh/tencent_lighthouse
           chmod 600 ~/.ssh/tencent_lighthouse
           printf '%s\n' "$TENCENT_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-      - name: Inspect server then resume original deployment
-        run: |
-          set -euo pipefail
-          script_hash="$(sha256sum deploy/tencent/deploy.sh | cut -d' ' -f1)"
-          cat > /tmp/resume.sh <<'REMOTE'
-          set -euo pipefail
-          cd /opt/dy-dashboard/repo
-          target="$1"
-          expected_hash="$2"
-          web_url="$3"
-          worker="$4"
-          # Never overlap a deployment left running after transport failure.
-          if pgrep -af '[b]ash deploy/tencent/deploy.sh' ; then
-            echo 'Original deployment remains active; blocking duplicate deployment'
-            exit 1
-          fi
-          echo 'Inspecting deployment state (no secrets)'
-          if test -f /opt/dy-dashboard/logs/last-deploy.json; then
-            cat /opt/dy-dashboard/logs/last-deploy.json
-          fi
-          test "$(sha256sum deploy/tencent/deploy.sh | cut -d' ' -f1)" = "$expected_hash"
-          # Check distinctive files from the fixed archive before executing it.
-          test -f alembic/versions/20261008_0061_correct_historical_store_names.py
-          log="/opt/dy-dashboard/logs/release-resume-${target:0:8}-$(date -u +%Y%m%dT%H%M%SZ).log"
-          echo "Resuming verified deployment; server log=$log"
-          # Original script repeats backup, lineage, migration and all health gates.
-          # Output also stays on server so interruption does not lose evidence.
-          SKIP_GIT_SYNC=true DY_WEB_BASE_URL="$web_url" TENCENT_START_WORKER="$worker" \
-            bash deploy/tencent/deploy.sh "$target" 2>&1 | tee "$log"
-          REMOTE
           ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" \
-            -o BatchMode=yes -o IdentitiesOnly=yes \
-            -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
-            "$TENCENT_SSH_USER@$TENCENT_HOST" \
-            "bash -s -- '$TARGET_SHA' '$script_hash' '$DY_WEB_BASE_URL' '$TENCENT_START_WORKER'" < /tmp/resume.sh
+            -o BatchMode=yes -o IdentitiesOnly=yes -o ServerAliveInterval=25 -o ServerAliveCountMax=6 \
+            "$TENCENT_SSH_USER@$TENCENT_HOST" "sudo -n bash -s -- '$TARGET_SHA'" <<'REMOTE'
+          set -euo pipefail
+          target="$1"
+          receipt=/opt/dy-dashboard/logs/last-deploy.json
+          check_receipt() {
+            python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["sha"]==sys.argv[2] and d["environment"]=="production"; print("production_release_receipt",d["ts"],d["sha"])' "$receipt" "$target"
+          }
+          check_receipt
+          cd /opt/dy-dashboard/repo
+          pg_read() {
+            DY_WEB_BASE_URL=https://dy-business-engine.com docker compose \
+              --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml exec -T postgres \
+              sh -c 'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At'
+          }
+          for attempt in $(seq 1 12); do
+            status="$(pg_read <<'SQL'
+          SELECT COALESCE((SELECT status FROM job_runs WHERE job_name='clue_routing_store_sync'
+            AND metadata_json->'catalogue_outcomes' IS NOT NULL ORDER BY started_at DESC LIMIT 1), 'waiting');
+          SQL
+            )"
+            if [ "$status" = success ] || [ "$status" = failed ]; then break; fi
+            if [ "$attempt" = 12 ]; then break; fi
+            sleep 45
+          done
+          pg_read <<'SQL'
+          BEGIN READ ONLY;
+          SELECT 'alembic_revision', version_num FROM alembic_version;
+          SELECT 'routing', c.store_list_source, count(DISTINCT c.product_id), count(m.store_id)
+            FROM clue_product_routing_configs c LEFT JOIN clue_product_store_list_members m
+              ON m.list_version_id=c.active_list_version_id WHERE c.routing_enabled GROUP BY c.store_list_source;
+          WITH jingcheng AS (
+            SELECT product_id FROM dim_sku_product_rule WHERE product_scope='精诚养车'
+            UNION SELECT sku_id FROM dim_sku_product_rule WHERE product_scope='精诚养车'
+          )
+          SELECT 'catalogue', CASE WHEN EXISTS (SELECT FROM jingcheng j WHERE j.product_id = s.product_id)
+             THEN 'jingcheng' ELSE 'byd' END AS product_scope,
+             s.status, count(*), coalesce(sum(s.store_count),0)
+            FROM clue_product_douyin_store_scopes s GROUP BY 2,3 ORDER BY 2,3;
+          SELECT 'daily_job', job_id, status, success_count, failed_count, coalesce(metadata_json::text, '{}')
+            FROM job_runs WHERE job_name='clue_routing_store_sync' ORDER BY started_at DESC LIMIT 1;
+          COMMIT;
+          SQL
+          check_receipt
+          REMOTE
