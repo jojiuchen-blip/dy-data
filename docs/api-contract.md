@@ -160,7 +160,10 @@ Product ID查询失败返回 `null`，不增加新面板，也不回传整个met
 
 - 新线索首次入库时固定商品、归属和适用规则版本。已发布的门店名单在每次选店时读取。生产默认关闭，名单发布与商品开启是两个独立操作。
 - `POST /api/v1/admin/clue-routing/products/batch` 的开启请求先预览，再按商品回传 `expected_list_versions` 和业务授权说明。提交时名单已换版的商品返回 `LIST_VERSION_CHANGED`，维持原开关，须重新预览并确认。本品首次开启时复制当前精诚共享基座，之后独立发布规则。
-- `GET /api/v1/admin/clue-routing/products` 返回 `store_list_source`。现有商品为 `manual`。全国范围管理员可通过批量接口对精诚养车商品提交 `request_auto_list`，进入 `auto_pending` 后仍可手动发布。Worker 按上海日期完整扫描商户商品页面，将全部 POI 映射到门店并排除已停用或已标记关闭的门店。首次结果须非空且与当前手动名单一致，才切换至 `douyin`。随后 `publish_list` 返回逐商品错误 `AUTO_STORE_LIST_ACTIVE`。`restore_manual_list` 恢复最近的手动版本并解除上传限制。名单切换独立于流转开关，从下一次选店起生效。
+- Worker 每个上海日期扫描已授权抖音账号的商品目录，覆盖精诚养车和比亚迪本品。完整读取所有商品状态分页后，按商品校验 POI 映射并排除已停用或关闭的门店。缺失、异常或读取失败时保留各商品最近一次通过核验的名单。
+- `GET /api/v1/admin/clue-routing/products` 返回当前有效名单来源 `store_list_source` 和独立的 `douyin_store_scope`，包含同步状态、最近检查时间、最近核验通过时间及门店数。有商品管理权限的人员可通过 `GET /api/v1/admin/clue-routing/products/{product_id}/douyin-store-scope` 查看最近一次核验通过的门店编码。
+- 全国范围管理员可通过批量接口对两类商品提交 `request_auto_list`。预览显示可立即采用的名单时，提交应按商品回传 `expected_douyin_scope_checks`，值取自预览后的 `douyin_store_scope.checked_at`。候选名单或当前有效范围在提交前发生不兼容变化时返回 `DOUYIN_SCOPE_CHANGED`。仅登记接入时进入 `auto_pending`，此时仍可手动发布。有已发布名单的商品须先通过一致性检查。无已发布名单的商品可以核验通过的抖音名单作为第一版。
+- `douyin` 生效后手动上传返回逐商品错误 `AUTO_STORE_LIST_ACTIVE`。`restore_manual_list` 恢复最近一次发布的手动版本并解除上传限制。可用名单更新从下一次选店起生效。开启或关闭流转仍通过单独的商品操作。
 - `POST /api/v1/admin/clue-allocation/headquarters-pool/{entry_id}/resume` 由全部门店范围管理员操作，按原始门店地址资料重新检查订单和候选，返回处理结果、门店和任务 ID。原始直派商品资料补齐后派回原店。
 - 新规则的跟进请求沿用现有地址。结果为 `appointment` 时提交带时区的 `appointment_at`。改约或切换状态按绑定规则重算截止时间，补备注沿用原截止。新模式通过 `routing_mode` 和 `can_delete_follow_up_records` 告知客户端操作权限，服务端在任务锁内复核。已提交的跟进记录按时间追加。
 - 新版线索概览与指标榜单共用正式接收任务的跟进、核销明细。24 小时跟进率与累计跟进率共用分母。自店核销量按实际核销门店和订单去重，计入首次仍有效核销的上海业务日期，包含从未分配的订单。列表和详情提供核销摘要、实际门店与时间、有效轮次、补计轮次及该门店是否获得核销率分子。

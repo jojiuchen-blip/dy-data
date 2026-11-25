@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 import os
 from pathlib import Path
 from threading import Event
@@ -18,8 +19,10 @@ from sqlalchemy.orm import Session
 
 from apps.api.dy_api.clue_product_routing import batch_product_changes, bind_product_routing, load_product_store_ids, replace_product_grants
 from apps.api.dy_api.clue_product_routing import ProductRoutingError, get_shared_rule, publish_shared_rule, replace_shared_rule_grants
+from apps.api.dy_api.db import make_session_factory
 import apps.api.dy_api.clue_product_routing as routing_service
-from apps.api.dy_api.models import Base, ClueAllocationRuleVersion, ClueLeadRuleVersionBinding, ClueMasterLead, ClueProductRoutingConfig, ClueProductStoreListVersion, ClueSharedRuleMaintainer, DimSkuProductRule, User
+from apps.api.dy_api.models import Base, ClueAllocationRuleVersion, ClueLeadRuleVersionBinding, ClueMasterLead, ClueProductDouyinStoreScope, ClueProductRoutingConfig, ClueProductStoreListVersion, ClueSharedRuleMaintainer, DimSkuProductRule, DimStorePoiMapping, User
+from apps.worker.clue_routing_store_sync import run_daily_routing_store_sync
 from apps.worker.clue_rule_versions import RuleValidationError
 from test_clue_product_routing import ADMIN, NOW, _batch, _lead, _seed
 
@@ -56,6 +59,29 @@ def _wait_on_lock(engine, pid):
                 return
         time.sleep(0.02)
     pytest.fail("competing transaction did not wait for product row lock")
+
+
+def test_daily_catalogue_keeps_last_verified_postgres_scope(product_pg_engine):
+    product_id = "7260000000000000000"
+    with Session(product_pg_engine) as session:
+        session.add(DimStorePoiMapping(store_id="001", poi_id="9007199254740993"))
+        session.commit()
+
+    def page(poi_id):
+        return {"data": {"error_code": 0, "has_more": False, "products": [
+            {"product": {"product_id": product_id, "product_name": "本品套餐", "pois": [{"poi_id": poi_id}]}},
+        ]}}
+
+    factory = make_session_factory(product_pg_engine)
+    run_daily_routing_store_sync(factory, now=NOW, fetch_page=lambda _: page("9007199254740993"))
+    run_daily_routing_store_sync(factory, now=NOW + timedelta(days=1), fetch_page=lambda _: page("9007199254740994"))
+    with Session(product_pg_engine) as session:
+        scope = session.get(ClueProductDouyinStoreScope, product_id)
+        assert scope.product_name == "本品套餐"
+        assert scope.status == "poi_mapping_incomplete"
+        assert scope.store_count == 1 and scope.store_ids == ["001"]
+        assert scope.last_success_at == NOW
+        assert session.get(ClueProductRoutingConfig, product_id) is None
 
 
 def test_first_ingress_waits_for_switch_commit_then_freezes_new_version(product_pg_engine):

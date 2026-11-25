@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
-  clueRoutingFailureMessage, clueRoutingRequestError, fetchClueRoutingProducts, submitClueRoutingBatch,
+  clueRoutingFailureMessage, clueRoutingRequestError, fetchClueRoutingProducts, fetchDouyinStoreScope, submitClueRoutingBatch,
   type ClueRoutingAction, type ClueRoutingBatchWrite, type ClueRoutingFilters,
-  type ClueRoutingProduct, type ClueRoutingProductList, type ClueRoutingResult,
+  type ClueRoutingProduct, type ClueRoutingProductList, type ClueRoutingResult, type DouyinStoreScopeDetail,
+  type DouyinStoreScopeStatus,
 } from "../api/clueRouting";
 import { Button } from "../components/Button";
 import { StatusChip } from "../components/Chips";
@@ -16,6 +17,7 @@ import { CheckboxField, FieldInput, FieldTextarea, SelectField } from "../compon
 import { SegmentedControl } from "../components/SelectionControls";
 import { TablePagination } from "../components/TablePagination";
 import { clueRoutingBodyForResults, parseClueRoutingProductLists, parseClueRoutingStoreIds } from "../utils/clueRoutingDraft";
+import { formatDateTime } from "../utils/format";
 import "./AdminClueRoutingProductsPage.css";
 
 const actionLabels: Record<ClueRoutingAction, string> = {
@@ -23,6 +25,14 @@ const actionLabels: Record<ClueRoutingAction, string> = {
   request_auto_list: "接入抖音自动名单", restore_manual_list: "切回手动名单",
 };
 const sourceLabels = { manual: "手动维护", auto_pending: "等待抖音首次同步", douyin: "抖音自动维护" };
+const scopeStatusLabels: Record<DouyinStoreScopeStatus, string> = {
+  valid: "已核验",
+  source_error: "抖音目录读取失败",
+  missing_product: "本次目录未返回该商品",
+  missing_or_invalid_pois: "抖音门店数据缺失或异常",
+  poi_mapping_incomplete: "门店编码映射待核对",
+  no_active_stores: "暂无可用门店",
+};
 const emptyProducts: ClueRoutingProductList = { rows: [], total: 0, page: 1, page_size: 50, can_manage_grants: false };
 const emptyFilters: ClueRoutingFilters = { q: "", product_scope: "all" };
 type BatchReview = { body: ClueRoutingBatchWrite; results: ClueRoutingResult[]; phase: "preview" | "complete" };
@@ -36,15 +46,41 @@ function ProductStores({ storeIds }: { storeIds?: string[] }) {
   return <details className="clue-routing-stores"><summary>{storeIds.length} 家门店，展开编码</summary><p>{storeIds.join("、")}</p></details>;
 }
 
+function DouyinScopeDialog({ product, onClose }: { product: ClueRoutingProduct; onClose: () => void }) {
+  const [scopeDetail, setScopeDetail] = useState<DouyinStoreScopeDetail | null>(null);
+  const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchDouyinStoreScope(product.product_id, controller.signal).then(setScopeDetail).catch((reason: unknown) => {
+      if (!controller.signal.aborted) setError(clueRoutingRequestError(reason, "暂时无法读取抖音名单，请重试。"));
+    });
+    return () => controller.abort();
+  }, [product.product_id, attempt]);
+  const scope = scopeDetail?.douyin_store_scope;
+  return <Dialog open onClose={onClose} title="抖音适用门店名单" description={`${product.product_name} · ${product.product_id}`}
+    actions={error ? <Button onClick={() => { setError(""); setAttempt((value) => value + 1); }}>重试</Button> : <Button onClick={onClose}>关闭</Button>}>
+    {error ? <p className="admin-error" role="alert">{error}</p> : !scopeDetail ? <p role="status">正在读取抖音名单…</p>
+      : !scope ? <p>暂无此商品的抖音同步记录。</p>
+        : <div className="clue-routing-snapshot">
+          <p>{scopeStatusLabels[scope.status]} · 最近检查 {formatDateTime(scope.checked_at)}</p>
+          {scope.last_success_at ? <p>最近核验通过 {formatDateTime(scope.last_success_at)}</p> : null}
+          <ProductStores storeIds={scopeDetail.store_ids} />
+        </div>}
+  </Dialog>;
+}
+
 function ProductSnapshot({ snapshot, action, proposed }: { snapshot: Partial<ClueRoutingProduct>; action: ClueRoutingAction; proposed?: boolean }) {
   if (!snapshot.product_id) return <span className="admin-muted">无可查看配置</span>;
+  const willPublishList = proposed && (action === "publish_list" ||
+    action === "request_auto_list" && snapshot.store_list_source === "douyin" && !snapshot.list_version);
   return <div className="clue-routing-snapshot">
     <p><StatusChip tone={snapshot.routing_enabled ? "success" : "neutral"}>{snapshot.routing_enabled ? "流转已开启" : "流转已关闭"}</StatusChip></p>
     {action === "publish_rule" ? <ClueRoutingRuleSummary snapshot={snapshot} /> : null}
-    {action === "publish_list" || action === "enable" || action === "restore_manual_list" ? <ProductStores storeIds={snapshot.store_ids} /> : null}
+    {["publish_list", "enable", "restore_manual_list", "request_auto_list"].includes(action) ? <ProductStores storeIds={snapshot.store_ids} /> : null}
     {snapshot.store_list_source ? <p className="clue-routing-version">{sourceLabels[snapshot.store_list_source]}</p> : null}
     <p className="clue-routing-version">规则版本：{proposed && action === "publish_rule" ? "正式发布时生成新版本" : snapshot.rule_version_id ?? "尚未独立发布"}</p>
-    <p className="clue-routing-version">名单版本：{proposed && action === "publish_list" ? "正式发布时生成新版本" : snapshot.list_version ?? "尚未发布"}</p>
+    <p className="clue-routing-version">名单版本：{willPublishList ? "正式发布时生成新版本" : snapshot.list_version ?? "尚未发布"}</p>
   </div>;
 }
 
@@ -76,6 +112,7 @@ export function AdminClueRoutingProductsPage() {
   const [operationError, setOperationError] = useState("");
   const [notice, setNotice] = useState("");
   const [grantsProduct, setGrantsProduct] = useState<ClueRoutingProduct | null>(null);
+  const [douyinScopeProduct, setDouyinScopeProduct] = useState<ClueRoutingProduct | null>(null);
   const [sharedOpen, setSharedOpen] = useState(false);
   const [sharedGrantsOpen, setSharedGrantsOpen] = useState(false);
   const requestSequence = useRef(0);
@@ -178,6 +215,11 @@ export function AdminClueRoutingProductsPage() {
       body: {
         ...clueRoutingBodyForResults(review.body, review.results, "preview"), preview: false,
         ...(review.body.action === "enable" ? { expected_list_versions: Object.fromEntries(review.results.filter((row) => row.status === "preview").map((row) => [row.product_id, row.before.list_version ?? null])) } : {}),
+        ...(review.body.action === "request_auto_list" ? { expected_douyin_scope_checks: Object.fromEntries(review.results.flatMap((row) => {
+          const verifiedAt = row.after.douyin_store_scope?.checked_at;
+          return row.status === "preview" && row.before.store_list_source !== "douyin" && row.after.store_list_source === "douyin" && verifiedAt
+            ? [[row.product_id, verifiedAt] as const] : [];
+        })) } : {}),
       },
       key: crypto.randomUUID(),
     };
@@ -197,12 +239,20 @@ export function AdminClueRoutingProductsPage() {
     } finally { setBusy(null); }
   };
 
+  const douyinScopeButton = (row: ClueRoutingProduct) => {
+    const scope = row.douyin_store_scope;
+    if (!scope) return <span className="admin-muted">等待同步</span>;
+    return <Button size="sm" onClick={() => setDouyinScopeProduct(row)}>
+      {scope.status === "valid" ? `查看 ${scope.store_count} 家门店` : scopeStatusLabels[scope.status]}
+    </Button>;
+  };
   const productColumns: Column<ClueRoutingProduct>[] = [
     { key: "select", width: 66, title: <FieldInput aria-label="选择本页商品" checked={allMatching || pageSelected} disabled={loading || allMatching || !manageableRows.length} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...new Set([...current, ...manageableRows.map((row) => row.product_id)])] : current.filter((id) => !manageableRows.some((row) => row.product_id === id)))} type="checkbox" />,
       render: (row) => <FieldInput aria-label={`选择商品 ${row.product_id}`} checked={allMatching || selectedIds.includes(row.product_id)} disabled={allMatching || !row.can_manage || loading} onChange={(event) => toggleProduct(row.product_id, event.target.checked)} type="checkbox" /> },
     { key: "product", title: "商品", align: "left", minWidth: 240, render: (row) => <div className="clue-routing-product-name"><strong>{row.product_name || "未命名商品"}</strong><span>商品 ID：{row.product_id}</span><span>{scopeLabel(row.product_scope)}</span></div> },
     { key: "enabled", title: "流转状态", minWidth: 115, render: (row) => <StatusChip tone={row.routing_enabled ? "success" : "neutral"}>{row.routing_enabled ? "已开启" : "已关闭"}</StatusChip> },
     { key: "list", title: "有效门店名单", align: "left", minWidth: 180, render: (row) => <div><ProductStores storeIds={row.store_ids} /><p className="clue-routing-version">{sourceLabels[row.store_list_source ?? "manual"]} · 版本 {row.list_version ?? "尚未发布"}</p></div> },
+    { key: "douyin-scope", title: "抖音适用门店", align: "left", minWidth: 140, render: (row) => douyinScopeButton(row) },
     { key: "rule", title: "已发布规则", align: "left", minWidth: 240, render: (row) => <div><span>首次跟进 {row.first_follow_up_sla_hours} 小时</span><details className="clue-routing-stores"><summary>查看保护期与到期动作</summary><ClueRoutingRuleSummary snapshot={row} /></details><p className="clue-routing-version">{row.rule_version_id ?? "正式开启时生成独立版本"}</p></div> },
     ...(data.can_manage_grants ? [{ key: "grants", title: "商品负责人", width: 145, render: (row: ClueRoutingProduct) => <Button disabled={loading} onClick={() => setGrantsProduct(row)} size="sm">管理授权</Button> }] : []),
   ];
@@ -258,6 +308,7 @@ export function AdminClueRoutingProductsPage() {
           <StatusChip tone={row.routing_enabled ? "success" : "neutral"}>{row.routing_enabled ? "流转已开启" : "流转已关闭"}</StatusChip>
           <ProductStores storeIds={row.store_ids} />
           <span className="admin-muted">{sourceLabels[row.store_list_source ?? "manual"]}</span>
+          {douyinScopeButton(row)}
           <details className="clue-routing-stores"><summary>查看已发布规则</summary><ClueRoutingRuleSummary snapshot={row} /><p className="clue-routing-version">{row.rule_version_id ?? "尚未独立发布"}</p></details>
           {data.can_manage_grants ? <Button onClick={() => setGrantsProduct(row)} size="sm">管理授权</Button> : null}
         </div>}
@@ -292,7 +343,7 @@ export function AdminClueRoutingProductsPage() {
           </> : null}
         </div> : null}
         {action === "publish_rule" ? <div className="clue-routing-editor"><p className="resource-notice">只发布勾选字段，其余字段各商品保留原值。本品首次开启前继承精诚共享基座，须先按已确认名单开启，之后可发布独立规则。精诚养车可在关闭时预配规则。第 0、1 轮为 10 公里，第 2 轮同城兜底；首次跟进期限不改变看板固定 24 小时跟进率口径。</p><ClueRoutingRuleEditor disabled={Boolean(busy)} draft={ruleDraft} onChange={setRuleDraft} /></div> : null}
-        {action === "request_auto_list" ? <p className="resource-notice">适用于精诚养车商品。首次 API 名单须与当前已发布的手动名单一致，此前可继续上传。接管后每日刷新，失败时沿用最后一版有效名单。</p> : null}
+        {action === "request_auto_list" ? <p className="resource-notice">精诚养车和比亚迪本品均可接入。已有手动名单时，首次抖音名单须与当前有效名单一致。接入后每天更新，失败时沿用最后一版有效名单。流转须单独开启。</p> : null}
         {action === "restore_manual_list" ? <p className="resource-notice">恢复最近一次成功发布的手动名单，并允许继续上传。如果没有历史手动名单，沿用当前名单，直到首次手动发布。</p> : null}
         {action === "enable" || action === "disable" ? <div className="clue-routing-editor">
           <p className="resource-notice">{action === "enable" ? "开启前必须已有成功发布且经业务确认的有效门店名单。本品首次开启时采用精诚养车共享基座创建独立规则版本。第 0、1 轮均为 10 公里，第 2 轮同城兜底。" : "关闭后，之后首次入库的线索回到原分配流程。已入库未分配和在途任务继续按原绑定规则完成。"}</p>
@@ -301,6 +352,7 @@ export function AdminClueRoutingProductsPage() {
         </div> : null}
       </>}
     </Dialog>
+    {douyinScopeProduct ? <DouyinScopeDialog product={douyinScopeProduct} onClose={() => setDouyinScopeProduct(null)} /> : null}
     <ClueRoutingGrantsDialog onClose={() => setGrantsProduct(null)} product={grantsProduct} />
     <ClueRoutingGrantsDialog onClose={() => setSharedGrantsOpen(false)} product={null} sharedRule={sharedGrantsOpen} />
     <SharedClueRoutingRuleDialog onClose={() => setSharedOpen(false)} open={sharedOpen} />

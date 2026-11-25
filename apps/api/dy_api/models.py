@@ -4721,6 +4721,18 @@ class ClueAllocationRuleVersion(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class ClueProductDouyinStoreScope(Base):
+    __tablename__ = "clue_product_douyin_store_scopes"
+
+    product_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    product_name: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    store_ids: Mapped[list[str] | None] = mapped_column(JSON)
+    store_count: Mapped[int | None] = mapped_column(Integer)
+
+
 class ClueProductRoutingConfig(Base):
     """Current product routing pointers; publication never enables routing."""
 
