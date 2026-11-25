@@ -8,81 +8,103 @@ concurrency:
   group: tencent-lighthouse-refs/heads/main
   cancel-in-progress: false
 jobs:
-  resume:
+  resume-verified:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     env:
-      TARGET_SHA: ddb3bab8ba7485af9e702881bab7e6008ba465b2
-      VERIFIED_RUN: '37870328159'
+      TARGET_SHA: 'f4f584e3fef4f5019d37805fc715435f90319716'
+      VERIFIED_RUN: '45369737392'
+      ROLLBACK_BASE: '2dd3674b82aa98def726969d165337d4bde1cb57'
       GH_TOKEN: ${{ github.token }}
       TENCENT_HOST: ${{ vars.TENCENT_HOST }}
       TENCENT_SSH_PORT: ${{ vars.TENCENT_SSH_PORT }}
       TENCENT_SSH_USER: ${{ vars.TENCENT_SSH_USER }}
+      TENCENT_APT_MIRROR: ${{ vars.TENCENT_APT_MIRROR }}
       TENCENT_START_WORKER: ${{ vars.TENCENT_START_WORKER }}
       DY_WEB_BASE_URL: ${{ vars.DY_WEB_BASE_URL }}
       TENCENT_SSH_KEY: ${{ secrets.TENCENT_SSH_KEY }}
       TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
     steps:
-      - name: Verify immutable release evidence
+      - name: Verify the successful gate for the immutable production source
         run: |
           set -euo pipefail
-          gh api repos/${{ github.repository }}/actions/runs/$VERIFIED_RUN > /tmp/run.json
-          gh api repos/${{ github.repository }}/actions/runs/$VERIFIED_RUN/jobs > /tmp/jobs.json
+          gh api "repos/${{ github.repository }}/actions/runs/$VERIFIED_RUN" > "$RUNNER_TEMP/verified-run.json"
+          gh api "repos/${{ github.repository }}/actions/runs/$VERIFIED_RUN/jobs" > "$RUNNER_TEMP/verified-jobs.json"
           python - <<'PY'
           import json, os
-          run = json.load(open('/tmp/run.json'))
-          jobs = json.load(open('/tmp/jobs.json'))['jobs']
-          assert run['head_sha'] == os.environ['TARGET_SHA']
-          assert run['status'] == 'completed'
-          assert any(j['name'] == 'Verify' and j['conclusion'] == 'success' for j in jobs)
-          assert all(j['status'] == 'completed' for j in jobs)
-          print('Full release verification passed for pinned target', run['head_sha'])
+          from pathlib import Path
+          temp = Path(os.environ["RUNNER_TEMP"])
+          run = json.loads((temp / "verified-run.json").read_text())
+          jobs = json.loads((temp / "verified-jobs.json").read_text())["jobs"]
+          assert run["head_sha"] == os.environ["TARGET_SHA"]
+          assert run["head_branch"] == "main" and run["event"] == "workflow_dispatch"
+          assert run["status"] == "completed"
+          assert any(job["name"] == "Verify" and job["conclusion"] == "success" for job in jobs)
+          assert all(job["status"] == "completed" for job in jobs)
+          print("Successful production Verify gate", run["head_sha"], run["id"])
           PY
       - uses: actions/checkout@v4
         with:
-          ref: ddb3bab8ba7485af9e702881bab7e6008ba465b2
-      - name: Configure bounded SSH keepalive
+          ref: 'f4f584e3fef4f5019d37805fc715435f90319716'
+          persist-credentials: false
+      - name: Configure SSH and fingerprint verified source
         run: |
           set -euo pipefail
           test "$TENCENT_START_WORKER" = true
-          test -n "$DY_WEB_BASE_URL"
+          test "$DY_WEB_BASE_URL" = https://dy-business-engine.com || test "$DY_WEB_BASE_URL" = https://dy-business-engine.com/
           install -m 700 -d ~/.ssh
           printf '%s\n' "$TENCENT_SSH_KEY" > ~/.ssh/tencent_lighthouse
           chmod 600 ~/.ssh/tencent_lighthouse
           printf '%s\n' "$TENCENT_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-      - name: Inspect server then resume original deployment
+          source_snapshot="$(mktemp -d "$RUNNER_TEMP/dydata-118-src.XXXXXX")"
+          git archive "$TARGET_SHA" | tar -x -C "$source_snapshot"
+          (cd "$source_snapshot" && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$RUNNER_TEMP/verified-source.sha256"
+          test -s "$RUNNER_TEMP/verified-source.sha256"
+      - name: Resume the verified production deployment with bounded warmup
         run: |
           set -euo pipefail
-          script_hash="$(sha256sum deploy/tencent/deploy.sh | cut -d' ' -f1)"
-          cat > /tmp/resume.sh <<'REMOTE'
+          port="${TENCENT_SSH_PORT:-22}"
+          manifest="/tmp/dydata118-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.sha256"
+          digest="$(sha256sum "$RUNNER_TEMP/verified-source.sha256" | cut -d' ' -f1)"
+          scp -P "$port" -i ~/.ssh/tencent_lighthouse -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o ServerAliveInterval=20 -o ServerAliveCountMax=10 \
+            "$RUNNER_TEMP/verified-source.sha256" "$TENCENT_SSH_USER@$TENCENT_HOST:$manifest"
+          cat > "$RUNNER_TEMP/resume.sh" <<'REMOTE'
           set -euo pipefail
-          cd /opt/dy-dashboard/repo
           target="$1"
-          expected_hash="$2"
-          web_url="$3"
-          worker="$4"
-          # Never overlap a deployment left running after transport failure.
-          if pgrep -af '[b]ash deploy/tencent/deploy.sh' ; then
-            echo 'Original deployment remains active; blocking duplicate deployment'
+          previous="$2"
+          manifest="$3"
+          digest="$4"
+          test "$(id -u)" = 0
+          test -f "$manifest" && test ! -L "$manifest"
+          test "$(sha256sum "$manifest" | cut -d' ' -f1)" = "$digest"
+          exec 9>/run/dy-dashboard-release.lock
+          flock -n 9
+          if pgrep -af '[b]ash deploy/tencent/deploy.sh'; then
+            echo 'Existing server deployment is active'
             exit 1
           fi
-          echo 'Inspecting deployment state (no secrets)'
-          if test -f /opt/dy-dashboard/logs/last-deploy.json; then
-            cat /opt/dy-dashboard/logs/last-deploy.json
+          receipt=/opt/dy-dashboard/logs/last-deploy.json
+          current="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha"])' "$receipt")"
+          printf 'Current deployed source %s\n' "$current"
+          if [ "$current" = "$target" ]; then exit 0; fi
+          test "$current" = "$previous"
+          cd /opt/dy-dashboard/repo
+          sha256sum --quiet --check "$manifest"
+          echo 'Staged production files match verified merged source'
+          if docker ps --format '{{.Names}}' | grep -q '^dy-publication-warm-'; then
+            echo 'An earlier publication warmup still owns a running container'
+            exit 1
           fi
-          test "$(sha256sum deploy/tencent/deploy.sh | cut -d' ' -f1)" = "$expected_hash"
-          # Check distinctive files from the fixed archive before executing it.
-          test -f alembic/versions/20261008_0061_correct_historical_store_names.py
-          log="/opt/dy-dashboard/logs/release-resume-${target:0:8}-$(date -u +%Y%m%dT%H%M%SZ).log"
-          echo "Resuming verified deployment; server log=$log"
-          # Original script repeats backup, lineage, migration and all health gates.
-          # Output also stays on server so interruption does not lose evidence.
-          SKIP_GIT_SYNC=true DY_WEB_BASE_URL="$web_url" TENCENT_START_WORKER="$worker" \
-            bash deploy/tencent/deploy.sh "$target" 2>&1 | tee "$log"
+          deploy_log="/opt/dy-dashboard/logs/dydata118-resume-$(date -u +%Y%m%dT%H%M%SZ).log"
+          umask 077
+          SKIP_GIT_SYNC=true TENCENT_START_WORKER=true \
+            DY_WEB_BASE_URL=https://dy-business-engine.com PUBLICATION_WARM_TIMEOUT_SECONDS=600 \
+            bash deploy/tencent/deploy.sh "$target" 2>&1 | tee "$deploy_log"
+          python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["sha"]==sys.argv[2] and d["environment"]=="production"; print("production_release_receipt",d["ts"],d["sha"])' "$receipt" "$target"
           REMOTE
-          ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" \
-            -o BatchMode=yes -o IdentitiesOnly=yes \
-            -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
+          ssh -i ~/.ssh/tencent_lighthouse -p "$port" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o ServerAliveInterval=20 -o ServerAliveCountMax=10 \
             "$TENCENT_SSH_USER@$TENCENT_HOST" \
-            "bash -s -- '$TARGET_SHA' '$script_hash' '$DY_WEB_BASE_URL' '$TENCENT_START_WORKER'" < /tmp/resume.sh
+            "sudo -n bash -s -- '$TARGET_SHA' '$ROLLBACK_BASE' '$manifest' '$digest'" < "$RUNNER_TEMP/resume.sh"
