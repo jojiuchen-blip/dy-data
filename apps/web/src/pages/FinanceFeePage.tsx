@@ -13,8 +13,7 @@ import { DataTable, type Column } from "../components/DataTable";
 import { FinanceImportActionPanel } from "../components/FinanceImportActionPanel";
 import { SelectField, TextField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
-import { InternalMonthlyTrialPanel } from "../components/InternalMonthlyTrialPanel";
-import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
+import { ResourceNotice } from "../components/ResourceState";
 import { Tabs } from "../components/SelectionControls";
 import { TablePagination } from "../components/TablePagination";
 import { usePublishedResource } from "../hooks/usePublishedResource";
@@ -26,7 +25,7 @@ import type {
 } from "../types/dashboard";
 import { formatCurrency, formatDateTime } from "../utils/format";
 import { userFacingError } from "../utils/userFacingError";
-import { isPublicationPeriodNotReady } from "../utils/apiErrors";
+import { isPublicationPeriodNotReady, PUBLICATION_PERIOD_NOT_READY_TEXT } from "../utils/apiErrors";
 import { displayFinanceInvoiceStatus, displayFinanceProcessingStatus } from "../utils/userFacingLabels";
 import {
   initialStatementMonth,
@@ -105,15 +104,13 @@ function navigateTo(href: string) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-export function FinanceFeePage({ currentUser, feeDirection, searchParams }: FinanceFeePageProps) {
-  const requestedView = searchParams.get("view");
-  const hasBillingFilters = ["month", "periodKey", "q", "invoiceStatus"].some((key) => searchParams.has(key));
+export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePageProps) {
   const [view, setView] = useState<"submitted" | "billing">(
-    requestedView === "submitted" || (requestedView !== "billing" && !hasBillingFilters) ? "submitted" : "billing",
+    searchParams.get("view") === "submitted" ? "submitted" : "billing",
   );
   const [openFactoryImport, setOpenFactoryImport] = useState(false);
   if (feeDirection === "MANAGEMENT") {
-    return <FinanceBillingWorkspace currentUser={currentUser} feeDirection={feeDirection} searchParams={searchParams} />;
+    return <FinanceBillingWorkspace feeDirection={feeDirection} searchParams={searchParams} />;
   }
   const changeView = (next: typeof view, showImport = false) => {
     const url = new URL(window.location.href);
@@ -123,11 +120,11 @@ export function FinanceFeePage({ currentUser, feeDirection, searchParams }: Fina
     setView(next);
   };
   const viewSwitcher = <Tabs ariaLabel="推广服务费视图" value={view} onChange={changeView} options={[
+    { value: "billing", label: "正式账单" },
     { value: "submitted", label: "门店提交发票" },
-    { value: "billing", label: "账期办理进度" },
   ]} />;
   if (view === "billing") {
-    return <FinanceBillingWorkspace currentUser={currentUser} feeDirection={feeDirection}
+    return <FinanceBillingWorkspace feeDirection={feeDirection}
       searchParams={new URLSearchParams(window.location.search)} viewSwitcher={viewSwitcher} initiallyShowImport={openFactoryImport} />;
   }
   return (
@@ -145,8 +142,8 @@ export function FinanceFeePage({ currentUser, feeDirection, searchParams }: Fina
 }
 
 function FinanceBillingWorkspace({
-  currentUser, feeDirection, searchParams, viewSwitcher, initiallyShowImport = false,
-}: FinanceFeePageProps & { viewSwitcher?: ReactNode; initiallyShowImport?: boolean }) {
+  feeDirection, searchParams, viewSwitcher, initiallyShowImport = false,
+}: Omit<FinanceFeePageProps, "currentUser"> & { viewSwitcher?: ReactNode; initiallyShowImport?: boolean }) {
   const [month, setMonth] = useState(() => initialStatementMonth(searchParams));
   const [search, setSearch] = useState(searchParams.get("q") ?? "");
   const [invoiceStatus, setInvoiceStatus] = useState(searchParams.get("invoiceStatus") ?? "");
@@ -207,6 +204,9 @@ function FinanceBillingWorkspace({
   const invoices = invoiceResource.data?.data;
   const pageCount = Math.max(1, Math.ceil((invoices?.total ?? 0) / pageSize));
   const periodBlocked = isPublicationPeriodNotReady(financeResource.rawError);
+  const periodUnavailableText = metricScope === "CUMULATIVE"
+    ? "累计金额暂不可用，可切换为单月查看。"
+    : PUBLICATION_PERIOD_NOT_READY_TEXT;
 
   useEffect(() => {
     setPage(1);
@@ -420,15 +420,14 @@ function FinanceBillingWorkspace({
         </div>
       </section>
 
-      {viewSwitcher}
       <ResourceNotice analysis loading={resourceBusy} error={periodBlocked ? undefined : financeResource.error} />
-      {metrics ? <section className={`metric-grid finance-metric-grid ${feeDirection === "MANAGEMENT" ? "finance-metric-grid--four" : ""}`}>
-        <MetricCard label={feeDirection === "PROMOTION" ? "正式账单推广费总额" : "正式账单管理费总额"} value={currencyMetric(metrics.statementTotalCent)} />
+      <section className={`metric-grid finance-metric-grid ${feeDirection === "MANAGEMENT" ? "finance-metric-grid--four" : ""}`}>
+        <MetricCard label={feeDirection === "PROMOTION" ? "正式账单推广费总额" : "正式账单管理费总额"} value={currencyMetric(metrics?.statementTotalCent)} />
         <MetricCard label="已确认金额" value={currencyMetric(metrics?.confirmedAmountCent)} />
         <MetricCard label="待开票金额" value={currencyMetric(metrics?.pendingInvoiceAmountCent)} />
         <MetricCard label="已开票金额" value={currencyMetric(metrics?.issuedAmountCent)} />
         {feeDirection === "PROMOTION" ? <MetricCard label="审核通过已结算金额" value={currencyMetric(metrics?.settledOrDeductedAmountCent)} /> : null}
-      </section> : null}
+      </section>
 
       {showImport ? (
         <FinanceImportActionPanel
@@ -441,6 +440,7 @@ function FinanceBillingWorkspace({
         />
       ) : null}
 
+      {viewSwitcher}
       <section className="finance-workbench" aria-label={`${title}筛选与操作`}>
         <div className="finance-workbench__filters">
           <TextField label="搜索" onChange={(event) => setSearch(event.target.value)} placeholder="搜索门店、SAP 或发票号码" type="search" value={search} />
@@ -457,24 +457,24 @@ function FinanceBillingWorkspace({
       </section>
       {notice ? <p role={noticeIsError ? "alert" : "status"}>{notice}</p> : null}
 
-      {periodBlocked ? <ResourcePanel>本账期正式账单尚未就绪。</ResourcePanel> : <section className="content-section">
+      <section className="content-section">
         <div className="section-title">
-          <h2>{feeDirection === "PROMOTION" ? "门店账单与开票进度" : "管理服务费发票与扣款明细"}</h2>
+          <h2>{feeDirection === "PROMOTION" ? "推广费发票明细" : "管理服务费发票与扣款明细"}</h2>
         </div>
         <DataTable
           columns={feeDirection === "PROMOTION" ? promotionColumns : managementColumns}
-          emptyText="当前筛选下暂无记录"
+          emptyText={periodBlocked ? periodUnavailableText : "当前筛选下暂无记录"}
           onRowAction={feeDirection === "MANAGEMENT" ? openCorrection : undefined}
           onRowDoubleClick={feeDirection === "MANAGEMENT" ? (row) => { void openCorrection(row); } : undefined}
           rowActionLabel={(row) => feeDirection === "MANAGEMENT" && row.storeId && row.statementMonth ? "更正" : undefined}
           rows={rows}
-          state={invoiceResource.data ? "ready" : invoiceResource.loading ? "loading" : invoiceResource.error ? "error" : "ready"}
+          state={invoiceResource.data || periodBlocked ? "ready" : invoiceResource.loading ? "loading" : invoiceResource.error ? "error" : "ready"}
           tableClassName="finance-fee-table"
         />
-        <TablePagination loading={resourceBusy} onPageChange={(nextPage) => { closeCorrection(); setPage(nextPage); }} onPageSizeChange={(nextSize) => { setPageSize(nextSize); setPage(1); }} page={invoices?.page ?? page} pageSize={invoices?.pageSize ?? pageSize} pageSizeOptions={[20, 50]} rowsOnPage={rows.length} total={invoices?.total ?? 0} totalPages={pageCount} />
-      </section>}
-
-      <InternalMonthlyTrialPanel currentUser={currentUser} month={month} feeDirection={feeDirection} q={search} />
+        {!periodBlocked ? (
+          <TablePagination loading={resourceBusy} onPageChange={(nextPage) => { closeCorrection(); setPage(nextPage); }} onPageSizeChange={(nextSize) => { setPageSize(nextSize); setPage(1); }} page={invoices?.page ?? page} pageSize={invoices?.pageSize ?? pageSize} pageSizeOptions={[20, 50]} rowsOnPage={rows.length} total={invoices?.total ?? 0} totalPages={pageCount} />
+        ) : null}
+      </section>
 
       {feeDirection === "MANAGEMENT" && correctionTarget ? (
         <section className="content-section finance-correction-panel">

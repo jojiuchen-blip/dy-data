@@ -794,7 +794,65 @@ test("clue route family retains its pin while other modules get independent publ
 }));
 
 const periodUnavailable = { status: 503, json: { detail: { code: "PUBLICATION_PERIOD_NOT_READY", message: "period incomplete" } } };
-const periodNotice = "所选账期尚未完成，暂不展示金额或提供导出。请选择其他账期，或稍后读取最新结果。";
+const periodNotice = "本账期账单尚未发布，可切换账期查看。";
+async function assertPublicSettlementPage(page) {
+  assert.doesNotMatch(await page.locator("main").innerText(),
+    /内部试算|待核验门店数|账期处理进度|数据采集|月结核验|PUBLICATION_PERIOD_NOT_READY|monthly-progress-request/);
+}
+
+test("promotion keeps the formal workspace and can find submitted invoices across unpublished periods", async () => withPage(async ({ page, requests, handle }) => {
+  const invoice = {
+    storeId: "s1", storeName: "九月提交门店", effectiveSapCode: "SAP-01",
+    invoiceNumber: "11112222333344445555", invoiceAmountCent: 1680,
+    registeredAt: "2026-10-04T03:00:00Z", statementMonths: ["2026-09"],
+    settlementBatchMonths: ["2026-10"], status: "SUBMITTED_PENDING_FACTORY_REVIEW",
+  };
+  handle(async (route, url) => {
+    if (url.pathname.endsWith("/finance/summary")) {
+      await route.fulfill(url.searchParams.get("month") === "2026-10"
+        ? periodUnavailable : { json: payload({ metrics: { statementTotalCent: 12345 } }, "finance", "formal1") });
+      return true;
+    }
+    if (url.pathname.endsWith("/finance/invoices")) {
+      await route.fulfill({ json: payload({ list: [], total: 0 }, "finance", "formal1") }); return true;
+    }
+    if (url.pathname.endsWith("/promotion-invoices/submitted")) {
+      await route.fulfill({ json: payload({ list: [invoice], total: 1, page: 1, pageSize: 50 }) }); return true;
+    }
+    if (url.pathname.endsWith("/promotion-invoices/submitted/export")) {
+      await route.fulfill({ contentType: "text/csv", headers: { "Content-Disposition": "attachment; filename=invoices.csv" }, body: "store,invoice\ns1,11112222333344445555\n" });
+      return true;
+    }
+    return false;
+  });
+  await page.clock.setFixedTime(new Date("2026-11-25T04:00:00Z"));
+  await page.goto(baseUrl + "/finance/promotion");
+  await page.getByText(periodNotice, { exact: true }).first().waitFor();
+  assert.equal(await page.getByLabel("筛选账期", { exact: true }).inputValue(), "2026-10");
+  assert.equal(await page.getByRole("button", { name: "下载推广服务费厂家导入模板" }).isEnabled(), true);
+  assert.equal(await page.getByRole("button", { name: "导出当前筛选结果" }).isDisabled(), true);
+  assert.equal(await page.getByText("筛选账期", { exact: true }).evaluate((label) => getComputedStyle(label).fontSize), "14px");
+  await assertPublicSettlementPage(page);
+
+  await page.getByRole("tab", { name: "门店提交发票" }).click();
+  await page.getByRole("cell", { name: invoice.invoiceNumber, exact: true }).waitFor();
+  assert.equal(requests.find((url) => url.pathname.endsWith("/promotion-invoices/submitted")).searchParams.has("month"), false);
+  const filtered = page.waitForResponse((response) => response.url().includes("month=2026-09") && response.url().includes("/promotion-invoices/submitted?"));
+  await page.getByLabel("原账期（可选）", { exact: true }).fill("2026-09");
+  await filtered;
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出发票", exact: true }).click();
+  await download;
+  assert.equal(requests.find((url) => url.pathname.endsWith("/promotion-invoices/submitted/export")).searchParams.get("month"), "2026-09");
+
+  await page.getByRole("tab", { name: "正式账单" }).click();
+  await page.getByLabel("筛选账期", { exact: true }).fill("2026-09");
+  await page.locator(".metric-card").getByText("¥123.45", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("heading", { name: "推广费发票明细", exact: true }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "导出当前筛选结果" }).isEnabled(), true);
+  await assertPublicSettlementPage(page);
+  assert.equal(requests.some((url) => url.pathname.includes("trial")), false);
+}));
 const settlementPeriods = { ...filterMeta, saleMonths: ["2026-09", "2026-08"], statementMonths: ["2026-09", "2026-08"] };
 const settlementRows = { list: [{ storeId: "s1", storeName: "完整账期门店", rank: 1, promotionMonthFeeCent: 12345 }], totals: { promotionMonthFeeCent: 12345 }, total: 1, page: 1, pageSize: 20 };
 
@@ -827,7 +885,8 @@ for (const phase of ["initial", "month", "refresh"]) {
     await page.getByText(periodNotice, { exact: false }).first().waitFor();
     assert.equal(await page.getByLabel("账期", { exact: true }).isEnabled(), true);
     assert.equal(await page.locator("tbody").getByText("完整账期门店", { exact: true }).count(), 0);
-    assert.equal(await page.locator(".metric-card").count(), 0, "unready must not render normal zero metrics");
+    assert.deepEqual(await page.locator(".metric-card__value").allTextContents(), ["—", "—", "—", "—"]);
+    await assertPublicSettlementPage(page);
     if (phase === "refresh") assert.match(await page.locator(".publication-time").innerText(), /11:00/);
     const before = requests.length;
     await page.waitForTimeout(150);
@@ -867,8 +926,10 @@ for (const phase of ["month", "refresh"]) {
       latest = "money2";
       await page.getByRole("button", { name: "读取最新结果", exact: true }).click();
     }
-    await page.getByText("本账期正式账单尚未就绪。", { exact: true }).waitFor();
-    assert.equal(await total.count(), 0);
+    await page.getByText(periodNotice, { exact: true }).first().waitFor();
+    assert.equal(await total.getByText("—", { exact: true }).count(), 1);
+    assert.equal(await page.getByRole("heading", { name: "推广费发票明细", exact: true }).count(), 1);
+    await assertPublicSettlementPage(page);
     assert.equal(await page.getByRole("button", { name: "导出当前筛选结果", exact: true }).isDisabled(), true);
     assert.equal(await page.getByLabel("筛选账期", { exact: true }).isEnabled(), true);
     const before = requests.length;
@@ -1151,7 +1212,7 @@ test("independent Douyin ranking and export retain byd productScope", async () =
 }));
 
 
-for (const [code, text] of [["PUBLICATION_NOT_READY", "分析结果尚未发布"], ["PUBLICATION_PERIOD_NOT_READY", "所选账期尚未完成"], ["READ_FAILED", "榜单暂不可用"]]) {
+for (const [code, text] of [["PUBLICATION_NOT_READY", "分析结果尚未发布"], ["PUBLICATION_PERIOD_NOT_READY", periodNotice], ["READ_FAILED", "榜单暂不可用"]]) {
   test(`initial settlement ${code} never becomes a real zero result`, async () => withPage(async ({ page, requests, handle }) => {
     const writes = [];
     page.on("request", (request) => { if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) writes.push(request.url()); });
@@ -1162,7 +1223,9 @@ for (const [code, text] of [["PUBLICATION_NOT_READY", "分析结果尚未发布"
     });
     await page.goto(`${baseUrl}/ranking?month=2026-09`);
     await page.getByText(text, { exact: false }).first().waitFor();
-    assert.equal(await page.locator(".metric-card").count(), 0);
+    assert.deepEqual(await page.locator(".metric-card__value").allTextContents(),
+      code === "PUBLICATION_PERIOD_NOT_READY" ? ["—", "—", "—", "—"] : []);
+    await assertPublicSettlementPage(page);
     assert.deepEqual(writes, []);
     assert.equal(requests.filter((url) => url.pathname.endsWith("/dashboard/store-ranking")).length, 1);
   }));
@@ -1262,23 +1325,17 @@ function installMonthlyProgress(handle, { close = monthlyProgressClose, days, re
   });
 }
 
-test("monthly progress zero-published ranking explains known reviews without rendering amounts", async () => withPage(async ({ page, requests, handle }) => {
+test("unpublished ranking keeps the public layout without diagnostics or amounts", async () => withPage(async ({ page, requests, handle }) => {
   installMonthlyProgress(handle);
   await page.goto(`${baseUrl}/ranking?periodKey=2026-10`);
-  const progress = page.locator('[aria-label="账期处理进度"]');
-  await progress.getByText("已知待核验门店数 2 家", { exact: false }).waitFor();
-  assert.doesNotMatch(await progress.innerText(), /31\/31|monthly-progress-request/);
-  await progress.locator("summary").click();
-  assert.match(await progress.innerText(), /2026-10 已完成 31\/31 天的数据采集/);
-  assert.match(await progress.innerText(), /已出账门店数 0 家/);
-  assert.match(await progress.innerText(), /仍有数据归属或影响范围待核验/);
-  assert.equal(await page.locator(".metric-card").count(), 0);
+  await page.getByText(periodNotice, { exact: true }).waitFor();
+  await assertPublicSettlementPage(page);
+  assert.deepEqual(await page.locator(".metric-card__value").allTextContents(), ["—", "—", "—", "—"]);
+  assert.equal(await page.getByRole("heading", { name: "门店排名", exact: true }).count(), 1);
   assert.equal(await page.locator("tbody tr").count(), 0);
   assert.equal(await page.getByLabel("账期", { exact: true }).isEnabled(), true);
   assert.doesNotMatch(await page.locator("body").innerText(), /榜单暂不可用，请稍后重试|月结核验已完成/);
   assert.equal(await page.locator(".resource-notice--error").count(), 0);
-  assert.doesNotMatch(await page.locator("body").innerText(), /PUBLICATION_PERIOD_NOT_READY/);
-  assert.match(await progress.innerText(), /monthly-progress-request/);
   const reads = requests.filter((url) => url.pathname.endsWith("/dashboard/store-ranking"));
   assert.equal(reads.length, 1);
   assert.equal(reads[0].searchParams.get("publication_id"), "progress1");
@@ -1290,9 +1347,10 @@ test("monthly progress zero-published ranking explains known reviews without ren
 test("monthly progress zero-published store keeps fees and confirmation unavailable", async () => withPage(async ({ page, requests, handle }) => {
   installMonthlyProgress(handle);
   await page.goto(`${baseUrl}/settlement?storeId=s1&month=2026-10`);
-  await page.locator('[aria-label="账期处理进度"]').getByText("已知待核验门店数 2 家", { exact: false }).waitFor();
+  await page.getByText(periodNotice, { exact: true }).waitFor();
+  await assertPublicSettlementPage(page);
   await page.getByText("本账期费用明细尚未就绪。", { exact: true }).waitFor();
-  assert.doesNotMatch(await page.getByLabel("分账指标", { exact: true }).innerText(), /0\.00/);
+  assert.deepEqual(await page.getByLabel("分账指标", { exact: true }).locator(".metric-card__value").allTextContents(), ["—", "—", "—", "—", "—", "—"]);
   const buttons = page.getByRole("button", { name: "尚未生成", exact: true });
   assert.equal(await buttons.count(), 2);
   assert.equal(await buttons.nth(0).isDisabled(), true);
@@ -1301,22 +1359,18 @@ test("monthly progress zero-published store keeps fees and confirmation unavaila
   assert.equal(await page.getByRole("button", { name: "下载抵扣明细", exact: true }).count(), 0);
 }));
 
-for (const [days, dayMessage] of [
-  [{ ready: false, successDays: 28, totalDays: 31 }, "已完成 28/31 天的数据采集"],
-  [{ ready: true, successDays: 31, totalDays: 31 }, "已完成 31/31 天的数据采集"],
+for (const days of [
+  { ready: false, successDays: 28, totalDays: 31 },
+  { ready: true, successDays: 31, totalDays: 31 },
 ]) {
-  test(`monthly progress collection ${days.successDays}/31 keeps absent calculation evidence explicit`, async () => withPage(async ({ page, handle }) => {
+  test(`unpublished ranking hides collection progress ${days.successDays}/31`, async () => withPage(async ({ page, handle }) => {
     installMonthlyProgress(handle, {
       close: { status: "waiting", publishedStoreCount: 0, blockedStoreCount: 0, scopeUnresolved: true }, days,
     });
     await page.goto(`${baseUrl}/ranking?periodKey=2026-10`);
-    const progress = page.locator('[aria-label="账期处理进度"]');
-    await progress.locator("summary").click();
-    await progress.getByText(dayMessage, { exact: false }).waitFor();
-    assert.match(await progress.innerText(), /本账期正式账单尚未就绪/);
-    assert.match(await progress.innerText(), /门店影响范围待确认/);
-    assert.doesNotMatch(await progress.innerText(), /月结核验已完成|已发现待核验数据|仍有数据归属|缺失日期|采集失败/);
-    assert.equal(await page.locator(".metric-card").count(), 0);
+    await page.getByText(periodNotice, { exact: true }).waitFor();
+    await assertPublicSettlementPage(page);
+    assert.doesNotMatch(await page.locator("main").innerText(), /门店影响范围|缺失日期|采集失败/);
   }));
 }
 
@@ -1339,25 +1393,24 @@ test("monthly progress scoped counts clear when same-version metadata permission
     store_scope_mode: "assigned", store_ids: ["s1"], page_keys: ["B01", "B02"],
   }) }));
   await page.goto(`${baseUrl}/ranking?periodKey=2026-10`);
-  await page.locator('[aria-label="账期处理进度"]').getByText("已知待核验门店数 1 家", { exact: false }).waitFor();
-  assert.doesNotMatch(await page.locator("body").innerText(), /已知待核验门店数 2 家|其他门店/);
+  await page.getByText(periodNotice, { exact: true }).waitFor();
+  await assertPublicSettlementPage(page);
   denied = true;
   await page.getByRole("button", { name: "读取最新结果", exact: true }).click();
   await page.getByText("当前账号没有查看该榜单的权限", { exact: false }).waitFor();
-  assert.equal(await page.locator('[aria-label="账期处理进度"]').count(), 0);
+  assert.equal(await page.getByText(periodNotice, { exact: true }).count(), 0);
+  await assertPublicSettlementPage(page);
 }));
 
-test("monthly progress partially published ranking retains certified rows and pending counts", async () => withPage(async ({ page, handle }) => {
+test("partially published ranking retains certified rows and hides review counts", async () => withPage(async ({ page, handle }) => {
   installMonthlyProgress(handle, {
     close: { status: "partial", publishedStoreCount: 1, blockedStoreCount: 2, scopeUnresolved: false }, ready: true,
   });
   await page.goto(`${baseUrl}/ranking?periodKey=2026-10`);
   await page.locator("tbody").getByText("已出账授权门店", { exact: true }).waitFor();
-  const progress = page.locator('[aria-label="账期处理进度"]');
-  assert.match(await progress.innerText(), /已出账门店数 1 家，已知待核验门店数 2 家/);
-  assert.match(await progress.innerText(), /当前显示已出账的门店/);
+  await page.getByText("当前显示已出账的门店，累计金额暂不可用。", { exact: true }).waitFor();
+  await assertPublicSettlementPage(page);
   assert.match(await page.locator("tbody").innerText(), /123\.45/);
-  assert.doesNotMatch(await progress.innerText(), /影响范围待核验/);
 }));
 
 test("monthly progress store confirmations continue to use actual live billing", async () => withPage(async ({ page, requests, handle }) => {
@@ -1375,7 +1428,7 @@ test("monthly progress store confirmations continue to use actual live billing",
   await page.getByRole("link", { name: "进入推广费开票", exact: true }).waitFor();
   assert.equal(await page.getByRole("button", { name: "确认管理服务费", exact: true }).isEnabled(), true);
   assert.match(await page.locator(".store-finance-confirmation-grid").innerText(), /已确认/);
-  assert.match(await page.locator('[aria-label="账期处理进度"]').innerText(), /已出账门店数 1 家/);
+  await assertPublicSettlementPage(page);
   const details = requests.filter((url) => url.pathname.endsWith("/order-fee-details"));
   assert.equal(details.length, 2);
   assert.ok(details.every((url) => url.searchParams.get("publication_id") === "progress1"));
@@ -1385,10 +1438,9 @@ test("monthly progress store confirmations continue to use actual live billing",
 test("monthly progress missing day evidence never invents collection completion", async () => withPage(async ({ page, handle }) => {
   installMonthlyProgress(handle, { days: {} });
   await page.goto(`${baseUrl}/ranking?periodKey=2026-10`);
-  const progress = page.locator('[aria-label="账期处理进度"]');
-  await progress.getByText("已知待核验门店数 2 家", { exact: false }).waitFor();
-  await progress.locator("summary").click();
-  assert.doesNotMatch(await progress.innerText(), /日采集|31\/31|已完整/);
+  await page.getByText(periodNotice, { exact: true }).waitFor();
+  await assertPublicSettlementPage(page);
+  assert.doesNotMatch(await page.locator("main").innerText(), /日采集|31\/31|已完整/);
 }));
 
 
@@ -1404,14 +1456,15 @@ test("monthly progress month changes never reuse the previous month status", asy
     return true;
   });
   await page.goto(`${baseUrl}/ranking?periodKey=2026-10`);
-  await page.locator('[aria-label="账期处理进度"]').getByText("已知待核验门店数 2 家", { exact: false }).waitFor();
+  await page.getByText(periodNotice, { exact: true }).waitFor();
   await page.getByLabel("账期", { exact: true }).click();
   await page.getByRole("option", { name: "2026-09", exact: true }).click();
   await page.locator("tbody").getByText("已出账授权门店", { exact: true }).waitFor();
-  assert.equal(await page.locator('[aria-label="账期处理进度"]').count(), 0);
+  assert.equal(await page.getByText(periodNotice, { exact: true }).count(), 0);
+  await assertPublicSettlementPage(page);
   await page.getByLabel("账期", { exact: true }).click();
   await page.getByRole("option", { name: "2026-10", exact: true }).click();
-  await page.locator('[aria-label="账期处理进度"]').getByText("已知待核验门店数 2 家", { exact: false }).waitFor();
+  await page.getByText(periodNotice, { exact: true }).waitFor();
   assert.equal(await page.locator("tbody tr").count(), 0);
 }));
 
@@ -1425,7 +1478,7 @@ test("monthly progress never exposes candidate metadata from a mismatched data v
   });
   await page.goto(`${baseUrl}/ranking?periodKey=2026-10`);
   await page.locator(".resource-notice--error").getByText("榜单暂不可用", { exact: false }).waitFor();
-  assert.equal(await page.locator('[aria-label="账期处理进度"]').count(), 0);
+  await assertPublicSettlementPage(page);
   assert.equal(await page.locator("tbody tr").count(), 0);
 }));
 
@@ -1439,7 +1492,7 @@ for (const routeName of ["ranking", "settlement"]) {
     await page.goto(`${baseUrl}${routeName === "ranking" ? "/ranking?periodKey=2026-10" : "/settlement?storeId=s1&month=2026-10"}`);
     await page.getByText("本月数据已完整", { exact: false }).waitFor();
     assert.match(await page.getByText("本月数据已完整", { exact: false }).innerText(), /2026-09 尚未完成/);
-    assert.match(await page.locator('[aria-label="账期处理进度"]').innerText(), /本月月结核验已完成/);
+    await assertPublicSettlementPage(page);
   }));
 }
 
@@ -1462,12 +1515,12 @@ for (const failure of ["network", "publication"]) {
       return true;
     });
     await page.goto(`${baseUrl}/ranking?periodKey=2026-10`);
-    await page.locator('[aria-label="账期处理进度"]').getByText("已知待核验门店数 2 家", { exact: false }).waitFor();
+    await page.getByText(periodNotice, { exact: true }).waitFor();
     failed = true;
     await page.getByRole("button", { name: "读取最新结果", exact: true }).click();
     await page.locator(".resource-notice--error").getByText(failure === "network" ? "榜单暂不可用" : "分析结果尚未发布", { exact: false }).waitFor();
-    assert.doesNotMatch(await page.locator("body").innerText(), /PUBLICATION_PERIOD_NOT_READY/);
-    assert.equal(await page.locator('[aria-label="账期处理进度"]').locator("..").getAttribute("role"), "status");
+    await assertPublicSettlementPage(page);
+    assert.equal(await page.getByText(periodNotice, { exact: true }).count(), 0);
     assert.equal(await page.locator(".metric-card").count(), 0);
   }));
 }

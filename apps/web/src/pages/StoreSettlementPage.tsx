@@ -19,7 +19,6 @@ import { FilterBar, FilterField } from "../components/Filters";
 import { FieldInput, FieldTextarea, SelectField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
-import { SettlementPeriodStatus } from "../components/SettlementPeriodStatus";
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
 import { useApiResource } from "../hooks/useApiResource";
 import { useDownloadFeedback } from "../hooks/useDownloadFeedback";
@@ -31,7 +30,7 @@ import type {
   StoreDisputeType,
 } from "../types/dashboard";
 import { formatCurrency, formatDateTime, formatInteger } from "../utils/format";
-import { apiErrorText, isPublicationPeriodNotReady } from "../utils/apiErrors";
+import { apiErrorText, isPublicationPeriodNotReady, PUBLICATION_PERIOD_NOT_READY_TEXT } from "../utils/apiErrors";
 import { userFacingError } from "../utils/userFacingError";
 import { displayFinanceSaleChannel } from "../utils/userFacingLabels";
 import { parseYuanToCent } from "../utils/money";
@@ -132,8 +131,8 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
   const settlementPublicationId = settlementResource.data?.meta.publication?.id;
   const monthlyClose = meta?.periodReadiness?.months[activeMonth]?.monthlyClose
     ?? settlementResource.data?.data.periodAvailability?.monthlyClose;
-  const periodError = isPublicationPeriodNotReady(settlementResource.rawError) ? settlementResource.rawError : undefined;
-  const explainUnavailablePeriod = Boolean(periodError && meta?.periodReadiness?.months[activeMonth]?.monthlyClose && metaResource.data?.meta.publication);
+  const periodBlocked = isPublicationPeriodNotReady(settlementResource.rawError);
+  const unavailableAmount = periodBlocked ? "—" : undefined;
   const feePublicationId = monthlyClose ? settlementPublicationId : undefined;
   const billingResource = useApiResource(
     () => fetchStoreBillingStatements({
@@ -319,6 +318,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
   const activeOrderPublicationId = activeOrderResource.data?.meta.publication?.id;
   const activeOrders = activeOrderPublicationId && activeOrderPublicationId !== settlementPublicationId
     ? [] : activeOrderResource.data?.data.list ?? [];
+  const unavailableNotice = statement ? "本账期分账汇总暂不可用，可查看已有账单。" : PUBLICATION_PERIOD_NOT_READY_TEXT;
 
   return (
     <div className="page-stack finance-page">
@@ -329,7 +329,8 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
       </section>
       <ResourceNotice analysis
         loading={metaResource.loading || settlementResource.loading || settlementResource.refreshing || billingResource.loading}
-        error={(explainUnavailablePeriod ? undefined : settlementError ?? metaError) ?? billingError}
+        fallbackReason={periodBlocked ? unavailableNotice : monthlyClose?.status === "partial" && view ? "本账期部分账单已发布，累计金额暂不可用。" : undefined}
+        error={(periodBlocked ? undefined : settlementError ?? metaError) ?? billingError}
       />
       <FilterBar>
         <SelectField
@@ -350,16 +351,15 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
         </FilterField>
         <SelectField disabled={!meta} label="商品类型" value={activeProductType} onChange={(value) => setProductType(value)} options={Array.from(new Set(["all", ...(meta?.productTypes ?? []), activeProductType])).map((value) => ({ value, label: value === "all" ? "全部商品" : value }))} />
       </FilterBar>
-      <SettlementPeriodStatus month={activeMonth} readiness={meta?.periodReadiness?.months[activeMonth]} monthlyClose={availability?.monthlyClose} unavailable={explainUnavailablePeriod} requestId={explainUnavailablePeriod ? periodError?.requestId : undefined} />
       {monthlyClose?.status !== "partial" && availability?.monthlyReady && availability.cumulativeReady === false ? <ResourcePanel>本月数据已完整；累计数据{incompleteMonths ? `因 ${incompleteMonths} 尚未完成` : "尚未完成"}，暂不可用。</ResourcePanel> : null}
 
       <section className="metric-grid store-summary-metrics" aria-label="分账指标">
-            <MetricCard label="销售金额" value={displayMetricCurrency(metrics?.salesAmountCent)} meta={displayMetricCount(metrics?.salesOrderCount, "笔订单")} />
-            <MetricCard label="核销金额" value={displayMetricCurrency(metrics?.verifiedAmountCent)} meta={displayMetricCount(metrics?.verifiedOrderCount, "笔核销")} />
-            <MetricCard label="当期推广服务费" value={displayMetricCurrency(metrics?.promotionNetFeeCent)} meta={metrics ? `${activeMonth} 单月 · 原始 ${formatCurrency(metrics.promotionOriginalFeeCent)} · 调整 ${formatCurrency(metrics.promotionAdjustmentFeeCent)}` : "暂无数据"} />
-            <MetricCard label="累计推广服务费" value={displayCumulativeCurrency(cumulativeMetrics?.promotionNetFeeCent, cumulativeApplies)} meta={cumulativeApplies ? `${cumulativeStartMonth} 至 ${activeMonth} 正式账期累计` : `正式累计自 ${cumulativeStartMonth || "正式账期"} 起，所选月不参与累计`} />
-            <MetricCard label="当期管理服务费" value={displayMetricCurrency(metrics?.managementNetFeeCent)} meta={metrics ? `${activeMonth} 单月 · 原始 ${formatCurrency(metrics.managementOriginalFeeCent)} · 调整 ${formatCurrency(metrics.managementAdjustmentFeeCent)}` : "暂无数据"} />
-            <MetricCard label="累计管理服务费" value={displayCumulativeCurrency(cumulativeMetrics?.managementNetFeeCent, cumulativeApplies)} meta={cumulativeApplies ? `${cumulativeStartMonth} 至 ${activeMonth} 正式账期累计` : `正式累计自 ${cumulativeStartMonth || "正式账期"} 起，所选月不参与累计`} />
+            <MetricCard label="销售金额" value={unavailableAmount ?? displayMetricCurrency(metrics?.salesAmountCent)} meta={periodBlocked ? undefined : displayMetricCount(metrics?.salesOrderCount, "笔订单")} />
+            <MetricCard label="核销金额" value={unavailableAmount ?? displayMetricCurrency(metrics?.verifiedAmountCent)} meta={periodBlocked ? undefined : displayMetricCount(metrics?.verifiedOrderCount, "笔核销")} />
+            <MetricCard label="当期推广服务费" value={unavailableAmount ?? displayMetricCurrency(metrics?.promotionNetFeeCent)} meta={metrics ? `${activeMonth} 单月 · 原始 ${formatCurrency(metrics.promotionOriginalFeeCent)} · 调整 ${formatCurrency(metrics.promotionAdjustmentFeeCent)}` : undefined} />
+            <MetricCard label="累计推广服务费" value={unavailableAmount ?? displayCumulativeCurrency(cumulativeMetrics?.promotionNetFeeCent, cumulativeApplies)} meta={periodBlocked ? undefined : cumulativeApplies ? `${cumulativeStartMonth} 至 ${activeMonth} 正式账期累计` : `正式累计自 ${cumulativeStartMonth || "正式账期"} 起，所选月不参与累计`} />
+            <MetricCard label="当期管理服务费" value={unavailableAmount ?? displayMetricCurrency(metrics?.managementNetFeeCent)} meta={metrics ? `${activeMonth} 单月 · 原始 ${formatCurrency(metrics.managementOriginalFeeCent)} · 调整 ${formatCurrency(metrics.managementAdjustmentFeeCent)}` : undefined} />
+            <MetricCard label="累计管理服务费" value={unavailableAmount ?? displayCumulativeCurrency(cumulativeMetrics?.managementNetFeeCent, cumulativeApplies)} meta={periodBlocked ? undefined : cumulativeApplies ? `${cumulativeStartMonth} 至 ${activeMonth} 正式账期累计` : `正式累计自 ${cumulativeStartMonth || "正式账期"} 起，所选月不参与累计`} />
       </section>
 
       <section className="content-section" aria-label="账单确认与异议">

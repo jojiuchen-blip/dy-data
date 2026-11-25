@@ -9,9 +9,7 @@ import { DataTable, type Column } from "../components/DataTable";
 import { FilterBar, FilterField } from "../components/Filters";
 import { FieldInput, SelectField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
-import { InternalMonthlyTrialPanel } from "../components/InternalMonthlyTrialPanel";
 import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
-import { SettlementPeriodStatus } from "../components/SettlementPeriodStatus";
 import { TablePagination } from "../components/TablePagination";
 import { usePublishedView } from "../hooks/usePublishedView";
 import type {
@@ -21,7 +19,7 @@ import type {
   StoreFinanceRankingBasis,
 } from "../types/dashboard";
 import { formatCurrency, formatInteger } from "../utils/format";
-import { apiErrorText, isPublicationPeriodNotReady } from "../utils/apiErrors";
+import { apiErrorText, isPublicationPeriodNotReady, PUBLICATION_PERIOD_NOT_READY_TEXT } from "../utils/apiErrors";
 
 interface StoreRankingPageProps {
   currentUser: AdminUser;
@@ -47,7 +45,7 @@ function rankingSortByForBasis(basis: StoreFinanceRankingBasis): RankingSortBy {
   return "PROMOTION_FEE";
 }
 
-export function StoreRankingPage({ currentUser, searchParams }: StoreRankingPageProps) {
+export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
   const [periodKey, setPeriodKey] = useState(() => initialStatementMonth(searchParams));
   const [productType, setProductType] = useState(searchParams.get("productType") ?? searchParams.get("product_type") ?? "");
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
@@ -107,8 +105,11 @@ export function StoreRankingPage({ currentUser, searchParams }: StoreRankingPage
   const availability = ranking?.periodAvailability;
   const periodReadiness = meta?.periodReadiness?.months[activePeriodKey];
   const monthlyClose = periodReadiness?.monthlyClose ?? availability?.monthlyClose;
-  const periodError = isPublicationPeriodNotReady(rankingResource.rawError) ? rankingResource.rawError : undefined;
-  const explainUnavailablePeriod = Boolean(periodError && periodReadiness?.monthlyClose && metaResource.data?.meta.publication);
+  const periodBlocked = isPublicationPeriodNotReady(rankingResource.rawError);
+  const unavailableAmount = periodBlocked ? "—" : undefined;
+  const unavailableNotice = rankingBasis === "PROMOTION_FEE_MONTH"
+    ? PUBLICATION_PERIOD_NOT_READY_TEXT
+    : "当前排行依据暂不可用，可切换为当期推广服务费。";
   const cumulativeUnavailable = availability?.cumulativeReady === false;
   const incompleteMonths = availability?.incompleteMonths.join("、");
 
@@ -128,13 +129,17 @@ export function StoreRankingPage({ currentUser, searchParams }: StoreRankingPage
   ];
 
   return (
-    <div className="page-stack">
+    <div className="page-stack settlement-ranking-page">
       <section className="page-heading">
         <div>
           <h1>全国门店月度榜单</h1>
         </div>
       </section>
-      <ResourceNotice analysis loading={metaResource.loading || rankingResource.loading || rankingResource.refreshing} error={explainUnavailablePeriod ? undefined : rankingError ?? metaError} />
+      <ResourceNotice analysis
+        loading={rankingResource.loading || rankingResource.refreshing}
+        fallbackReason={periodBlocked ? unavailableNotice : ranking && monthlyClose?.status === "partial" ? "当前显示已出账的门店，累计金额暂不可用。" : undefined}
+        error={periodBlocked ? undefined : rankingError ?? metaError}
+      />
       <FilterBar>
         <SelectField disabled={!meta} label="账期" value={activePeriodKey} onChange={(value) => { setPeriodKey(value); setPage(1); }} options={Array.from(new Set([activePeriodKey, ...(meta?.statementMonths ?? [])])).map((value) => ({ value, label: value }))} />
         <SelectField disabled={!meta} label="商品类型" value={activeProductType} onChange={(value) => { setProductType(value); setPage(1); }} options={Array.from(new Set(["all", ...(meta?.productTypes ?? []), activeProductType])).map((value) => ({ value, label: value === "all" ? "全部商品" : value }))} />
@@ -147,28 +152,26 @@ export function StoreRankingPage({ currentUser, searchParams }: StoreRankingPage
           disabled: cumulativeUnavailable && option.value !== "PROMOTION_FEE_MONTH",
         }))} />
       </FilterBar>
-      <SettlementPeriodStatus month={activePeriodKey} readiness={periodReadiness} monthlyClose={availability?.monthlyClose} unavailable={explainUnavailablePeriod} requestId={explainUnavailablePeriod ? periodError?.requestId : undefined} />
       {monthlyClose?.status !== "partial" && availability?.monthlyReady && cumulativeUnavailable ? (
         <ResourcePanel>本月数据已完整，累计数据{incompleteMonths ? `因 ${incompleteMonths} 尚未完成` : "尚未完成"}，暂不可用。</ResourcePanel>
       ) : null}
-      {!ranking && rankingResource.loading ? <ResourcePanel>正在加载榜单…</ResourcePanel> : !ranking ? (explainUnavailablePeriod ? null : <ResourcePanel tone="error">榜单暂不可用，请稍后重试。</ResourcePanel>) : (
+      {!ranking && rankingResource.loading ? <ResourcePanel>正在加载榜单…</ResourcePanel> : !ranking && !periodBlocked ? <ResourcePanel tone="error">榜单暂不可用，请稍后重试。</ResourcePanel> : (
         <>
           <section className="metric-grid store-summary-metrics">
-            <MetricCard label="销售金额（累计）" value={displayMetricCurrency(totals?.salesAmountCumulativeCent)} meta={displayMetricCount(totals?.salesOrderCountCumulative, "笔销售订单")} />
-            <MetricCard label="核销金额（累计）" value={displayMetricCurrency(totals?.verifiedAmountCumulativeCent)} meta={displayMetricCount(totals?.verifiedOrderCountCumulative, "笔核销订单")} />
-            <MetricCard label="当期推广服务费" value={displayMetricCurrency(totals?.promotionMonthFeeCent)} meta={totals ? "当期调整后金额" : "暂无数据"} />
-            <MetricCard label="累计推广服务费" value={displayMetricCurrency(totals?.promotionCumulativeFeeCent)} meta={totals ? "正式账期累计" : "暂无数据"} />
+            <MetricCard label="销售金额（累计）" value={unavailableAmount ?? displayMetricCurrency(totals?.salesAmountCumulativeCent)} meta={unavailableAmount ? undefined : displayMetricCount(totals?.salesOrderCountCumulative, "笔销售订单")} />
+            <MetricCard label="核销金额（累计）" value={unavailableAmount ?? displayMetricCurrency(totals?.verifiedAmountCumulativeCent)} meta={unavailableAmount ? undefined : displayMetricCount(totals?.verifiedOrderCountCumulative, "笔核销订单")} />
+            <MetricCard label="当期推广服务费" value={unavailableAmount ?? displayMetricCurrency(totals?.promotionMonthFeeCent)} meta={totals ? "当期调整后金额" : undefined} />
+            <MetricCard label="累计推广服务费" value={unavailableAmount ?? displayMetricCurrency(totals?.promotionCumulativeFeeCent)} meta={totals ? "正式账期累计" : undefined} />
           </section>
           <section className="content-section">
             <div className="section-title">
-              <div><h2>门店排名</h2><p>{ranking.scopeMode === "GLOBAL_TOP_20_EXCEPTION" ? "全国前 20 展示例外；明细仍按门店权限控制" : `共 ${ranking.total} 家门店`}</p></div>
+              <div><h2>门店排名</h2>{ranking ? <p>{ranking.scopeMode === "GLOBAL_TOP_20_EXCEPTION" ? "全国前 20 家门店；明细按门店权限查看" : `共 ${ranking.total} 家门店`}</p> : null}</div>
             </div>
-            {rows.length ? <DataTable columns={columns} rows={rows} rowHref={ranking.scopeMode === "AUTHORIZED" ? (row) => `/settlement?storeId=${encodeURIComponent(row.storeId)}&month=${activePeriodKey}&productType=${encodeURIComponent(activeProductType)}` : undefined} /> : <ResourcePanel>当前筛选下没有门店结果。</ResourcePanel>}
-            {ranking.scopeMode === "AUTHORIZED" ? <TablePagination page={ranking.page} pageSize={ranking.pageSize} total={ranking.total} totalPages={Math.max(1, Math.ceil(ranking.total / ranking.pageSize))} rowsOnPage={rows.length} loading={rankingResource.loading} onPageChange={setPage} /> : null}
+            {rows.length ? <DataTable columns={columns} rows={rows} rowHref={ranking?.scopeMode === "AUTHORIZED" ? (row) => `/settlement?storeId=${encodeURIComponent(row.storeId)}&month=${activePeriodKey}&productType=${encodeURIComponent(activeProductType)}` : undefined} /> : <ResourcePanel>{periodBlocked ? "暂无已发布的排名。" : "当前筛选下没有门店结果。"}</ResourcePanel>}
+            {ranking?.scopeMode === "AUTHORIZED" ? <TablePagination page={ranking.page} pageSize={ranking.pageSize} total={ranking.total} totalPages={Math.max(1, Math.ceil(ranking.total / ranking.pageSize))} rowsOnPage={rows.length} loading={rankingResource.loading} onPageChange={setPage} /> : null}
           </section>
         </>
       )}
-      <InternalMonthlyTrialPanel currentUser={currentUser} month={activePeriodKey} productType={activeProductType} q={query} publicationId={metaResource.data?.meta.publication?.id} />
     </div>
   );
 }

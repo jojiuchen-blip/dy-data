@@ -196,7 +196,8 @@ def test_unsupported_cumulative_deep_link_recovers_to_monthly_on_same_publicatio
             page.goto(f"{availability_web}/ranking?periodKey=2026-09&rankingBasis=PROMOTION_FEE_CUMULATIVE")
         assert response.value.status == 503
         assert response.value.json()["detail"]["code"] == "PUBLICATION_PERIOD_NOT_READY"
-        expect(page.get_by_role("alert").filter(has_text="所选账期尚未完成")).to_be_visible()
+        expect(page.get_by_text("当前排行依据暂不可用，可切换为当期推广服务费。", exact=True)).to_be_visible()
+        expect(page.get_by_text("PUBLICATION_PERIOD_NOT_READY", exact=False)).to_have_count(0)
         basis = page.get_by_role("button", name="排行依据", exact=True)
         expect(basis).to_be_enabled()
         basis.click()
@@ -322,8 +323,8 @@ def test_menu_default_month_and_legacy_scope_are_read_only_in_real_api(
         with page.expect_response(lambda response: "/store-ranking?" in response.url) as unready:
             page.goto(f"{availability_web}/ranking?periodKey=2026-08")
         assert unready.value.status == 503
-        expect(page.get_by_role("alert").filter(has_text="所选账期尚未完成")).to_be_visible()
-        expect(page.locator(".metric-card")).to_have_count(0)
+        expect(page.get_by_text("本账期账单尚未发布，可切换账期查看。", exact=True)).to_be_visible()
+        expect(page.locator(".metric-card__value")).to_have_text(["—"] * 4)
         with page.expect_response(lambda response: "/store-ranking?" in response.url) as refreshed:
             page.reload()
         assert refreshed.value.status == 503
