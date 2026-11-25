@@ -6,7 +6,7 @@ permissions:
 jobs:
   read-only:
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 26
     env:
       TARGET_SHA: dd55cc737c19792f97bfc8b2c6f32190a2a11405
       TENCENT_HOST: ${{ vars.TENCENT_HOST }}
@@ -32,6 +32,17 @@ jobs:
           check_receipt() {
             python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["sha"]==sys.argv[2] and d["environment"]=="production"; print("production_release_receipt",d["ts"],d["sha"])' "$receipt" "$target"
           }
+          for attempt in $(seq 1 14); do
+            current="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["environment"]=="production"; print(d["sha"])' "$receipt")"
+            if [ "$current" = "$target" ]; then break; fi
+            printf 'Production receipt still at %s while verifying the new release\n' "$current"
+            if pgrep -f '[b]ash deploy/tencent/deploy.sh' >/dev/null; then
+              echo 'Deployment process is active'
+            fi
+            docker ps --format '{{.Names}} {{.Status}}' | awk '/^dy-publication-warm-/{print "Publication warmup:",$0}'
+            if [ "$attempt" = 14 ]; then exit 2; fi
+            sleep 45
+          done
           check_receipt
           cd /opt/dy-dashboard/repo
           pg_read() {
