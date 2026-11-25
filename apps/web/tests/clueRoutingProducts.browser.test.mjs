@@ -58,7 +58,15 @@ async function withApp(options, run) {
           return { product_id: id, status: "failed", error: { code: "CONFLICT", message: "配置已变化，请重新预览。" }, before, after: before };
         }
         if (body.action === "publish_list") { after.store_ids = stores; if (!body.preview) after.list_version = (row.list_version || 0) + 1; }
-        if (body.action === "request_auto_list") after.store_list_source = "auto_pending";
+        if (body.action === "request_auto_list") {
+          const adopt = row.douyin_store_scope?.status === "valid" &&
+            (body.preview || body.expected_douyin_scope_checks?.[id] === row.douyin_store_scope.checked_at);
+          after.store_list_source = adopt ? "douyin" : "auto_pending";
+          if (adopt) {
+            after.store_ids = ["009101"];
+            if (!body.preview) after.list_version = "DOUYIN-LIST-1";
+          }
+        }
         if (body.action === "restore_manual_list") {
           after.store_list_source = "manual";
           after.list_version = 1;
@@ -79,6 +87,11 @@ async function withApp(options, run) {
       if (!body.preview && key) state.idempotency.set(key, data);
       if (!body.preview && state.transportOnce) { state.transportOnce = false; return route.abort("connectionfailed"); }
       return route.fulfill({ json: envelope(data) });
+    }
+    if (/\/products\/[^/]+\/douyin-store-scope$/.test(path)) {
+      const productId = path.split("/").at(-2);
+      const product = state.products.find((row) => row.product_id === productId);
+      return route.fulfill({ json: envelope({ product_id: productId, douyin_store_scope: product?.douyin_store_scope ?? null, store_ids: ["009101"] }) });
     }
     if (/\/products\/[^/]+\/grants$/.test(path)) {
       if (!options.admin) return route.fulfill({ status: 403, json: { detail: "无授权管理权限" } });
@@ -131,6 +144,28 @@ async function openProducts(page) {
   assert.match(await page.title(), /抖音/);
 }
 function writes(state) { return state.requests.filter((request) => request.path.endsWith("/products/batch") && request.body?.preview === false); }
+
+test("administrator inspects and adopts a saved BYD scope with routing still off", { timeout: 120000 }, async () => {
+  await withApp({ admin: true, count: 2 }, async (page, state) => {
+    const checkedAt = "2026-11-25T00:00:00+00:00";
+    Object.assign(state.products[1], { product_scope: "byd", product_name: "比亚迪本品保养套餐",
+      store_list_source: "manual", douyin_store_scope: { status: "valid", checked_at: checkedAt, last_success_at: checkedAt, store_count: 1 } });
+    await openProducts(page);
+    await page.getByRole("button", { name: "查看 1 家门店", exact: true }).click();
+    const detail = page.getByRole("dialog", { name: "抖音适用门店名单" });
+    await detail.getByText("1 家门店，展开编码").click();
+    await detail.getByText("009101", { exact: true }).waitFor();
+    await detail.getByRole("button", { name: "关闭", exact: true }).last().click();
+    await page.getByRole("checkbox", { name: "选择商品 000002", exact: true }).check();
+    await page.getByRole("button", { name: "接入抖音自动名单", exact: true }).click();
+    await page.getByRole("button", { name: "校验并预览变更", exact: true }).click();
+    await page.getByRole("button", { name: "确认接入抖音自动名单（1 个）", exact: true }).click();
+    await page.getByRole("heading", { name: "接入抖音自动名单 · 逐商品结果", exact: true }).waitFor();
+    assert.deepEqual(writes(state)[0].body.expected_douyin_scope_checks, { "000002": checkedAt });
+    assert.equal(state.products[1].store_list_source, "douyin");
+    assert.equal(state.products[1].routing_enabled, false);
+  });
+});
 
 test("administrator previews and restores the manual store list", { timeout: 120000 }, async () => {
   await withApp({ admin: true }, async (page, state) => {
