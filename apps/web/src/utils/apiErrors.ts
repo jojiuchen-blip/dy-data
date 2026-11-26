@@ -6,7 +6,7 @@ export function isPublicationNotReady(error: unknown): boolean {
   return error instanceof ApiRequestError && error.status === 503 && error.code === "PUBLICATION_NOT_READY";
 }
 
-export const PUBLICATION_PERIOD_NOT_READY_TEXT = "所选账期尚未完成，暂不展示金额或提供导出。请选择其他账期，或稍后读取最新结果。";
+export const PUBLICATION_PERIOD_NOT_READY_TEXT = "本账期账单尚未发布，可切换账期查看。";
 
 export function isPublicationPeriodNotReady(error: unknown): error is ApiRequestError & { status: 503; code: "PUBLICATION_PERIOD_NOT_READY" } {
   return error instanceof ApiRequestError && error.status === 503 && error.code === "PUBLICATION_PERIOD_NOT_READY";
@@ -18,13 +18,12 @@ export function apiErrorText(
   statusMessages: Partial<Record<number, string>> = {},
 ): string {
   if (!(error instanceof ApiRequestError)) return fallback;
+  if (isPublicationPeriodNotReady(error)) return PUBLICATION_PERIOD_NOT_READY_TEXT;
+  if (isPublicationNotReady(error)) return PUBLICATION_NOT_READY_TEXT;
   const businessMessage = error.status >= 400 && error.status < 500
     && error.code && error.message && error.message !== `API ${error.status}`
     ? error.message : undefined;
-  const parts = [isPublicationPeriodNotReady(error)
-    ? PUBLICATION_PERIOD_NOT_READY_TEXT
-    : isPublicationNotReady(error) ? PUBLICATION_NOT_READY_TEXT
-    : statusMessages[error.status] ?? businessMessage ?? fallback];
+  const parts = [statusMessages[error.status] ?? businessMessage ?? fallback];
   if (Array.isArray(error.fieldErrors) && error.fieldErrors.length) {
     const fieldSummary = error.fieldErrors
       .map((item) => {

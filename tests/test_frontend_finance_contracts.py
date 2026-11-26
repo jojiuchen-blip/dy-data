@@ -37,7 +37,7 @@ def test_fee_pages_follow_the_frozen_module_order_and_headers() -> None:
     assert "downloadFinanceImportTemplate" in page + client
     assert "downloadFinanceInvoices" in page + client
     assert render.index("finance-metric-grid") < render.index("<FinanceImportActionPanel")
-    assert render.index("<FinanceImportActionPanel") < render.index("门店账单与开票进度")
+    assert render.index("<FinanceImportActionPanel") < render.index("推广费发票明细")
 
     for metric in [
         "推广费总额",

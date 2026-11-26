@@ -314,7 +314,7 @@ def test_settlement_pages_use_the_t3_1_camel_case_contract_without_silent_fallba
     assert 'sortOrder: "DESC"' in ranking
     assert "initialStatementMonth(searchParams)" in ranking
     assert "meta?.saleMonths[0]" not in ranking
-    assert 'ranking.scopeMode === "AUTHORIZED" ? (row)' in ranking
+    assert 'scopeMode === "AUTHORIZED" ? (row)' in ranking
     for enum_value in [
         "SALES_AMOUNT",
         "VERIFIED_AMOUNT",

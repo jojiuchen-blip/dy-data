@@ -1,8 +1,8 @@
-"""Real HTTP, React and CSV acceptance for the November 20 monthly requirements.
+"""Acceptance for public settlement screens and authorized internal trial exports.
 
-Only the isolated publication's input facts and the authenticated test identity
-are synthetic. Successful page reads and downloads use the application routes.
-The existing optional PostgreSQL fixture gives CI a disposable schema.
+The publication facts and test identities are synthetic. The browser checks
+public pages, invoices, and history. Internal trial checks use the authenticated
+API so the public screens never have to load a trial.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from datetime import datetime
 from decimal import Decimal
 from io import StringIO
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import pytest
 from playwright.sync_api import expect
@@ -110,10 +110,54 @@ def nov20_web(nov20_api):
     yield from live_fixture.vite_live_admin_api_base_url.__wrapped__(nov20_api[0])
 
 
-def read_csv(download) -> tuple[bytes, list[dict[str, str]]]:
-    raw = Path(download.path()).read_bytes()
+def decode_csv(raw: bytes) -> tuple[bytes, list[dict[str, str]]]:
     assert raw.startswith(b"\xef\xbb\xbf")
     return raw, list(csv.DictReader(StringIO(raw.decode("utf-8-sig"))))
+
+
+def read_csv(download) -> tuple[bytes, list[dict[str, str]]]:
+    return decode_csv(Path(download.path()).read_bytes())
+
+
+def request_trial(context, nov20_api, direction, endpoint="trial", **filters):
+    response = context.request.get(f"{nov20_api[0]}/api/v1/admin/finance/{endpoint}", params={
+        "month": MONTH, "feeDirection": direction, "publication_id": nov20_api[1], **filters,
+    })
+    assert response.status == 200, response.text()
+    return response
+
+
+def read_trial(context, nov20_api, direction, endpoint="trial", **filters):
+    payload = request_trial(context, nov20_api, direction, endpoint, **filters).json()
+    assert payload["meta"]["publication"]["id"] == nov20_api[1]
+    data = payload["data"]
+    assert data["month"] == MONTH and data["feeDirection"] == direction
+    return data
+
+
+def export_trial(context, nov20_api, direction, endpoint="trial/export", **filters):
+    response = request_trial(context, nov20_api, direction, endpoint, **filters)
+    assert response.headers["x-publication-id"] == nov20_api[1]
+    disposition = response.headers["content-disposition"]
+    prefix = "attachment; filename*=UTF-8''"
+    assert disposition.startswith(prefix), disposition
+    filename = unquote(disposition.removeprefix(prefix))
+    raw, rows = decode_csv(response.body())
+    return filename, raw, rows
+
+
+def observe_requests(page) -> list[tuple[str, str]]:
+    requests = []
+    page.on("request", lambda request: requests.append((request.method, request.url)))
+    return requests
+
+
+def assert_no_trial_exposure(page, requests):
+    expect(page.get_by_role("main")).not_to_contain_text("内部试算")
+    expect(page.get_by_role("region", name="内部月度试算", exact=True)).to_have_count(0)
+    expect(page.get_by_role("main")).not_to_contain_text("PUBLICATION_PERIOD_NOT_READY")
+    assert not any("/admin/finance/trial" in url for _, url in requests)
+    assert all(method in {"GET", "HEAD", "OPTIONS"} for method, _ in requests)
 
 
 def amount_field(row: dict[str, str], label: str) -> str:
@@ -128,17 +172,23 @@ def evidence_directory(tmp_path: Path) -> Path:
     return directory
 
 
-def test_finance_home_shows_submitted_invoices_while_formal_month_is_unavailable(browser, localized_web):
+def test_finance_home_opens_formal_billing_and_keeps_submitted_invoices_available(browser, localized_web):
     context = browser.new_context()
     page = context.new_page()
-    requests = []
-    page.on("request", lambda request: requests.append((request.method, request.url)))
+    requests = observe_requests(page)
     page.route("**/api/v1/admin/finance/summary?**", lambda route: route.fulfill(status=503, json={
         "detail": {"code": "PUBLICATION_PERIOD_NOT_READY", "message": "本账期待核对"},
     }))
     try:
         page.clock.set_fixed_time(datetime.fromisoformat("2026-11-24T12:00:00+08:00"))
         page.goto(f"{localized_web}/finance/promotion")
+        expect(page.get_by_role("tab", name="正式账单", exact=True)).to_have_attribute("aria-selected", "true")
+        expect(page.get_by_label("筛选账期", exact=True)).to_have_value(MONTH)
+        notice = page.get_by_text("本账期账单尚未发布，可切换账期查看。", exact=True).filter(visible=True)
+        expect(notice).to_be_visible()
+        assert_no_trial_exposure(page, requests)
+
+        page.get_by_role("tab", name="门店提交发票", exact=True).click()
         region = page.get_by_role("region", name="门店提交的推广费发票", exact=True)
         invoice_number = "25322000001784352171"
         row = region.locator("tbody tr").filter(has_text=invoice_number)
@@ -146,13 +196,6 @@ def test_finance_home_shows_submitted_invoices_while_formal_month_is_unavailable
         expect(row).to_contain_text("2026-08")
         expect(row).to_contain_text("2026-09")
         expect(row).to_contain_text("发票项目名称不符合开票要求")
-        assert not any("/admin/finance/summary?" in url or "/admin/finance/trial?" in url for _, url in requests)
-        page.get_by_role("tab", name="账期办理进度", exact=True).click()
-        expect(page.get_by_label("筛选账期", exact=True)).to_have_value(MONTH)
-        expect(page.get_by_text("本账期正式账单尚未就绪。", exact=True)).to_be_visible()
-        expect(page.get_by_role("button", name="查看内部试算", exact=True)).to_be_visible()
-        expect(page.get_by_role("region", name="内部月度试算", exact=True)).to_have_count(0)
-        page.get_by_role("tab", name="门店提交发票", exact=True).click()
         page.get_by_role("searchbox", name="搜索", exact=True).fill(invoice_number)
         expect(region.locator("tbody tr")).to_have_count(1)
         expect(row).to_be_visible()
@@ -163,69 +206,49 @@ def test_finance_home_shows_submitted_invoices_while_formal_month_is_unavailable
         assert rows[0]["发票号码"].removeprefix("'") == invoice_number
         assert rows[0]["原账期"] == "2026-08"
         assert rows[0]["结算归属月"] == "2026-09"
-        assert all(method in {"GET", "HEAD", "OPTIONS"} for method, _ in requests)
+        assert_no_trial_exposure(page, requests)
     finally:
         context.close()
 
 
 @pytest.mark.parametrize("direction,total_cent", [("PROMOTION", 13045), ("MANAGEMENT", 6232)])
 @pytest.mark.parametrize("width", [390, 1440])
-def test_internal_trial_real_page_and_chinese_download_with_zero_formal_bills(
+def test_finance_pages_hide_trial_and_preserve_internal_csv_with_zero_formal_bills(
     browser, nov20_api, nov20_web, tmp_path, direction, total_cent, width,
 ):
     context = browser.new_context(viewport={"width": width, "height": 1000})
     page = context.new_page()
-    writes, errors = [], []
-    page.on("request", lambda request: writes.append(request.url)
-            if request.method not in {"GET", "HEAD", "OPTIONS"} else None)
+    requests = observe_requests(page)
+    errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     try:
         page.goto(f"{nov20_web}/finance/{direction.lower()}?month={MONTH}")
-        expect(page.get_by_role("region", name="内部月度试算", exact=True)).to_have_count(0)
-        with page.expect_response(lambda response: "/admin/finance/trial?" in response.url) as read:
-            page.get_by_role("button", name="查看内部试算", exact=True).click()
-        assert read.value.status == 200, read.value.text()
-        payload = read.value.json()
-        data = payload["data"]
-        assert data["month"] == MONTH and data["feeDirection"] == direction
-        assert data["summary"]["calculatedFeeCent"] == total_cent
-        assert data["summary"]["candidateCouponCount"] == 5
-        assert data["summary"]["calculatedCouponCount"] == 2
-        assert data["summary"]["pendingCouponCount"] == 2
-        assert data["summary"]["excludedCouponCount"] == 1
-        assert data["coverage"]["sourceSuccessDays"] == data["coverage"]["sourceTotalDays"] == 31
-        assert data["coverage"]["scopeUnresolved"] is True
-        publication_id = payload["meta"]["publication"]["id"]
-        assert publication_id == nov20_api[1]
-
-        panel = page.get_by_role("region", name="内部月度试算", exact=True)
-        expect(panel).to_be_visible()
-        expect(panel).to_contain_text("试算")
-        expect(panel).to_contain_text(f"{total_cent / 100:,.2f}")
         formal_label = "正式账单推广费总额" if direction == "PROMOTION" else "正式账单管理费总额"
         formal_card = page.locator(".metric-card").filter(
             has=page.locator(".metric-card__label", has_text=formal_label),
         )
         expect(formal_card).to_contain_text("0.00")
-        pending = panel.locator("tbody tr").filter(has_text="trial-unassigned")
-        expect(pending).to_contain_text("待核验")
-        expect(pending).to_contain_text("销售门店归属待核验")
-        expect(pending).not_to_contain_text("0.00")
+        assert_no_trial_exposure(page, requests)
 
-        with page.expect_response(lambda response: "/admin/finance/trial/export?" in response.url) as exported:
-            with page.expect_download() as downloading:
-                panel.get_by_role("button", name="导出内部试算明细", exact=True).click()
-        assert exported.value.status == 200, exported.value.text()
-        query = parse_qs(urlsplit(exported.value.url).query)
-        assert query["publication_id"] == [publication_id]
-        assert query["month"] == [MONTH]
-        assert query["feeDirection"] == [direction]
-        download = downloading.value
+        data = read_trial(context, nov20_api, direction)
+        summary = data["summary"]
+        assert summary["calculatedFeeCent"] == total_cent
+        assert summary["candidateCouponCount"] == 5
+        assert summary["calculatedCouponCount"] == 2
+        assert summary["pendingCouponCount"] == 2
+        assert summary["excludedCouponCount"] == 1
+        assert data["coverage"]["sourceSuccessDays"] == data["coverage"]["sourceTotalDays"] == 31
+        assert data["coverage"]["scopeUnresolved"] is True
+        pending = next(item for item in data["list"] if item["couponId"] == "trial-unassigned")
+        assert pending["recordStatus"] == "PENDING"
+        assert pending["reason"] == "销售门店归属待核验"
+        assert pending["feeAmountCent"] is None
+
+        filename, raw, rows = export_trial(context, nov20_api, direction)
         title = "推广服务费" if direction == "PROMOTION" else "管理服务费"
-        assert download.suggested_filename.startswith(f"{title}内部试算_{MONTH}_")
-        raw, rows = read_csv(download)
+        assert filename.startswith(f"{title}内部试算_{MONTH}_")
         assert len(rows) == data["total"] == 5
-        assert {row["试算版本"] for row in rows} == {publication_id}
+        assert {row["试算版本"] for row in rows} == {nov20_api[1]}
         assert {row["数据状态"] for row in rows} == {"试算／待核验"}
         assert all(not key.isascii() or key == "SKU ID" for key in rows[0])
         fee_column = amount_field(rows[0], "试算费用")
@@ -240,42 +263,38 @@ def test_internal_trial_real_page_and_chinese_download_with_zero_formal_bills(
         assert by_coupon["trial-excluded"]["核对状态"] == "已明确排除"
 
         evidence = evidence_directory(tmp_path)
-        (evidence / f"{width}-{download.suggested_filename}").write_bytes(raw)
+        (evidence / f"{width}-{filename}").write_bytes(raw)
         page.screenshot(path=str(evidence / f"nov20-{direction}-{width}.png"), full_page=True)
         factory = live_fixture.LIVE_ADMIN_SESSION_FACTORIES[nov20_api[0]]
         with factory() as session:
             assert not session.scalars(select(SettlementStatement).where(
                 SettlementStatement.statement_month == MONTH,
             )).all()
-        assert writes == [] and errors == []
+        assert errors == []
     finally:
         context.close()
 
 
 @pytest.mark.parametrize("direction", ["PROMOTION", "MANAGEMENT"])
-def test_internal_trial_rechecks_scoped_admin_and_store_role_for_page_and_export(
+def test_internal_trial_api_and_export_enforce_scoped_admin_and_store_role(
     browser, nov20_api, nov20_web, direction,
 ):
     context = browser.new_context(viewport={"width": 1440, "height": 1000})
     page = context.new_page()
+    requests = observe_requests(page)
     context.add_cookies([{"name": "dy_e2e_role", "value": "admin_restricted", "url": nov20_web}])
     try:
         page.goto(f"{nov20_web}/finance/{direction.lower()}?month={MONTH}")
-        with page.expect_response(lambda response: "/admin/finance/trial?" in response.url) as read:
-            page.get_by_role("button", name="查看内部试算", exact=True).click()
-        assert read.value.status == 200, read.value.text()
-        data = read.value.json()["data"]
+        expect(page.get_by_label("筛选账期", exact=True)).to_have_value(MONTH)
+        assert_no_trial_exposure(page, requests)
+        data = read_trial(context, nov20_api, direction)
         assert {row["storeId"] for row in data["list"]} == {"store-1"}
         assert data["total"] == 3
-        panel = page.get_by_role("region", name="内部月度试算", exact=True)
-        expect(panel).not_to_contain_text("杭州滨江直营服务店")
-        with page.expect_download() as downloading:
-            panel.get_by_role("button", name="导出内部试算明细", exact=True).click()
-        _, rows = read_csv(downloading.value)
+        _, _, rows = export_trial(context, nov20_api, direction)
         assert len(rows) == 3
         assert {row["门店ID"].removeprefix("'") for row in rows} == {"store-1"}
 
-        # The page's existing pin is safe to retain while its identity changes.
+        # A previously obtained publication ID does not grant trial access.
         context.add_cookies([{"name": "dy_e2e_role", "value": "store", "url": nov20_web}])
         for endpoint in ("trial", "trial/export", "trial/stores", "trial/stores/export"):
             denied = context.request.get(f"{nov20_api[0]}/api/v1/admin/finance/{endpoint}", params={
@@ -283,60 +302,37 @@ def test_internal_trial_rechecks_scoped_admin_and_store_role_for_page_and_export
             })
             assert denied.status == 403, denied.text()
         page.reload()
-        expect(page.get_by_role("region", name="内部月度试算", exact=True)).to_have_count(0)
+        assert_no_trial_exposure(page, requests)
     finally:
         context.close()
 
 
-def test_headquarters_trial_filters_direction_and_export_while_formal_ranking_is_blocked(
+def test_public_ranking_hides_trial_while_internal_filters_and_export_work(
     browser, nov20_api, nov20_web,
 ):
     context = browser.new_context(viewport={"width": 1440, "height": 1000})
     page = context.new_page()
-    writes = []
-    page.on("request", lambda request: writes.append(request.url)
-            if request.method not in {"GET", "HEAD", "OPTIONS"} else None)
+    requests = observe_requests(page)
     try:
         with page.expect_response(lambda response: "/dashboard/store-ranking?" in response.url) as formal:
             page.goto(f"{nov20_web}/ranking?periodKey={MONTH}")
         assert formal.value.status == 503
+        notice = page.get_by_text("本账期账单尚未发布，可切换账期查看。", exact=True).filter(visible=True)
+        expect(notice).to_be_visible()
         expect(page.get_by_text("历史商品规格资料待补", exact=False)).to_have_count(0)
-        with page.expect_response(lambda response: "/admin/finance/trial?" in response.url) as trial:
-            page.get_by_role("button", name="查看内部试算", exact=True).click()
-        assert trial.value.status == 200
-        assert trial.value.json()["data"]["summary"]["calculatedFeeCent"] == 13045
-        panel = page.get_by_role("region", name="内部月度试算", exact=True)
-        expect(panel).to_contain_text("130.45")
-        page.get_by_role("button", name="试算费用方向", exact=True).click()
-        with page.expect_response(lambda response: "/admin/finance/trial?" in response.url
-                                  and "feeDirection=MANAGEMENT" in response.url) as management:
-            page.get_by_role("option", name="管理服务费", exact=True).click()
-        assert management.value.json()["data"]["summary"]["calculatedFeeCent"] == 6232
-        expect(panel.get_by_role("columnheader", name="核销门店", exact=True)).to_be_visible()
-        with page.expect_response(lambda response: "/admin/finance/trial?" in response.url
-                                  and parse_qs(urlsplit(response.url).query).get("q") == ["深圳临港"]):
-            page.get_by_label("搜索门店", exact=True).fill("深圳临港")
-        expect(panel.locator("tbody tr")).to_have_count(3)
-        page.get_by_role("button", name="商品类型", exact=True).click()
-        with page.expect_response(lambda response: "/admin/finance/trial?" in response.url
-                                  and parse_qs(urlsplit(response.url).query).get("productType") == ["养车服务"]) as filtered:
-            page.get_by_role("option", name="养车服务", exact=True).click()
-        assert filtered.value.status == 200
-        assert filtered.value.json()["data"]["summary"]["calculatedFeeCent"] == 5432
-        expect(panel.locator("tbody tr")).to_have_count(1)
-        with page.expect_response(lambda response: "/admin/finance/trial/export?" in response.url) as exported:
-            with page.expect_download() as downloading:
-                panel.get_by_role("button", name="导出内部试算明细", exact=True).click()
-        query = parse_qs(urlsplit(exported.value.url).query)
-        assert query["month"] == [MONTH]
-        assert query["feeDirection"] == ["MANAGEMENT"]
-        assert query["productType"] == ["养车服务"]
-        assert query["q"] == ["深圳临港"]
-        assert query["publication_id"] == [filtered.value.json()["meta"]["publication"]["id"]]
-        _, rows = read_csv(downloading.value)
+        assert_no_trial_exposure(page, requests)
+
+        assert read_trial(context, nov20_api, "PROMOTION")["summary"]["calculatedFeeCent"] == 13045
+        assert read_trial(context, nov20_api, "MANAGEMENT")["summary"]["calculatedFeeCent"] == 6232
+        assert read_trial(context, nov20_api, "MANAGEMENT", q="深圳临港")["total"] == 3
+        filters = {"q": "深圳临港", "productType": "养车服务"}
+        filtered = read_trial(context, nov20_api, "MANAGEMENT", **filters)
+        assert filtered["total"] == 1
+        assert filtered["summary"]["calculatedFeeCent"] == 5432
+        _, _, rows = export_trial(context, nov20_api, "MANAGEMENT", **filters)
         assert len(rows) == 1
+        assert rows[0]["券ID"].removeprefix("'") == filtered["list"][0]["couponId"]
         assert Decimal(rows[0][amount_field(rows[0], "试算费用")]) == Decimal("54.32")
-        assert writes == []
     finally:
         context.close()
 
@@ -350,41 +346,19 @@ def test_store_trial_summary_download_matches_coupon_facts_and_keeps_unknown_sco
     context = browser.new_context(viewport={"width": 1440, "height": 1000})
     context.add_cookies([{"name": "dy_e2e_role", "value": role, "url": nov20_web}])
     page = context.new_page()
-    writes, errors = [], []
-    page.on("request", lambda request: writes.append(request.url)
-            if request.method not in {"GET", "HEAD", "OPTIONS"} else None)
+    requests = observe_requests(page)
+    errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     try:
-        path = f"/ranking?periodKey={MONTH}" if entry == "headquarters" else (
-            f"/finance/{direction.lower()}?month={MONTH}"
+        path, endpoint = (f"/ranking?periodKey={MONTH}", "/dashboard/store-ranking?") if entry == "headquarters" else (
+            f"/finance/{direction.lower()}?month={MONTH}", "/admin/finance/summary?",
         )
-        page.goto(nov20_web + path)
-        with page.expect_response(lambda response: "/admin/finance/trial?" in response.url) as initial:
-            page.get_by_role("button", name="查看内部试算", exact=True).click()
-        assert initial.value.status == 200, initial.value.text()
-        detail_response = initial.value
-        if entry == "headquarters" and direction == "MANAGEMENT":
-            page.get_by_role("button", name="试算费用方向", exact=True).click()
-            with page.expect_response(lambda response: "/admin/finance/trial?" in response.url
-                                      and "feeDirection=MANAGEMENT" in response.url) as changed:
-                page.get_by_role("option", name="管理服务费", exact=True).click()
-            detail_response = changed.value
-        detail = detail_response.json()["data"]
-        publication_id = detail_response.json()["meta"]["publication"]["id"]
-        assert detail["feeDirection"] == direction
-        panel = page.get_by_role("region", name="内部月度试算", exact=True)
-        with page.expect_response(lambda response: "/admin/finance/trial/stores?" in response.url) as grouped:
-            panel.get_by_role("tab", name="门店汇总", exact=True).click()
-        assert grouped.value.status == 200, grouped.value.text()
-        stores = grouped.value.json()["data"]
-        selected_tab = panel.get_by_role("tab", name="门店汇总", exact=True)
-        other_tab = panel.get_by_role("tab", name="逐券明细", exact=True)
-        expect(selected_tab).to_have_attribute("aria-selected", "true")
-        expect(other_tab).to_have_attribute("aria-selected", "false")
-        other_background = other_tab.evaluate("element => getComputedStyle(element).backgroundColor")
-        expect(selected_tab).not_to_have_css("background-color", other_background)
-        assert grouped.value.json()["meta"]["publication"]["id"] == publication_id
-        assert stores["month"] == MONTH and stores["feeDirection"] == direction
+        with page.expect_response(lambda response: endpoint in response.url):
+            page.goto(nov20_web + path)
+        assert_no_trial_exposure(page, requests)
+
+        detail = read_trial(context, nov20_api, direction)
+        stores = read_trial(context, nov20_api, direction, "trial/stores")
         assert stores["summary"] == detail["summary"]
         assert sum(item["calculatedFeeCent"] or 0 for item in stores["list"]) == (
             detail["summary"]["calculatedFeeCent"]
@@ -401,32 +375,20 @@ def test_store_trial_summary_download_matches_coupon_facts_and_keeps_unknown_sco
             assert store["candidateCouponCount"] == len({item["couponId"] for item in coupons})
         if role == "admin_restricted":
             assert {item["storeId"] for item in stores["list"]} == {"store-1"}
-            expect(panel).not_to_contain_text("杭州滨江直营服务店")
         else:
             assert {item["storeId"] for item in stores["list"]} == {"store-1", "store-2", None}
             unknown = next(item for item in stores["list"] if item["storeId"] is None)
             assert unknown["calculatedFeeCent"] is None
             assert unknown["pendingCouponCount"] == 1
-            unknown_row = panel.locator("tbody tr").filter(has_text="归属待核验")
-            expect(unknown_row).to_contain_text("待核验")
-            expect(unknown_row).not_to_contain_text("0.00")
 
-        with page.expect_response(lambda response: "/admin/finance/trial/stores/export?" in response.url) as exported:
-            with page.expect_download() as downloading:
-                panel.get_by_role("button", name="导出门店试算汇总", exact=True).click()
-        assert exported.value.status == 200, exported.value.text()
-        query = parse_qs(urlsplit(exported.value.url).query)
-        assert query["publication_id"] == [publication_id]
-        assert query["month"] == [MONTH] and query["feeDirection"] == [direction]
-        download = downloading.value
+        filename, raw, rows = export_trial(context, nov20_api, direction, "trial/stores/export")
         title = "推广服务费" if direction == "PROMOTION" else "管理服务费"
-        assert download.suggested_filename.startswith(f"{title}门店试算汇总_{MONTH}_")
-        raw, rows = read_csv(download)
+        assert filename.startswith(f"{title}门店试算汇总_{MONTH}_")
         store_rows = [row for row in rows if row["汇总层级"] == "门店"]
         total_rows = [row for row in rows if row["汇总层级"] == "总计"]
         assert len(store_rows) == stores["total"]
         assert len(total_rows) == 1
-        assert {row["试算版本"] for row in rows} == {publication_id}
+        assert {row["试算版本"] for row in rows} == {nov20_api[1]}
         assert all(not column.isascii() for column in rows[0])
         amount_column = amount_field(rows[0], "已算费用")
         total = total_rows[0]
@@ -441,23 +403,16 @@ def test_store_trial_summary_download_matches_coupon_facts_and_keeps_unknown_sco
             unknown_csv = next(row for row in store_rows if row["门店名称"] == "归属待核验")
             assert unknown_csv[amount_column] == ""
             assert unknown_csv["门店ID"] == ""
+
         evidence = evidence_directory(tmp_path)
         label = f"{entry}-{role}-{direction}"
-        (evidence / f"{label}-{download.suggested_filename}").write_bytes(raw)
+        (evidence / f"{label}-{filename}").write_bytes(raw)
         page.screenshot(path=str(evidence / f"nov20-summary-{label}.png"), full_page=True)
-
-        # Returning to the coupon view keeps its original scope and frozen pin.
-        with page.expect_response(lambda response: "/admin/finance/trial?" in response.url) as returned:
-            panel.get_by_role("tab", name="逐券明细", exact=True).click()
-        assert returned.value.status == 200
-        assert returned.value.json()["meta"]["publication"]["id"] == publication_id
-        assert returned.value.json()["data"] == detail
-        with page.expect_download() as coupon_download:
-            panel.get_by_role("button", name="导出内部试算明细", exact=True).click()
-        _, coupon_rows = read_csv(coupon_download.value)
+        assert read_trial(context, nov20_api, direction) == detail
+        _, _, coupon_rows = export_trial(context, nov20_api, direction)
         assert len(coupon_rows) == detail["total"]
         assert sum(Decimal(row[amount_field(row, "试算费用")] or "0") for row in coupon_rows) == Decimal(total[amount_column])
-        assert writes == [] and errors == []
+        assert errors == []
     finally:
         context.close()
 
@@ -496,41 +451,33 @@ def test_unfinished_previous_shanghai_month_is_retained_across_year_and_local_ti
 
 
 @pytest.mark.parametrize("direction", ["PROMOTION", "MANAGEMENT"])
-def test_explicit_and_manual_month_switch_keep_trial_page_and_download_in_one_period(
+def test_explicit_and_manual_month_switch_keep_formal_view_and_internal_export_scoped(
     browser, nov20_web, nov20_api, direction,
 ):
     context = browser.new_context()
     page = context.new_page()
-    writes = []
-    page.on("request", lambda request: writes.append(request.url)
-            if request.method not in {"GET", "HEAD", "OPTIONS"} else None)
+    requests = observe_requests(page)
     try:
         page.clock.set_fixed_time(datetime.fromisoformat("2026-12-02T00:00:00+08:00"))
-        page.goto(f"{nov20_web}/finance/{direction.lower()}?month={MONTH}")
-        with page.expect_response(lambda response: "/admin/finance/trial?" in response.url) as explicit:
-            page.get_by_role("button", name="查看内部试算", exact=True).click()
+        with page.expect_response(lambda response: "/admin/finance/summary?" in response.url) as explicit:
+            page.goto(f"{nov20_web}/finance/{direction.lower()}?month={MONTH}")
         assert explicit.value.status == 200
         assert parse_qs(urlsplit(explicit.value.url).query)["month"] == [MONTH]
-        with page.expect_response(lambda response: "/admin/finance/summary?" in response.url
-                                  and "month=2026-08" in response.url):
-            page.get_by_label("筛选账期", exact=True).fill("2026-08")
-        expect(page.get_by_label("筛选账期", exact=True)).to_have_value("2026-08")
-        assert parse_qs(urlsplit(page.url).query)["month"] == ["2026-08"]
-        with page.expect_response(lambda response: "/admin/finance/trial?" in response.url
-                                  and f"month={MONTH}" in response.url) as restored:
-            page.get_by_label("筛选账期", exact=True).fill(MONTH)
-        assert restored.value.status == 200
-        panel = page.get_by_role("region", name="内部月度试算", exact=True)
-        with page.expect_response(lambda response: "/admin/finance/trial/export?" in response.url) as exported:
-            with page.expect_download() as downloading:
-                panel.get_by_role("button", name="导出内部试算明细", exact=True).click()
-        query = parse_qs(urlsplit(exported.value.url).query)
-        assert query["month"] == [MONTH] and query["feeDirection"] == [direction]
-        assert query["publication_id"] == [restored.value.json()["meta"]["publication"]["id"]]
-        _, rows = read_csv(downloading.value)
-        assert len(rows) == 5
+        month_input = page.get_by_label("筛选账期", exact=True)
+        expect(month_input).to_have_value(MONTH)
+        for month in ("2026-08", MONTH):
+            with page.expect_response(lambda response: "/admin/finance/summary?" in response.url
+                                      and f"month={month}" in response.url):
+                month_input.fill(month)
+            expect(month_input).to_have_value(month)
+            assert parse_qs(urlsplit(page.url).query)["month"] == [month]
+
+        assert_no_trial_exposure(page, requests)
+        restored = read_trial(context, nov20_api, direction)
+        _, _, rows = export_trial(context, nov20_api, direction)
+        assert len(rows) == restored["total"] == 5
+        assert {row["试算版本"] for row in rows} == {nov20_api[1]}
         assert {row["账期"] for row in rows} == {"2026年10月"}
-        assert writes == []
     finally:
         context.close()
 

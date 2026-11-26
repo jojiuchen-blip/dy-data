@@ -1,0 +1,3 @@
+:is(.finance-page, .settlement-ranking-page) :is(.ui-field__label, .filter-field > span, .data-table th) {
+  font-size: var(--font-size-body);
+}
