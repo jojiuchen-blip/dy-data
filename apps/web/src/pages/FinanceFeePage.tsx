@@ -458,7 +458,7 @@ function FinanceBillingWorkspace({
       </section>
       {notice ? <p role={noticeIsError ? "alert" : "status"}>{notice}</p> : null}
       <InternalMonthlyTrialPanel currentUser={currentUser} month={month}
-        feeDirection={feeDirection} q={search} defaultOpen={periodBlocked} />
+        feeDirection={feeDirection} q={search} defaultOpen={resourceBusy ? undefined : periodBlocked} />
 
       <section className="content-section">
         <div className="section-title">

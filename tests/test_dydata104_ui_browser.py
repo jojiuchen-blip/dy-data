@@ -186,6 +186,11 @@ def test_dy104_finance_can_read_and_export_trial_without_october_bills(browser, 
         download.save_as(saved)
         records = list(csv.DictReader(StringIO(saved.read_text(encoding="utf-8-sig"))))
         assert [(row["试算版本"], row["试算费用（元）"]) for row in records] == [(publication_id, "456.00")]
+        with page.expect_response(lambda res: "/finance/trial/stores?" in res.url, timeout=15000):
+            panel.get_by_role("tab", name="门店汇总", exact=True).click()
+        with page.expect_response(lambda res: "/finance/trial/stores?" in res.url, timeout=15000):
+            panel.get_by_role("button", name="读取最新试算", exact=True).click()
+        expect(panel.get_by_role("button", name="导出门店试算汇总", exact=True)).to_be_enabled()
     finally:
         context.close()
 

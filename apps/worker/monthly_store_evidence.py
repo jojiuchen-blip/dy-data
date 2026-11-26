@@ -248,7 +248,7 @@ def _preview_confirmed_account_link(
     session: Session, *, version: AccountQualificationVersion, roster: list[dict], confirmation: dict,
 ) -> dict:
     """Append a reviewed statement about one month's binding with its actual confirmation date."""
-    from apps.worker.account_qualification import ELIGIBLE_TYPES
+    from apps.worker.account_qualification import AccountQualificationError, ELIGIBLE_TYPES, _qualified_merchant_records
 
     if confirmation.get("business_month") != version.business_month:
         raise StoreEvidenceError("confirmation_period_mismatch")
@@ -276,6 +276,10 @@ def _preview_confirmed_account_link(
     }
     if qualified_accounts != {account_id} or {row.get("douyin_id") for row in matches} != {douyin_id}:
         raise StoreEvidenceError("confirmation_identity_not_qualified")
+    try:
+        _qualified_merchant_records(matches)
+    except AccountQualificationError as exc:
+        raise StoreEvidenceError(str(exc)) from exc
     store = session.get(DimStore, store_id)
     if store is None or _utc(store.created_at) >= cutoff:
         raise StoreEvidenceError("confirmation_store_not_in_business_period")

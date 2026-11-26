@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ApiRequestError, downloadMonthlyTrial, downloadMonthlyTrialStores, fetchMonthlyTrial, fetchMonthlyTrialStores } from "../api/client";
 import { useApiResource } from "../hooks/useApiResource";
 import { useDashboardPublication } from "../hooks/PublicationContext";
@@ -20,7 +20,8 @@ interface InternalMonthlyTrialPanelProps {
   feeDirection?: FeeDirection;
   productType?: string;
   q?: string;
-  publicationId?: string;
+  // Ranking supplies null until its filters commit a publication.
+  publicationId?: string | null;
   defaultOpen?: boolean;
 }
 
@@ -79,12 +80,17 @@ const storeColumns: Column<MonthlyTrialStoreRow>[] = [
 
 export function InternalMonthlyTrialPanel(props: InternalMonthlyTrialPanelProps) {
   const [expandedOverride, setExpanded] = useState<boolean>();
+  const [autoOpenedMonth, setAutoOpenedMonth] = useState<string>();
   const panelId = useId();
+  const { month, defaultOpen } = props;
+  useEffect(() => {
+    if (defaultOpen !== undefined) setAutoOpenedMonth(defaultOpen ? month : undefined);
+  }, [month, defaultOpen]);
   if (props.currentUser.role !== "admin" || props.month < "2026-10") return null;
   const directions = TRIAL_DIRECTIONS.filter(({ value, pageKey }) =>
     (!props.feeDirection || props.feeDirection === value) && props.currentUser.page_keys.includes(pageKey));
   if (directions.length === 0) return null;
-  const expanded = expandedOverride ?? props.defaultOpen ?? false;
+  const expanded = expandedOverride ?? defaultOpen ?? (autoOpenedMonth === month);
   return (
     <div className="page-stack">
       <div>
@@ -111,6 +117,7 @@ function InternalTrialReadPanel({
   const downloadInFlight = useRef(false);
   const epoch = JSON.stringify([currentUser.username, currentUser.store_scope_mode, currentUser.store_ids, currentUser.page_keys, refreshIndex, publicationId]);
   const pin = useRef<{ epoch: string; id?: string }>({ epoch });
+  const waitingForRanking = publicationId === null;
   const filter = JSON.stringify([month, direction, productType, q, recordStatus, view]);
   const page = pageState.filter === filter ? pageState.page : 1;
   const requestKey = JSON.stringify([epoch, filter, page]);
@@ -134,7 +141,7 @@ function InternalTrialReadPanel({
     }
     if (currentRequest.current === requestKey) pin.current = { epoch, id };
     return { ...result, data: { ...result.data, requestKey } };
-  }, [requestKey], { clearOnReload: true });
+  }, [requestKey], { clearOnReload: true, enabled: !waitingForRanking });
 
   const result = resource.data?.data.requestKey === requestKey ? resource.data : undefined;
   const data: MonthlyTrialData<MonthlyTrialRow | MonthlyTrialStoreRow> | undefined = result?.data;
@@ -183,9 +190,9 @@ function InternalTrialReadPanel({
         <Button disabled={busy || Boolean(error)} loading={downloadBusy} onClick={() => { void exportTrial(); }} variant="secondary">{view === "STORES" ? "导出门店试算汇总" : "导出内部试算明细"}</Button>
         <Button disabled={resource.loading || resource.refreshing} onClick={refreshLatest} variant="text">读取最新试算</Button>
       </div>
-      <ResourceNotice analysis loading={resource.loading || resource.refreshing} error={error} />
+      <ResourceNotice analysis loading={waitingForRanking || resource.loading || resource.refreshing} error={error} />
       {notice?.filter === filter ? <p role={notice.error ? "alert" : "status"}>{notice.text}</p> : null}
-      {!data && !resource.loading && !resource.refreshing && !error ? <ResourcePanel>当前账期暂无内部试算。</ResourcePanel> : null}
+      {!waitingForRanking && !data && !resource.loading && !resource.refreshing && !error ? <ResourcePanel>当前账期暂无内部试算。</ResourcePanel> : null}
       {data ? (
         <>
           <div className="metric-grid store-summary-metrics">

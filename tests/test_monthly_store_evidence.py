@@ -1,5 +1,6 @@
 from datetime import UTC, date, datetime
 import json
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select, update
@@ -16,7 +17,7 @@ from apps.api.dy_api.models import (
     MonthlyStoreEvidenceSnapshot,
     RawAwemeBinding,
 )
-from apps.worker.account_qualification import digest
+from apps.worker.account_qualification import AccountQualificationError, digest, qualified_sale_match
 from apps.worker.monthly_store_evidence import (
     MissingStoreEvidenceError,
     StoreEvidenceError,
@@ -27,13 +28,15 @@ from apps.worker.monthly_store_evidence import (
 )
 
 
-def make_version(session, *, certified=False):
+def make_version(session, *, certified=False, conflict=False):
     records = [{"account_id": "account-1", "douyin_id": "name-1", "poi_id": "poi-1"}]
     if certified:
-        records[0].update(account_type="子机构门店号", binding_status="认证成功")
+        records[0].update(account_type="子机构门店号", binding_status="认证成功", douyin_nickname="Frozen sales name")
+    if conflict:
+        records.append({**records[0], "binding_status": "已解绑"})
     content = digest({"policy": "test-roster", "records": records})
     session.add(AccountQualificationSnapshot(content_sha256=content, policy_version="test-roster",
-        records_json=records, record_count=1))
+        records_json=records, record_count=len(records)))
     session.flush()
     session.add(AccountQualificationObservation(observation_id="observed", source_run_id="source-run",
         source_type="backend_workbook", started_at=datetime(2026, 10, 31, 15, tzinfo=UTC),
@@ -126,8 +129,13 @@ def reviewed_confirmation(**changes):
 
 def test_explicit_month_confirmation_retains_actual_date_and_appends_to_frozen_sources(db_session):
     version = make_version(db_session, certified=True)
+    alias = fact(kind="alias", key="Other proven sales name", account_id="account-1", douyin_id="name-1")
     base = freeze_store_evidence(db_session, qualification_version=version,
-        facts=[fact(kind="poi", key="poi-1")])
+        facts=[alias])
+    order = SimpleNamespace(owner_account_name="Frozen sales name",
+        raw_payload={"order_sale_info": {"transfer_nickName": "Frozen sales name"}})
+    with pytest.raises(AccountQualificationError, match="qualification_name_store_unmapped"):
+        qualified_sale_match(db_session, version=version, order=order)
     confirmation = reviewed_confirmation()
     preview = preview_store_evidence(db_session, qualification_version=version, confirmed_account_link=confirmation)
     assert db_session.scalar(select(MonthlyStoreEvidenceSnapshot.version_id)) == base.version_id
@@ -142,7 +150,20 @@ def test_explicit_month_confirmation_retains_actual_date_and_appends_to_frozen_s
         confirmed_account_link=confirmation, expected_content_sha256=preview["content_sha256"])
     assert applied.version_id == retry.version_id
     assert applied.account_store_ids("account-1") == {"store-a"}
-    assert applied.poi_store_ids("poi-1") == {"store-a"}
+    assert applied.alias_identities("Other proven sales name") == base.alias_identities("Other proven sales name")
+    assert qualified_sale_match(db_session, version=version, order=order).store_id == "store-a"
+    db_session.info["monthly_store_evidence_version_id"] = base.version_id
+    with pytest.raises(AccountQualificationError, match="qualification_name_store_unmapped"):
+        qualified_sale_match(db_session, version=version, order=order)
+
+
+def test_month_confirmation_rejects_contradictory_statuses_for_one_merchant_identity(db_session):
+    version = make_version(db_session, certified=True, conflict=True)
+    base = freeze_store_evidence(db_session, qualification_version=version)
+    with pytest.raises(StoreEvidenceError, match="qualification_name_record_conflict"):
+        freeze_store_evidence(db_session, qualification_version=version,
+            confirmed_account_link=reviewed_confirmation())
+    assert db_session.scalar(select(MonthlyStoreEvidenceSnapshot.version_id)) == base.version_id
 
 
 @pytest.mark.parametrize(("change", "reason"), [

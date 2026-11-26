@@ -155,7 +155,8 @@ export function StoreRankingPage({ currentUser, searchParams }: StoreRankingPage
       </FilterBar>
       <InternalMonthlyTrialPanel currentUser={currentUser} month={activePeriodKey}
         productType={activeProductType} q={query}
-        publicationId={metaResource.data?.meta.publication?.id} defaultOpen={periodBlocked} />
+        publicationId={metaResource.data?.meta.publication?.id ?? null}
+        defaultOpen={rankingResource.loading || rankingResource.refreshing ? undefined : periodBlocked} />
       {monthlyClose?.status !== "partial" && availability?.monthlyReady && cumulativeUnavailable ? (
         <ResourcePanel>本月数据已完整，累计数据{incompleteMonths ? `因 ${incompleteMonths} 尚未完成` : "尚未完成"}，暂不可用。</ResourcePanel>
       ) : null}
