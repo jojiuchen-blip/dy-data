@@ -178,6 +178,7 @@ def test_ranking_live_api_independent_follow_rates_and_empty_filter(
         else:
             help_button.hover()
         tooltip = page.locator('[role="tooltip"]:popover-open')
+        expect(tooltip).to_contain_text("核销同步前提交")
         expect(tooltip).to_contain_text("核销本身不算跟进")
         page.keyboard.press("Escape")
         expect(tooltip).to_have_count(0)
