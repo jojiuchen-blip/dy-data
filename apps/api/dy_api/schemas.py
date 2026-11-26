@@ -956,6 +956,7 @@ class ClueAssignmentRoundRow(BaseModel):
     is_self_store_verified: bool = False
     verification_summary: str | None = None
     verification_facts: list[ClueVerificationFact] = Field(default_factory=list)
+    follow_counted_pre_verification_sync: bool = False
     follow_24h_numerator: int = 0
     follow_any_numerator: int = 0
     follow_denominator: int = 0

@@ -6335,6 +6335,7 @@ class DashboardDataStore:
             "is_self_store_verified": _to_bool(row.get("is_self_store_verified")),
             "verification_summary": row.get("verification_summary"),
             "verification_facts": row.get("verification_facts") or [],
+            "follow_counted_pre_verification_sync": _to_bool(row.get("follow_counted_pre_verification_sync")),
             "follow_24h_numerator": _to_int(row.get("follow_24h_numerator")),
             "follow_any_numerator": _to_int(row.get("follow_any_numerator")),
             "follow_denominator": _to_int(row.get("follow_denominator")),

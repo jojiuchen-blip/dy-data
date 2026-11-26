@@ -258,6 +258,7 @@ class FollowUpEvidence:
     created_at: datetime | None
     deleted_at: datetime | None = None
     follow_result: str | None = None
+    has_operator: bool = False
 
     @classmethod
     def from_row(cls, row: Any) -> "FollowUpEvidence":
@@ -269,6 +270,10 @@ class FollowUpEvidence:
             created_at=_aware(getattr(row, "created_at", None)),
             deleted_at=_aware(getattr(row, "deleted_at", None)),
             follow_result=_text(_optional_loaded_attr(row, "follow_result")),
+            has_operator=bool(
+                _text(_optional_loaded_attr(row, "operator_user_id"))
+                or _text(_optional_loaded_attr(row, "operator_username"))
+            ),
         )
 
 

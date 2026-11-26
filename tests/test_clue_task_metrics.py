@@ -22,7 +22,7 @@ from apps.api.dy_api.clue_task_metrics_sources import (
 )
 from apps.api.dy_api.clue_verification_facts import enrich_verification_facts
 from apps.api.dy_api.models import (
-    ClueAssignmentRound, ClueCenterOrder, ClueFollowUpRecord, ClueMasterLead,
+    ClueAssignmentRound, ClueCenterOrder, ClueFollowUpRecord, ClueMasterLead, ClueOrderStatusEvent,
     DimSkuProductRule, DimStore, DimStorePoiMapping, RawDouyinClue,
     RawDouyinOrder, RawDouyinOrderCoupon, RawDouyinRefundRecord, RawDouyinVerifyRecord,
 )
@@ -57,11 +57,12 @@ def _task(session, task_id="R", *, order_id="O", store="A", hour=0, mode="formal
 
 
 def _follow(session, record_id="F", *, task="R", order_id="O", store="A", hour=1,
-            result="further_follow_up", deleted=False):
+            result="further_follow_up", deleted=False, operator=None):
     session.add(ClueFollowUpRecord(
         follow_up_record_id=record_id, order_id=order_id, assignment_round_id=task,
         assigned_store_id=store, round_no=1, follow_result=result,
         created_at=AT + timedelta(hours=hour), deleted_at=AT if deleted else None,
+        operator_user_id=operator,
     ))
 
 
@@ -91,6 +92,47 @@ def _close_lead(session, *, order_id="O", hour=10, reason="no_candidate"):
         lifecycle_status="closed", normalized_order_status="active",
         closed_at=AT + timedelta(hours=hour), closed_reason=reason, created_at=AT, updated_at=AT,
     ))
+
+
+@pytest.mark.parametrize(("detected_hour", "follow_hour", "assigned_hour", "operator", "handoff", "expected"), [
+    (27, 12, 0, "staff", None, 1),
+    (27, 24, 0, "staff", None, 1),
+    (27, 25, 0, "staff", None, 0),
+    (12, 12, 0, "staff", None, 0),
+    (10, 12, 0, "staff", None, 0),
+    (None, 12, 0, "staff", None, 0),
+    (27, 12, 0, None, None, 0),
+    (27, 12, 0, "staff", 11, 0),
+    (27, 12, -420, "staff", None, 0),  # China Oct 30, with its own 24h window.
+])
+def test_credit_record_submitted_before_verification_was_observed(
+    db_session, detected_hour, follow_hour, assigned_hour, operator, handoff, expected,
+):
+    _order(db_session)
+    verify_hour = assigned_hour + 6
+    _close_lead(db_session, hour=verify_hour, reason="order_verified")
+    db_session.flush()
+    row = _task(db_session, hour=0, status="closed_order_verified", handoff=handoff)
+    row.assigned_at = AT + timedelta(hours=assigned_hour)
+    row.lead_key = "lead-O"
+    row.closed_at = AT + timedelta(hours=verify_hour)
+    _verify(db_session, store="B", hour=verify_hour, observed_hour=assigned_hour + (detected_hour or 27))
+    _follow(db_session, hour=assigned_hour + follow_hour, operator=operator)
+    if detected_hour is not None:
+        detected = AT + timedelta(hours=assigned_hour + detected_hour)
+        db_session.add(ClueOrderStatusEvent(
+            event_id="sync", event_key="sync", order_id="O", lead_key="lead-O",
+            normalized_status="verified", status_source="coupon", observed_at=detected, created_at=detected,
+        ))
+    db_session.commit()
+
+    fact = load_clue_task_facts(db_session, ["O"], observed_through=CUTOFF)["R"]
+    assert (fact.follow_24h_numerator, fact.follow_any_numerator, fact.follow_denominator) == (expected, expected, 1)
+    assert fact.verification_numerator == 0
+    assert fact.verification_facts[0].had_valid_follow_before_verify is False
+    assert bool(fact.pre_sync_follow_record_ids) is bool(expected)
+    if detected_hour is None:
+        assert fact.reason_code == "pre_sync_observation_missing"
 
 
 def test_fixed_24_hours_is_independent_of_sla_and_duplicate_records(db_session):

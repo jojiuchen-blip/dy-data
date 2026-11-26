@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.clue_followup_metrics import (
@@ -33,12 +33,13 @@ from apps.api.dy_api.clue_task_metrics_sources import (
     load_order_product_classifications,
     utc,
 )
-from apps.api.dy_api.models import ClueAssignmentRound, ClueMasterLead
+from apps.api.dy_api.models import ClueAssignmentRound, ClueMasterLead, ClueOrderStatusEvent
 
 
-TASK_METRIC_VERSION = "clue-task-v1-actual-time-attribution"
+TASK_METRIC_VERSION = "clue-task-v2-pre-sync-follow"
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 FOLLOW_WINDOW = timedelta(hours=24)
+PRE_SYNC_FOLLOW_FROM = datetime(2026, 11, 1, tzinfo=SHANGHAI)
 CURRENT_MANUAL_FOLLOW_RESULTS = frozenset({
     "appointment", "further_follow_up", "unreachable", "lost", "request_store_change",
 })
@@ -51,8 +52,8 @@ MANUAL_CLOSE_RESULTS = frozenset({"lost", "request_store_change", "success", "fa
 ACTIVE_STATUSES = frozenset({"active_unfollowed", "active_followed"})
 PENDING_HANDOFF_STATUSES = frozenset({"expired_pending_reassign", "failed_pending_reassign"})
 CLUE_TASK_METRIC_DEFINITIONS = {
-    "follow_24h_rate": "正式接收任务后固定24小时内首次有效人工提交/共用跟进分母；核销不自动计跟进",
-    "follow_any_rate": "本轮有效期间有过有效人工提交/共用跟进分母；每任务最多一次",
+    "follow_24h_rate": "正式接收任务后固定24小时内首次有效人工提交/共用跟进分母；核销同步前符合条件的实际提交计入",
+    "follow_any_rate": "本轮有效期间或在24小时内核销同步前实际有效人工提交/共用跟进分母；每任务最多一次",
     "follow_denominator": "正式接收任务；24小时内全额退款或订单失效且结束前无有效提交时排除；提前核销仍保留",
     "verification_rate": "按实际核销时间归属本店有效任务或整体关闭后补计原承接任务/本店正式接收任务",
     "self_store_verification_count": "订单+实际核销店全期去重，归该店首次有效核销的中国业务日期；包含没有任务的订单",
@@ -105,6 +106,7 @@ class ClueTaskMetric:
     follow_record_ids: tuple[str, ...] = ()
     follow_any_record_ids: tuple[str, ...] = ()
     closed_at: datetime | None = None
+    pre_sync_follow_record_ids: tuple[str, ...] = ()
 
     @property
     def product_scope(self) -> str:
@@ -243,6 +245,7 @@ def _evaluate_order(
     classification: OrderProductClassification,
     lead_closes: tuple[_LeadClose, ...],
     cutoff: datetime,
+    verification_observed: dict[str, datetime] | None = None,
 ) -> dict[str, ClueTaskMetric]:
     rounds = sorted((row for row in evidence.rounds if (
         row.execution_mode == "formal" and row.assigned_at is not None
@@ -291,6 +294,8 @@ def _evaluate_order(
     physical_ends: dict[str, datetime | None] = {}
     ends: dict[str, datetime | None] = {}
     valid_by_round: dict[str, tuple[FollowUpEvidence, ...]] = {}
+    pre_sync_by_round: dict[str, tuple[FollowUpEvidence, ...]] = {}
+    missing_observation_rounds: set[str] = set()
     for row in rounds:
         physical_ends[row.assignment_round_id] = _minimum(row.closed_at, row.reassigned_at, next_times[row.assignment_round_id])
         ends[row.assignment_round_id] = _minimum(physical_ends[row.assignment_round_id], overall_close_at)
@@ -300,6 +305,36 @@ def _evaluate_order(
             terminal_at=terminal_at,
             allow_legacy_success_at_close=allow_legacy_success_at_close,
         )
+        observed_at = (verification_observed or {}).get(row.lead_key or "")
+        if not (
+            terminal_kind == "verified" and first_verify_at is not None
+            and first_verify_at == terminal_at == overall_close_at
+            and PRE_SYNC_FOLLOW_FROM <= row.assigned_at < first_verify_at
+        ):
+            continue
+        # Projection-only verification closure uses the business timestamp.
+        # A real task closure or handoff still interrupts eligibility.
+        physical_close = row.closed_at
+        if physical_close == first_verify_at and _verification_close(row):
+            physical_close = None
+        independent_close = _minimum(
+            physical_close, row.reassigned_at,
+            *(item.at for item in lead_closes if item.lead_key == row.lead_key
+              and item.reason not in {"order_verified", "verified"}),
+        )
+        delayed_follows = _valid_follows(
+            row, (item for item in evidence.follow_ups_for(row.assignment_round_id)
+                  if item.has_operator and utc(item.created_at) is not None
+                  and first_verify_at < utc(item.created_at)),
+            cutoff=min(cutoff, row.assigned_at + FOLLOW_WINDOW),
+            end_at=independent_close, next_at=next_times[row.assignment_round_id],
+            terminal_at=observed_at,
+        )
+        if delayed_follows:
+            if observed_at is None:
+                missing_observation_rounds.add(row.assignment_round_id)
+            else:
+                pre_sync_by_round[row.assignment_round_id] = delayed_follows
 
     attributed: list[tuple[EffectiveVerification, str | None, str | None, bool, bool]] = []
     for event in events:
@@ -375,19 +410,28 @@ def _evaluate_order(
             else "task_closed" if closed_by_cutoff
             else "active_under_observation" if under_observation else "active_matured"
         )
+        pre_sync_follows = pre_sync_by_round.get(row_id, ())
+        if not follows_24h:
+            if pre_sync_follows:
+                reason = "pre_sync_follow_credited"
+            elif row_id in missing_observation_rounds:
+                reason = "pre_sync_observation_missing"
+        credited = follows + pre_sync_follows
+        credited_24h = follows_24h + pre_sync_follows
         result[row_id] = ClueTaskMetric(
             assignment_round_id=row_id, order_id=row.order_id, store_id=row.assigned_store_id,
             assigned_at=row.assigned_at, product_type=classification.product_type,
             is_jingcheng=classification.is_jingcheng,
-            follow_24h_numerator=int(bool(denominator and follows_24h)),
-            follow_any_numerator=int(bool(denominator and follows)), follow_denominator=denominator,
+            follow_24h_numerator=int(bool(denominator and credited_24h)),
+            follow_any_numerator=int(bool(denominator and credited)), follow_denominator=denominator,
             verification_numerator=int(any(item.counts_for_store_verification_rate for item in detail)),
             verification_denominator=1, verification_facts=detail, reason_code=reason,
             deadline=deadline, terminal_kind=terminal_kind, terminal_at=terminal_at,
             under_observation=under_observation,
-            follow_record_ids=tuple(item.follow_up_record_id for item in follows_24h),
-            follow_any_record_ids=tuple(item.follow_up_record_id for item in follows),
+            follow_record_ids=tuple(item.follow_up_record_id for item in credited_24h),
+            follow_any_record_ids=tuple(item.follow_up_record_id for item in credited),
             closed_at=ends[row_id] if closed_by_cutoff else None,
+            pre_sync_follow_record_ids=tuple(item.follow_up_record_id for item in pre_sync_follows),
         )
     return result
 
@@ -411,6 +455,19 @@ def load_clue_task_facts(
     products = load_order_product_classifications(session, requested)
     verifications = load_effective_verifications(session, requested, observed_through=cutoff)
     closes: defaultdict[str, list[_LeadClose]] = defaultdict(list)
+    observations: defaultdict[str, dict[str, datetime]] = defaultdict(dict)
+    verification_orders = [order_id for order_id, events in verifications.items()
+                           if events and events[0].verified_at >= PRE_SYNC_FOLLOW_FROM]
+    for batch in batches(verification_orders):
+        for row in session.execute(select(
+            ClueOrderStatusEvent.order_id, ClueOrderStatusEvent.lead_key,
+            func.min(ClueOrderStatusEvent.observed_at).label("observed_at"),
+            func.min(ClueOrderStatusEvent.created_at).label("processed_at"),
+        ).where(
+            ClueOrderStatusEvent.order_id.in_(batch), ClueOrderStatusEvent.normalized_status == "verified",
+            ClueOrderStatusEvent.observed_at <= cutoff, ClueOrderStatusEvent.created_at <= cutoff,
+        ).group_by(ClueOrderStatusEvent.order_id, ClueOrderStatusEvent.lead_key)):
+            observations[str(row.order_id)][str(row.lead_key)] = min(utc(row.observed_at), utc(row.processed_at))
     for batch in batches(requested):
         for row in session.execute(select(
             ClueMasterLead.order_id, ClueMasterLead.lead_key,
@@ -422,6 +479,7 @@ def load_clue_task_facts(
         result.update(_evaluate_order(
             evidence[order_id], events=verifications.get(order_id, ()),
             classification=products[order_id], lead_closes=tuple(closes[order_id]), cutoff=cutoff,
+            verification_observed=observations.get(order_id),
         ))
     return result
 
