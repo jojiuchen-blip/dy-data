@@ -2019,6 +2019,7 @@ export function ClueCenterPage({
                                 {round.verification_facts?.length ? (
                                   <section className="clue-round-verifications" aria-label={`${roundLabel(round.round_no)}核销明细`}>
                                     <h4>核销明细 · {verificationSummary(round)}</h4>
+                                    {round.follow_counted_pre_verification_sync && <p>核销同步前已提交，计入跟进</p>}
                                     {round.verification_facts.map((fact) => {
                                       const creditedRound = detail.rounds.find((item) => item.assignment_round_id === fact.credited_assignment_round_id);
                                       return <dl className="clue-followup-history-fields" key={`${fact.verify_id}:${fact.assignment_round_id}`}>

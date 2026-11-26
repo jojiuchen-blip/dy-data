@@ -4427,6 +4427,7 @@ class ClueOrderStatusEvent(Base):
     __table_args__ = (
         UniqueConstraint("event_key", name="uq_clue_order_status_events_event_key"),
         Index("ix_clue_order_status_events_lead_observed", "lead_key", "observed_at"),
+        Index("ix_clue_order_status_events_order_normalized", "order_id", "normalized_status"),
     )
 
     event_id: Mapped[str] = mapped_column(Text, primary_key=True)

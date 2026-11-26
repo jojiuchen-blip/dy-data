@@ -26,6 +26,7 @@ _FINANCE_SHARED = (
 )
 _CLUE_TASK_SOURCES = (
     "clue_assignment_rounds", "clue_follow_up_records", "clue_master_leads", "clue_center_orders",
+    "clue_order_status_events",
     "dim_sku_product_rules", "raw_douyin_orders", "raw_douyin_clues", "raw_douyin_order_coupons",
     "raw_douyin_verify_records", "raw_douyin_refund_records", "douyin_refund_event",
     "settlement_order_details", "dim_store_poi_mappings", "dim_stores",
@@ -143,6 +144,9 @@ def source_fingerprint(session: Session, module: str | None = None, *, now: date
         payload["contract_version"] = MODULE_CONTRACT_VERSIONS[module]
     if module in TASK_METRICS_CONTRACT_VERSIONS:
         payload["task_metrics_contract"] = TASK_METRICS_CONTRACT_VERSIONS[module]
+        # Calculation change only: keep archived publications and their wire contract readable.
+        from ..clue_task_metrics import TASK_METRIC_VERSION
+        payload["task_metric_calculation"] = TASK_METRIC_VERSION
     return hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode()).hexdigest()
 
 

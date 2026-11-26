@@ -93,6 +93,7 @@ def test_frozen_migration_has_no_runtime_import_and_matches_final_schema(monkeyp
         "historical_sale_attribution_decisions", "account_qualification_version", "ranking_area_corrections",
         "settlement_month_close", "settlement_statement_balance", "settlement_statement_visibility",
         "raw_douyin_refund_records", "douyin_refund_event",
+        "clue_order_status_events",
         *trial.SOURCE_TABLES,
     }
     assert later_sources <= set(SOURCE_TABLES)
@@ -174,7 +175,7 @@ def test_clean_and_populated_full_postgres_chain_upgrade(full_pg_stack, populate
             session.commit()
     command.upgrade(config, "head")
     with Session(engine) as session:
-        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261125_0075"
+        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261126_0076"
         assert session.scalar(text("SELECT count(*) FROM dashboard_publication_source_counters")) == len(SOURCE_TABLES)
         assert source_fingerprint(session, "sales")
         if populated:
@@ -201,7 +202,7 @@ def test_production_0071_upgrades_to_monthly_evidence_and_trial(full_pg_stack):
 
     command.upgrade(config, "head")
     with Session(engine) as session:
-        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261125_0075"
+        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "20261126_0076"
         assert session.get(DimStore, "pre-trial-store").store_name == "Original Store"
     schema = inspect(engine)
     assert {"monthly_store_evidence_snapshot", "dashboard_publication_fee_trial"} <= set(schema.get_table_names())

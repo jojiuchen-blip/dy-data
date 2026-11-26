@@ -1542,6 +1542,7 @@ export interface ClueAssignmentRound {
   is_self_store_verified: boolean;
   verification_summary?: string | null;
   verification_facts?: ClueVerificationFact[];
+  follow_counted_pre_verification_sync?: boolean;
 }
 
 export interface ClueAssignmentRoundData {

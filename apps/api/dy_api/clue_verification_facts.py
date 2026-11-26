@@ -65,6 +65,9 @@ def enrich_verification_facts(session: Session, rows: list[dict[str, Any]], cuto
         row["verified_store_id"] = chosen.verified_store_id if chosen else None
         row["verified_store_name"] = chosen.verified_store_name if chosen else None
         row["verification_facts"] = [detail.as_dict() for detail in details]
+        row["follow_counted_pre_verification_sync"] = bool(
+            metric and metric.reason_code == "pre_sync_follow_credited"
+        )
         row["verification_summary"] = (
             "跨店核销、关单后核销" if chosen and chosen.is_cross_store and chosen.is_after_close
             else "跨店核销" if chosen and chosen.is_cross_store
