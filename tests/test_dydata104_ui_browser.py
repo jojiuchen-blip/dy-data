@@ -1,6 +1,6 @@
 """DYDATA-104 production UI + real isolated FastAPI download/month contracts.
 
-Only the explicit 500/network fault branches intercept requests. Successful
+Only the explicit unavailable and fault branches intercept requests. Successful
 downloads, permission denials and retries execute the real API implementation.
 The component entry also covers the legacy SKU governance panel without adding
 a product route. Test authentication injection does not validate real login.
@@ -167,11 +167,12 @@ def test_dy104_finance_can_read_and_export_trial_without_october_bills(browser, 
     context = browser.new_context(viewport={"width": 1440, "height": 1000}, accept_downloads=True)
     page = context.new_page()
     try:
-        open_surface(page, dy104_web, "finance", f"&month=2026-10&feeDirection={direction}")
-        button = page.get_by_role("button", name="查看内部试算", exact=True)
-        expect(button).to_be_visible()
-        with page.expect_response(lambda res: "/finance/trial?" in res.url) as response:
-            button.click()
+        page.route("**/api/v1/admin/finance/summary?*", lambda route: route.fulfill(
+            status=503, json={"detail": {"code": "PUBLICATION_PERIOD_NOT_READY",
+                                        "message": "本账期账单尚未发布"}}))
+        with page.expect_response(lambda res: "/finance/trial?" in res.url, timeout=15000) as response:
+            open_surface(page, dy104_web, "finance", f"&month=2026-10&feeDirection={direction}")
+        expect(page.get_by_role("button", name="收起内部试算", exact=True)).to_be_visible()
         publication_id = response.value.json()["meta"]["publication"]["id"]
         panel = page.get_by_role("region", name="内部月度试算")
         expect(panel.get_by_role("heading", name=f"2026-10 {title}内部试算")).to_be_visible()

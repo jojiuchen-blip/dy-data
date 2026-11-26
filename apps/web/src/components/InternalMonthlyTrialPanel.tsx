@@ -21,6 +21,7 @@ interface InternalMonthlyTrialPanelProps {
   productType?: string;
   q?: string;
   publicationId?: string;
+  defaultOpen?: boolean;
 }
 
 const PAGE_SIZE = 50;
@@ -77,12 +78,13 @@ const storeColumns: Column<MonthlyTrialStoreRow>[] = [
 ];
 
 export function InternalMonthlyTrialPanel(props: InternalMonthlyTrialPanelProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [expandedOverride, setExpanded] = useState<boolean>();
   const panelId = useId();
   if (props.currentUser.role !== "admin" || props.month < "2026-10") return null;
   const directions = TRIAL_DIRECTIONS.filter(({ value, pageKey }) =>
     (!props.feeDirection || props.feeDirection === value) && props.currentUser.page_keys.includes(pageKey));
   if (directions.length === 0) return null;
+  const expanded = expandedOverride ?? props.defaultOpen ?? false;
   return (
     <div className="page-stack">
       <div>

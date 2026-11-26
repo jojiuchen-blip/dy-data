@@ -27,8 +27,10 @@ from apps.worker.monthly_store_evidence import (
 )
 
 
-def make_version(session):
+def make_version(session, *, certified=False):
     records = [{"account_id": "account-1", "douyin_id": "name-1", "poi_id": "poi-1"}]
+    if certified:
+        records[0].update(account_type="子机构门店号", binding_status="认证成功")
     content = digest({"policy": "test-roster", "records": records})
     session.add(AccountQualificationSnapshot(content_sha256=content, policy_version="test-roster",
         records_json=records, record_count=1))
@@ -111,6 +113,51 @@ def test_new_verified_supplement_appends_and_pinned_retry_reads_old_version(db_s
     assert frozen_store_evidence(db_session, qualification_version=version).account_store_ids("account-1") == {"store-a"}
     with pytest.raises(StoreEvidenceError, match="pinned_version_missing"):
         frozen_store_evidence(db_session, qualification_version=version, version_id="bad-pin")
+
+
+def reviewed_confirmation(**changes):
+    return {
+        "business_month": "2026-10", "account_id": "account-1", "douyin_id": "name-1",
+        "store_id": "store-a", "confirmed_at": "2026-11-26T16:00:12+08:00",
+        "reviewed_by": "business-reviewer", "approval_reference": "issue/example/explicit-month-approval",
+        **changes,
+    }
+
+
+def test_explicit_month_confirmation_retains_actual_date_and_appends_to_frozen_sources(db_session):
+    version = make_version(db_session, certified=True)
+    base = freeze_store_evidence(db_session, qualification_version=version,
+        facts=[fact(kind="poi", key="poi-1")])
+    confirmation = reviewed_confirmation()
+    preview = preview_store_evidence(db_session, qualification_version=version, confirmed_account_link=confirmation)
+    assert db_session.scalar(select(MonthlyStoreEvidenceSnapshot.version_id)) == base.version_id
+    assert all(record in preview["records"] for record in base.records)
+    row = next(record for record in preview["records"] if record["kind"] == "account")
+    assert row["observed_at"] == "2026-11-26T08:00:12+00:00"
+    assert row["source_reference"] == confirmation["approval_reference"]
+    assert row["source_values"]["business_month"] == "2026-10"
+    applied = freeze_store_evidence(db_session, qualification_version=version,
+        confirmed_account_link=confirmation, expected_content_sha256=preview["content_sha256"])
+    retry = freeze_store_evidence(db_session, qualification_version=version,
+        confirmed_account_link=confirmation, expected_content_sha256=preview["content_sha256"])
+    assert applied.version_id == retry.version_id
+    assert applied.account_store_ids("account-1") == {"store-a"}
+    assert applied.poi_store_ids("poi-1") == {"store-a"}
+
+
+@pytest.mark.parametrize(("change", "reason"), [
+    ({"douyin_id": "wrong-identity"}, "confirmation_identity_not_qualified"),
+    ({"business_month": "2026-11"}, "confirmation_period_mismatch"),
+    ({"store_id": "store-b"}, "confirmation_conflicts_with_frozen_evidence"),
+])
+def test_month_confirmation_cannot_change_the_identity_period_or_conflicting_store(db_session, change, reason):
+    version = make_version(db_session, certified=True)
+    base = freeze_store_evidence(db_session, qualification_version=version,
+        facts=[fact(kind="poi", key="poi-1")])
+    with pytest.raises(StoreEvidenceError, match=reason):
+        freeze_store_evidence(db_session, qualification_version=version,
+            confirmed_account_link=reviewed_confirmation(**change))
+    assert db_session.scalar(select(MonthlyStoreEvidenceSnapshot.version_id)) == base.version_id
 
 
 def test_history_reconstructs_last_known_period_mapping_and_excludes_future(db_session):
