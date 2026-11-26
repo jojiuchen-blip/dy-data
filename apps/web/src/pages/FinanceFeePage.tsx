@@ -12,6 +12,7 @@ import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
 import { FinanceImportActionPanel } from "../components/FinanceImportActionPanel";
 import { SelectField, TextField } from "../components/FormControls";
+import { InternalMonthlyTrialPanel } from "../components/InternalMonthlyTrialPanel";
 import { MetricCard } from "../components/MetricCard";
 import { ResourceNotice } from "../components/ResourceState";
 import { Tabs } from "../components/SelectionControls";
@@ -104,13 +105,13 @@ function navigateTo(href: string) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePageProps) {
+export function FinanceFeePage({ currentUser, feeDirection, searchParams }: FinanceFeePageProps) {
   const [view, setView] = useState<"submitted" | "billing">(
     searchParams.get("view") === "submitted" ? "submitted" : "billing",
   );
   const [openFactoryImport, setOpenFactoryImport] = useState(false);
   if (feeDirection === "MANAGEMENT") {
-    return <FinanceBillingWorkspace feeDirection={feeDirection} searchParams={searchParams} />;
+    return <FinanceBillingWorkspace currentUser={currentUser} feeDirection={feeDirection} searchParams={searchParams} />;
   }
   const changeView = (next: typeof view, showImport = false) => {
     const url = new URL(window.location.href);
@@ -124,7 +125,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
     { value: "submitted", label: "门店提交发票" },
   ]} />;
   if (view === "billing") {
-    return <FinanceBillingWorkspace feeDirection={feeDirection}
+    return <FinanceBillingWorkspace currentUser={currentUser} feeDirection={feeDirection}
       searchParams={new URLSearchParams(window.location.search)} viewSwitcher={viewSwitcher} initiallyShowImport={openFactoryImport} />;
   }
   return (
@@ -142,8 +143,8 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
 }
 
 function FinanceBillingWorkspace({
-  feeDirection, searchParams, viewSwitcher, initiallyShowImport = false,
-}: Omit<FinanceFeePageProps, "currentUser"> & { viewSwitcher?: ReactNode; initiallyShowImport?: boolean }) {
+  currentUser, feeDirection, searchParams, viewSwitcher, initiallyShowImport = false,
+}: FinanceFeePageProps & { viewSwitcher?: ReactNode; initiallyShowImport?: boolean }) {
   const [month, setMonth] = useState(() => initialStatementMonth(searchParams));
   const [search, setSearch] = useState(searchParams.get("q") ?? "");
   const [invoiceStatus, setInvoiceStatus] = useState(searchParams.get("invoiceStatus") ?? "");
@@ -456,6 +457,7 @@ function FinanceBillingWorkspace({
         </div>
       </section>
       {notice ? <p role={noticeIsError ? "alert" : "status"}>{notice}</p> : null}
+      <InternalMonthlyTrialPanel currentUser={currentUser} month={month} feeDirection={feeDirection} q={search} />
 
       <section className="content-section">
         <div className="section-title">

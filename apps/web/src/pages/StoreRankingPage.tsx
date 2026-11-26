@@ -8,6 +8,7 @@ import {
 import { DataTable, type Column } from "../components/DataTable";
 import { FilterBar, FilterField } from "../components/Filters";
 import { FieldInput, SelectField } from "../components/FormControls";
+import { InternalMonthlyTrialPanel } from "../components/InternalMonthlyTrialPanel";
 import { MetricCard } from "../components/MetricCard";
 import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
 import { TablePagination } from "../components/TablePagination";
@@ -45,7 +46,7 @@ function rankingSortByForBasis(basis: StoreFinanceRankingBasis): RankingSortBy {
   return "PROMOTION_FEE";
 }
 
-export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
+export function StoreRankingPage({ currentUser, searchParams }: StoreRankingPageProps) {
   const [periodKey, setPeriodKey] = useState(() => initialStatementMonth(searchParams));
   const [productType, setProductType] = useState(searchParams.get("productType") ?? searchParams.get("product_type") ?? "");
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
@@ -152,6 +153,8 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
           disabled: cumulativeUnavailable && option.value !== "PROMOTION_FEE_MONTH",
         }))} />
       </FilterBar>
+      <InternalMonthlyTrialPanel currentUser={currentUser} month={activePeriodKey}
+        productType={activeProductType} q={query} publicationId={metaResource.data?.meta.publication?.id} />
       {monthlyClose?.status !== "partial" && availability?.monthlyReady && cumulativeUnavailable ? (
         <ResourcePanel>本月数据已完整，累计数据{incompleteMonths ? `因 ${incompleteMonths} 尚未完成` : "尚未完成"}，暂不可用。</ResourcePanel>
       ) : null}

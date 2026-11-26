@@ -6,13 +6,14 @@ import { AdminSkuGovernancePanel } from "../src/components/AdminSkuGovernancePan
 import { AdminSkuRuleImportDrawer } from "../src/components/AdminSkuRuleImportDrawer";
 import { DashboardPublicationProvider } from "../src/hooks/PublicationContext";
 import { AdminProductTypeVisibilityPage } from "../src/pages/AdminProductTypeVisibilityPage";
+import { FinanceFeePage } from "../src/pages/FinanceFeePage";
 import { StoreSettlementPage } from "../src/pages/StoreSettlementPage";
 import type { AdminUser } from "../src/types/dashboard";
 import "../src/styles.css";
 
 const params = new URLSearchParams(location.search);
 const user: AdminUser = { username: "ui104", role: "admin", status: "active",
-  is_initialized: true, store_ids: [], store_scope_mode: "all", page_keys: [],
+  is_initialized: true, store_ids: [], store_scope_mode: "all", page_keys: ["FIN01", "FIN02"],
   can_manage_accounts: true, can_manage_global_settings: true };
 const surface = params.get("surface");
 const batches = surface === "drawer" ? (await fetchSkuFeeRuleImports({ pageSize: 10 })).data.list : [];
@@ -20,5 +21,8 @@ const content = surface === "drawer"
   ? <AdminSkuRuleImportDrawer canManageGlobalSettings={user.can_manage_global_settings} open batches={batches} initialBatch={batches[0] ?? null} onChanged={async () => {}} onClose={() => {}} />
   : surface === "governance" ? <AdminSkuGovernancePanel />
   : surface === "product" ? <AdminProductTypeVisibilityPage canManageGlobalSettings={user.can_manage_global_settings} />
+  : surface === "finance" ? <DashboardPublicationProvider>
+      <FinanceFeePage currentUser={user} feeDirection={params.get("feeDirection") === "MANAGEMENT" ? "MANAGEMENT" : "PROMOTION"} searchParams={params} />
+    </DashboardPublicationProvider>
   : <DashboardPublicationProvider><StoreSettlementPage currentUser={user} searchParams={params} /></DashboardPublicationProvider>;
 createRoot(document.getElementById("root")!).render(content);
