@@ -1,8 +1,7 @@
 """Acceptance for public settlement screens and authorized internal trial exports.
 
 The publication facts and test identities are synthetic. The browser checks
-public pages, invoices, and history. Internal trial checks use the authenticated
-API so the public screens never have to load a trial.
+public pages, invoices, history and trial access for authorized administrators.
 """
 
 from __future__ import annotations
@@ -160,6 +159,12 @@ def assert_no_trial_exposure(page, requests):
     assert all(method in {"GET", "HEAD", "OPTIONS"} for method, _ in requests)
 
 
+def assert_collapsed_trial(page, requests):
+    expect(page.get_by_role("button", name="查看内部试算", exact=True)).to_be_visible()
+    expect(page.get_by_role("region", name="内部月度试算", exact=True)).to_have_count(0)
+    assert not any("/admin/finance/trial" in url for _, url in requests)
+
+
 def amount_field(row: dict[str, str], label: str) -> str:
     matches = [key for key in row if key == label or key == f"{label}（元）"]
     assert len(matches) == 1, list(row)
@@ -181,13 +186,15 @@ def test_finance_home_opens_formal_billing_and_keeps_submitted_invoices_availabl
     }))
     try:
         page.clock.set_fixed_time(datetime.fromisoformat("2026-11-24T12:00:00+08:00"))
-        page.goto(f"{localized_web}/finance/promotion")
+        with page.expect_response(lambda response: "/admin/finance/trial?" in response.url, timeout=15000):
+            page.goto(f"{localized_web}/finance/promotion")
         expect(page.get_by_role("tab", name="正式账单", exact=True)).to_have_attribute("aria-selected", "true")
         expect(page.get_by_label("筛选账期", exact=True)).to_have_value(MONTH)
         notice = page.get_by_text("本账期账单尚未发布，可切换账期查看。", exact=True).filter(visible=True)
         expect(notice).to_be_visible()
-        assert_no_trial_exposure(page, requests)
+        expect(page.get_by_role("region", name="内部月度试算", exact=True)).to_be_visible()
 
+        requests.clear()
         page.get_by_role("tab", name="门店提交发票", exact=True).click()
         region = page.get_by_role("region", name="门店提交的推广费发票", exact=True)
         invoice_number = "25322000001784352171"
@@ -213,7 +220,7 @@ def test_finance_home_opens_formal_billing_and_keeps_submitted_invoices_availabl
 
 @pytest.mark.parametrize("direction,total_cent", [("PROMOTION", 13045), ("MANAGEMENT", 6232)])
 @pytest.mark.parametrize("width", [390, 1440])
-def test_finance_pages_hide_trial_and_preserve_internal_csv_with_zero_formal_bills(
+def test_finance_pages_offer_trial_and_preserve_internal_csv_with_zero_formal_bills(
     browser, nov20_api, nov20_web, tmp_path, direction, total_cent, width,
 ):
     context = browser.new_context(viewport={"width": width, "height": 1000})
@@ -228,7 +235,7 @@ def test_finance_pages_hide_trial_and_preserve_internal_csv_with_zero_formal_bil
             has=page.locator(".metric-card__label", has_text=formal_label),
         )
         expect(formal_card).to_contain_text("0.00")
-        assert_no_trial_exposure(page, requests)
+        assert_collapsed_trial(page, requests)
 
         data = read_trial(context, nov20_api, direction)
         summary = data["summary"]
@@ -286,7 +293,7 @@ def test_internal_trial_api_and_export_enforce_scoped_admin_and_store_role(
     try:
         page.goto(f"{nov20_web}/finance/{direction.lower()}?month={MONTH}")
         expect(page.get_by_label("筛选账期", exact=True)).to_have_value(MONTH)
-        assert_no_trial_exposure(page, requests)
+        assert_collapsed_trial(page, requests)
         data = read_trial(context, nov20_api, direction)
         assert {row["storeId"] for row in data["list"]} == {"store-1"}
         assert data["total"] == 3
@@ -301,26 +308,60 @@ def test_internal_trial_api_and_export_enforce_scoped_admin_and_store_role(
                 "month": MONTH, "feeDirection": direction, "publication_id": nov20_api[1],
             })
             assert denied.status == 403, denied.text()
+        requests.clear()
         page.reload()
         assert_no_trial_exposure(page, requests)
     finally:
         context.close()
 
 
-def test_public_ranking_hides_trial_while_internal_filters_and_export_work(
+def test_authorized_ranking_opens_trial_and_pins_filters_and_download(
     browser, nov20_api, nov20_web,
 ):
-    context = browser.new_context(viewport={"width": 1440, "height": 1000})
+    context = browser.new_context(viewport={"width": 1440, "height": 1000}, accept_downloads=True)
     page = context.new_page()
     requests = observe_requests(page)
     try:
-        with page.expect_response(lambda response: "/dashboard/store-ranking?" in response.url) as formal:
-            page.goto(f"{nov20_web}/ranking?periodKey={MONTH}")
+        with page.expect_response(lambda response: "/admin/finance/trial/stores?" in response.url, timeout=15000) as trial:
+            with page.expect_response(lambda response: "/dashboard/store-ranking?" in response.url) as formal:
+                page.goto(f"{nov20_web}/ranking?periodKey={MONTH}")
         assert formal.value.status == 503
+        assert trial.value.json()["meta"]["publication"]["id"] == nov20_api[1]
         notice = page.get_by_text("本账期账单尚未发布，可切换账期查看。", exact=True).filter(visible=True)
         expect(notice).to_be_visible()
-        expect(page.get_by_text("历史商品规格资料待补", exact=False)).to_have_count(0)
-        assert_no_trial_exposure(page, requests)
+        panel = page.get_by_role("region", name="内部月度试算", exact=True)
+        expect(panel.get_by_role("heading", name=f"{MONTH} 推广服务费内部试算")).to_be_visible()
+        expect(panel.get_by_role("cell", name="深圳临港认证服务店", exact=True)).to_be_visible()
+        page.get_by_role("button", name="收起内部试算", exact=True).click()
+        page.get_by_role("button", name="查看内部试算", exact=True).click()
+        direction_button = panel.get_by_role("button", name="试算费用方向", exact=True)
+        direction_button.click()
+        panel.get_by_role("option", name="管理服务费", exact=True).click()
+        paused_ranking = []
+
+        def pause_ranking_filter(route):
+            if parse_qs(urlsplit(route.request.url).query).get("q") == ["深圳临港"]:
+                paused_ranking.append(route)
+                page.evaluate("console.info('ranking-filter-held')")
+            else:
+                route.continue_()
+
+        page.route("**/api/v1/dashboard/store-ranking?*", pause_ranking_filter)
+        with page.expect_console_message(lambda message: message.text == "ranking-filter-held"):
+            page.get_by_placeholder("输入门店名称", exact=True).fill("深圳临港")
+        assert len(paused_ranking) == 1
+        with page.expect_response(lambda response: "/admin/finance/trial/stores?" in response.url
+                                  and parse_qs(urlsplit(response.url).query).get("q") == ["深圳临港"], timeout=15000):
+            paused_ranking[0].continue_()
+        relevant = [parse_qs(urlsplit(url).query) for _, url in requests if "/admin/finance/trial" in url]
+        assert relevant and all(query.get("publication_id") == [nov20_api[1]] for query in relevant)
+        expect(panel.get_by_role("heading", name=f"{MONTH} 管理服务费内部试算")).to_be_visible()
+        expect(panel.get_by_role("cell", name="深圳临港认证服务店", exact=True)).to_be_visible()
+        with page.expect_download() as downloaded:
+            panel.get_by_role("button", name="导出门店试算汇总", exact=True).click()
+        _, downloaded_rows = read_csv(downloaded.value)
+        assert {row["试算版本"] for row in downloaded_rows} == {nov20_api[1]}
+        assert {row["门店名称"] for row in downloaded_rows if row["汇总层级"] == "门店"} == {"深圳临港认证服务店"}
 
         assert read_trial(context, nov20_api, "PROMOTION")["summary"]["calculatedFeeCent"] == 13045
         assert read_trial(context, nov20_api, "MANAGEMENT")["summary"]["calculatedFeeCent"] == 6232
@@ -355,7 +396,10 @@ def test_store_trial_summary_download_matches_coupon_facts_and_keeps_unknown_sco
         )
         with page.expect_response(lambda response: endpoint in response.url):
             page.goto(nov20_web + path)
-        assert_no_trial_exposure(page, requests)
+        if entry == "headquarters":
+            expect(page.get_by_role("region", name="内部月度试算", exact=True)).to_be_visible()
+        else:
+            assert_collapsed_trial(page, requests)
 
         detail = read_trial(context, nov20_api, direction)
         stores = read_trial(context, nov20_api, direction, "trial/stores")
@@ -471,8 +515,10 @@ def test_explicit_and_manual_month_switch_keep_formal_view_and_internal_export_s
                 month_input.fill(month)
             expect(month_input).to_have_value(month)
             assert parse_qs(urlsplit(page.url).query)["month"] == [month]
+            if month == "2026-08":
+                assert_no_trial_exposure(page, requests)
 
-        assert_no_trial_exposure(page, requests)
+        assert_collapsed_trial(page, requests)
         restored = read_trial(context, nov20_api, direction)
         _, _, rows = export_trial(context, nov20_api, direction)
         assert len(rows) == restored["total"] == 5

@@ -31,6 +31,7 @@ from apps.api.dy_api.models import (
 )
 
 POLICY = "settlement-monthend-store-evidence-v1"
+CONFIRMED_ACCOUNT_SOURCE = "reviewed-month-account-store"
 MAX_FACTS = 20_000
 MAX_HISTORY_ROWS = 100_000
 MAX_EVIDENCE_BYTES = 16 * 1024 * 1024
@@ -233,9 +234,77 @@ def _source_fact(kind: str, key: str, store_id: str, *, source: str,
             "valid_to": valid_to.isoformat() if valid_to else None}
 
 
+def _evidence_preview(version: AccountQualificationVersion, records: Iterable[dict]) -> dict:
+    unique = {_digest(row): row for row in records}
+    if len(unique) > MAX_FACTS:
+        raise StoreEvidenceError("store_evidence_fact_limit")
+    payload = _payload(version, [unique[key] for key in sorted(unique)])
+    if len(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()) > MAX_EVIDENCE_BYTES:
+        raise StoreEvidenceError("store_evidence_size_limit")
+    return {**payload, "content_sha256": _digest(payload)}
+
+
+def _preview_confirmed_account_link(
+    session: Session, *, version: AccountQualificationVersion, roster: list[dict], confirmation: dict,
+) -> dict:
+    """Append a reviewed statement about one month's binding with its actual confirmation date."""
+    from apps.worker.account_qualification import AccountQualificationError, ELIGIBLE_TYPES, _qualified_merchant_records
+
+    if confirmation.get("business_month") != version.business_month:
+        raise StoreEvidenceError("confirmation_period_mismatch")
+    fields = {"account_id": 128, "douyin_id": 128, "store_id": 128,
+              "reviewed_by": 128, "approval_reference": 500, "confirmed_at": 64}
+    values = {}
+    for key, limit in fields.items():
+        value = confirmation.get(key)
+        if not isinstance(value, str) or not value.strip() or len(value.strip()) > limit:
+            raise StoreEvidenceError("confirmation_source_missing")
+        values[key] = value.strip()
+    try:
+        received_at = datetime.fromisoformat(values["confirmed_at"])
+    except ValueError:
+        raise StoreEvidenceError("confirmation_time_invalid") from None
+    cutoff = _utc(version.cutoff_at)
+    if received_at.tzinfo is None or not cutoff <= received_at <= datetime.now(UTC):
+        raise StoreEvidenceError("confirmation_time_invalid")
+
+    account_id, douyin_id, store_id = (values[key] for key in ("account_id", "douyin_id", "store_id"))
+    matches = [row for row in roster if row.get("account_id") == account_id]
+    qualified_accounts = {
+        row.get("account_id") for row in roster if row.get("douyin_id") == douyin_id
+        and row.get("account_type") in ELIGIBLE_TYPES and row.get("binding_status") == "认证成功"
+    }
+    if qualified_accounts != {account_id} or {row.get("douyin_id") for row in matches} != {douyin_id}:
+        raise StoreEvidenceError("confirmation_identity_not_qualified")
+    try:
+        _qualified_merchant_records(matches)
+    except AccountQualificationError as exc:
+        raise StoreEvidenceError(str(exc)) from exc
+    store = session.get(DimStore, store_id)
+    if store is None or _utc(store.created_at) >= cutoff:
+        raise StoreEvidenceError("confirmation_store_not_in_business_period")
+
+    base = frozen_store_evidence(session, qualification_version=version)
+    linked_stores = set(base.account_store_ids(account_id))
+    for row in matches:
+        if poi_id := row.get("poi_id"):
+            linked_stores.update(base.poi_store_ids(poi_id))
+    if linked_stores - {store_id}:
+        raise StoreEvidenceError("confirmation_conflicts_with_frozen_evidence")
+    fact = _source_fact(
+        "account", account_id, store_id, source=values["approval_reference"], observed_at=received_at,
+        values={**values, "business_month": version.business_month, "source": CONFIRMED_ACCOUNT_SOURCE},
+        valid_from=date.fromisoformat(version.business_month + "-01"),
+        valid_to=cutoff.astimezone(SHANGHAI).date() - timedelta(days=1),
+    )
+    return _evidence_preview(
+        version, (*base.records, {**fact, "source": CONFIRMED_ACCOUNT_SOURCE, "reviewed_by": values["reviewed_by"]}),
+    )
+
+
 def preview_store_evidence(session: Session, *, qualification_version: AccountQualificationVersion,
-                            facts: Iterable[dict] = ()) -> dict:
-    """Build bounded evidence using historical assertions, without writing rows."""
+                            facts: Iterable[dict] = (), confirmed_account_link: dict | None = None) -> dict:
+    """Build bounded evidence using dated sources or one reviewed account link."""
     snapshot = session.get(AccountQualificationSnapshot, qualification_version.content_sha256)
     if snapshot is None:
         raise StoreEvidenceError("qualification_snapshot_missing")
@@ -250,6 +319,12 @@ def preview_store_evidence(session: Session, *, qualification_version: AccountQu
     if session.get(AccountQualificationVersion, qualification_version.version_id) is None:
         raise StoreEvidenceError("qualification_version_missing")
     provided = list(facts)
+    if confirmed_account_link is not None:
+        if provided:
+            raise StoreEvidenceError("confirmation_cannot_mix_with_historical_facts")
+        return _preview_confirmed_account_link(
+            session, version=qualification_version, roster=records, confirmation=confirmed_account_link,
+        )
     candidates = []
     for row in records:
         if not row.get("store_id"):
@@ -330,19 +405,23 @@ def preview_store_evidence(session: Session, *, qualification_version: AccountQu
         except StoreEvidenceError as exc:
             if str(exc) not in {"store_evidence_store_missing", "store_evidence_outside_business_period"}:
                 raise
-    unique = {_digest(row): row for row in validated}
-    payload = _payload(qualification_version, [unique[key] for key in sorted(unique)])
-    if len(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()) > MAX_EVIDENCE_BYTES:
-        raise StoreEvidenceError("store_evidence_size_limit")
-    return {**payload, "content_sha256": _digest(payload)}
+    try:
+        prior = frozen_store_evidence(session, qualification_version=qualification_version)
+    except MissingStoreEvidenceError:
+        pass
+    else:
+        validated.extend(row for row in prior.records if row.get("source") == CONFIRMED_ACCOUNT_SOURCE)
+    return _evidence_preview(qualification_version, validated)
 
 
 def freeze_store_evidence(session: Session, *, qualification_version: AccountQualificationVersion,
-                           facts: Iterable[dict] = (), expected_content_sha256: str | None = None) -> FrozenStoreEvidence:
+                           facts: Iterable[dict] = (), expected_content_sha256: str | None = None,
+                           confirmed_account_link: dict | None = None) -> FrozenStoreEvidence:
     """Append a verified input version. Existing evidence is never updated."""
     if session.get_bind().dialect.name == "postgresql":
         session.execute(text("SELECT pg_advisory_xact_lock(7462180072)"))
-    preview = preview_store_evidence(session, qualification_version=qualification_version, facts=facts)
+    preview = preview_store_evidence(session, qualification_version=qualification_version,
+        facts=facts, confirmed_account_link=confirmed_account_link)
     content = preview["content_sha256"]
     if expected_content_sha256 is not None and content != expected_content_sha256:
         raise StoreEvidenceError("store_evidence_preview_changed")

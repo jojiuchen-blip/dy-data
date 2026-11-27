@@ -32,13 +32,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--month", required=True)
     parser.add_argument("--qualification-sha256", required=True)
-    parser.add_argument("--facts-file", type=Path)
+    evidence = parser.add_mutually_exclusive_group()
+    evidence.add_argument("--facts-file", type=Path)
+    evidence.add_argument("--confirmed-account-link", type=Path)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--preview-sha256")
     args = parser.parse_args(argv)
     if args.apply and not args.preview_sha256:
         parser.error("--apply requires the reviewed --preview-sha256")
     facts = []
+    confirmation = None
     if args.facts_file:
         manifest = json.loads(args.facts_file.read_text(encoding="utf-8-sig"))
         if (manifest.get("business_month") != args.month
@@ -46,6 +49,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 or not manifest.get("reviewed_by") or not isinstance(manifest.get("facts"), list)):
             parser.error("facts manifest must bind month, qualification digest, reviewer, and fact list")
         facts = [{**fact, "reviewed_by": manifest["reviewed_by"]} for fact in manifest["facts"]]
+    if args.confirmed_account_link:
+        manifest = json.loads(args.confirmed_account_link.read_text(encoding="utf-8-sig"))
+        if (manifest.get("business_month") != args.month
+                or manifest.get("qualification_content_sha256") != args.qualification_sha256
+                or not manifest.get("reviewed_by") or not isinstance(manifest.get("confirmation"), dict)):
+            parser.error("confirmation manifest must bind month, qualification digest, reviewer and confirmation")
+        confirmation = {**manifest["confirmation"], "business_month": args.month, "reviewed_by": manifest["reviewed_by"]}
     factory = get_session_factory()
     if factory is None:
         parser.error("database_not_configured")
@@ -61,7 +71,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             ))
             if version is None or version.content_sha256 != args.qualification_sha256:
                 raise StoreEvidenceError("qualification_version_missing_or_changed")
-            preview = preview_store_evidence(session, qualification_version=version, facts=facts)
+            preview = preview_store_evidence(session, qualification_version=version,
+                facts=facts, confirmed_account_link=confirmation)
             counts = {kind: sum(row["kind"] == kind for row in preview["records"])
                       for kind in ("account", "poi", "alias")}
             result = {"protocol": PROTOCOL, "business_month": args.month,
@@ -70,7 +81,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "applied": False}
             if args.apply:
                 frozen = freeze_store_evidence(session, qualification_version=version, facts=facts,
-                    expected_content_sha256=args.preview_sha256)
+                    expected_content_sha256=args.preview_sha256, confirmed_account_link=confirmation)
                 result.update(applied=True, version_id=frozen.version_id)
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
         return 0

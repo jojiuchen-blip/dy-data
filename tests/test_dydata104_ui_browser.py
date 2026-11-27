@@ -1,6 +1,6 @@
 """DYDATA-104 production UI + real isolated FastAPI download/month contracts.
 
-Only the explicit 500/network fault branches intercept requests. Successful
+Only the explicit unavailable and fault branches intercept requests. Successful
 downloads, permission denials and retries execute the real API implementation.
 The component entry also covers the legacy SKU governance panel without adding
 a product route. Test authentication injection does not validate real login.
@@ -20,7 +20,7 @@ import pytest
 import uvicorn
 from fastapi import Request
 from playwright.sync_api import expect
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, insert
 from sqlalchemy.orm import sessionmaker
 
 from test_visual_smoke import (  # reuse lifecycle helpers, not shared state
@@ -28,6 +28,8 @@ from test_visual_smoke import (  # reuse lifecycle helpers, not shared state
 )
 from test_dashboard_publication_browser import WEB
 from publication_fixture_helpers import publish_fixture
+from apps.api.dy_api.dashboard_publications.fee_trial import rows as trial_rows
+from apps.api.dy_api.dashboard_publications.finance import build_settlement, dimensions
 from dy_api.access_control import ALL_PAGE_KEYS
 from dy_api.auth import AuthContext, get_current_user
 from dy_api.db import Base
@@ -45,6 +47,24 @@ def dy104_api(tmp_path_factory):
                            connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, autoflush=False)
+
+    def settlement_with_october_trial(session, publication_id, cutoff):
+        stats = build_settlement(session, publication_id, cutoff)
+        session.execute(insert(dimensions).values(publication_id=publication_id,
+            kind="fee_trial", key="2026-10", value={
+                "schema_version": 1, "scope_unresolved": True,
+                "source_success_days": 31, "source_total_days": 31,
+            }))
+        session.execute(insert(trial_rows), [
+            dict(publication_id=publication_id, row_id=f"trial-{direction}", month="2026-10",
+                fee_direction=direction, coupon_id="trial-coupon", order_id="trial-order",
+                store_id="ui104-store", store_name="月度合成门店", product_type="精诚养车",
+                fee_amount_cent=45600, base_amount_cent=456000, fee_rate="0.10",
+                record_status="CALCULATED", search_text="月度合成门店 trial-coupon")
+            for direction in (1, 2)
+        ])
+        return stats
+
     with factory() as session:
         session.add(DimStore(store_id="ui104-store", store_name="月度合成门店", is_active=True))
         session.add(SettlementProjectionGeneration(generation_id="ui104-source", state="published",
@@ -60,7 +80,8 @@ def dy104_api(tmp_path_factory):
         session.add(SettlementStatement(statement_id="ui104-bill-september", store_id="ui104-store",
             statement_month="2026-09", version_no=1, is_current=True, statement_status=2))
         session.commit()
-        publish_fixture(session, "settlement")
+        publish_fixture(session, "settlement", builder=settlement_with_october_trial)
+        publish_fixture(session, "finance")
     previous = os.environ.get("DY_API_CORS_ORIGINS")
     os.environ["DY_API_CORS_ORIGINS"] = "*"
     app = create_app()
@@ -139,19 +160,53 @@ def open_surface(page, web, surface, query=""):
     expect(page.locator("vite-error-overlay")).to_have_count(0)
 
 
+@pytest.mark.parametrize(("direction", "title"), [
+    ("PROMOTION", "推广服务费"), ("MANAGEMENT", "管理服务费"),
+])
+def test_dy104_finance_can_read_and_export_trial_without_october_bills(browser, dy104_web, tmp_path, direction, title):
+    context = browser.new_context(viewport={"width": 1440, "height": 1000}, accept_downloads=True)
+    page = context.new_page()
+    try:
+        page.route("**/api/v1/admin/finance/summary?*", lambda route: route.fulfill(
+            status=503, json={"detail": {"code": "PUBLICATION_PERIOD_NOT_READY",
+                                        "message": "本账期账单尚未发布"}}))
+        with page.expect_response(lambda res: "/finance/trial?" in res.url, timeout=15000) as response:
+            open_surface(page, dy104_web, "finance", f"&month=2026-10&feeDirection={direction}")
+        expect(page.get_by_role("button", name="收起内部试算", exact=True)).to_be_visible()
+        publication_id = response.value.json()["meta"]["publication"]["id"]
+        panel = page.get_by_role("region", name="内部月度试算")
+        expect(panel.get_by_role("heading", name=f"2026-10 {title}内部试算")).to_be_visible()
+        expect(panel.get_by_role("cell", name="月度合成门店")).to_be_visible()
+        expect(panel.locator(".metric-card").filter(has_text="已算试算费用")).to_contain_text("456.00")
+        with page.expect_download() as result:
+            panel.get_by_role("button", name="导出内部试算明细", exact=True).click()
+        download = result.value
+        assert download.suggested_filename.startswith(f"{title}内部试算_2026-10")
+        saved = tmp_path / download.suggested_filename
+        download.save_as(saved)
+        records = list(csv.DictReader(StringIO(saved.read_text(encoding="utf-8-sig"))))
+        assert [(row["试算版本"], row["试算费用（元）"]) for row in records] == [(publication_id, "456.00")]
+        with page.expect_response(lambda res: "/finance/trial/stores?" in res.url, timeout=15000):
+            panel.get_by_role("tab", name="门店汇总", exact=True).click()
+        with page.expect_response(lambda res: "/finance/trial/stores?" in res.url, timeout=15000):
+            panel.get_by_role("button", name="读取最新试算", exact=True).click()
+        expect(panel.get_by_role("button", name="导出门店试算汇总", exact=True)).to_be_enabled()
+    finally:
+        context.close()
+
+
 def test_dy104_default_previous_month_and_real_month_switches(browser, dy104_web, tmp_path):
     context = browser.new_context(viewport={"width": 1440, "height": 1000})
     page = context.new_page()
-    responses = []
-    page.on("response", lambda response: responses.append(response)
-            if "/monthly-settlement?" in response.url else None)
     try:
-        open_surface(page, dy104_web, "settlement")
+        with page.expect_response(lambda response: "/monthly-settlement?" in response.url
+                                  and "month=2026-09" in response.url, timeout=20000) as initial:
+            open_surface(page, dy104_web, "settlement")
+        assert initial.value.json()["data"]["month"] == "2026-09"
         expect(page.get_by_role("heading", name="单店分账", exact=True)).to_be_visible()
         month_control = page.get_by_role("button", name="账期", exact=True)
         expect(month_control).to_contain_text("2026-09")
         expect(page.locator(".metric-card").filter(has_text="当期推广服务费")).to_contain_text("0.00")
-        assert responses[0].json()["data"]["month"] == "2026-09"
         for month, amount in (("2026-08", 12300), ("2026-09", 0), ("2026-10", 45600), ("2026-08", 12300)):
             month_control.click()
             with page.expect_response(lambda response: "/monthly-settlement?" in response.url

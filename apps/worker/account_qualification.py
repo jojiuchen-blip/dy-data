@@ -411,6 +411,11 @@ def qualified_records(session: Session, *, version: Version, order) -> list[dict
         raise AccountQualificationError("qualification_name_account_missing")
     if len(accounts) != 1:
         raise AccountQualificationError("qualification_name_multiple_accounts")
+    return _qualified_merchant_records(candidates)
+
+
+def _qualified_merchant_records(candidates: list[dict]) -> list[dict]:
+    """Apply the frozen merchant status rule to the rows for one exact identity."""
     merchant_states = {}
     for row in candidates:
         if row["account_type"] in ELIGIBLE_TYPES:
