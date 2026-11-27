@@ -6,7 +6,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.dy_api.dashboard_publications import clues, ranking
-from apps.api.dy_api.dashboard_publications.lifecycle import resolve_publication
+from apps.api.dy_api.dashboard_publications.lifecycle import pin_publication, resolve_publication
 from apps.api.dy_api.dashboard_publications.schema import runs, source_counters
 from apps.api.dy_api.models import DouyinRefundEvent, RawDouyinRefundRecord, RawDouyinVerifyRecord
 from apps.worker.dashboard_publications import run_tick
@@ -30,6 +30,8 @@ def test_source_changes_refresh_both_boards_and_preserve_pinned_first_date(full_
     assert run_tick(factory, registry, now=CUTOFF) == {key: "published" for key in registry}
     with factory() as session:
         old = {key: resolve_publication(session, key).id for key in registry}
+        for publication_id in old.values():
+            pin_publication(session, publication_id, reason="verify historical projection", actor="test")
         assert clues.read(session, old["clue-overview"], {})["follow_any_numerator"] == 2
         _follow(session, "later-ingested-follow", task="self-task", order_id="self", hour=1)
         session.commit()
@@ -45,6 +47,7 @@ def test_source_changes_refresh_both_boards_and_preserve_pinned_first_date(full_
     assert run_tick(factory, registry, now=CUTOFF + timedelta(seconds=2)) == {key: "published" for key in registry}
     with factory() as session:
         current = {key: resolve_publication(session, key).id for key in registry}
+        assert {key: resolve_publication(session, key, old[key]).id for key in registry} == old
         filters = {"assigned_store_id": "C", "assigned_date_start": "2026-11-17", "assigned_date_end": "2026-11-17"}
         assert clues.read(session, old["clue-overview"], filters)["self_store_verification_count"] == 1
         assert clues.read(session, current["clue-overview"], filters)["self_store_verification_count"] == 0
