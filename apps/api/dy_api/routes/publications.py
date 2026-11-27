@@ -15,6 +15,7 @@ def publication_filters(
     module: str,
     request: Request,
     publication_id: str | None = Query(default=None, max_length=64),
+    include_calculated: bool = Query(default=False, alias="includeCalculated"),
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
@@ -35,7 +36,10 @@ def publication_filters(
                 include_assigned_stores=False, **_published_clue_access(store))
         elif module in {"settlement", "finance"}:
             from apps.api.dy_api.dashboard_publications.finance import read_filters
-            data = read_filters(session, publication.id, module=module, scope_store_ids=scope)
+            from dy_api.routes.dashboard import _can_read_calculated_promotion
+            data = read_filters(session, publication.id, module=module, scope_store_ids=scope,
+                include_calculated=module == "settlement" and include_calculated
+                and _can_read_calculated_promotion(current_user))
         else:
             from apps.api.dy_api.dashboard_publications.ranking import read_filters
             # A03 intentionally exposes the same full organizational scope as

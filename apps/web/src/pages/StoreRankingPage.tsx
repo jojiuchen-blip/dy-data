@@ -8,13 +8,11 @@ import {
 import { DataTable, type Column } from "../components/DataTable";
 import { FilterBar, FilterField } from "../components/Filters";
 import { FieldInput, SelectField } from "../components/FormControls";
-import { InternalMonthlyTrialPanel } from "../components/InternalMonthlyTrialPanel";
 import { MetricCard } from "../components/MetricCard";
 import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
 import { TablePagination } from "../components/TablePagination";
 import { usePublishedView } from "../hooks/usePublishedView";
 import type {
-  AdminUser,
   SettlementStoreRankingRow,
   RankingSortBy,
   StoreFinanceRankingBasis,
@@ -23,7 +21,6 @@ import { formatCurrency, formatInteger } from "../utils/format";
 import { apiErrorText, isPublicationPeriodNotReady, PUBLICATION_PERIOD_NOT_READY_TEXT } from "../utils/apiErrors";
 
 interface StoreRankingPageProps {
-  currentUser: AdminUser;
   searchParams: URLSearchParams;
 }
 
@@ -46,7 +43,7 @@ function rankingSortByForBasis(basis: StoreFinanceRankingBasis): RankingSortBy {
   return "PROMOTION_FEE";
 }
 
-export function StoreRankingPage({ currentUser, searchParams }: StoreRankingPageProps) {
+export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
   const [periodKey, setPeriodKey] = useState(() => initialStatementMonth(searchParams));
   const [productType, setProductType] = useState(searchParams.get("productType") ?? searchParams.get("product_type") ?? "");
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
@@ -58,7 +55,6 @@ export function StoreRankingPage({ currentUser, searchParams }: StoreRankingPage
       RANKING_BASIS_OPTIONS.some((option) => option.value === requested)
       ? requested as StoreFinanceRankingBasis : "PROMOTION_FEE_MONTH";
   });
-  const sortBy = rankingSortByForBasis(rankingBasis);
 
   // Old bookmarks cannot restore cumulative request state. This page has no
   // persisted filter cache; keep the URL canonical for copied links as well.
@@ -78,20 +74,32 @@ export function StoreRankingPage({ currentUser, searchParams }: StoreRankingPage
   }, [searchParams]);
 
   const rankingResource = usePublishedView(
-    (id) => fetchSettlementFilterMeta("settlement", id),
-    (filters, publication_id) => fetchSettlementStoreRanking({
-      publication_id,
-      periodType: "MONTHLY",
-      periodKey,
-      productType: productType || filters.defaultProductType || "all",
-      q: query || undefined,
-      sortBy,
-      sortOrder: "DESC",
-      rankingBasis,
-      page,
-      pageSize: PAGE_SIZE,
-    }),
-    [periodKey, productType, query, rankingBasis, sortBy, page],
+    (id) => fetchSettlementFilterMeta("settlement", id, true),
+    async (filters, publication_id) => {
+      const readRanking = (basis: StoreFinanceRankingBasis) => fetchSettlementStoreRanking({
+        publication_id,
+        periodType: "MONTHLY",
+        periodKey,
+        productType: productType || filters.defaultProductType || "all",
+        q: query || undefined,
+        sortBy: rankingSortByForBasis(basis),
+        sortOrder: "DESC",
+        rankingBasis: basis,
+        includeCalculated: true,
+        page,
+        pageSize: PAGE_SIZE,
+      });
+      try {
+        return await readRanking(rankingBasis);
+      } catch (error) {
+        if (rankingBasis === "PROMOTION_FEE_MONTH" || !isPublicationPeriodNotReady(error)
+          || !filters.calculatedPromotionMonths?.includes(periodKey)) throw error;
+        const monthly = await readRanking("PROMOTION_FEE_MONTH");
+        if (monthly.data.feeSource !== "CALCULATED") throw error;
+        return monthly;
+      }
+    },
+    [periodKey, productType, query, rankingBasis, page],
   );
   const metaResource = { ...rankingResource, data: rankingResource.filters };
   const meta = metaResource.data?.data;
@@ -107,12 +115,18 @@ export function StoreRankingPage({ currentUser, searchParams }: StoreRankingPage
   const periodReadiness = meta?.periodReadiness?.months[activePeriodKey];
   const monthlyClose = periodReadiness?.monthlyClose ?? availability?.monthlyClose;
   const periodBlocked = isPublicationPeriodNotReady(rankingResource.rawError);
-  const unavailableAmount = periodBlocked ? "—" : undefined;
+  const showsCalculatedFees = ranking?.feeSource === "CALCULATED";
+  const unavailableAmount = ranking ? undefined : "—";
   const unavailableNotice = rankingBasis === "PROMOTION_FEE_MONTH"
     ? PUBLICATION_PERIOD_NOT_READY_TEXT
     : "当前排行依据暂不可用，可切换为当期推广服务费。";
   const cumulativeUnavailable = availability?.cumulativeReady === false;
   const incompleteMonths = availability?.incompleteMonths.join("、");
+  const tableState = ranking || periodBlocked ? "ready" : rankingResource.loading ? "loading" : "error";
+  const periodNotice = showsCalculatedFees ? "本账期账单尚未发布。"
+    : periodBlocked ? unavailableNotice
+    : ranking && monthlyClose?.status === "partial" ? "当前显示已出账的门店，累计金额暂不可用。"
+    : undefined;
 
   const columns: Column<SettlementStoreRankingRow>[] = [
     { key: "rank", title: "排名", align: "center", render: (row) => <span className="rank-badge">{row.rank}</span> },
@@ -138,14 +152,14 @@ export function StoreRankingPage({ currentUser, searchParams }: StoreRankingPage
       </section>
       <ResourceNotice analysis
         loading={rankingResource.loading || rankingResource.refreshing}
-        fallbackReason={periodBlocked ? unavailableNotice : ranking && monthlyClose?.status === "partial" ? "当前显示已出账的门店，累计金额暂不可用。" : undefined}
+        fallbackReason={periodNotice}
         error={periodBlocked ? undefined : rankingError ?? metaError}
       />
       <FilterBar>
         <SelectField disabled={!meta} label="账期" value={activePeriodKey} onChange={(value) => { setPeriodKey(value); setPage(1); }} options={Array.from(new Set([activePeriodKey, ...(meta?.statementMonths ?? [])])).map((value) => ({ value, label: value }))} />
         <SelectField disabled={!meta} label="商品类型" value={activeProductType} onChange={(value) => { setProductType(value); setPage(1); }} options={Array.from(new Set(["all", ...(meta?.productTypes ?? []), activeProductType])).map((value) => ({ value, label: value === "all" ? "全部商品" : value }))} />
         <FilterField label="搜索门店"><FieldInput disabled={!meta} value={query} placeholder="输入门店名称" onChange={(event) => { setQuery(event.target.value); setPage(1); }} /></FilterField>
-        <SelectField label="排行依据" value={rankingBasis} onChange={(value) => {
+        <SelectField label="排行依据" value={ranking?.rankingBasis ?? rankingBasis} onChange={(value) => {
           setRankingBasis(value as StoreFinanceRankingBasis);
           setPage(1);
         }} options={RANKING_BASIS_OPTIONS.map((option) => ({
@@ -153,30 +167,25 @@ export function StoreRankingPage({ currentUser, searchParams }: StoreRankingPage
           disabled: cumulativeUnavailable && option.value !== "PROMOTION_FEE_MONTH",
         }))} />
       </FilterBar>
-      <InternalMonthlyTrialPanel currentUser={currentUser} month={activePeriodKey}
-        productType={activeProductType} q={query}
-        publicationId={metaResource.data?.meta.publication?.id ?? null}
-        defaultOpen={rankingResource.loading || rankingResource.refreshing ? undefined : periodBlocked} />
       {monthlyClose?.status !== "partial" && availability?.monthlyReady && cumulativeUnavailable ? (
         <ResourcePanel>本月数据已完整，累计数据{incompleteMonths ? `因 ${incompleteMonths} 尚未完成` : "尚未完成"}，暂不可用。</ResourcePanel>
       ) : null}
-      {!ranking && rankingResource.loading ? <ResourcePanel>正在加载榜单…</ResourcePanel> : !ranking && !periodBlocked ? <ResourcePanel tone="error">榜单暂不可用，请稍后重试。</ResourcePanel> : (
-        <>
-          <section className="metric-grid store-summary-metrics">
-            <MetricCard label="销售金额（累计）" value={unavailableAmount ?? displayMetricCurrency(totals?.salesAmountCumulativeCent)} meta={unavailableAmount ? undefined : displayMetricCount(totals?.salesOrderCountCumulative, "笔销售订单")} />
-            <MetricCard label="核销金额（累计）" value={unavailableAmount ?? displayMetricCurrency(totals?.verifiedAmountCumulativeCent)} meta={unavailableAmount ? undefined : displayMetricCount(totals?.verifiedOrderCountCumulative, "笔核销订单")} />
-            <MetricCard label="当期推广服务费" value={unavailableAmount ?? displayMetricCurrency(totals?.promotionMonthFeeCent)} meta={totals ? "当期调整后金额" : undefined} />
-            <MetricCard label="累计推广服务费" value={unavailableAmount ?? displayMetricCurrency(totals?.promotionCumulativeFeeCent)} meta={totals ? "正式账期累计" : undefined} />
-          </section>
-          <section className="content-section">
-            <div className="section-title">
-              <div><h2>门店排名</h2>{ranking ? <p>{ranking.scopeMode === "GLOBAL_TOP_20_EXCEPTION" ? "全国前 20 家门店；明细按门店权限查看" : `共 ${ranking.total} 家门店`}</p> : null}</div>
-            </div>
-            {rows.length ? <DataTable columns={columns} rows={rows} rowHref={ranking?.scopeMode === "AUTHORIZED" ? (row) => `/settlement?storeId=${encodeURIComponent(row.storeId)}&month=${activePeriodKey}&productType=${encodeURIComponent(activeProductType)}` : undefined} /> : <ResourcePanel>{periodBlocked ? "暂无已发布的排名。" : "当前筛选下没有门店结果。"}</ResourcePanel>}
-            {ranking?.scopeMode === "AUTHORIZED" ? <TablePagination page={ranking.page} pageSize={ranking.pageSize} total={ranking.total} totalPages={Math.max(1, Math.ceil(ranking.total / ranking.pageSize))} rowsOnPage={rows.length} loading={rankingResource.loading} onPageChange={setPage} /> : null}
-          </section>
-        </>
-      )}
+      <section className="metric-grid store-summary-metrics">
+        <MetricCard label="销售金额（累计）" value={unavailableAmount ?? displayMetricCurrency(totals?.salesAmountCumulativeCent)} meta={unavailableAmount ? undefined : displayMetricCount(totals?.salesOrderCountCumulative, "笔销售订单")} />
+        <MetricCard label="核销金额（累计）" value={unavailableAmount ?? displayMetricCurrency(totals?.verifiedAmountCumulativeCent)} meta={unavailableAmount ? undefined : displayMetricCount(totals?.verifiedOrderCountCumulative, "笔核销订单")} />
+        <MetricCard label="当期推广服务费" value={unavailableAmount ?? displayMetricCurrency(totals?.promotionMonthFeeCent)} meta={totals ? (showsCalculatedFees ? "当期已核算金额" : "当期调整后金额") : undefined} />
+        <MetricCard label="累计推广服务费" value={unavailableAmount ?? displayMetricCurrency(totals?.promotionCumulativeFeeCent)} meta={totals ? "正式账期累计" : undefined} />
+      </section>
+      <section className="content-section">
+        <div className="section-title">
+          <div><h2>门店排名</h2>{ranking ? <p>{ranking.scopeMode === "GLOBAL_TOP_20_EXCEPTION" ? "全国前 20 家门店；明细按门店权限查看" : `共 ${ranking.total} 家门店`}</p> : null}</div>
+        </div>
+        <DataTable columns={columns} rows={rows} state={tableState}
+          loadingText="正在加载榜单…" errorText="榜单暂不可用，请稍后重试。"
+          emptyText={periodBlocked ? "暂无已发布的排名。" : "当前筛选下没有门店结果。"}
+          rowHref={ranking?.scopeMode === "AUTHORIZED" ? (row) => `/settlement?storeId=${encodeURIComponent(row.storeId)}&month=${activePeriodKey}&productType=${encodeURIComponent(activeProductType)}` : undefined} />
+        {ranking?.scopeMode === "AUTHORIZED" ? <TablePagination page={ranking.page} pageSize={ranking.pageSize} total={ranking.total} totalPages={Math.max(1, Math.ceil(ranking.total / ranking.pageSize))} rowsOnPage={rows.length} loading={rankingResource.loading} onPageChange={setPage} /> : null}
+      </section>
     </div>
   );
 }

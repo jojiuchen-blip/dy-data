@@ -29,6 +29,8 @@ from test_certified_month_close import _close
 
 AT = datetime(2026, 11, 20, tzinfo=UTC)
 PARAMS = {"month": "2026-10", "feeDirection": "PROMOTION"}
+RANKING_PARAMS = {"periodKey": "2026-10", "rankingBasis": "PROMOTION_FEE_MONTH",
+                  "includeCalculated": "true", "publication_id": "trial-a"}
 
 
 def seed_trial(session, publication_id="trial-a", amount=12345):
@@ -110,6 +112,58 @@ def test_scopes_direction_and_permissions_are_rechecked(trial_client):
     identities[0] = replace(identities[0], role="store")
     assert client.get("/api/v1/admin/finance/trial", params=PARAMS).status_code == 403
     assert client.get("/api/v1/admin/finance/trial/export", params=PARAMS | {"publication_id": "trial-a"}).status_code == 403
+
+
+def test_calculated_ranking_is_opt_in_frozen_and_ranked_across_pages(trial_client, db_session):
+    client, _ = trial_client
+    endpoint = "/api/v1/dashboard/store-ranking"
+    legacy = client.get(endpoint, params=RANKING_PARAMS | {"includeCalculated": "false"})
+    assert legacy.status_code == 503
+    seed_trial(db_session, "trial-b", amount=999)
+    db_session.execute(update(heads).where(heads.c.module == "settlement").values(publication_id="trial-b"))
+    db_session.commit()
+    for page, expected in ((1, ("B", 99999)), (2, ("A", 12300))):
+        response = client.get(endpoint, params=RANKING_PARAMS | {"page": page, "pageSize": 1})
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["meta"]["publication"]["id"] == "trial-a"
+        data = payload["data"]
+        assert data["feeSource"] == "CALCULATED"
+        assert data["periodAvailability"]["monthlyReady"] is False
+        assert data["totals"]["promotionMonthFeeCent"] == 112299
+        assert data["totals"]["promotionCumulativeFeeCent"] is None
+        assert data["total"] == 2
+        row, = data["list"]
+        assert (row["storeId"], row["promotionMonthFeeCent"]) == expected
+        assert row["rank"] == page
+    assert db_session.scalar(select(func.count()).select_from(SettlementStatement)) == 0
+
+
+def test_calculated_ranking_respects_scope_and_preserves_unknown_amounts(trial_client):
+    client, identities = trial_client
+    endpoint = "/api/v1/dashboard/store-ranking"
+    identities[0] = replace(identities[0], role="admin", store_scope_mode="selected",
+                            store_ids=("A",), page_keys=("FIN01",))
+    filters_endpoint = "/api/v1/dashboard/publications/settlement/filters"
+    filters_params = {"publication_id": "trial-a", "includeCalculated": "true"}
+    filters = client.get(filters_endpoint, params=filters_params).json()["data"]
+    assert filters["productTypes"] == ["all", "精诚养车"]
+    assert "2026-10" in filters["statementMonths"]
+    response = client.get(endpoint, params=RANKING_PARAMS | {"productType": "精诚养车"})
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert [row["storeId"] for row in data["list"]] == ["A"]
+    assert data["totals"]["promotionMonthFeeCent"] == 12300
+    empty = client.get(endpoint, params=RANKING_PARAMS | {"q": "门店乙"})
+    assert empty.status_code == 200, empty.text
+    assert empty.json()["data"]["list"] == []
+    assert empty.json()["data"]["totals"]["promotionMonthFeeCent"] is None
+
+    for role, pages in (("admin", ("FIN02",)), ("store", ("FIN01",))):
+        identities[0] = replace(identities[0], role=role, page_keys=pages)
+        assert client.get(endpoint, params=RANKING_PARAMS).status_code == 503
+        filters = client.get(filters_endpoint, params=filters_params).json()["data"]
+        assert filters["productTypes"] == ["all"]
 
 
 def test_export_keeps_exact_pin_filters_and_chinese_nullable_bytes(trial_client, db_session):

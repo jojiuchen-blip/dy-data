@@ -136,6 +136,8 @@ Product ID查询失败返回 `null`，不增加新面板，也不回传整个met
 
 前三个结算页面入口使用 camelCase 业务字段、标准 `{ list, total, page, pageSize }` 分页和带 `requestId` 的响应元数据。榜单摘要基于完整过滤集合且名次不按页重置；单店和订单明细在服务端重验门店或账单范围；锁账查询只读冻结来源，预览只读当前指针。`/order-fee-details/export` 忽略分页、重新授权、返回带 UTF-8 BOM 的 CSV，空结果返回 409 `EXPORT_EMPTY`。
 
+全国门店月度榜单可用 `includeCalculated=true` 读取同版已核算的当期推广费，权限、筛选及可空字段见[统一看板发布契约](api/dashboard-publications.md)。
+
 旧 `/order-details*` 继续提供通用订单查询和导出，不混入双费用、账单冻结或调整记录语义。所有筛选、汇总与明细必须使用一致的时间、门店、产品维度和权限范围；导出不是公开端点，同样需要认证与范围控制。
 
 ## 4. 线索运营

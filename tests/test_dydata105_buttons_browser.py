@@ -723,7 +723,7 @@ def test_dydata105_ranking_filters_drill_and_order_fee_direction_downloads(
         page.get_by_role("option", name="2026-08", exact=True).click()
         expect(page.get_by_text("深圳临港认证服务店", exact=True).first).to_be_visible(timeout=20000)
         page.get_by_label("搜索门店", exact=True).fill("不存在105门店")
-        expect(page.get_by_text("当前筛选下没有门店结果。", exact=True)).to_be_visible()
+        expect(page.get_by_text("当前筛选下没有门店结果。", exact=True).filter(visible=True)).to_be_visible()
         page.get_by_label("搜索门店", exact=True).fill("深圳")
         expect(page.get_by_text("深圳临港认证服务店", exact=True).first).to_be_visible()
         expect(page.get_by_label("统计方式", exact=True)).to_have_count(0)
