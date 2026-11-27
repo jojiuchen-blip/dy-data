@@ -122,7 +122,6 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
     : "当前排行依据暂不可用，可切换为当期推广服务费。";
   const cumulativeUnavailable = availability?.cumulativeReady === false;
   const incompleteMonths = availability?.incompleteMonths.join("、");
-  const tableState = ranking || periodBlocked ? "ready" : rankingResource.loading ? "loading" : "error";
   const periodNotice = showsCalculatedFees ? "本账期账单尚未发布。"
     : periodBlocked ? unavailableNotice
     : ranking && monthlyClose?.status === "partial" ? "当前显示已出账的门店，累计金额暂不可用。"
@@ -170,22 +169,30 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
       {monthlyClose?.status !== "partial" && availability?.monthlyReady && cumulativeUnavailable ? (
         <ResourcePanel>本月数据已完整，累计数据{incompleteMonths ? `因 ${incompleteMonths} 尚未完成` : "尚未完成"}，暂不可用。</ResourcePanel>
       ) : null}
-      <section className="metric-grid store-summary-metrics">
-        <MetricCard label="销售金额（累计）" value={unavailableAmount ?? displayMetricCurrency(totals?.salesAmountCumulativeCent)} meta={unavailableAmount ? undefined : displayMetricCount(totals?.salesOrderCountCumulative, "笔销售订单")} />
-        <MetricCard label="核销金额（累计）" value={unavailableAmount ?? displayMetricCurrency(totals?.verifiedAmountCumulativeCent)} meta={unavailableAmount ? undefined : displayMetricCount(totals?.verifiedOrderCountCumulative, "笔核销订单")} />
-        <MetricCard label="当期推广服务费" value={unavailableAmount ?? displayMetricCurrency(totals?.promotionMonthFeeCent)} meta={totals ? (showsCalculatedFees ? "当期已核算金额" : "当期调整后金额") : undefined} />
-        <MetricCard label="累计推广服务费" value={unavailableAmount ?? displayMetricCurrency(totals?.promotionCumulativeFeeCent)} meta={totals ? "正式账期累计" : undefined} />
-      </section>
-      <section className="content-section">
-        <div className="section-title">
-          <div><h2>门店排名</h2>{ranking ? <p>{ranking.scopeMode === "GLOBAL_TOP_20_EXCEPTION" ? "全国前 20 家门店；明细按门店权限查看" : `共 ${ranking.total} 家门店`}</p> : null}</div>
-        </div>
-        <DataTable columns={columns} rows={rows} state={tableState}
-          loadingText="正在加载榜单…" errorText="榜单暂不可用，请稍后重试。"
-          emptyText={periodBlocked ? "暂无已发布的排名。" : "当前筛选下没有门店结果。"}
-          rowHref={ranking?.scopeMode === "AUTHORIZED" ? (row) => `/settlement?storeId=${encodeURIComponent(row.storeId)}&month=${activePeriodKey}&productType=${encodeURIComponent(activeProductType)}` : undefined} />
-        {ranking?.scopeMode === "AUTHORIZED" ? <TablePagination page={ranking.page} pageSize={ranking.pageSize} total={ranking.total} totalPages={Math.max(1, Math.ceil(ranking.total / ranking.pageSize))} rowsOnPage={rows.length} loading={rankingResource.loading} onPageChange={setPage} /> : null}
-      </section>
+      {!ranking && !periodBlocked ? (
+        <ResourcePanel tone={rankingResource.loading ? "loading" : "error"}>
+          {rankingResource.loading ? "正在加载榜单…" : "榜单暂不可用，请稍后重试。"}
+        </ResourcePanel>
+      ) : (
+        <>
+          <section className="metric-grid store-summary-metrics">
+            <MetricCard label="销售金额（累计）" value={unavailableAmount ?? displayMetricCurrency(totals?.salesAmountCumulativeCent)} meta={unavailableAmount ? undefined : displayMetricCount(totals?.salesOrderCountCumulative, "笔销售订单")} />
+            <MetricCard label="核销金额（累计）" value={unavailableAmount ?? displayMetricCurrency(totals?.verifiedAmountCumulativeCent)} meta={unavailableAmount ? undefined : displayMetricCount(totals?.verifiedOrderCountCumulative, "笔核销订单")} />
+            <MetricCard label="当期推广服务费" value={unavailableAmount ?? displayMetricCurrency(totals?.promotionMonthFeeCent)} meta={totals ? (showsCalculatedFees ? "当期已核算金额" : "当期调整后金额") : undefined} />
+            <MetricCard label="累计推广服务费" value={unavailableAmount ?? displayMetricCurrency(totals?.promotionCumulativeFeeCent)} meta={totals ? "正式账期累计" : undefined} />
+          </section>
+          <section className="content-section">
+            <div className="section-title">
+              <div><h2>门店排名</h2>{ranking ? <p>{ranking.scopeMode === "GLOBAL_TOP_20_EXCEPTION" ? "全国前 20 家门店；明细按门店权限查看" : `共 ${ranking.total} 家门店`}</p> : null}</div>
+            </div>
+            {ranking ? (
+              <DataTable columns={columns} rows={rows} emptyText="当前筛选下没有门店结果。"
+                rowHref={ranking.scopeMode === "AUTHORIZED" ? (row) => `/settlement?storeId=${encodeURIComponent(row.storeId)}&month=${activePeriodKey}&productType=${encodeURIComponent(activeProductType)}` : undefined} />
+            ) : <ResourcePanel>暂无已发布的排名。</ResourcePanel>}
+            {ranking?.scopeMode === "AUTHORIZED" ? <TablePagination page={ranking.page} pageSize={ranking.pageSize} total={ranking.total} totalPages={Math.max(1, Math.ceil(ranking.total / ranking.pageSize))} rowsOnPage={rows.length} loading={rankingResource.loading} onPageChange={setPage} /> : null}
+          </section>
+        </>
+      )}
     </div>
   );
 }
