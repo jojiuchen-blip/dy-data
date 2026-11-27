@@ -42,6 +42,16 @@ import { TablePagination } from "../components/TablePagination";
 import { TertiaryNav } from "../components/TertiaryNav";
 import { ThemePicker } from "../components/ThemePicker";
 import { TooltipLabel } from "../components/TooltipLabel";
+import {
+  CalloutBanner,
+  FileDropzone,
+  KeyValueGrid,
+  MetricStrip,
+  PageHeader,
+  SectionCard,
+  SplitWorkspace,
+  SwitchField,
+} from "../components/layout";
 import type {
   SalesCycleDistributionRow,
   SalesTrendRow,
@@ -87,6 +97,7 @@ const familyLabels: Record<string, string> = {
   Feedback: "反馈",
   Fields: "表单",
   Foundations: "基础",
+  Layout: "页面与板块原语",
   Navigation: "导航",
   Overlays: "弹层",
 };
@@ -116,6 +127,14 @@ const componentLabels: Record<string, string> = {
   "text-fields": "完整字段（文本 / 日期 / 密码 / 多行 / 复选）",
   "theme-picker": "主题切换（ThemePicker）",
   "tooltip-label": "辅助说明（TooltipLabel）",
+  "page-header": "页面头部（PageHeader）",
+  "section-card": "板块容器（SectionCard）",
+  "metric-strip": "指标栅格（MetricStrip）",
+  "callout-banner": "提醒横幅（CalloutBanner）",
+  "split-workspace": "双栏工作区（SplitWorkspace）",
+  "key-value-grid": "键值资料清单（KeyValueGrid）",
+  "file-dropzone": "文件上传区（FileDropzone）",
+  "switch-field": "开关字段（SwitchField）",
 };
 
 const stateLabels: Record<string, string> = {
@@ -596,6 +615,109 @@ function SignaturePreview() {
   );
 }
 
+function PageHeaderPreview() {
+  return (
+    <PageHeader
+      actions={
+        <>
+          <Button size="sm" variant="secondary">下载模板</Button>
+          <Button size="sm" variant="primary">导入数据</Button>
+        </>
+      }
+      description="统一承载页面眉标、唯一 H1 标题、说明与页级操作。"
+      eyebrow="财务管理 · 财务管理员"
+      title="管理服务费"
+    />
+  );
+}
+
+function SectionCardPreview() {
+  return (
+    <SectionCard
+      actions={<Button size="sm" variant="secondary">导出结果</Button>}
+      description="用于承载独立业务板块；内部分组使用 tone=recessed，严禁卡套卡。"
+      title="管理服务费明细"
+    >
+      <SectionCard tone="recessed">
+        <span>内嵌无边框微暖底色分组（recessed），替代硬边框嵌套卡片。</span>
+      </SectionCard>
+    </SectionCard>
+  );
+}
+
+function MetricStripPreview() {
+  return (
+    <MetricStrip columns={3}>
+      <MetricCard label="正式账单总额" meta="已生成正式账单" value="¥12,480.00" />
+      <MetricCard label="已确认金额" meta="确认率 89.7%" value="¥11,200.00" />
+      <MetricCard label="待开票金额" meta="2 家待提交" value="¥4,180.00" />
+    </MetricStrip>
+  );
+}
+
+function CalloutBannerPreview() {
+  return (
+    <div className="catalog-stack">
+      <CalloutBanner title="开票结算时效说明" tone="warm">
+        当月 10 号前登记成功进入当月结算批次；10 号后顺延至下月结算。
+      </CalloutBanner>
+      <CalloutBanner title="全量预校验通过" tone="success">
+        已校验 18 条规则，无冲突，可执行原子提交。
+      </CalloutBanner>
+    </div>
+  );
+}
+
+function SplitWorkspacePreview() {
+  return (
+    <SplitWorkspace ratio="detail-form">
+      <SectionCard title="左栏：只读资料" tone="recessed">
+        <span>用于展示购买方资料或当前规则基线。</span>
+      </SectionCard>
+      <SectionCard title="右栏：操作表单" tone="recessed">
+        <span>用于登记发票或编辑规则参数。</span>
+      </SectionCard>
+    </SplitWorkspace>
+  );
+}
+
+function KeyValueGridPreview() {
+  return (
+    <KeyValueGrid
+      items={[
+        { label: "名称", value: "比亚迪汽车销售有限公司" },
+        { label: "纳税人识别号", value: "914403007604674476", mono: true },
+        { label: "价税合计", value: "¥10.24", numeric: true },
+      ]}
+    />
+  );
+}
+
+function FileDropzonePreview() {
+  const [fileName, setFileName] = useState<string | null>(null);
+  return (
+    <FileDropzone
+      accept=".csv,.xlsx"
+      fileName={fileName}
+      hint="支持标准中文 XLSX / CSV 模板"
+      label="规则数据文件"
+      onFileChange={(file) => setFileName(file?.name ?? null)}
+    />
+  );
+}
+
+function SwitchFieldPreview() {
+  const [checked, setChecked] = useState(true);
+  return (
+    <SwitchField
+      checked={checked}
+      description="开启后推广服务费与管理服务费保持同步比例。"
+      label="两项费率保持一致"
+      onChange={setChecked}
+    />
+  );
+}
+
 const previews: Record<string, () => ReactNode> = {
   button: ActionPreview,
   "icon-button": IconActionPreview,
@@ -620,6 +742,14 @@ const previews: Record<string, () => ReactNode> = {
   "definition-list": DefinitionPreview,
   "solar-icon": IconPreview,
   "brand-attribution": SignaturePreview,
+  "page-header": PageHeaderPreview,
+  "section-card": SectionCardPreview,
+  "metric-strip": MetricStripPreview,
+  "callout-banner": CalloutBannerPreview,
+  "split-workspace": SplitWorkspacePreview,
+  "key-value-grid": KeyValueGridPreview,
+  "file-dropzone": FileDropzonePreview,
+  "switch-field": SwitchFieldPreview,
 };
 
 function ComponentSpecCard({ component }: { component: ManifestComponent }) {

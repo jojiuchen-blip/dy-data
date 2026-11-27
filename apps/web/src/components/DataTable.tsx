@@ -5,6 +5,9 @@ export interface Column<T> {
   key: string;
   title: ReactNode;
   align?: "left" | "right" | "center";
+  mono?: boolean;
+  nowrap?: boolean;
+  numeric?: boolean;
   sticky?: boolean;
   width?: number;
   minWidth?: number;
@@ -77,6 +80,9 @@ function columnStyle<T>(column: PreparedColumn<T>): CSSProperties {
 function columnClass<T>(column: PreparedColumn<T>): string {
   return [
     `is-${column.align ?? "center"}`,
+    column.numeric ? "is-numeric" : "",
+    column.nowrap ? "is-nowrap" : "",
+    column.mono ? "is-mono" : "",
     column.sticky ? "is-sticky-column" : "",
     column.stickyLast ? "is-sticky-column-last" : "",
   ]

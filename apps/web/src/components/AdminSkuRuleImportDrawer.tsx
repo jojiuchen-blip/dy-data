@@ -22,6 +22,7 @@ import { Button } from "./Button";
 import { StatusChip, type ChipTone } from "./Chips";
 import { Dialog } from "./Dialog";
 import { FieldInput } from "./FormControls";
+import { FileDropzone } from "./layout";
 import { useDownloadFeedback } from "../hooks/useDownloadFeedback";
 
 const FIRST_EFFECTIVE_DATE = "2026-08-01";
@@ -200,15 +201,14 @@ export function AdminSkuRuleImportDrawer({
       {download.message ? <p className="resource-notice" role={download.isError ? "alert" : "status"}>{download.message}</p> : null}
 
       <div className="admin-form-grid admin-import-drawer__form">
-        <label className="filter-field">
-          <span>CSV / XLSX 文件</span>
-          <FieldInput
-            accept=".csv,.xlsx"
-            disabled={!canManageGlobalSettings || working}
-            onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
-            type="file"
-          />
-        </label>
+        <FileDropzone
+          accept=".csv,.xlsx"
+          disabled={!canManageGlobalSettings || working}
+          fileName={importFile?.name ?? null}
+          hint="支持 UTF-8 CSV 或标准中文 XLSX 模板，上传后执行全量预校验"
+          label="CSV / XLSX 文件"
+          onFileChange={setImportFile}
+        />
         <label className="filter-field">
           <span>整批生效日期</span>
           <FieldInput

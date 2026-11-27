@@ -9,11 +9,13 @@ import {
   fetchFinanceSummary,
 } from "../api/client";
 import { Button } from "../components/Button";
+import { StatusChip, type ChipTone } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import { FinanceImportActionPanel } from "../components/FinanceImportActionPanel";
 import { SelectField, TextField } from "../components/FormControls";
 import { InternalMonthlyTrialPanel } from "../components/InternalMonthlyTrialPanel";
 import { MetricCard } from "../components/MetricCard";
+import { MetricStrip, PageHeader, SectionCard } from "../components/layout";
 import { ResourceNotice } from "../components/ResourceState";
 import { Tabs } from "../components/SelectionControls";
 import { TablePagination } from "../components/TablePagination";
@@ -70,6 +72,19 @@ function financeInvoiceStatusLabel(status: string, direction: FeeDirection): str
 
 function processingStatusLabel(row: FinanceInvoiceRow): string {
   return displayFinanceProcessingStatus(row.processingStatus);
+}
+
+function processingStatusTone(status: string | undefined): ChipTone {
+  if (status === "SUBMITTED" || status === "COMPLETED") return "info";
+  if (status === "REJECTED" || status === "ACTION_REQUIRED") return "danger";
+  return "neutral";
+}
+
+function invoiceStatusTone(status: string): ChipTone {
+  if (status === "APPROVED_SETTLED") return "success";
+  if (status === "REJECTED_REUPLOAD") return "danger";
+  if (status === "PENDING_INVOICE") return "warning";
+  return "info";
 }
 
 function managementCorrectionValidationError(correction: CorrectionDraft): string {
@@ -285,29 +300,29 @@ function FinanceBillingWorkspace({
   };
 
   const promotionColumns: Column<FinanceInvoiceRow>[] = [
-    { key: "processing", title: "办理状态", render: processingStatusLabel },
-    { key: "store", title: "门店", minWidth: 210, sticky: true, render: (row) => <span><strong>{row.storeName ?? row.storeId}</strong><br /><small>{row.storeId}</small></span> },
-    { key: "sap", title: "有效 SAP", minWidth: 130, render: (row) => row.effectiveSapCode ?? "—" },
-    { key: "month", title: "账期", render: (row) => row.statementMonth },
-    { key: "total", title: "推广费总额", align: "right", render: (row) => formatCurrency(row.statementAmountCent) },
-    { key: "confirmed", title: "已确认金额", align: "right", render: (row) => typeof row.confirmedAmountCent === "number" ? formatCurrency(row.confirmedAmountCent) : "—" },
-    { key: "number", title: "数电专票号码", minWidth: 210, render: (row) => row.invoiceNumber ?? "—" },
-    { key: "submitted", title: "提交成功时间", minWidth: 170, render: (row) => row.registeredAt ? formatDateTime(row.registeredAt) : "—" },
-    { key: "settlementMonth", title: "结算归属月", render: (row) => row.settlementBatchMonth ?? "—" },
-    { key: "status", title: "发票审核状态", minWidth: 170, render: (row) => financeInvoiceStatusLabel(row.status, feeDirection) },
-    { key: "reason", title: "审核原因", minWidth: 220, render: (row) => row.rejectionReason ?? "—" },
+    { key: "processing", title: "办理状态", nowrap: true, render: (row) => <StatusChip tone={processingStatusTone(row.processingStatus)}>{processingStatusLabel(row)}</StatusChip> },
+    { key: "store", title: "门店", align: "left", minWidth: 210, sticky: true, render: (row) => <span><strong>{row.storeName ?? row.storeId}</strong><br /><small>{row.storeId}</small></span> },
+    { key: "sap", title: "有效 SAP", align: "left", mono: true, nowrap: true, minWidth: 130, render: (row) => row.effectiveSapCode ?? "—" },
+    { key: "month", title: "账期", nowrap: true, render: (row) => row.statementMonth },
+    { key: "total", title: "推广费总额", align: "right", numeric: true, render: (row) => formatCurrency(row.statementAmountCent) },
+    { key: "confirmed", title: "已确认金额", align: "right", numeric: true, render: (row) => typeof row.confirmedAmountCent === "number" ? formatCurrency(row.confirmedAmountCent) : "—" },
+    { key: "number", title: "数电专票号码", align: "left", mono: true, nowrap: true, minWidth: 210, render: (row) => row.invoiceNumber ?? "—" },
+    { key: "submitted", title: "提交成功时间", nowrap: true, minWidth: 170, render: (row) => row.registeredAt ? formatDateTime(row.registeredAt) : "—" },
+    { key: "settlementMonth", title: "结算归属月", nowrap: true, render: (row) => row.settlementBatchMonth ?? "—" },
+    { key: "status", title: "发票审核状态", nowrap: true, minWidth: 170, render: (row) => <StatusChip tone={invoiceStatusTone(row.status)}>{financeInvoiceStatusLabel(row.status, feeDirection)}</StatusChip> },
+    { key: "reason", title: "审核原因", align: "left", minWidth: 220, render: (row) => row.rejectionReason ?? "—" },
   ];
   const managementColumns: Column<FinanceInvoiceRow>[] = [
-    { key: "processing", title: "办理状态", render: processingStatusLabel },
-    { key: "store", title: "门店", minWidth: 210, sticky: true, render: (row) => <span><strong>{row.storeName ?? row.storeId}</strong><br /><small>{row.storeId}</small></span> },
-    { key: "sap", title: "有效 SAP", minWidth: 130, render: (row) => row.effectiveSapCode ?? "—" },
-    { key: "month", title: "账期", render: (row) => row.statementMonth },
-    { key: "total", title: "管理费总额", align: "right", render: (row) => formatCurrency(row.statementAmountCent) },
-    { key: "confirmed", title: "已确认金额", align: "right", render: (row) => typeof row.confirmedAmountCent === "number" ? formatCurrency(row.confirmedAmountCent) : "—" },
-    { key: "number", title: "发票号码", minWidth: 210, render: (row) => row.invoiceNumber ?? "—" },
-    { key: "amount", title: "发票金额", align: "right", render: (row) => typeof row.invoiceAmountCent === "number" ? formatCurrency(row.invoiceAmountCent) : "—" },
-    { key: "date", title: "开票时间", minWidth: 160, render: (row) => row.invoiceDate ?? "—" },
-    { key: "status", title: "状态", minWidth: 160, render: (row) => financeInvoiceStatusLabel(row.status, feeDirection) },
+    { key: "processing", title: "办理状态", nowrap: true, render: (row) => <StatusChip tone={processingStatusTone(row.processingStatus)}>{processingStatusLabel(row)}</StatusChip> },
+    { key: "store", title: "门店", align: "left", minWidth: 210, sticky: true, render: (row) => <span><strong>{row.storeName ?? row.storeId}</strong><br /><small>{row.storeId}</small></span> },
+    { key: "sap", title: "有效 SAP", align: "left", mono: true, nowrap: true, minWidth: 130, render: (row) => row.effectiveSapCode ?? "—" },
+    { key: "month", title: "账期", nowrap: true, render: (row) => row.statementMonth },
+    { key: "total", title: "管理费总额", align: "right", numeric: true, render: (row) => formatCurrency(row.statementAmountCent) },
+    { key: "confirmed", title: "已确认金额", align: "right", numeric: true, render: (row) => typeof row.confirmedAmountCent === "number" ? formatCurrency(row.confirmedAmountCent) : "—" },
+    { key: "number", title: "发票号码", align: "left", mono: true, nowrap: true, minWidth: 210, render: (row) => row.invoiceNumber ?? "—" },
+    { key: "amount", title: "发票金额", align: "right", numeric: true, render: (row) => typeof row.invoiceAmountCent === "number" ? formatCurrency(row.invoiceAmountCent) : "—" },
+    { key: "date", title: "开票时间", nowrap: true, minWidth: 160, render: (row) => row.invoiceDate ?? "—" },
+    { key: "status", title: "状态", nowrap: true, minWidth: 160, render: (row) => <StatusChip tone={invoiceStatusTone(row.status)}>{financeInvoiceStatusLabel(row.status, feeDirection)}</StatusChip> },
   ];
 
   const handleTemplateDownload = async () => {
@@ -409,26 +424,32 @@ function FinanceBillingWorkspace({
 
   return (
     <div className="page-stack finance-page">
-      <section className="page-heading finance-heading">
-        <div><h1>{title}</h1></div>
-        <div className="finance-heading__actions">
-          <Button loading={downloadBusy} onClick={handleTemplateDownload} variant="secondary">
-            {feeDirection === "PROMOTION" ? "下载推广服务费厂家导入模板" : "下载管理服务费厂家导入模板"}
-          </Button>
-          <Button onClick={() => setShowImport((current) => !current)} variant="primary">
-            {feeDirection === "PROMOTION" ? "导入推广服务费厂家信息" : "导入管理服务费厂家信息"}
-          </Button>
-        </div>
-      </section>
+      <PageHeader
+        actions={
+          <div className="finance-heading__actions">
+            <Button loading={downloadBusy} onClick={handleTemplateDownload} variant="secondary">
+              {feeDirection === "PROMOTION" ? "下载推广服务费厂家导入模板" : "下载管理服务费厂家导入模板"}
+            </Button>
+            <Button onClick={() => setShowImport((current) => !current)} variant="primary">
+              {feeDirection === "PROMOTION" ? "导入推广服务费厂家信息" : "导入管理服务费厂家信息"}
+            </Button>
+          </div>
+        }
+        className="finance-heading"
+        title={title}
+      />
 
       <ResourceNotice analysis loading={resourceBusy} error={periodBlocked ? undefined : financeResource.error} />
-      <section className={`metric-grid finance-metric-grid ${feeDirection === "MANAGEMENT" ? "finance-metric-grid--four" : ""}`}>
+      <MetricStrip
+        className={`finance-metric-grid ${feeDirection === "MANAGEMENT" ? "finance-metric-grid--four" : ""}`}
+        columns={feeDirection === "MANAGEMENT" ? 4 : 5}
+      >
         <MetricCard label={feeDirection === "PROMOTION" ? "正式账单推广费总额" : "正式账单管理费总额"} value={currencyMetric(metrics?.statementTotalCent)} />
         <MetricCard label="已确认金额" value={currencyMetric(metrics?.confirmedAmountCent)} />
         <MetricCard label="待开票金额" value={currencyMetric(metrics?.pendingInvoiceAmountCent)} />
         <MetricCard label="已开票金额" value={currencyMetric(metrics?.issuedAmountCent)} />
         {feeDirection === "PROMOTION" ? <MetricCard label="审核通过已结算金额" value={currencyMetric(metrics?.settledOrDeductedAmountCent)} /> : null}
-      </section>
+      </MetricStrip>
 
       {showImport ? (
         <FinanceImportActionPanel
@@ -460,10 +481,10 @@ function FinanceBillingWorkspace({
       <InternalMonthlyTrialPanel currentUser={currentUser} month={month}
         feeDirection={feeDirection} q={search} defaultOpen={resourceBusy ? undefined : periodBlocked} />
 
-      <section className="content-section">
-        <div className="section-title">
-          <h2>{feeDirection === "PROMOTION" ? "推广费发票明细" : "管理服务费发票与扣款明细"}</h2>
-        </div>
+      <SectionCard
+        className="content-section"
+        title={feeDirection === "PROMOTION" ? "推广费发票明细" : "管理服务费发票与扣款明细"}
+      >
         <DataTable
           columns={feeDirection === "PROMOTION" ? promotionColumns : managementColumns}
           emptyText={periodBlocked ? periodUnavailableText : "当前筛选下暂无记录"}
@@ -477,7 +498,7 @@ function FinanceBillingWorkspace({
         {!periodBlocked ? (
           <TablePagination loading={resourceBusy} onPageChange={(nextPage) => { closeCorrection(); setPage(nextPage); }} onPageSizeChange={(nextSize) => { setPageSize(nextSize); setPage(1); }} page={invoices?.page ?? page} pageSize={invoices?.pageSize ?? pageSize} pageSizeOptions={[20, 50]} rowsOnPage={rows.length} total={invoices?.total ?? 0} totalPages={pageCount} />
         ) : null}
-      </section>
+      </SectionCard>
 
       {feeDirection === "MANAGEMENT" && correctionTarget ? (
         <section className="content-section finance-correction-panel">

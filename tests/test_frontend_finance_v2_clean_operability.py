@@ -104,9 +104,11 @@ def test_finance_import_panel_uses_shared_form_primitives_for_every_input() -> N
 
     assert 'from "./FormControls"' in panel
     assert "<TextField" in panel
-    assert panel.count("<TextField") >= 3
+    assert "<FileDropzone" in panel
+    assert panel.count("<TextField") + panel.count("<FileDropzone") >= 3
     assert '<input disabled value={month}' not in panel
-    assert 'type="file"' in panel
+    assert 'accept=".csv,.xlsx"' in panel
+    assert 'type="file"' in source("apps/web/src/components/layout/FileDropzone.tsx")
 
 
 def test_dispute_adjustment_uses_one_exact_cent_value_for_ui_handler_and_payload() -> None:
