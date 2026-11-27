@@ -614,3 +614,45 @@ def test_abandoned_status_repaired_even_when_writer_advisory_lock_is_busy(pg_fac
     with pg_factory() as session:
         current = resolve_publication(session, "sales")
         assert current.id == publication.id and current.status == "failed"
+
+
+def test_priority_sync_probe_works_in_read_only_postgres_without_claim_locks(pg_factory):
+    from sqlalchemy import event
+    from apps.api.dy_api.models import JobRun, JobStageRun
+    from apps.worker import priority_scheduler as priority
+    from apps.worker.publication_priority import priority_sync_pending
+    from apps.worker.repositories import HEAVY_SYNC_CLAIM_LOCK_KEY, parent_sync_gate_allows_claim
+
+    now = datetime.fromisoformat("2026-11-27T09:00:00+08:00")
+    JobRun.__table__.create(pg_factory.kw["bind"])
+    JobStageRun.__table__.create(pg_factory.kw["bind"])
+    with pg_factory.begin() as session:
+        plan = priority.ensure_daily_priority_plan(session, (now - timedelta(days=1)).date(), now=now)
+        session.execute(update(JobRun).values(started_at=now))
+        session.execute(update(JobRun).where(JobRun.parent_job_id == plan.parent_job_id,
+                                            JobRun.job_kind == "parent_sync").values(status="success"))
+    statements = []
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+    engine = pg_factory.kw["bind"]
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        with pg_factory() as session:
+            session.execute(text("SET TRANSACTION READ ONLY"))
+            assert priority_sync_pending(session, now=now)
+            assert session.scalar(text("SHOW transaction_read_only")) == "on"
+            session.rollback()
+        assert not any("FOR UPDATE" in query for query in statements)
+        assert not any(query.lstrip().split()[0].upper() in {"INSERT", "UPDATE", "DELETE"} for query in statements)
+        with pg_factory.begin() as session:
+            child = session.scalar(select(JobRun).where(JobRun.parent_job_id == plan.parent_job_id,
+                                                       JobRun.job_kind == "date_sync"))
+            statements.clear()
+            assert parent_sync_gate_allows_claim(session, child)
+            assert any("FOR UPDATE" in query for query in statements)
+        with pg_factory() as collection:
+            assert collection.scalar(text("SELECT pg_try_advisory_xact_lock(:key)"),
+                                     {"key": HEAVY_SYNC_CLAIM_LOCK_KEY})
+            collection.rollback()
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)

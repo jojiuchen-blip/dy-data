@@ -12,7 +12,7 @@ from datetime import datetime, time as datetime_time, timedelta, timezone
 from collections.abc import Mapping
 from collections.abc import Callable
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import JobRun
@@ -55,6 +55,8 @@ DEFAULT_DAILY_CHILD_TIMEOUT_SECONDS = 6 * 60 * 60
 DEFAULT_INCREMENTAL_CHUNK_MAX_ATTEMPTS = 2
 DEFAULT_MATERIALIZATION_STAGE_TIMEOUT_SECONDS = 7200
 DEFAULT_PRODUCT_SYNC_INTERVAL_SECONDS = 86400
+MONTH_CLOSE_DISCOVERY_INTERVAL_SECONDS = 30 * 60
+MONTH_CLOSE_DISCOVERY_DEFER_SECONDS = 60
 BrowserExportRunner = Callable[[Session, str], PhaseStats]
 
 
@@ -567,6 +569,44 @@ def _clue_follow_up_loop(factory, stop: Event) -> None:
         stop.wait(60)
 
 
+def _month_close_discovery_deferred(factory) -> bool:
+    """Probe current sync work without acquiring a claim or holding a transaction open."""
+    from apps.worker.publication_priority import priority_sync_pending
+
+    with factory() as session:
+        if session.get_bind().dialect.name == "postgresql":
+            session.execute(text("SET TRANSACTION READ ONLY"))
+            session.execute(text("SET LOCAL statement_timeout = '2s'"))
+            session.execute(text("SET LOCAL lock_timeout = '500ms'"))
+        active = session.scalar(select(JobRun.job_id).where(
+            JobRun.status == "running",
+            or_(JobRun.execution_slot == "heavy_sync", JobRun.job_name == "settlement_rebuild"),
+        ).limit(1))
+        return active is not None or priority_sync_pending(session)
+
+
+def _month_close_discovery_loop(factory, stop: Event) -> None:
+    """Queue eligible month closes at a separate cadence from daily claims."""
+    from apps.ops_agent.resources import ResourceAction
+    from apps.worker.resource_monitor import current_resource_decision
+
+    while not stop.is_set() and not _STOP:
+        delay = MONTH_CLOSE_DISCOVERY_DEFER_SECONDS
+        try:
+            if (current_resource_decision().action is ResourceAction.ALLOW
+                    and not _month_close_discovery_deferred(factory)
+                    and not stop.is_set() and not _STOP):
+                delay = MONTH_CLOSE_DISCOVERY_INTERVAL_SECONDS
+                started_at = time.monotonic()
+                _log("month_close_discovery_started")
+                job_id = ensure_month_close_job(factory, bounded=True)
+                elapsed_seconds = round(time.monotonic() - started_at, 1)
+                _log(f"month_close_discovery_finished job_available={job_id is not None} elapsed_seconds={elapsed_seconds}")
+        except Exception as exc:  # noqa: BLE001 - a failed scan stays off the daily scheduler.
+            _log(f"month_close_discovery_failed type={type(exc).__name__}")
+        stop.wait(delay)
+
+
 def _run_priority_daily_mode(factory) -> None:
     from apps.worker.resource_monitor import start_resource_monitor
 
@@ -577,19 +617,25 @@ def _run_priority_daily_mode(factory) -> None:
                     name="formal-allocation-compensation")
     phone_thread = Thread(target=_clue_phone_recovery_loop, args=(factory, stop), daemon=True,
                           name="clue-phone-recovery")
+    month_thread = Thread(target=_month_close_discovery_loop, args=(factory, stop), daemon=True,
+                         name="month-close-discovery")
     if not _truthy(os.getenv("WORKER_RUN_ONCE")):
         thread.start()
         phone_thread.start()
+        if factory is not None:
+            month_thread.start()
     try:
         _run_priority_daily_ticks(factory)
     finally:
+        stop.set()
         if resource_monitor is not None:
             resource_monitor.stop()
-        stop.set()
         if thread.is_alive():
             thread.join(timeout=5)
         if phone_thread.is_alive():
             phone_thread.join(timeout=5)
+        if month_thread.is_alive():
+            month_thread.join(timeout=5)
 
 
 def _run_priority_daily_ticks(factory) -> None:
@@ -604,19 +650,19 @@ def _run_priority_daily_ticks(factory) -> None:
 
     if run_on_start and factory is not None:
         try:
-            _run_priority_tick_with_maintenance(factory)
+            _run_priority_tick_with_maintenance(factory, resident_priority=True)
         except Exception as exc:  # noqa: BLE001 - keep the supervisor alive.
             _log(f"priority_daily_tick_failed error={sanitize_error_message(str(exc))}")
 
     while not _STOP:
         try:
-            _run_priority_tick_with_maintenance(factory)
+            _run_priority_tick_with_maintenance(factory, resident_priority=True)
         except Exception as exc:  # noqa: BLE001 - keep polling after one tick.
             _log(f"priority_daily_tick_failed error={sanitize_error_message(str(exc))}")
         _sleep_until_stop(_configured_daily_queue_poll_seconds())
 
 
-def _run_priority_tick_with_maintenance(factory) -> None:
+def _run_priority_tick_with_maintenance(factory, *, resident_priority: bool = False) -> None:
     """Use the same single-heavy-work budget for startup, run-once and polling."""
 
     from apps.ops_agent.resources import ResourceAction
@@ -625,6 +671,15 @@ def _run_priority_tick_with_maintenance(factory) -> None:
 
     if factory is not None:
         if current_resource_decision().action is ResourceAction.STOP:
+            return
+        if resident_priority:
+            if _process_queued_jobs(factory, resident_priority=True):
+                return
+            run_priority_daily_tick(
+                factory, optional_queue_runner=lambda allow_month_close: _process_settlement_and_finance_queue(
+                    factory, discover_month_close=False, allow_automatic_month_close=allow_month_close,
+                ),
+            )
             return
         if _process_queued_jobs(factory):
             return
@@ -717,7 +772,7 @@ def _run_legacy_scheduler(factory, *, run_once_only: bool, run_on_start: bool) -
         _sleep_until_stop(sleep_seconds)
 
 
-def _process_queued_jobs(factory) -> bool:
+def _process_queued_jobs(factory, *, resident_priority: bool = False) -> bool:
     """Return whether work ran or maintenance must defer further heavy work."""
 
     from apps.worker.settlement_maintenance import process_automatic_settlement_maintenance
@@ -733,15 +788,27 @@ def _process_queued_jobs(factory) -> bool:
         maintenance_options["on_manifest_limit"] = run_maintenance_safe_account_tick
     if process_automatic_settlement_maintenance(factory, **maintenance_options):
         return True
-    if decision.action is not ResourceAction.ALLOW:
-        # Only explicitly admitted daily work may proceed while draining.
+    if resident_priority or decision.action is not ResourceAction.ALLOW:
+        # In the resident priority loop, current collection gets the next claim.
         return False
-    from apps.worker.billing_auto_confirmation import process_due_auto_confirmations
+    return _process_settlement_and_finance_queue(factory, discover_month_close=True)
 
+
+def _process_settlement_and_finance_queue(
+    factory, *, discover_month_close: bool, allow_automatic_month_close: bool = True,
+) -> bool:
+    from apps.worker.billing_auto_confirmation import process_due_auto_confirmations
+    from apps.ops_agent.resources import ResourceAction
+    from apps.worker.resource_monitor import current_resource_decision
+
+    if current_resource_decision().action is not ResourceAction.ALLOW:
+        return False
     if process_due_auto_confirmations(factory):
         return True
-    ensure_month_close_job(factory)
-    rebuild = process_queued_settlement_rebuilds(factory)
+    if discover_month_close:
+        ensure_month_close_job(factory)
+    rebuild_options = {} if allow_automatic_month_close else {"allow_automatic_month_close": False}
+    rebuild = process_queued_settlement_rebuilds(factory, **rebuild_options)
     if rebuild is not None and rebuild.processed_job_id is not None:
         return True
     detection = process_queued_finance_dispute_detections(factory, max_jobs=1)

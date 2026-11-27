@@ -1,5 +1,6 @@
 """A scheduler tick has one heavy-work budget, including all startup paths."""
 from datetime import datetime, timedelta, timezone
+from threading import Event
 from types import SimpleNamespace
 
 import pytest
@@ -62,16 +63,79 @@ def test_priority_startup_and_poll_share_budget(monkeypatch, entry, consumed):
     monkeypatch.setattr(scheduler, "_run_clue_follow_up_tick", lambda _factory: None)
     monkeypatch.setattr(resource_monitor, "current_resource_decision", lambda: ResourceDecision(ResourceAction.ALLOW, ()))
 
-    def queue(_factory):
+    def queue(_factory, *, resident_priority=False):
+        assert resident_priority is (entry != "once")
         calls.append("maintenance")
         scheduler._STOP = True
         return consumed
 
     monkeypatch.setattr(scheduler, "_process_queued_jobs", queue)
-    monkeypatch.setattr(priority_scheduler, "run_priority_daily_tick", lambda _factory: calls.append("priority"))
+    monkeypatch.setattr(priority_scheduler, "run_priority_daily_tick", lambda _factory, **_kwargs: calls.append("priority"))
     monkeypatch.setattr(scheduler, "_sleep_until_stop", lambda _seconds: None)
     scheduler._run_priority_daily_ticks(object())
     assert calls == (["maintenance"] if consumed else ["maintenance", "priority"])
+
+
+def test_resident_idle_queue_does_not_run_month_close_discovery(monkeypatch, queue_calls):
+    def priority_tick(_factory, *, optional_queue_runner):
+        queue_calls.append("priority")
+        assert optional_queue_runner(True) is False
+
+    monkeypatch.setattr(priority_scheduler, "run_priority_daily_tick", priority_tick)
+    scheduler._run_priority_tick_with_maintenance(object(), resident_priority=True)
+    assert queue_calls == ["maintenance", "priority", "rebuild", ("detection", 1)]
+
+
+@pytest.mark.parametrize("action,priority_due", [(ResourceAction.DRAIN, False), (ResourceAction.ALLOW, True)])
+def test_month_close_discovery_waits_for_resources_and_required_sync(monkeypatch, action, priority_due):
+    waits = []
+
+    class StopAfterOneCheck:
+        def is_set(self):
+            return bool(waits)
+
+        def wait(self, delay):
+            waits.append(delay)
+
+    monkeypatch.setattr(scheduler, "_STOP", False)
+    monkeypatch.setattr(resource_monitor, "current_resource_decision", lambda: ResourceDecision(action, ()))
+    monkeypatch.setattr(scheduler, "_month_close_discovery_deferred", lambda _factory: priority_due)
+    monkeypatch.setattr(scheduler, "ensure_month_close_job", lambda *_args, **_kwargs: pytest.fail("preflight ran"))
+    scheduler._month_close_discovery_loop(object(), StopAfterOneCheck())
+    assert waits == [scheduler.MONTH_CLOSE_DISCOVERY_DEFER_SECONDS]
+
+
+def test_resident_daily_loop_runs_while_month_close_preflight_is_still_active(monkeypatch):
+    started, release = Event(), Event()
+    factory = object()
+    invoked = []
+
+    def preflight(passed_factory, *, bounded=False):
+        assert passed_factory is factory and bounded
+        invoked.append("preflight")
+        started.set()
+        assert release.wait(5)
+
+    def daily_loop(passed_factory):
+        assert started.wait(5)
+        assert not release.is_set()
+        scheduler._run_priority_tick_with_maintenance(passed_factory, resident_priority=True)
+        release.set()
+
+    monkeypatch.delenv("WORKER_RUN_ONCE", raising=False)
+    monkeypatch.setattr(scheduler, "_STOP", False)
+    monkeypatch.setattr(scheduler, "ensure_month_close_job", preflight)
+    monkeypatch.setattr(scheduler, "_month_close_discovery_deferred", lambda _factory: False)
+    monkeypatch.setattr(scheduler, "_formal_compensation_loop", lambda _factory, stop: stop.wait())
+    monkeypatch.setattr(scheduler, "_clue_phone_recovery_loop", lambda _factory, stop: stop.wait())
+    monkeypatch.setattr(scheduler, "_process_queued_jobs", lambda _factory, *, resident_priority: False)
+    monkeypatch.setattr(scheduler, "_run_priority_daily_ticks", daily_loop)
+    monkeypatch.setattr(resource_monitor, "start_resource_monitor", lambda _factory: None)
+    monkeypatch.setattr(resource_monitor, "current_resource_decision", lambda: ResourceDecision(ResourceAction.ALLOW, ()))
+    monkeypatch.setattr(priority_scheduler, "run_priority_daily_tick", lambda _factory, **_kwargs: invoked.append("daily"))
+
+    scheduler._run_priority_daily_mode(factory)
+    assert invoked == ["preflight", "daily"]
 
 
 def test_legacy_run_once_stops_after_durable_work(monkeypatch):

@@ -154,6 +154,7 @@ def test_dimension_refresh_can_start_before_daily_cutoff(factory) -> None:
         now=now,
         child_runner=child_runner,
         product_sync_runner=lambda _factory, **_kwargs: None,
+        optional_queue_runner=lambda _allow_month_close: pytest.fail("ready dimensions must run first"),
     )
 
     assert result.action == "executed"
@@ -164,6 +165,58 @@ def test_dimension_refresh_can_start_before_daily_cutoff(factory) -> None:
         assert selected is not None
         assert selected.metadata_json.get("priority_kind") == "dimensions"
         assert selected.metadata_json.get("priority_refresh_slot") == "202609100000"
+
+
+def test_unplanned_due_day_is_offered_before_a_queued_month_close(factory):
+    now = datetime.fromisoformat("2026-11-27T02:00:05+08:00")
+
+    result = priority_scheduler.run_priority_daily_tick(
+        factory, now=now,
+        child_runner=lambda _factory, job_id: ChildRunResult(job_id, ChildRunStatus.SUCCESS, 1),
+        product_sync_runner=lambda _factory, **_kwargs: pytest.fail("first due day must take the tick"),
+        optional_queue_runner=lambda _allow_month_close: pytest.fail("queued month close took a due day tick"),
+    )
+
+    assert result.action == "executed"
+    assert result.business_date == date(2026, 11, 26)
+    with factory() as session:
+        assert session.get(JobRun, result.selected_job_id).config_version == "priority-daily-v1"
+
+
+@pytest.mark.parametrize("clock,expected", [("01:59:59", False), ("09:00:00", True)])
+def test_automatic_month_close_waits_for_the_required_day(factory, monkeypatch, clock, expected):
+    now = datetime.fromisoformat(f"2026-11-27T{clock}+08:00")
+    _complete_day(factory, priority_scheduler.priority_business_date(now), now=now)
+    monkeypatch.setattr(priority_scheduler, "_plan_due_dimensions", lambda *_args: ())
+    offered = []
+
+    result = priority_scheduler.run_priority_daily_tick(
+        factory, now=now,
+        child_runner=lambda *_args: pytest.fail("no required sync is due"),
+        product_sync_runner=lambda _factory, **_kwargs: None,
+        optional_queue_runner=lambda allow_month_close: offered.append(allow_month_close) or True,
+    )
+
+    assert result.action == "processed_optional_queue"
+    assert offered == [expected]
+
+
+def test_due_product_refresh_is_offered_before_optional_queue(factory, monkeypatch):
+    now = datetime.fromisoformat("2026-11-27T09:00:00+08:00")
+    _complete_day(factory, priority_scheduler.priority_business_date(now), now=now)
+    monkeypatch.setattr(priority_scheduler, "_plan_due_dimensions", lambda *_args: ())
+    with factory.begin() as session:
+        session.add(JobRun(job_id="due-product", job_name="product_sync", status="success", started_at=now))
+
+    result = priority_scheduler.run_priority_daily_tick(
+        factory, now=now,
+        child_runner=lambda *_args: pytest.fail("no required day or dimension is due"),
+        product_sync_runner=lambda _factory, **_kwargs: "due-product",
+        optional_queue_runner=lambda _allow_month_close: pytest.fail("product sync must take the tick"),
+    )
+
+    assert result.action == "product_sync"
+    assert result.product_sync_job_id == "due-product"
 
 
 def _old_dimension_retry(factory, now, *, day=date(2026, 9, 11), **overrides):

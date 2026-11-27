@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -1287,9 +1287,15 @@ def _validate_parent_execution_identity(
         raise RuntimeError("deterministic parent execution identity is invalid")
 
 
+def _identity_query(statement: Select, *, lock: bool) -> Select:
+    return statement.with_for_update() if lock else statement
+
+
 def validate_parent_sync_execution_identity(
     session: Session,
     execution: JobRun,
+    *,
+    lock: bool = True,
 ) -> bool:
     """Validate a parent-sync row against its deterministic range plan.
 
@@ -1303,12 +1309,14 @@ def validate_parent_sync_execution_identity(
         if execution.job_kind != "parent_sync" or not execution.parent_job_id:
             return False
         range_parent = session.scalar(
-            select(JobRun)
-            .where(
-                JobRun.job_id == execution.parent_job_id,
-                JobRun.job_kind == "range_sync",
+            _identity_query(
+                select(JobRun)
+                .where(
+                    JobRun.job_id == execution.parent_job_id,
+                    JobRun.job_kind == "range_sync",
+                ),
+                lock=lock,
             )
-            .with_for_update()
         )
         if range_parent is None:
             return False
@@ -1414,6 +1422,8 @@ def validate_parent_sync_execution_identity(
 def validate_parent_sync_child_identity(
     session: Session,
     child: JobRun,
+    *,
+    lock: bool = True,
 ) -> bool:
     """Validate one date child against its deterministic range/parent plan.
 
@@ -1427,12 +1437,14 @@ def validate_parent_sync_child_identity(
         if child.job_kind != "date_sync" or not child.parent_job_id:
             return False
         range_parent = session.scalar(
-            select(JobRun)
-            .where(
-                JobRun.job_id == child.parent_job_id,
-                JobRun.job_kind == "range_sync",
+            _identity_query(
+                select(JobRun)
+                .where(
+                    JobRun.job_id == child.parent_job_id,
+                    JobRun.job_kind == "range_sync",
+                ),
+                lock=lock,
             )
-            .with_for_update()
         )
         if range_parent is None:
             return False
@@ -1530,12 +1542,14 @@ def validate_parent_sync_child_identity(
         if parent_targets:
             parent_executions = list(
                 session.scalars(
-                    select(JobRun)
-                    .where(
-                        JobRun.parent_job_id == range_parent.job_id,
-                        JobRun.job_kind == "parent_sync",
+                    _identity_query(
+                        select(JobRun)
+                        .where(
+                            JobRun.parent_job_id == range_parent.job_id,
+                            JobRun.job_kind == "parent_sync",
+                        ),
+                        lock=lock,
                     )
-                    .with_for_update()
                 )
             )
             if len(parent_executions) != 1:
