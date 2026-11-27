@@ -26,6 +26,7 @@ PG_FILES = {
     "tests/test_product_sync_sku_lookup_postgres.py",
     "tests/test_product_sync_failure_diagnostics.py",
     "tests/test_month_close_auto_bootstrap_postgres.py",
+    "tests/test_month_close_bounded_discovery.py",
     "tests/test_missing_fee_repair_postgres.py",
     "tests/test_missing_fee_write_proof_postgres.py",
     "tests/test_settlement_verify_impact_selection.py",
