@@ -7,7 +7,7 @@
 ## 开始前
 
 1. 确认当前 Linear issue、页面角色、门店范围、验收场景和相关 API。
-2. 读取 `docs/design-system/README.md`、`docs/design-system/tokens.json` 及现有同类组件。
+2. 加载仓库共享 UI 技能 `.agent/skills/dy-data-ui-governance/SKILL.md`，优先阅读精简契约 `docs/design-system/AI-UI-PLAYBOOK.md`，再按需查阅 `docs/design-system/README.md`、`docs/design-system/tokens.json` 及现有同类组件。
 3. 明确哪些值由后端计算、哪些只负责展示；禁止在页面复制结算、分配或权限规则。
 
 ## 数据与权限
@@ -21,6 +21,8 @@
 ## 组件与视觉
 
 - 页面负责请求与编排，组件负责展示与交互，共享 hook 或 client 负责复用状态和请求。
+- 页面与板块骨架统一使用 `apps/web/src/components/layout` 原语（`PageHeader`、`SectionCard`、`MetricStrip`、`CalloutBanner`、`SplitWorkspace`、`KeyValueGrid`、`FileDropzone`、`SwitchField`），优先按 `docs/design-system/AI-UI-PLAYBOOK.md` 的 4 套标准页面配方组装；禁止新增页面私有 `.css` 文件，禁止 `<SectionCard>` 嵌套 `<SectionCard>`。
+- 严格保留 `SolarIcon` 图标入口、`DataTable` 表格组件与表头锁定/首列冻结机制、`EChartsFigure` 图表库与 `BrandAttribution` 署名规则；数值列使用 `align="right"` + `numeric`，账期/日期列使用 `nowrap`，状态列使用 `StatusChip`。
 - 优先复用现有组件、令牌和布局模式；不得另建一套颜色、字号、圆角、阴影或状态语义。
 - 新页面必须覆盖加载、空数据、错误、无权限和正常状态；交互控件需有禁用、进行中和失败恢复反馈。
 - 表格、图表和指标必须说明筛选、时间、单位和数据范围，金额与百分比格式遵循现有口径。

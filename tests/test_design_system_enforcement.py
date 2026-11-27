@@ -499,3 +499,163 @@ def test_status_and_dialog_components_keep_accessibility_contracts() -> None:
         assert phrase in dialog
 
     assert "[closeDisabled, initialFocusRef, onClose, open, returnFocusRef]" not in dialog
+
+
+FROZEN_RUNTIME_CSS_ALLOWLIST = {
+    "apps/web/src/components/AccountScopePicker.css",
+    "apps/web/src/components/ClueStoreFilter.css",
+    "apps/web/src/components/GuidedTour.css",
+    "apps/web/src/components/SearchableStoreSelect.css",
+    "apps/web/src/components/layout/layout-primitives.css",
+    "apps/web/src/design-system/catalog.css",
+    "apps/web/src/design-tokens.css",
+    "apps/web/src/pages/AdminClueRoutingProductsPage.css",
+    "apps/web/src/pages/ClueFollowUp.css",
+    "apps/web/src/pages/ClueOnboarding.css",
+    "apps/web/src/settlement.css",
+    "apps/web/src/styles.css",
+    "apps/web/src/uat/uat-preview.css",
+}
+
+
+def test_no_new_private_css_files_outside_frozen_legacy_allowlist() -> None:
+    current_css_files = {
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in WEB_SRC_DIR.rglob("*.css")
+    }
+    unauthorized = sorted(current_css_files - FROZEN_RUNTIME_CSS_ALLOWLIST)
+    assert unauthorized == [], (
+        "禁止新增页面或组件私有 CSS 文件；请使用 apps/web/src/components/layout 原语并遵循 "
+        f"docs/design-system/AI-UI-PLAYBOOK.md。违规文件: {unauthorized}"
+    )
+
+
+def test_governed_layout_css_uses_only_design_tokens() -> None:
+    layout_css_path = WEB_SRC_DIR / "components" / "layout" / "layout-primitives.css"
+    raw_css = read_text(layout_css_path)
+    css = re.sub(r"/\*.*?\*/", "", raw_css, flags=re.DOTALL)
+
+    assert COLOR_LITERAL_PATTERN.search(css) is None
+    assert "!important" not in css
+
+    non_media_lines = [
+        line for line in css.splitlines() if not line.strip().startswith("@media")
+    ]
+    non_media_css = "\n".join(non_media_lines)
+    raw_px_property_pattern = re.compile(
+        r"(?:font-size|border-radius|padding(?:-[a-z]+)?|margin(?:-[a-z]+)?|gap):\s*[^;\n]*\b\d+(?:\.\d+)?px\b"
+    )
+    assert raw_px_property_pattern.search(non_media_css) is None
+
+
+def test_business_pages_do_not_nest_section_cards() -> None:
+    offenders: list[str] = []
+    tag_pattern = re.compile(r"<(/?)SectionCard\b([^>]*)>")
+
+    for path in (WEB_SRC_DIR / "pages").rglob("*.tsx"):
+        text = read_text(path)
+        depth = 0
+        for match in tag_pattern.finditer(text):
+            closing, attrs = match.group(1), match.group(2)
+            self_closing = attrs.rstrip().endswith("/")
+            if closing:
+                depth = max(0, depth - 1)
+                continue
+            if depth > 0 and 'tone="recessed"' not in attrs:
+                offenders.append(path.relative_to(REPO_ROOT).as_posix())
+                break
+            if not self_closing:
+                depth += 1
+
+    assert offenders == []
+
+
+def test_data_table_preserves_sticky_header_and_semantic_column_contract() -> None:
+    table_source = read_text(DATA_TABLE_PATH)
+    styles = read_text(APP_STYLES_PATH)
+
+    for phrase in (
+        'stickyHeader?: "container"',
+        "table-wrap--contained-sticky",
+        "is-sticky-column",
+        "is-numeric",
+        "is-nowrap",
+        "is-mono",
+    ):
+        assert phrase in table_source
+
+    for phrase in (
+        "position: sticky;",
+        "z-index: var(--z-table-header);",
+        "z-index: var(--z-table-header-corner);",
+        ".table-wrap--contained-sticky",
+        "font-variant-numeric: tabular-nums;",
+    ):
+        assert phrase in styles
+
+
+def test_ai_ui_playbook_and_repo_skill_are_wired_into_governance() -> None:
+    playbook_path = DESIGN_SYSTEM_DIR / "AI-UI-PLAYBOOK.md"
+    skill_path = REPO_ROOT / ".agent" / "skills" / "dy-data-ui-governance" / "SKILL.md"
+    agents = read_text(REPO_ROOT / "AGENTS.md")
+    frontend_rules = read_text(REPO_ROOT / "docs" / "rules" / "frontend-tasks.md")
+    readme = read_text(README_PATH)
+
+    assert playbook_path.is_file()
+    assert skill_path.is_file()
+
+    playbook = read_text(playbook_path)
+    skill = read_text(skill_path)
+
+    assert len(playbook.splitlines()) <= 150
+    for phrase in (
+        "SolarIcon",
+        "DataTable",
+        "表头锁定",
+        "BrandAttribution",
+        "EChartsFigure",
+        "PageHeader",
+        "SectionCard",
+        "MetricStrip",
+        "CalloutBanner",
+        "SplitWorkspace",
+        "KeyValueGrid",
+        "FileDropzone",
+        "SwitchField",
+        "配方 1",
+        "配方 2",
+        "配方 3",
+        "配方 4",
+    ):
+        assert phrase in playbook
+
+    assert "docs/design-system/AI-UI-PLAYBOOK.md" in skill
+    assert "docs/design-system/AI-UI-PLAYBOOK.md" in agents
+    assert ".agent/skills/dy-data-ui-governance/SKILL.md" in agents
+    assert "docs/design-system/AI-UI-PLAYBOOK.md" in frontend_rules
+    assert ".agent/skills/dy-data-ui-governance/SKILL.md" in frontend_rules
+    assert "docs/design-system/AI-UI-PLAYBOOK.md" in readme
+    assert ".agent/skills/dy-data-ui-governance/SKILL.md" in readme
+
+
+def test_layout_primitives_are_exported_and_registered_in_component_manifest() -> None:
+    barrel = read_text(WEB_SRC_DIR / "components" / "layout" / "index.ts")
+    manifest = json.loads(read_text(DESIGN_SYSTEM_DIR / "components.json"))
+    manifest_ids = {component["id"] for component in manifest["components"]}
+    manifest_exports = {component["exportName"] for component in manifest["components"]}
+
+    expected_primitives = {
+        "page-header": "PageHeader",
+        "section-card": "SectionCard",
+        "metric-strip": "MetricStrip",
+        "callout-banner": "CalloutBanner",
+        "split-workspace": "SplitWorkspace",
+        "key-value-grid": "KeyValueGrid",
+        "file-dropzone": "FileDropzone",
+        "switch-field": "SwitchField",
+    }
+
+    for component_id, export_name in expected_primitives.items():
+        assert export_name in barrel
+        assert component_id in manifest_ids
+        assert export_name in manifest_exports

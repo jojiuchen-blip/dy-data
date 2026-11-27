@@ -11,6 +11,7 @@ import { displayFinanceImportScenario } from "../utils/userFacingLabels";
 import { userFacingError } from "../utils/userFacingError";
 import { Button } from "./Button";
 import { TextField } from "./FormControls";
+import { FileDropzone } from "./layout";
 import { ResourcePanel } from "./ResourceState";
 import { SearchableStoreSelect } from "./SearchableStoreSelect";
 import { FinanceImportPreviewTable } from "./FinanceImportPreviewTable";
@@ -215,18 +216,18 @@ export function FinanceImportActionPanel({
           />
         </label>
         <TextField disabled label="业务账期" value={month} />
-        <TextField
+        <FileDropzone
           accept=".csv,.xlsx"
           disabled={committing}
-          key={`finance-import-file-${fileInputVersion}`}
+          fileName={file?.name ?? null}
+          hint="请在中文模板“数据导入”表填写，原文件不保存"
+          inputKey={`finance-import-file-${fileInputVersion}`}
           label="文件"
-          required
-          type="file"
-          onChange={(event) => {
+          onFileChange={(selectedFile) => {
             if (activeCommit.current) return;
             requestVersion.current += 1;
             setUploading(false);
-            setFile(event.target.files?.[0] ?? null);
+            setFile(selectedFile);
             setPreview(null);
             setMessage("");
             setCommitKey(crypto.randomUUID());

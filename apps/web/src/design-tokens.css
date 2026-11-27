@@ -4,9 +4,16 @@
   color: var(--ink);
   background: var(--bg);
   font-family:
-    "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
+    "PingFang SC", "HarmonyOS Sans SC", "Inter", -apple-system, BlinkMacSystemFont,
+    "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  --font-weight-title: 700;
+  --font-weight-section: 600;
+  --font-weight-label: 600;
+  --font-weight-body: 500;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 
   /* Neutral foundation */
   --bg: #f6f6f3;
@@ -143,21 +150,26 @@
   --focus-ring: 0 0 0 3px rgb(254 82 5 / 22%);
 
   /* Runtime surface roles */
-  --surface-page-top: #fafaf8;
+  --surface-page-top: #f2f1ed;
   --surface-page-end: #f2f2ee;
   --surface-warm: #ffffff;
   --surface-cream: #ffffff;
-  --surface-hover: #fffaf7;
-  --surface-row: #fafaf8;
-  --surface-table-head: #f2f2ee;
+  --surface-recessed: #f5f4f0;
+  --surface-card-border: rgb(24 24 20 / 8%);
+  --surface-hover: #f8f7f4;
+  --surface-row: #faf9f6;
+  --surface-table-head: #f7f6f2;
   --surface-subtle-strong: #f6f6f3;
-  --surface-rail-muted: #f2f2ee;
-  --surface-control-muted: #f2f2ee;
+  --surface-rail-muted: #f1f0ec;
+  --surface-control-muted: #f4f3ef;
   --surface-active: #fff4ef;
   --surface-danger: #f8e9e7;
-  --surface-warning: #fff9ef;
+  --surface-warning: #fbf2e4;
   --ink-deep: #181818;
   --ink-subtle: #343532;
+  --radius-card: var(--radius-xl);
+  --radius-control: var(--radius-lg);
+  --shadow-card-subtle: 0 1px 2px rgb(24 24 20 / 3%), 0 6px 20px rgb(24 24 20 / 3%);
 
   /* Brand alpha roles */
   --brand-orange-8: rgb(254 82 5 / 8%);
@@ -298,21 +310,24 @@
   --focus-ring: 0 0 0 3px rgb(254 82 5 / 30%);
 
   /* Runtime surface roles */
-  --surface-page-top: #141613;
+  --surface-page-top: #151714;
   --surface-page-end: #10110f;
   --surface-warm: #181a17;
   --surface-cream: #181a17;
-  --surface-hover: #22241f;
-  --surface-row: #141613;
-  --surface-table-head: #22241f;
+  --surface-recessed: #20231e;
+  --surface-card-border: rgb(243 244 239 / 9%);
+  --surface-hover: #222520;
+  --surface-row: #1d201b;
+  --surface-table-head: #1d201b;
   --surface-subtle-strong: #1c1e1a;
-  --surface-rail-muted: #22241f;
+  --surface-rail-muted: #161815;
   --surface-control-muted: #22241f;
   --surface-active: #3b2118;
   --surface-danger: #452320;
   --surface-warning: #3f2f1b;
   --ink-deep: #f3f4ef;
   --ink-subtle: #d8dad4;
+  --shadow-card-subtle: 0 1px 2px rgb(0 0 0 / 24%), 0 8px 24px rgb(0 0 0 / 20%);
 
   /* Theme-adjusted alpha roles */
   --green-accent-12: rgb(116 205 176 / 12%);

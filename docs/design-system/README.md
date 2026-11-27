@@ -88,3 +88,4 @@ npm --prefix apps/web run build
 - 图表悬浮与键盘焦点必须提供同等信息；点击或 Enter 可锁定选择，固定解释条使用 `aria-live`，动效遵循 `prefers-reduced-motion`。
 - 不用文字字符临时模拟图标、下拉箭头或状态符号。
 - 不把桌面明细长表做成页面整体滚动；使用明细工作台模板，外层视口固定、结果表格内部滚动、分页保持可见。
+- Codex 与 Antigravity 协作者优先从 `docs/design-system/AI-UI-PLAYBOOK.md` 与 `.agent/skills/dy-data-ui-governance/SKILL.md` 进入，使用 `apps/web/src/components/layout` 组合原语组装页面，不得新增页面私有 `.css` 文件或嵌套 `SectionCard`。

@@ -1,4 +1,5 @@
 @import "./design-tokens.css";
+@import "./components/layout/layout-primitives.css";
 
 * {
   box-sizing: border-box;
@@ -469,16 +470,17 @@ a {
 }
 
 .rail-nav__item {
+  position: relative;
   display: grid;
-  min-height: 76px;
+  min-height: 74px;
   place-items: center;
   gap: 4px;
   border: 1px solid transparent;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-card);
   padding: 10px 6px;
   color: var(--muted);
   font-size: var(--font-size-table);
-  font-weight: 800;
+  font-weight: 600;
   outline: none;
   transition:
     background 160ms ease,
@@ -518,9 +520,21 @@ a {
 }
 
 .rail-nav__item[aria-current="page"] {
-  border-color: var(--brand-orange-18);
+  border-color: transparent;
   background: var(--brand-orange-soft);
   color: var(--brand-deep-orange);
+  font-weight: 700;
+}
+
+.rail-nav__item[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--space-6) * -1);
+  top: var(--space-6);
+  bottom: var(--space-6);
+  width: var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--brand-orange);
 }
 
 .rail-nav__item[aria-current="page"] small {
@@ -2919,15 +2933,20 @@ h2 {
 
 .metric-card {
   display: grid;
-  min-height: 132px;
-  align-content: space-between;
-  gap: 14px;
+  min-height: 124px;
+  grid-template-rows: auto 1fr auto;
+  align-content: start;
+  gap: var(--space-5);
   overflow: visible;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  padding: 18px;
+  border: 1px solid var(--surface-card-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-10);
   background: var(--surface);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-card-subtle);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
 }
 
 a.metric-card {
@@ -2936,27 +2955,31 @@ a.metric-card {
 
 a.metric-card:hover,
 .clickable-row:hover {
-  border-color: var(--brand-orange);
+  border-color: var(--brand-orange-28);
   background: var(--surface-hover);
 }
 
 .metric-card__label {
   color: var(--muted);
   font-size: var(--font-size-table);
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .metric-card__value {
   overflow-wrap: anywhere;
   color: var(--ink);
   font-size: var(--font-size-metric);
-  font-weight: 800;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
   line-height: 1.15;
 }
 
 .metric-card__meta {
+  min-height: var(--space-9);
   color: var(--muted);
   font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
 }
 
 .metric-card__skeleton {
@@ -2984,11 +3007,11 @@ a.metric-card:hover,
 
 .content-section,
 .definition-panel {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  padding: 16px;
+  border: 1px solid var(--surface-card-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-10);
   background: var(--surface);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-card-subtle);
 }
 
 .content-section {
@@ -3266,11 +3289,40 @@ a.metric-card:hover,
   top: 0;
   z-index: var(--z-table-header);
   background: var(--surface-table-head);
-  color: var(--ink-subtle);
+  color: var(--muted);
   font-size: var(--font-size-caption);
-  font-weight: 800;
+  font-weight: 600;
   white-space: nowrap;
   box-shadow: 0 1px 0 var(--line);
+}
+
+.data-table th.is-left,
+.data-table td.is-left {
+  text-align: left;
+}
+
+.data-table th.is-center,
+.data-table td.is-center {
+  text-align: center;
+}
+
+.data-table th.is-right,
+.data-table td.is-right,
+.data-table th.is-numeric,
+.data-table td.is-numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.data-table th.is-nowrap,
+.data-table td.is-nowrap {
+  white-space: nowrap;
+}
+
+.data-table td.is-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .table-wrap--contained-sticky .data-table th {
@@ -7655,12 +7707,12 @@ a.metric-card:hover,
 }
 .store-finance-timeline {
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card);
+  border: 1px solid var(--surface-card-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card-subtle);
   display: grid;
   gap: var(--space-8);
-  padding: var(--space-8);
+  padding: var(--space-10);
 }
 
 .store-finance-timeline__steps {
@@ -7729,26 +7781,32 @@ a.metric-card:hover,
 .store-finance-timeline__status {
   align-items: baseline;
   background: var(--brand-orange-soft);
-  border: 1px solid var(--brand-orange);
-  border-left-width: 4px;
-  border-radius: var(--radius-md);
+  border: 1px solid var(--brand-orange-18);
+  border-left: 3px solid var(--brand-orange);
+  border-radius: var(--radius-lg);
   color: var(--brand-orange-ink);
   display: flex;
-  gap: var(--space-6);
+  flex-wrap: wrap;
+  gap: var(--space-5);
   padding: var(--space-6) var(--space-8);
 }
 
+.store-finance-timeline__status strong {
+  color: var(--brand-deep-orange);
+}
+
 .store-finance-timeline__status span {
-  color: var(--brand-orange-ink);
+  color: var(--muted);
 }
 
 .store-finance-invoice-reminders {
-  background: var(--brand-orange-soft);
-  border-left: 3px solid var(--brand-orange);
-  color: var(--brand-orange-ink);
+  background: var(--amber-soft);
+  border: 1px solid var(--amber-token-24);
+  border-radius: var(--radius-card);
+  color: var(--amber);
   display: grid;
   gap: var(--space-2);
-  padding: var(--space-5) var(--space-6);
+  padding: var(--space-6) var(--space-8);
 }
 
 .store-finance-invoice-reminders p {

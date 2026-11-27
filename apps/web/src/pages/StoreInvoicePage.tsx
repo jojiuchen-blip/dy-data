@@ -13,6 +13,7 @@ import { Button } from "../components/Button";
 import { FieldInput } from "../components/FormControls";
 import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
 import { StoreFinanceTimeline } from "../components/StoreFinanceTimeline";
+import { CalloutBanner, PageHeader } from "../components/layout";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
   AdminUser,
@@ -547,22 +548,21 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
 
   return (
     <div className="page-stack finance-page">
-      <section className="page-heading finance-heading">
-        <div>
-          <p className="eyebrow">门店结算</p>
-          <h1>开票确认</h1>
-        </div>
-      </section>
+      <PageHeader className="finance-heading" eyebrow="门店结算" title="开票确认" />
 
       <ResourceNotice
         loading={metaResource.loading || statementResource.loading || invoiceResource.loading}
         error={metaResource.error ?? statementResource.error ?? invoiceResource.error}
       />
 
-      <section className="store-finance-invoice-reminders" aria-label="开票提醒">
+      <CalloutBanner
+        ariaLabel="开票提醒"
+        className="store-finance-invoice-reminders"
+        tone="warm"
+      >
         <p>门店前往开票系统开具数电专票，再将发票信息上传系统，否则将无法收款。</p>
         <p>当月10号前开票提交，当月结算；10号后开票提交将在下月结算。</p>
-      </section>
+      </CalloutBanner>
 
       <StoreFinanceTimeline
         activeStage="invoice"

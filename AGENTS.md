@@ -146,6 +146,15 @@ URLs, local personal paths, or credentials.
 - 发布记录关联完整源码 SHA、实际产物、目标环境、迁移与验收；历史补录不得伪造原始发布日期或移动已有 tag。
 - CLI、API 契约、数据库迁移与业务规则版本分别声明兼容关系；文档规则不代表尚未开发的发布自动化已实现。
 
+## 3.3 前端视觉一致性与 AI 防漂移门禁
+
+涉及 `apps/web/` 任何页面、组件或样式改动前，Codex 与 Antigravity 协作者必须先加载仓库共享技能 [`.agent/skills/dy-data-ui-governance/SKILL.md`](.agent/skills/dy-data-ui-governance/SKILL.md) 并阅读精简速查手册 [`docs/design-system/AI-UI-PLAYBOOK.md`](docs/design-system/AI-UI-PLAYBOOK.md)：
+
+- **先选配方、只拼原语**：新页面/板块必须从 4 套标准页面配方选型，统一使用 `apps/web/src/components/layout`（`PageHeader`、`SectionCard`、`MetricStrip`、`CalloutBanner`、`SplitWorkspace`、`KeyValueGrid`、`FileDropzone`、`SwitchField`）与既有基础组件。
+- **冻结私有 CSS 棘轮**：禁止在 `apps/web/src/` 下新增页面私有 `.css` 文件，禁止在受管样式中写颜色字面量或裸 `px` 间距/字号/圆角，禁止 `<SectionCard>` 嵌套 `<SectionCard>`。
+- **保留既有硬规范**：图标唯一入口 `SolarIcon`、表格唯一入口 `DataTable`（保留表头锁定与冻结首列，数值列启用 `numeric`、账期启用 `nowrap`、状态使用 `StatusChip`）、图表唯一入口 `EChartsFigure` + `chart-gallery/`、品牌署名唯一入口 `BrandAttribution`。
+- **提交前门禁**：改动前端代码必须通过 `npm --prefix apps/web run build` 与 `tests/test_design_system_enforcement.py` 全部视觉治理测试。
+
 ## 4. Linear-First Requirement Lifecycle
 
 For this project, Linear is the unified requirement pool and execution view.

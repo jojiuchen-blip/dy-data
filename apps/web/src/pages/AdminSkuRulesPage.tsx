@@ -20,6 +20,7 @@ import { DataTable, type Column } from "../components/DataTable";
 import { Dialog } from "../components/Dialog";
 import { FieldInput, FieldTextarea, SelectField } from "../components/FormControls";
 import { SegmentedControl, Tabs } from "../components/SelectionControls";
+import { PageHeader } from "../components/layout";
 import type {
   ImportBatchItem,
   SkuFeeRuleItem,
@@ -485,25 +486,25 @@ export function AdminSkuRulesPage() {
 
   const skuColumns: Column<SkuRow>[] = [
     { key: "select", title: <FieldInput aria-label="选择当前页全部 SKU" checked={allVisibleChecked} onChange={() => setCheckedIds(allVisibleChecked ? new Set() : new Set(visibleSkuRows.map((row) => row.sku_id)))} type="checkbox" />, render: (row) => <FieldInput aria-label={`选择 SKU ${row.sku_id}`} checked={checkedIds.has(row.sku_id)} onChange={() => setCheckedIds((current) => { const next = new Set(current); next.has(row.sku_id) ? next.delete(row.sku_id) : next.add(row.sku_id); return next; })} type="checkbox" /> },
-    { key: "sku", title: "SKU ID", align: "left", render: (row) => <span className="mono-cell">{row.sku_id}</span> },
+    { key: "sku", title: "SKU ID", align: "left", mono: true, nowrap: true, render: (row) => <span className="mono-cell">{row.sku_id}</span> },
     { key: "name", title: "商品名称", align: "left", render: (row) => row.product_name || "-" },
     { key: "type", title: "商品类型", render: (row) => row.product_type && row.product_type.toLowerCase() !== "unknown" ? row.product_type : <a className="commission-product-type-link" href="/admin/product-types">请前往商品口径页面配置产品类型</a> },
-    { key: "rate", title: "分账比例", render: (row) => { const rule = effectiveRuleMap.get(row.sku_id); return rule ? `推广 ${formatRate(rule.promotionServiceFeeRate)} / 管理 ${formatRate(rule.managementServiceFeeRate)}` : "-"; } },
-    { key: "commission", title: "参与分账", render: (row) => enabledSkuIds.has(row.sku_id) ? "是" : "否" },
-    { key: "orders", title: "订单数", align: "right", render: (row) => formatInteger(row.order_count) },
-    { key: "verified", title: "核销券数", align: "right", render: (row) => formatInteger(row.verified_coupon_count) },
-    { key: "status", title: "状态", render: (row) => <StatusChip tone={enabledSkuIds.has(row.sku_id) ? "success" : "neutral"}>{enabledSkuIds.has(row.sku_id) ? "已启用" : "未启用"}</StatusChip> },
+    { key: "rate", title: "分账比例", nowrap: true, render: (row) => { const rule = effectiveRuleMap.get(row.sku_id); return rule ? `推广 ${formatRate(rule.promotionServiceFeeRate)} / 管理 ${formatRate(rule.managementServiceFeeRate)}` : "-"; } },
+    { key: "commission", title: "参与分账", nowrap: true, render: (row) => enabledSkuIds.has(row.sku_id) ? "是" : "否" },
+    { key: "orders", title: "订单数", align: "right", numeric: true, render: (row) => formatInteger(row.order_count) },
+    { key: "verified", title: "核销券数", align: "right", numeric: true, render: (row) => formatInteger(row.verified_coupon_count) },
+    { key: "status", title: "状态", nowrap: true, render: (row) => <StatusChip tone={enabledSkuIds.has(row.sku_id) ? "success" : "neutral"}>{enabledSkuIds.has(row.sku_id) ? "已启用" : "未启用"}</StatusChip> },
   ];
 
   const historyColumns: Column<HistoryRow>[] = [
-    { key: "sku", title: "SKU ID", align: "left", render: (row) => row.skuId ? <span className="mono-cell">{row.skuId}</span> : "批量导入批次明细" },
-    { key: "id", title: "版本 / 批次", align: "left", render: (row) => <span className="mono-cell">{row.id}</span> },
-    { key: "source", title: "发布来源", render: (row) => row.source === "manual" ? "手工发布" : "批量导入" },
-    { key: "count", title: "SKU 数量", align: "right", render: (row) => formatInteger(row.skuCount) },
-    { key: "rates", title: "分佣比例", render: (row) => row.rates },
-    { key: "date", title: "生效日期", render: (row) => row.effectiveDate },
-    { key: "status", title: "状态", render: (row) => <StatusChip tone={statusTone(row.status)}>{row.source === "manual" ? displayFeeRuleStatus(row.status) : displayImportBatchStatus(row.status)}</StatusChip> },
-    { key: "audit", title: "操作人 / 时间", align: "left", render: (row) => `${row.operator} / ${formatDateTime(row.publishedAt)}` },
+    { key: "sku", title: "SKU ID", align: "left", mono: true, nowrap: true, render: (row) => row.skuId ? <span className="mono-cell">{row.skuId}</span> : "批量导入批次明细" },
+    { key: "id", title: "版本 / 批次", align: "left", mono: true, nowrap: true, render: (row) => <span className="mono-cell">{row.id}</span> },
+    { key: "source", title: "发布来源", nowrap: true, render: (row) => row.source === "manual" ? "手工发布" : "批量导入" },
+    { key: "count", title: "SKU 数量", align: "right", numeric: true, render: (row) => formatInteger(row.skuCount) },
+    { key: "rates", title: "分佣比例", nowrap: true, render: (row) => row.rates },
+    { key: "date", title: "生效日期", nowrap: true, render: (row) => row.effectiveDate },
+    { key: "status", title: "状态", nowrap: true, render: (row) => <StatusChip tone={statusTone(row.status)}>{row.source === "manual" ? displayFeeRuleStatus(row.status) : displayImportBatchStatus(row.status)}</StatusChip> },
+    { key: "audit", title: "操作人 / 时间", align: "left", nowrap: true, render: (row) => `${row.operator} / ${formatDateTime(row.publishedAt)}` },
   ];
 
   const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -533,9 +534,11 @@ export function AdminSkuRulesPage() {
 
   return (
     <div className="admin-page commission-rules-page">
-      <section className="admin-header">
-        <div><h1>商品分账规则管理</h1><p className="admin-muted">先批量选择商品规格（SKU），再确认分佣比例，检查预选后发布不可变规则版本。</p></div>
-      </section>
+      <PageHeader
+        className="admin-header"
+        description="先批量选择商品规格（SKU），再确认分佣比例，检查预选后发布不可变规则版本。"
+        title="商品分账规则管理"
+      />
       {!canManageGlobalSettings ? <p className="resource-notice" role="status">商品分账规则和例外账号影响全部门店，仅全国范围管理员可以发布、导入或重新计算结算结果。当前可查看规则。</p> : null}
       {notice ? <div aria-live="polite" className="resource-notice" role="status">{notice}</div> : null}
 
