@@ -315,53 +315,56 @@ def test_internal_trial_api_and_export_enforce_scoped_admin_and_store_role(
         context.close()
 
 
-def test_authorized_ranking_opens_trial_and_pins_filters_and_download(
+def test_ranking_keeps_monthly_layout_and_reads_calculated_fees_on_one_version(
     browser, nov20_api, nov20_web,
 ):
-    context = browser.new_context(viewport={"width": 1440, "height": 1000}, accept_downloads=True)
+    context = browser.new_context(viewport={"width": 1440, "height": 1000})
     page = context.new_page()
     requests = observe_requests(page)
     try:
-        with page.expect_response(lambda response: "/admin/finance/trial/stores?" in response.url, timeout=15000) as trial:
-            with page.expect_response(lambda response: "/dashboard/store-ranking?" in response.url) as formal:
-                page.goto(f"{nov20_web}/ranking?periodKey={MONTH}")
-        assert formal.value.status == 503
-        assert trial.value.json()["meta"]["publication"]["id"] == nov20_api[1]
-        notice = page.get_by_text("本账期账单尚未发布，可切换账期查看。", exact=True).filter(visible=True)
-        expect(notice).to_be_visible()
-        panel = page.get_by_role("region", name="内部月度试算", exact=True)
-        expect(panel.get_by_role("heading", name=f"{MONTH} 推广服务费内部试算")).to_be_visible()
-        expect(panel.get_by_role("cell", name="深圳临港认证服务店", exact=True)).to_be_visible()
-        page.get_by_role("button", name="收起内部试算", exact=True).click()
-        page.get_by_role("button", name="查看内部试算", exact=True).click()
-        direction_button = panel.get_by_role("button", name="试算费用方向", exact=True)
-        direction_button.click()
-        panel.get_by_role("option", name="管理服务费", exact=True).click()
-        paused_ranking = []
+        layout = ["排名", "门店", "销售金额（累计）", "核销金额（累计）", "当期推广服务费", "累计推广服务费"]
+        with page.expect_response(lambda response: "/dashboard/store-ranking?" in response.url) as historical:
+            page.goto(f"{nov20_web}/ranking?periodKey=2026-08")
+        assert historical.value.status == 200
+        assert "feeSource" not in historical.value.json()["data"]
+        expect(page.get_by_role("columnheader")).to_have_text(layout)
 
-        def pause_ranking_filter(route):
-            if parse_qs(urlsplit(route.request.url).query).get("q") == ["深圳临港"]:
-                paused_ranking.append(route)
-                page.evaluate("console.info('ranking-filter-held')")
-            else:
-                route.continue_()
+        basis = page.get_by_role("button", name="排行依据", exact=True)
+        basis.click()
+        with page.expect_response(lambda response: "/dashboard/store-ranking?" in response.url
+                                  and "rankingBasis=VERIFIED_AMOUNT_CUMULATIVE" in response.url):
+            page.get_by_role("option", name="核销金额（累计）", exact=True).click()
+        expect(basis).to_have_text("核销金额（累计）")
 
-        page.route("**/api/v1/dashboard/store-ranking?*", pause_ranking_filter)
-        with page.expect_console_message(lambda message: message.text == "ranking-filter-held"):
+        month = page.get_by_role("button", name="账期", exact=True)
+        month.click()
+        with page.expect_response(lambda response: "/dashboard/store-ranking?" in response.url
+                                  and f"periodKey={MONTH}" in response.url
+                                  and "rankingBasis=PROMOTION_FEE_MONTH" in response.url) as ranking:
+            page.get_by_role("option", name=MONTH, exact=True).click()
+        assert ranking.value.status == 200
+        payload = ranking.value.json()
+        assert payload["meta"]["publication"]["id"] == nov20_api[1]
+        assert payload["data"]["feeSource"] == "CALCULATED"
+        assert payload["data"]["periodAvailability"]["monthlyReady"] is False
+        assert payload["data"]["totals"]["promotionMonthFeeCent"] == 13045
+        assert [row["storeId"] for row in payload["data"]["list"]] == ["store-1", "store-2"]
+        expect(basis).to_have_text("当期推广服务费")
+        expect(page.get_by_role("columnheader")).to_have_text(layout)
+        expect(page.locator(".store-summary-metrics")).to_contain_text("130.45")
+        expect(page.locator("tbody tr", has_text="深圳临港认证服务店")).to_contain_text("123.45")
+        expect(page.get_by_text("本账期账单尚未发布。", exact=True)).to_be_visible()
+        assert_no_trial_exposure(page, requests)
+
+        with page.expect_response(lambda response: "/dashboard/store-ranking?" in response.url
+                                  and "rankingBasis=PROMOTION_FEE_MONTH" in response.url
+                                  and parse_qs(urlsplit(response.url).query).get("q") == ["深圳临港"]) as filtered_ranking:
             page.get_by_placeholder("输入门店名称", exact=True).fill("深圳临港")
-        assert len(paused_ranking) == 1
-        with page.expect_response(lambda response: "/admin/finance/trial/stores?" in response.url
-                                  and parse_qs(urlsplit(response.url).query).get("q") == ["深圳临港"], timeout=15000):
-            paused_ranking[0].continue_()
-        relevant = [parse_qs(urlsplit(url).query) for _, url in requests if "/admin/finance/trial" in url]
-        assert relevant and all(query.get("publication_id") == [nov20_api[1]] for query in relevant)
-        expect(panel.get_by_role("heading", name=f"{MONTH} 管理服务费内部试算")).to_be_visible()
-        expect(panel.get_by_role("cell", name="深圳临港认证服务店", exact=True)).to_be_visible()
-        with page.expect_download() as downloaded:
-            panel.get_by_role("button", name="导出门店试算汇总", exact=True).click()
-        _, downloaded_rows = read_csv(downloaded.value)
-        assert {row["试算版本"] for row in downloaded_rows} == {nov20_api[1]}
-        assert {row["门店名称"] for row in downloaded_rows if row["汇总层级"] == "门店"} == {"深圳临港认证服务店"}
+        filtered_payload = filtered_ranking.value.json()
+        assert filtered_payload["meta"]["publication"]["id"] == nov20_api[1]
+        assert filtered_payload["data"]["totals"]["promotionMonthFeeCent"] == 12345
+        assert [row["storeId"] for row in filtered_payload["data"]["list"]] == ["store-1"]
+        expect(page.get_by_role("cell", name="杭州滨江直营服务店", exact=True)).to_have_count(0)
 
         assert read_trial(context, nov20_api, "PROMOTION")["summary"]["calculatedFeeCent"] == 13045
         assert read_trial(context, nov20_api, "MANAGEMENT")["summary"]["calculatedFeeCent"] == 6232
@@ -397,7 +400,8 @@ def test_store_trial_summary_download_matches_coupon_facts_and_keeps_unknown_sco
         with page.expect_response(lambda response: endpoint in response.url):
             page.goto(nov20_web + path)
         if entry == "headquarters":
-            expect(page.get_by_role("region", name="内部月度试算", exact=True)).to_be_visible()
+            expect(page.get_by_role("columnheader", name="当期推广服务费", exact=True)).to_be_visible()
+            assert_no_trial_exposure(page, requests)
         else:
             assert_collapsed_trial(page, requests)
 

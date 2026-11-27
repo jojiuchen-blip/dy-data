@@ -471,6 +471,7 @@ def store_ranking(
     product_type: str = Query(default="all", alias="productType"),
     q: str | None = None,
     ranking_basis: str | None = Query(default=None, alias="rankingBasis"),
+    include_calculated: bool = Query(default=False, alias="includeCalculated"),
     sort_by: str = Query(default="NET_SETTLEMENT_REFERENCE", alias="sortBy"),
     sort_order: str = Query(default="DESC", alias="sortOrder"),
     page: int = Query(default=1, ge=1),
@@ -511,13 +512,30 @@ def store_ranking(
             None if current_user.has_global_data_access else current_user.store_ids
         ),
     }
-    from apps.api.dy_api.dashboard_publications.finance import read_store_ranking, read_filters
+    from apps.api.dy_api.dashboard_publications.finance import (
+        read_calculated_store_ranking, read_filters, read_store_ranking,
+    )
+    from apps.api.dy_api.dashboard_publications.lifecycle import PublicationError
     session = _billing_session(store, request)
+    can_read_calculated = include_calculated and _can_read_calculated_promotion(current_user)
     with publication_read(session, "settlement", publication_id) as publication:
-        choices = read_filters(session, publication.id, scope_store_ids=filters["scope_store_ids"])
+        choices = read_filters(session, publication.id, scope_store_ids=filters["scope_store_ids"],
+                              include_calculated=can_read_calculated)
         _validate_product_choices(choices.get("product_scope_type_map", {}),
             choices.get("product_types", ["all"]), product_scope, product_type, request)
-        data = read_store_ranking(session, publication.id, filters)
+        try:
+            data = read_store_ranking(session, publication.id, filters)
+        except PublicationError as error:
+            if not (
+                can_read_calculated
+                and period_type == "MONTHLY"
+                and ranking_basis == "PROMOTION_FEE_MONTH"
+                and error.code == "PUBLICATION_PERIOD_NOT_READY"
+            ):
+                raise
+            data = read_calculated_store_ranking(session, publication.id, filters)
+            if data is None:
+                raise
     return attach_publication(
         _reporting_success(request, data, definitions=STORE_RANKING_DEFINITIONS), publication,
     )
@@ -6847,6 +6865,10 @@ def _statement_metrics(session, store_id: str, month: str, metric_scope: str) ->
             ),
         }
     return data
+
+
+def _can_read_calculated_promotion(current_user: AuthContext) -> bool:
+    return current_user.is_admin and FINANCE_DIRECTION_PAGE_KEYS["PROMOTION"] in current_user.page_keys
 
 
 def _require_finance_admin(

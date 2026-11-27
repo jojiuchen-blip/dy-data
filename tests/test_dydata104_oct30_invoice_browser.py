@@ -89,7 +89,10 @@ def test_required_member_failure_cannot_show_or_submit_old_amount(page, invoice_
             session.scalar(select(SettlementStatementConfirmation)).confirmation_status = 2
         route.continue_()
     page.route("**/api/v1/store-settlements/oct23-bill", detail)
-    page.goto(f"{invoice_web}/settlement/invoice?storeId=oct23-store&month=2026-08")
+    with page.expect_response(lambda response: response.request.method == "GET"
+            and response.url == f"{invoice_api[0]}/api/v1/store-settlements/oct23-bill") as loaded:
+        page.goto(f"{invoice_web}/settlement/invoice?storeId=oct23-store&month=2026-08")
+    assert loaded.value.status == {"missing": 404, "denied": 403, "group_changed": 200}[failure]
     info = page.locator(".store-finance-invoice-info")
     expect(info).to_contain_text("账单金额读取失败，请重试")
     expect(info).not_to_contain_text("106.01")

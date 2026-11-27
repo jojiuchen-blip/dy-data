@@ -1260,11 +1260,11 @@ function mockSettlementFilterMetaResponse(): ApiResponse<SettlementFilterMetaDat
   };
 }
 
-export function fetchSettlementFilterMeta(module?: PublicationModule, publication_id?: string): Promise<
+export function fetchSettlementFilterMeta(module?: PublicationModule, publication_id?: string, includeCalculated?: boolean): Promise<
   ApiLoadResult<SettlementFilterMetaData>
 > {
   return withMockFallback(
-    () => requestJson<SettlementFilterMetaData>(module ? `/dashboard/publications/${module}/filters` : "/meta/filters", { publication_id }),
+    () => requestJson<SettlementFilterMetaData>(module ? `/dashboard/publications/${module}/filters` : "/meta/filters", { publication_id, includeCalculated }),
     mockSettlementFilterMetaResponse,
     { fallbackOnError: false },
   );
@@ -1276,6 +1276,7 @@ export function fetchSettlementStoreRanking({
   productType,
   q,
   rankingBasis,
+  includeCalculated,
   sortBy,
   sortOrder,
   page,
@@ -1288,6 +1289,7 @@ export function fetchSettlementStoreRanking({
   productType: string;
   q?: string;
   rankingBasis?: StoreFinanceRankingBasis;
+  includeCalculated?: boolean;
   sortBy?: RankingSortBy;
   sortOrder?: SortOrder;
   page: number;
@@ -1302,6 +1304,7 @@ export function fetchSettlementStoreRanking({
         productType,
         q,
         rankingBasis,
+        includeCalculated,
         sortBy,
         sortOrder,
         page,

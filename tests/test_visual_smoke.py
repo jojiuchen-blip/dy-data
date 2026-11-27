@@ -3006,7 +3006,7 @@ def test_ranking_uses_backend_enum_contract_and_last_complete_business_month(
 
         page.route("**/api/v1/dashboard/store-ranking?*", fulfill_ranking)
         page.goto(f"{vite_real_api_base_url}/ranking", wait_until="domcontentloaded")
-        page.get_by_text("当前筛选下没有门店结果。", exact=True).wait_for(timeout=10000)
+        page.get_by_text("当前筛选下没有门店结果。", exact=True).filter(visible=True).wait_for(timeout=10000)
 
         assert ranking_urls
         request_url = ranking_urls[-1]

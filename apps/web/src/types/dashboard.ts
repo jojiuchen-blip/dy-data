@@ -618,6 +618,7 @@ export interface SettlementFilterMetaData {
   saleMonths: string[];
   verifyMonths: string[];
   statementMonths: string[];
+  calculatedPromotionMonths?: string[];
   periodTypes: PeriodType[];
   feeDirections: FeeDirection[];
   formalPeriodStartMonth: string;
@@ -644,18 +645,18 @@ export interface SettlementStoreRankingRow {
   salesAmountCent: number | null;
   verifiedOrderCount: number | null;
   verifiedAmountCent: number | null;
-  promotionNetFeeCent: number;
-  managementNetFeeCent: number;
-  netSettlementReferenceCent: number;
+  promotionNetFeeCent: number | null;
+  managementNetFeeCent: number | null;
+  netSettlementReferenceCent: number | null;
   salesOrderCountCumulative: number | null;
   salesAmountCumulativeCent: number | null;
   verifiedOrderCountCumulative: number | null;
   verifiedAmountCumulativeCent: number | null;
-  promotionMonthFeeCent: number;
+  promotionMonthFeeCent: number | null;
   promotionCumulativeFeeCent: number | null;
-  managementMonthFeeCent?: number;
+  managementMonthFeeCent?: number | null;
   managementCumulativeFeeCent?: number | null;
-  netSettlementReferenceMonthCent?: number;
+  netSettlementReferenceMonthCent?: number | null;
   netSettlementReferenceCumulativeCent?: number | null;
 }
 
@@ -664,6 +665,7 @@ export interface SettlementStoreRankingData {
   periodType: PeriodType;
   periodKey: string;
   rankingBasis?: StoreFinanceRankingBasis;
+  feeSource?: "CALCULATED";
   productScope: string;
   productType: string;
   scopeMode: "AUTHORIZED" | "GLOBAL_TOP_20_EXCEPTION";

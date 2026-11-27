@@ -735,7 +735,8 @@ def monthly_detail_statement_ids(session, publication_id: str, month: str, *,
 
 
 def read_filters(session: Session, publication_id: str, module: str = "settlement",
-                 *, scope_store_ids: tuple[str, ...] | None = None) -> dict:
+                 *, scope_store_ids: tuple[str, ...] | None = None,
+                 include_calculated: bool = False) -> dict:
     """Read frozen selector dimensions, filtered by current store authorization."""
     values = session.scalar(select(dimensions.c.value).where(
         dimensions.c.publication_id == publication_id,
@@ -745,9 +746,22 @@ def read_filters(session: Session, publication_id: str, module: str = "settlemen
         conditions.append(dimensions.c.key.in_(scope_store_ids))
     stores = list(session.scalars(select(dimensions.c.value).where(*conditions)))
     readiness = _period_snapshot(session, publication_id)
+    product_types = _published_product_types(
+        session, publication_id, values.get("product_types", []), scope_store_ids=scope_store_ids)
+    if include_calculated:
+        facts = fee_trial.rows
+        options = session.execute(select(facts.c.month, facts.c.product_type).where(
+            *_calculated_promotion_conditions(publication_id, scope_store_ids),
+        ).distinct()).all()
+        calculated_months = {month for month, _ in options}
+        values = {
+            **values,
+            "statement_months": sorted(set(values.get("statement_months", [])) | calculated_months, reverse=True),
+            "calculated_promotion_months": sorted(calculated_months, reverse=True),
+        }
+        product_types = ["all", *sorted((set(product_types) | {kind for _, kind in options if kind}) - {"all"})]
     return {**values, "product_scopes": ["all"], "product_scope_type_map": {},
-        "product_types": _published_product_types(session, publication_id,
-            values.get("product_types", []), scope_store_ids=scope_store_ids),
+        "product_types": product_types,
         "period_readiness": period_readiness.public_period_snapshot(readiness, scope_store_ids),
         "stores": sorted(stores, key=lambda item: (item["store_name"], item["store_id"]))}
 
@@ -872,6 +886,78 @@ def read_store_ranking(session: Session, publication_id: str, filters: dict[str,
                   **{key: metric_value(row, key) for key in metric_columns}}
                  for index, row in enumerate(rows)],
         "total": totals["total"], "page": page, "page_size": page_size}
+
+
+def _calculated_promotion_conditions(publication_id, scope_store_ids):
+    facts = fee_trial.rows
+    return [
+        facts.c.publication_id == publication_id,
+        facts.c.fee_direction == 1,
+        facts.c.record_status == "CALCULATED",
+        facts.c.store_id.is_not(None),
+        facts.c.fee_amount_cent.is_not(None),
+        *_scope(facts, scope_store_ids),
+    ]
+
+
+def read_calculated_store_ranking(session: Session, publication_id: str, filters: dict[str, Any]) -> dict | None:
+    """Rank known promotion fees from the same publication while formal bills are pending."""
+    month = filters["period_key"]
+    marker = session.scalar(select(dimensions.c.value).where(
+        dimensions.c.publication_id == publication_id, dimensions.c.kind == "fee_trial",
+        dimensions.c.key == month))
+    if not marker or marker.get("schema_version") != 1:
+        return None
+
+    scope = filters.get("scope_store_ids")
+    product_type = filters.get("product_type") or "all"
+    facts = fee_trial.rows
+    conditions = [*_calculated_promotion_conditions(publication_id, scope), facts.c.month == month]
+    if product_type != "all":
+        conditions.append(facts.c.product_type == product_type)
+    if filters.get("q"):
+        conditions.append(func.lower(facts.c.store_name).contains(filters["q"].lower()))
+    grouped = select(
+        facts.c.store_id, func.max(facts.c.store_name).label("store_name"),
+        func.sum(facts.c.fee_amount_cent).label("promotion_fee_cent"),
+    ).where(*conditions).group_by(facts.c.store_id).subquery()
+    count, amount = session.execute(select(
+        func.count(), func.sum(grouped.c.promotion_fee_cent),
+    ).select_from(grouped)).one()
+    page, page_size = filters["page"], filters["page_size"]
+    offset = (page - 1) * page_size
+    order = grouped.c.promotion_fee_cent
+    order = order.asc() if filters.get("sort_order") == "ASC" else order.desc()
+    store_rows = session.execute(select(grouped).order_by(
+        order, grouped.c.store_id,
+    ).offset(offset).limit(page_size)).mappings()
+    unknown = dict.fromkeys((*RANK_METRICS,
+        "sales_order_count_cumulative", "sales_amount_cumulative_cent",
+        "verified_order_count_cumulative", "verified_amount_cumulative_cent",
+        "promotion_cumulative_fee_cent", "management_month_fee_cent",
+        "management_cumulative_fee_cent", "net_settlement_reference_month_cent",
+        "net_settlement_reference_cumulative_cent"))
+
+    def known_promotion(value):
+        fee = int(value) if value is not None else None
+        return {**unknown, "promotion_month_fee_cent": fee, "promotion_net_fee_cent": fee}
+
+    return {
+        "period_type": "MONTHLY", "period_key": month,
+        "ranking_basis": "PROMOTION_FEE_MONTH", "fee_source": "CALCULATED",
+        "period_availability": period_readiness.availability(
+            _period_snapshot(session, publication_id), month, scope_store_ids=scope),
+        "product_scope": "all", "product_type": product_type,
+        "formal_period_start_month": FORMAL_START, "scope_mode": "AUTHORIZED",
+        "totals": known_promotion(amount),
+        "list": [
+            {"rank": offset + index, "store_id": row["store_id"],
+             "store_name": row["store_name"] or row["store_id"],
+             **known_promotion(row["promotion_fee_cent"])}
+            for index, row in enumerate(store_rows, start=1)
+        ],
+        "total": count, "page": page, "page_size": page_size,
+    }
 
 
 def read_monthly_settlement(session: Session, publication_id: str, filters: dict[str, Any]) -> dict:

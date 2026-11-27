@@ -471,7 +471,7 @@ export function App() {
           ) : location.pathname === "/sales" ? (
             <SalesDashboardPage currentUser={user} searchParams={searchParams} />
           ) : (
-            <StoreRankingPage currentUser={user} searchParams={searchParams} />
+            <StoreRankingPage searchParams={searchParams} />
           );
 
         return (
