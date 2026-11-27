@@ -390,7 +390,7 @@ def test_production_once_path_explicitly_uses_snapshot_policy(factory, monkeypat
     monkeypatch.setattr(worker, "run_tick", lambda *args, **kwargs: calls.append(kwargs) or {"sales": "published"})
     monkeypatch.setattr(worker, "check_ready", lambda *args: True)
     assert worker.main(["--once", "--module", "sales"]) == 0
-    assert calls == [{"snapshot": True}]
+    assert calls == [{"snapshot": True, "yield_to_sync": False}]
 
 
 def test_worker_cleanup_does_not_erase_its_latest_failure(factory):
@@ -444,3 +444,50 @@ def test_compose_runs_publications_as_an_independent_bounded_service():
     assert "cpus:" in service
     assert "DOUYIN_APP_SECRET" not in service
     assert "condition: service_completed_successfully" in service
+
+
+def test_background_yield_keeps_head_and_skips_build_and_retention(factory, monkeypatch):
+    from apps.worker import dashboard_publications as worker, publication_priority
+    previous = publish_module(factory, "sales", build)
+    monkeypatch.setattr(publication_priority, "priority_sync_pending", lambda *args, **kwargs: True)
+    monkeypatch.setattr(worker, "publish_module", lambda *args, **kwargs: pytest.fail("build claimed writer locks"))
+    monkeypatch.setattr(worker, "cleanup_publications", lambda *args, **kwargs: pytest.fail("retention ran while yielding"))
+    assert worker.run_tick(factory, {"sales": build}, yield_to_sync=True) == {"sales": "PUBLICATION_SYNC_PENDING"}
+    with factory() as session:
+        assert resolve_publication(session, "sales").id == previous.id
+
+
+def test_background_cli_yield_requires_existing_head(factory, monkeypatch):
+    from apps.worker import dashboard_publications as worker
+    monkeypatch.setattr(worker, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(worker, "load_builder", lambda _: build)
+    observed = []
+    monkeypatch.setattr(worker, "run_tick", lambda *args, **kwargs: observed.append(kwargs) or {"sales": "PUBLICATION_SYNC_PENDING"})
+    assert worker.main(["--once", "--yield-to-sync", "--module", "sales"]) == 1
+    publish_module(factory, "sales", build)
+    assert worker.main(["--once", "--yield-to-sync", "--module", "sales"]) == 0
+    assert observed == [{"snapshot": True, "yield_to_sync": True}] * 2
+
+
+def test_supervisor_children_yield_to_required_collection(monkeypatch):
+    from threading import Event
+    from apps.worker import dashboard_publications as worker
+    stop = Event()
+    commands = []
+
+    class Child:
+        def terminate(self):
+            pass
+
+        def wait(self, *, timeout):
+            return 0
+
+    def launch(command, **kwargs):
+        commands.append(command)
+        stop.set()
+        return Child()
+
+    monkeypatch.setattr(worker.subprocess, "Popen", launch)
+    worker.supervise(("sales",), stop)
+    assert len(commands) == 1
+    assert commands[0][-4:] == ["--once", "--yield-to-sync", "--module", "sales"]

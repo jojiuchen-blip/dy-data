@@ -304,6 +304,7 @@ def process_queued_settlement_rebuilds(
     now: datetime | None = None,
     stale_after: timedelta = DEFAULT_SETTLEMENT_REBUILD_STALE_AFTER,
     max_attempts: int = DEFAULT_SETTLEMENT_REBUILD_MAX_ATTEMPTS,
+    allow_automatic_month_close: bool = True,
 ) -> QueuedSettlementRebuildResult:
     if stale_after <= timedelta(0):
         raise ValueError("stale_after must be greater than zero")
@@ -324,7 +325,8 @@ def process_queued_settlement_rebuilds(
     )
     if legacy_recovered_job_id is not None:
         recovered_job_ids.append(legacy_recovered_job_id)
-    claimed = claim_latest_settlement_rebuild_job(factory)
+    claim_options = {} if allow_automatic_month_close else {"allow_automatic_month_close": False}
+    claimed = claim_latest_settlement_rebuild_job(factory, **claim_options)
     if claimed is None:
         return QueuedSettlementRebuildResult(
             recovered_job_ids=tuple(recovered_job_ids),

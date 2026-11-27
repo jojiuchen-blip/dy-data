@@ -36,6 +36,7 @@ from apps.api.dy_api.models import (
     utcnow,
 )
 from apps.worker.daily_windows import (
+    _identity_query,
     validate_parent_sync_child_identity,
     validate_parent_sync_execution_identity,
 )
@@ -258,17 +259,20 @@ class _ExpiredRunningControlState:
     observed_max_lease_epoch: int | None
 
 
-def parent_sync_gate_allows_claim(session: Session, job: JobRun) -> bool:
+def parent_sync_gate_allows_claim(session: Session, job: JobRun, *, lock: bool = True) -> bool:
     """Fail closed when a date child declares required parent work.
 
-    A missing parent execution is not equivalent to an empty parent plan.  The
-    date metadata is the durable declaration of whether parent work is needed;
+    A missing parent execution is not equivalent to an empty parent plan.
+    Read-only admission may pass ``lock=False``. Actual execution keeps the
+    default row locks and revalidates immediately before claiming.
+
+    The date metadata is the durable declaration of whether parent work is needed;
     when it is non-empty, exactly one matching successful ``parent_sync`` row
     must exist before the child can be claimed.
     """
 
     if job.job_kind == "parent_sync":
-        return validate_parent_sync_execution_identity(session, job)
+        return validate_parent_sync_execution_identity(session, job, lock=lock)
     if job.job_kind == "finalize":
         metadata = job.metadata_json or {}
         if (
@@ -296,15 +300,17 @@ def parent_sync_gate_allows_claim(session: Session, job: JobRun) -> bool:
         return True
     if not job.parent_job_id:
         return False
-    if not validate_parent_sync_child_identity(session, job):
+    if not validate_parent_sync_child_identity(session, job, lock=lock):
         return False
     range_parent = session.scalar(
-        select(JobRun)
-        .where(
-            JobRun.job_id == job.parent_job_id,
-            JobRun.job_kind == "range_sync",
+        _identity_query(
+            select(JobRun)
+            .where(
+                JobRun.job_id == job.parent_job_id,
+                JobRun.job_kind == "range_sync",
+            ),
+            lock=lock,
         )
-        .with_for_update()
     )
     if range_parent is None:
         return False
@@ -320,12 +326,14 @@ def parent_sync_gate_allows_claim(session: Session, job: JobRun) -> bool:
         return True
     parent_rows = list(
         session.scalars(
-            select(JobRun)
-            .where(
-                JobRun.parent_job_id == range_parent.job_id,
-                JobRun.job_kind == "parent_sync",
+            _identity_query(
+                select(JobRun)
+                .where(
+                    JobRun.parent_job_id == range_parent.job_id,
+                    JobRun.job_kind == "parent_sync",
+                ),
+                lock=lock,
             )
-            .with_for_update()
         )
     )
     return len(parent_rows) == 1 and parent_rows[0].status == "success"

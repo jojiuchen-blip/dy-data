@@ -181,6 +181,7 @@ def run_priority_daily_tick(
     now: datetime | None = None,
     child_runner: Callable[..., Any] | None = None,
     product_sync_runner: Callable[..., str | None] | None = None,
+    optional_queue_runner: Callable[[bool], bool] | None = None,
 ) -> PriorityTickResult:
     """Run one bounded priority tick.
 
@@ -416,9 +417,19 @@ def run_priority_daily_tick(
             )
         )
 
+    # Monthly rebuilds must not start in the overnight reservation before a
+    # daily plan exists, or while the required day still needs publication.
+    cutoff_open = is_priority_cutoff_open(local_now)
+    if optional_queue_runner is not None and optional_queue_runner(cutoff_open and day_state.state == "success"):
+        return _snapshot(PriorityTickResult(
+            mode=PRIORITY_DAILY_MODE,
+            action="processed_optional_queue",
+            business_date=daily_date,
+        ))
+
     # History is optional work.  Preserve the next daily window before 02:00,
     # and keep it behind a complete, published daily closure after the cutoff.
-    if not is_priority_cutoff_open(local_now):
+    if not cutoff_open:
         return _snapshot(
             PriorityTickResult(
                 mode=PRIORITY_DAILY_MODE,

@@ -274,6 +274,7 @@ def claim_latest_settlement_rebuild_job(
     *,
     claimed_at: datetime | None = None,
     lease_duration: timedelta = DEFAULT_SETTLEMENT_REBUILD_LEASE,
+    allow_automatic_month_close: bool = True,
 ) -> tuple[str, str, tuple[str, ...]] | None:
     """Claim the newest queued snapshot, superseding older pending retries too."""
 
@@ -308,6 +309,10 @@ def claim_latest_settlement_rebuild_job(
                 JobRun.job_id,
             )
         )
+        if not allow_automatic_month_close:
+            statement = statement.where(
+                func.coalesce(JobRun.metadata_json["trigger"].as_string(), "") != "month_close",
+            )
         if session.get_bind().dialect.name == "postgresql":
             statement = statement.with_for_update()
         pending_jobs = list(session.scalars(statement))

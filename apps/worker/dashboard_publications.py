@@ -17,7 +17,7 @@ import sys
 from threading import Event
 import time
 
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 
 from apps.api.dy_api.dashboard_publications.lifecycle import (
     Builder, PublicationError, SessionFactory, cleanup_publications, publish_module, resolve_publication,
@@ -55,7 +55,7 @@ def load_builder(module: str) -> Builder:
 def run_tick(
     factory: SessionFactory, registry: Mapping[str, Builder], *,
     now: datetime | None = None, guarded: bool = True,
-    snapshot: bool = False,
+    snapshot: bool = False, yield_to_sync: bool = False,
 ) -> dict[str, str]:
     """Run injected modules for CLI/tests; one failure does not hide another.
 
@@ -71,6 +71,20 @@ def run_tick(
         try:
             if snapshot and (not guarded or builder is not load_builder(module)):
                 raise ValueError("snapshot mode requires a guarded built-in builder")
+            if yield_to_sync and guarded:
+                from apps.worker.publication_priority import priority_sync_pending
+
+                with factory() as session:
+                    if session.get_bind().dialect.name == "postgresql":
+                        session.execute(text("SET TRANSACTION READ ONLY"))
+                        session.execute(text("SET LOCAL statement_timeout='5s'"))
+                        session.execute(text("SET LOCAL lock_timeout='500ms'"))
+                    pending = priority_sync_pending(session, now=cutoff)
+                    session.rollback()
+                if pending:
+                    result[module] = "PUBLICATION_SYNC_PENDING"
+                    logger.info("publication_tick module=%s result=%s", module, result[module])
+                    continue
             publication = publish_module(
                 factory, module, builder, now=cutoff,
                 fingerprint=(lambda session, module=module: source_fingerprint(session, module, now=cutoff)) if guarded else None,
@@ -153,7 +167,7 @@ def supervise(modules: tuple[str, ...], stop: Event) -> None:
             available = sorted((when, module) for module, when in due.items() if module not in active and when <= current)
             for _, module in available[:max(0, concurrency - len(active))]:
                 process = subprocess.Popen(
-                    [sys.executable, "-m", "apps.worker.dashboard_publications", "--once", "--module", module],
+                    [sys.executable, "-m", "apps.worker.dashboard_publications", "--once", "--yield-to-sync", "--module", module],
                     # Windows developer runs should not open visible helper windows.
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                 )
@@ -173,6 +187,7 @@ def supervise(modules: tuple[str, ...], stop: Event) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build static dashboard publications outside the API/collector")
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--yield-to-sync", action="store_true", help="Defer a background build for runnable required collection")
     parser.add_argument("--check-ready", action="store_true", help="Read only: require schema and all selected successful heads")
     parser.add_argument("--require-ready", action="store_true", help="With --once, fail unless every selected module has a readable head")
     parser.add_argument("--module", choices=tuple(BUILDER_SPECS))
@@ -199,8 +214,8 @@ def main(argv: list[str] | None = None) -> int:
         if arguments.check_ready:
             return int(failed or not check_ready(factory, modules))
         for module, builder in registry.items():
-            results = run_tick(factory, {module: builder}, snapshot=True)
-            failed = failed or any(value not in {"published", "unchanged_or_busy", "PUBLICATION_SOURCE_BUSY"}
+            results = run_tick(factory, {module: builder}, snapshot=True, yield_to_sync=arguments.yield_to_sync)
+            failed = failed or any(value not in {"published", "unchanged_or_busy", "PUBLICATION_SOURCE_BUSY", "PUBLICATION_SYNC_PENDING"}
                                    for value in results.values())
         ready = check_ready(factory, modules)
         return int(failed or not ready)

@@ -12,7 +12,7 @@ from sqlalchemy import delete, select
 
 from apps.api.dy_api.models import AggStoreMonthlySettlement, SettlementStatement, SettlementStatementConfirmation
 from publication_fixture_helpers import publish_fixture
-from test_dydata104_oct23_invoice_browser import browser, invoice_api, invoice_web
+from test_dydata104_oct23_invoice_browser import _invoice_statement_response, browser, invoice_api, invoice_web
 
 
 def _confirm(factory, *, zero=False):
@@ -108,6 +108,9 @@ def test_no_group_has_a_specific_business_reason(page, invoice_web, invoice_api,
     if kind == "empty":
         with invoice_api[1].begin() as session:
             session.execute(delete(SettlementStatement))
-    page.goto(f"{invoice_web}/settlement/invoice?storeId=oct23-store&month=2026-09")
-    expect(page.locator(".store-finance-invoice-info")).to_contain_text(message)
-    expect(page.locator(".store-finance-invoice-info")).not_to_contain_text("尚未生成")
+    with page.expect_response(lambda response: _invoice_statement_response(response, invoice_api[0])) as loaded:
+        page.goto(f"{invoice_web}/settlement/invoice?storeId=oct23-store&month=2026-09")
+    assert loaded.value.status == 200, loaded.value.text()
+    info = page.locator(".store-finance-invoice-info")
+    expect(info).to_contain_text(message)
+    expect(info).not_to_contain_text("尚未生成")

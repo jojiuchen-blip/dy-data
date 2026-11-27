@@ -56,6 +56,21 @@ def test_rebuild_claim_sets_the_shared_heavy_slot(db_session, mode):
     assert job.attempt_count == 1
 
 
+def test_deferred_automatic_close_cannot_be_claimed_or_superseded_by_a_manual_rebuild(db_session):
+    now = datetime.now(timezone.utc)
+    _queue(db_session, "scheduled-close", started_at=now - timedelta(minutes=1),
+           metadata_json={"trigger": "month_close"})
+    factory = _factory(db_session)
+    assert settlement_rebuild.claim_latest_settlement_rebuild_job(factory, allow_automatic_month_close=False) is None
+
+    _queue(db_session, "manual-rebuild", started_at=now, metadata_json={"trigger": "manual"})
+    claim = settlement_rebuild.claim_latest_settlement_rebuild_job(factory, allow_automatic_month_close=False)
+    assert claim is not None and claim[0] == "manual-rebuild" and claim[2] == ()
+    db_session.expire_all()
+    still_queued = db_session.get(JobRun, "scheduled-close")
+    assert still_queued.status == "queued" and still_queued.attempt_count == 0
+
+
 @pytest.mark.parametrize("mode", ["latest", "specific"])
 @pytest.mark.parametrize("legacy_rebuild", [False, True])
 def test_rebuild_claim_refuses_other_running_heavy_or_legacy_rebuild(

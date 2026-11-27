@@ -21,10 +21,17 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from typing import Literal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, or_, select, union
+from sqlalchemy import func, or_, select, text, union
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.dy_api.db import session_scope
@@ -49,7 +56,7 @@ from apps.worker.account_qualification import (
     month_bounds, _store_evidence,
 )
 from apps.worker.priority_scheduler import _day_state, _priority_rows_for_day
-from apps.worker.repositories import queue_job_run, upsert_data_quality_issue
+from apps.worker.repositories import upsert_data_quality_issue
 from apps.worker.settlement import FORMAL_SETTLEMENT_START, _canonical_fingerprint_value
 from apps.worker.settlement_rebuild import (
     SETTLEMENT_REBUILD_JOB_NAME,
@@ -64,6 +71,11 @@ LOCKED_STATEMENT_STATUS = 4
 # refusal and serialization against other rebuilds. October qualification
 # bootstraps calculation; positive/all-pinned current results gate publication.
 MONTH_CLOSE_ENABLED = True
+MONTH_CLOSE_DISCOVERY_SECONDS = 15 * 60
+MONTH_CLOSE_PREPARE_SECONDS = 60
+# Separate from qualification/evidence and daily writer admission locks.
+_MONTH_CLOSE_DISCOVERY_LOCK = 7462180073
+_DiscoveryPhase = Literal["synchronous", "prepare", "snapshot"]
 
 WATERMARK_INCOMPLETE = "watermark_incomplete"
 NO_CURRENT_RESULTS = "no_current_results"
@@ -539,74 +551,201 @@ def month_close_job_id(business_month: str, watermark: str) -> str:
 
 
 def ensure_month_close_job(
-    factory: sessionmaker, *, now: datetime | None = None
+    factory: sessionmaker, *, now: datetime | None = None, bounded: bool = False,
 ) -> str | None:
-    """Dispatch the previous month's close once per watermark.
+    """Dispatch a finished month's close once per source watermark.
 
-    Returns the job id when a job exists or was created, ``None`` when the
-    month is not verifiably complete, is locked, or another rebuild is active.
+    Resident background discovery uses short evidence transactions and a bounded
+    consistent snapshot. Direct and one-shot invocations keep their synchronous
+    discovery behavior.
     """
 
-    if factory is None:
-        return None
-    if not MONTH_CLOSE_ENABLED:
-        # Fail closed: never dispatch an unverified automatic close.
+    if factory is None or not MONTH_CLOSE_ENABLED:
         return None
     from src.dy_data.settlement_schedule import monthly_settlement_enabled
-    if monthly_settlement_enabled():
+
+    certified = monthly_settlement_enabled()
+    if bounded:
+        return _discover_month_close(factory, now=now, certified=certified)
+    if certified:
         return _ensure_certified_close_job(factory, now=now)
-    business_month = previous_business_month(now)
     with session_scope(factory) as session:
-        if business_month >= FIRST_MONTH:
-            try:
-                freeze_month(session, business_month, now=now)
-            except AccountQualificationError:
-                _sync_readiness_issue(session, business_month, QUALIFICATION_NOT_READY)
+        return _queue_legacy_close(session, previous_business_month(now), now=now)
+
+
+def _remaining_dispatch_seconds(deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("month close discovery deadline exceeded")
+    return remaining
+
+
+@contextmanager
+def _bounded_dispatch_session(
+    factory: sessionmaker, *, deadline: float, snapshot: bool,
+) -> Iterator[Session]:
+    _remaining_dispatch_seconds(deadline)
+    with session_scope(factory) as session:
+        if session.get_bind().dialect.name == "postgresql":
+            # Freeze must see a capture committed while waiting for its advisory
+            # lock. Only the later digest should use a fixed MVCC snapshot.
+            isolation = "REPEATABLE READ" if snapshot else "READ COMMITTED"
+            session.execute(text(f"SET TRANSACTION ISOLATION LEVEL {isolation}"))
+            remaining_ms = max(1, int(_remaining_dispatch_seconds(deadline) * 1000))
+            budgets = {
+                "lock_timeout": min(1000, remaining_ms),
+                "statement_timeout": min(180000, remaining_ms),
+                "idle_in_transaction_session_timeout": min(60000, remaining_ms),
+            }
+            if session.get_bind().dialect.server_version_info >= (17,):
+                budgets["transaction_timeout"] = remaining_ms
+            # Preserve narrower timeout settings supplied by the deployment.
+            settings = session.execute(text(
+                "SELECT name, setting FROM pg_settings WHERE name IN "
+                "('lock_timeout', 'statement_timeout', "
+                "'idle_in_transaction_session_timeout', 'transaction_timeout')"
+            ))
+            for name, value in settings:
+                budget = budgets.get(name)
+                if budget is not None:
+                    session.execute(text("SELECT set_config(:name, :value, true)"), {
+                        "name": name, "value": str(min(budget, int(value) or budget)),
+                    })
+        yield session
+        _remaining_dispatch_seconds(deadline)
+
+
+def _discover_month_close(factory: sessionmaker, *, now: datetime | None, certified: bool) -> str | None:
+    """Prepare immutable evidence separately from the long snapshot scan."""
+    now = now or datetime.now(timezone.utc)
+    month = previous_business_month(now)
+    deadline = time.monotonic() + MONTH_CLOSE_DISCOVERY_SECONDS
+    if not certified:
+        prepare_deadline = min(deadline, time.monotonic() + MONTH_CLOSE_PREPARE_SECONDS)
+        with _bounded_dispatch_session(factory, deadline=prepare_deadline, snapshot=False) as session:
+            if month >= FIRST_MONTH and _qualification_for_discovery(session, month, now=now, phase="prepare") is None:
                 return None
-        state, watermark = (_calculation_preflight(session, business_month) if business_month >= FIRST_MONTH
-                            else month_close_preflight(session, business_month))
-        if _in_formal_window(business_month):
-            # Keep the operator-visible readiness alert in sync every tick.
-            _sync_readiness_issue(session, business_month, state)
-        if watermark is None:
-            if state in _NOT_READY_STATES:
-                _logger.warning(
-                    "month_close_not_ready month=%s state=%s", business_month, state
-                )
+        with _bounded_dispatch_session(factory, deadline=deadline, snapshot=True) as session:
+            if not _try_discovery_lock(session):
+                return None
+            return _queue_legacy_close(session, month, now=now, phase="snapshot")
+
+    last_job = None
+    while month >= FIRST_MONTH:
+        prepare_deadline = min(deadline, time.monotonic() + MONTH_CLOSE_PREPARE_SECONDS)
+        with _bounded_dispatch_session(factory, deadline=prepare_deadline, snapshot=False) as session:
+            inputs = _certified_month_inputs(session, month, now=now, phase="prepare")
+            if isinstance(inputs, SettlementMonthClose):
+                last_job = last_job or inputs.source_job_id
+        if isinstance(inputs, _CertifiedMonthInputs):
+            with _bounded_dispatch_session(factory, deadline=deadline, snapshot=True) as session:
+                if not _try_discovery_lock(session):
+                    return last_job
+                result = _queue_certified_month(session, month, now=now, phase="snapshot")
+            if result is not None:
+                job_id, created = result
+                last_job = last_job or job_id
+                if created:
+                    return job_id
+        month = previous_business_month(month_bounds(month)[0])
+    return last_job
+
+
+def _try_discovery_lock(session: Session) -> bool:
+    if session.get_bind().dialect.name != "postgresql":
+        return True
+    return bool(session.scalar(select(func.pg_try_advisory_xact_lock(_MONTH_CLOSE_DISCOVERY_LOCK))))
+
+
+def _qualification_for_discovery(
+    session: Session, month: str, *, now: datetime | None, phase: _DiscoveryPhase,
+) -> AccountQualificationVersion | None:
+    try:
+        if phase == "snapshot":
+            return frozen_version(session, month)
+        if phase == "prepare":
+            try:
+                return frozen_version(session, month)
+            except AccountQualificationError:
+                pass
+        return freeze_month(session, month, now=now)
+    except AccountQualificationError:
+        _sync_readiness_issue(session, month, QUALIFICATION_NOT_READY)
+        return None
+
+
+def _matching_close_job(job: JobRun, *, watermark: str | None) -> None:
+    if job.job_name != SETTLEMENT_REBUILD_JOB_NAME or (
+        watermark is not None and (job.metadata_json or {}).get("calculation_input_sha256") != watermark
+    ):
+        raise RuntimeError("month calculation input identity conflicts with existing job")
+
+
+def _insert_close_job(
+    session: Session, *, job_id: str, metadata: dict, watermark: str | None,
+) -> bool:
+    # Background and direct dispatchers may race on the same source version.
+    # Inserting once protects an existing job's attempts and terminal status.
+    insert = pg_insert if session.get_bind().dialect.name == "postgresql" else sqlite_insert
+    result = session.execute(insert(JobRun).values(
+        job_id=job_id, job_name=SETTLEMENT_REBUILD_JOB_NAME, status="queued",
+        started_at=datetime.now(timezone.utc), metadata_json=metadata,
+        success_count=0, failed_count=0,
+    ).on_conflict_do_nothing(index_elements=[JobRun.job_id]).returning(JobRun.job_id))
+    if result.scalar_one_or_none() is not None:
+        return True
+    existing = session.get(JobRun, job_id)
+    if existing is None:
+        raise RuntimeError("concurrent month close job is outside the discovery snapshot")
+    _matching_close_job(existing, watermark=watermark)
+    return False
+
+
+def _queue_legacy_close(
+    session: Session, business_month: str, *, now: datetime | None, phase: _DiscoveryPhase = "synchronous",
+) -> str | None:
+    qualified = business_month >= FIRST_MONTH
+    qualification = None
+    if qualified:
+        qualification = _qualification_for_discovery(session, business_month, now=now, phase=phase)
+        if qualification is None:
             return None
-        # Keep downstream generation/bundle IDs within their existing 128-char
-        # storage boundary; retain and compare the complete SHA in metadata.
-        job_id = month_close_job_id(business_month, watermark[:32] if business_month >= FIRST_MONTH else watermark)
-        existing = session.get(JobRun, job_id)
-        if existing is not None:
-            if business_month >= FIRST_MONTH and (existing.metadata_json or {}).get("calculation_input_sha256") != watermark:
-                raise RuntimeError("month calculation input identity conflicts with existing job")
-            return job_id
-        if state == ACTIVE_REBUILD:
-            return None
-        queue_job_run(
-            session,
-            job_id,
-            SETTLEMENT_REBUILD_JOB_NAME,
-            metadata_json={
-                **settlement_month_scope_metadata(business_month),
-                "trigger": "month_close",
-                "source_run_id": job_id,
-                "source_watermark": watermark,
-                **({"account_qualification_version_id": frozen_version(session, business_month).version_id}
-                   if business_month >= FIRST_MONTH else {}),
-                **({"calculation_input_protocol": CALCULATION_INPUT_PROTOCOL,
-                    "calculation_input_sha256": watermark, "month_close_phase": "calculate"}
-                   if business_month >= FIRST_MONTH else {}),
-            },
-        )
+    state, watermark = (_calculation_preflight(session, business_month) if qualified
+                        else month_close_preflight(session, business_month))
+    if _in_formal_window(business_month):
+        _sync_readiness_issue(session, business_month, state)
+    if watermark is None:
+        if state in _NOT_READY_STATES:
+            _logger.warning("month_close_not_ready month=%s state=%s", business_month, state)
+        return None
+    # Keep downstream generation/bundle IDs within their existing 128-char
+    # storage boundary; retain and compare the complete SHA in metadata.
+    job_id = month_close_job_id(business_month, watermark[:32] if qualified else watermark)
+    input_digest = watermark if qualified else None
+    existing = session.get(JobRun, job_id)
+    if existing is not None:
+        _matching_close_job(existing, watermark=input_digest)
+        return job_id
+    if state == ACTIVE_REBUILD:
+        return None
+    _insert_close_job(session, job_id=job_id, watermark=input_digest, metadata={
+        **settlement_month_scope_metadata(business_month),
+        "trigger": "month_close",
+        "source_run_id": job_id,
+        "source_watermark": watermark,
+        **({
+            "account_qualification_version_id": qualification.version_id,
+            "calculation_input_protocol": CALCULATION_INPUT_PROTOCOL,
+            "calculation_input_sha256": watermark,
+            "month_close_phase": "calculate",
+        } if qualification is not None else {}),
+    })
     return job_id
 
 
 def _ensure_certified_close_job(factory: sessionmaker, *, now: datetime | None) -> str | None:
     """Dispatch one changed incomplete month, newest first, without reopening a completed month."""
-    business_month = previous_business_month(now)
-    month = business_month
+    month = previous_business_month(now)
     last_job = None
     with session_scope(factory) as session:
         while month >= FIRST_MONTH:
@@ -620,67 +759,83 @@ def _ensure_certified_close_job(factory: sessionmaker, *, now: datetime | None) 
     return last_job
 
 
-def _queue_certified_month(
-    session: Session, month: str, *, now: datetime | None,
-) -> tuple[str, bool] | None:
+@dataclass(frozen=True)
+class _CertifiedMonthInputs:
+    revisions: list[str]
+    qualification_version_id: str
+    evidence_version_id: str
+    evidence_sha256: str
+
+
+def _certified_month_inputs(
+    session: Session, month: str, *, now: datetime | None, phase: _DiscoveryPhase,
+) -> _CertifiedMonthInputs | SettlementMonthClose | None:
     from apps.worker.monthly_store_evidence import (
         MissingStoreEvidenceError, StoreEvidenceError, freeze_store_evidence, frozen_store_evidence,
     )
 
     prior = session.get(SettlementMonthClose, month)
     if prior is not None and prior.is_complete:
-        return prior.source_job_id, False
+        return prior
     revisions = published_days_revisions(session, month)
     if revisions is None:
         _sync_readiness_issue(session, month, WATERMARK_INCOMPLETE)
         return None
-    try:
-        qualification = freeze_month(session, month, now=now)
-    except AccountQualificationError:
-        _sync_readiness_issue(session, month, QUALIFICATION_NOT_READY)
+    qualification = _qualification_for_discovery(session, month, now=now, phase=phase)
+    if qualification is None:
         return None
     prior = session.get(SettlementMonthClose, month, populate_existing=True)
     if prior is not None and prior.is_complete:
-        return prior.source_job_id, False
+        return prior
     try:
         try:
             evidence = frozen_store_evidence(session, qualification_version=qualification)
         except MissingStoreEvidenceError:
-            # Replacing an existing trial needs its historical relationships.
-            # The reviewed snapshot is appended once by the evidence CLI.
-            # A newly calculated month can freeze its own dated sources here.
-            if prior is not None:
+            # Replacing an existing trial needs its reviewed historical
+            # relationships. Never freeze missing dated sources inside the
+            # bounded digest snapshot.
+            if prior is not None or phase == "snapshot":
                 _sync_readiness_issue(session, month, STORE_EVIDENCE_NOT_READY)
                 return None
             evidence = freeze_store_evidence(session, qualification_version=qualification)
     except StoreEvidenceError:
         _sync_readiness_issue(session, month, STORE_EVIDENCE_NOT_READY)
         return None
-    session.info["monthly_store_evidence_version_id"] = evidence.version_id
+    return _CertifiedMonthInputs(revisions, qualification.version_id, evidence.version_id, evidence.content_sha256)
+
+
+def _queue_certified_month(
+    session: Session, month: str, *, now: datetime | None, phase: _DiscoveryPhase = "synchronous",
+) -> tuple[str, bool] | None:
+    inputs = _certified_month_inputs(session, month, now=now, phase=phase)
+    if inputs is None:
+        return None
+    if isinstance(inputs, SettlementMonthClose):
+        return inputs.source_job_id, False
+    session.info["monthly_store_evidence_version_id"] = inputs.evidence_version_id
     _sync_readiness_issue(session, month, CALCULATION_READY)
-    watermark = _calculation_inputs_digest(session, month, revisions, monthly=True)
+    watermark = _calculation_inputs_digest(session, month, inputs.revisions, monthly=True)
     job_id = month_close_job_id(month, watermark[:32])
     existing = session.get(JobRun, job_id)
     if existing is not None:
-        if (existing.metadata_json or {}).get("calculation_input_sha256") != watermark:
-            raise RuntimeError("month calculation input identity conflicts with existing job")
+        _matching_close_job(existing, watermark=watermark)
         return job_id, False
     if _active_rebuild_exists(session):
         return None
-    queue_job_run(session, job_id, SETTLEMENT_REBUILD_JOB_NAME, metadata_json={
+    created = _insert_close_job(session, job_id=job_id, watermark=watermark, metadata={
         **settlement_month_scope_metadata(month),
         "trigger": "month_close",
         "source_run_id": job_id,
         "source_watermark": watermark,
-        "account_qualification_version_id": qualification.version_id,
-        "store_evidence_version_id": evidence.version_id,
-        "store_evidence_sha256": evidence.content_sha256,
+        "account_qualification_version_id": inputs.qualification_version_id,
+        "store_evidence_version_id": inputs.evidence_version_id,
+        "store_evidence_sha256": inputs.evidence_sha256,
         "calculation_input_protocol": CALCULATION_INPUT_PROTOCOL,
         "calculation_input_sha256": watermark,
         "month_close_phase": "calculate",
         "monthly_close_policy": MONTHLY_CLOSE_POLICY,
     })
-    return job_id, True
+    return job_id, created
 
 
 def _active_rebuild_exists(session: Session) -> bool:
