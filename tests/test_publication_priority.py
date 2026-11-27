@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 
 import pytest
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, event, select, update
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import sessionmaker
 
@@ -22,9 +22,11 @@ def factory():
     engine.dispose()
 
 
-def daily_plan(factory):
+def daily_plan(factory, now=NOW):
     with factory.begin() as session:
-        plan = priority.ensure_daily_priority_plan(session, NOW.date() - timedelta(days=1), now=NOW)
+        plan = priority.ensure_daily_priority_plan(session, now.date() - timedelta(days=1), now=now)
+        # Registration and the claim probe must use the same fixture clock.
+        session.execute(update(JobRun).where(JobRun.parent_job_id == plan.parent_job_id).values(started_at=now))
     return plan
 
 
@@ -134,7 +136,6 @@ def test_cancelled_dimension_parent_and_future_registration_do_not_reserve_a_slo
 
 
 def test_old_day_pending_cannot_keep_publications_waiting(factory):
-    with factory.begin() as session:
-        priority.ensure_daily_priority_plan(session, NOW.date() - timedelta(days=2), now=NOW - timedelta(days=1))
+    daily_plan(factory, now=NOW - timedelta(days=1))
     with factory() as session:
         assert not priority_sync_pending(session, now=NOW)
